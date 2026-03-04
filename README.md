@@ -1,2 +1,2 @@
-# Monroy---QMS
+# Monroy-QMS
 Inspection and Compliance system. 
