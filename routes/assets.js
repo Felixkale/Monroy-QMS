@@ -1,14 +1,9 @@
 const express = require("express")
 const router = express.Router()
-const pool = require("../database/db")
+const controller = require("../controllers/assetsController")
 
-router.get("/", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT * FROM assets")
-    res.json(result.rows)
-  } catch (error) {
-    res.status(500).json({ error: error.message })
-  }
-})
+router.get("/", controller.getAssets)
+router.post("/", controller.createAsset)
+router.delete("/:id", controller.deleteAsset)
 
 module.exports = router
