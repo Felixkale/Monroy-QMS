@@ -289,25 +289,3 @@ export default function DashboardPage() {
     </AppLayout>
   );
 }
-```
-
----
-
-### 3. `apps/web/src/app/inspections/create/page.jsx` — new file
-
-Paste the full content from the `create-inspection-page.jsx` file I gave you earlier (download it above).
-
----
-
-### 4. `apps/web/src/app/equipment/register/page.jsx` — new file
-
-Paste the full content from the `register-equipment-page.jsx` file I gave you earlier (download it above).
-
----
-
-After all 4 commits the build should show:
-```
-✓ /
-✓ /dashboard
-✓ /inspections/create
-✓ /equipment/register
