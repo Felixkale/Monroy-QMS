@@ -1,0 +1,239 @@
+// ==================== CLIENTS CONTROLLER ====================
+// File: apps/api/src/controllers/clients.controller.ts
+
+import { Request, Response } from "express";
+import * as clients from "../services/clients.service";
+
+export async function listClients(_req: Request, res: Response) {
+  const data = await clients.listClients();
+  res.json({ ok: true, data });
+}
+
+export async function createClient(req: Request, res: Response) {
+  const data = await clients.createClient(req.body);
+  res.status(201).json({ ok: true, data });
+}
+
+export async function getClient(req: Request, res: Response) {
+  const data = await clients.getClient(req.params.id);
+  res.json({ ok: true, data });
+}
+
+export async function updateClient(req: Request, res: Response) {
+  const data = await clients.updateClient(req.params.id, req.body);
+  res.json({ ok: true, data });
+}
+
+export async function deleteClient(req: Request, res: Response) {
+  await clients.deleteClient(req.params.id);
+  res.json({ ok: true });
+}
+
+// ==================== SITES CONTROLLER ====================
+// File: apps/api/src/controllers/sites.controller.ts
+
+import { Request, Response } from "express";
+import * as sitesService from "../services/sites.service";
+
+export async function listSites(req: Request, res: Response) {
+  const clientId = req.query.client_id as string | undefined;
+  const data = await sitesService.listSites(clientId);
+  res.json({ ok: true, data });
+}
+
+export async function createSite(req: Request, res: Response) {
+  const data = await sitesService.createSite(req.body);
+  res.status(201).json({ ok: true, data });
+}
+
+export async function getSite(req: Request, res: Response) {
+  const data = await sitesService.getSite(req.params.id);
+  res.json({ ok: true, data });
+}
+
+export async function updateSite(req: Request, res: Response) {
+  const data = await sitesService.updateSite(req.params.id, req.body);
+  res.json({ ok: true, data });
+}
+
+export async function deleteSite(req: Request, res: Response) {
+  await sitesService.deleteSite(req.params.id);
+  res.json({ ok: true });
+}
+
+// ==================== ASSETS CONTROLLER ====================
+// File: apps/api/src/controllers/assets.controller.ts
+
+import { Request, Response } from "express";
+import * as assetsService from "../services/assets.service";
+
+export async function listAssets(req: Request, res: Response) {
+  const clientId = req.query.client_id as string | undefined;
+  const siteId = req.query.site_id as string | undefined;
+  const data = await assetsService.listAssets(clientId, siteId);
+  res.json({ ok: true, data });
+}
+
+export async function createAsset(req: Request, res: Response) {
+  const data = await assetsService.createAsset(req.body);
+  res.status(201).json({ ok: true, data });
+}
+
+export async function getAsset(req: Request, res: Response) {
+  const data = await assetsService.getAsset(req.params.id);
+  res.json({ ok: true, data });
+}
+
+export async function updateAsset(req: Request, res: Response) {
+  const data = await assetsService.updateAsset(req.params.id, req.body);
+  res.json({ ok: true, data });
+}
+
+export async function deleteAsset(req: Request, res: Response) {
+  await assetsService.deleteAsset(req.params.id);
+  res.json({ ok: true });
+}
+
+export async function addNameplate(req: Request, res: Response) {
+  const data = await assetsService.addAssetNameplate(req.params.id, req.body);
+  res.status(201).json({ ok: true, data });
+}
+
+// ==================== INSPECTIONS CONTROLLER ====================
+// File: apps/api/src/controllers/inspections.controller.ts
+
+import { Request, Response } from "express";
+import * as inspectionsService from "../services/inspections.service";
+
+export async function listInspections(req: Request, res: Response) {
+  const clientId = req.query.client_id as string | undefined;
+  const data = await inspectionsService.listInspections(clientId);
+  res.json({ ok: true, data });
+}
+
+export async function createInspection(req: Request, res: Response) {
+  const data = await inspectionsService.createInspection(req.body);
+  res.status(201).json({ ok: true, data });
+}
+
+export async function getInspection(req: Request, res: Response) {
+  const data = await inspectionsService.getInspection(req.params.id);
+  res.json({ ok: true, data });
+}
+
+export async function updateInspection(req: Request, res: Response) {
+  const data = await inspectionsService.updateInspection(req.params.id, req.body);
+  res.json({ ok: true, data });
+}
+
+export async function deleteInspection(req: Request, res: Response) {
+  await inspectionsService.deleteInspection(req.params.id);
+  res.json({ ok: true });
+}
+
+export async function addMeasurement(req: Request, res: Response) {
+  const data = await inspectionsService.addInspectionMeasurement({
+    ...req.body,
+    inspection_id: req.params.id
+  });
+  res.status(201).json({ ok: true, data });
+}
+
+// ==================== NCR CONTROLLER ====================
+// File: apps/api/src/controllers/ncr.controller.ts
+
+import { Request, Response } from "express";
+import * as ncrService from "../services/ncr.service";
+
+export async function listNCRs(req: Request, res: Response) {
+  const clientId = req.query.client_id as string | undefined;
+  const data = await ncrService.listNCRs(clientId);
+  res.json({ ok: true, data });
+}
+
+export async function createNCR(req: Request, res: Response) {
+  const data = await ncrService.createNCR(req.body);
+  res.status(201).json({ ok: true, data });
+}
+
+export async function getNCR(req: Request, res: Response) {
+  const data = await ncrService.getNCR(req.params.id);
+  res.json({ ok: true, data });
+}
+
+export async function updateNCR(req: Request, res: Response) {
+  const data = await ncrService.updateNCR(req.params.id, req.body);
+  res.json({ ok: true, data });
+}
+
+export async function deleteNCR(req: Request, res: Response) {
+  await ncrService.deleteNCR(req.params.id);
+  res.json({ ok: true });
+}
+
+export async function addAction(req: Request, res: Response) {
+  const data = await ncrService.addNCRAction({
+    ...req.body,
+    ncr_id: req.params.id
+  });
+  res.status(201).json({ ok: true, data });
+}
+
+export async function updateAction(req: Request, res: Response) {
+  const data = await ncrService.updateNCRAction(req.params.actionId, req.body.status);
+  res.json({ ok: true, data });
+}
+
+// ==================== CERTIFICATES CONTROLLER ====================
+// File: apps/api/src/controllers/certificates.controller.ts
+
+import { Request, Response } from "express";
+import * as certificatesService from "../services/certificates.service";
+
+export async function listCertificates(req: Request, res: Response) {
+  const clientId = req.query.client_id as string | undefined;
+  const data = await certificatesService.listCertificates(clientId);
+  res.json({ ok: true, data });
+}
+
+export async function createCertificate(req: Request, res: Response) {
+  const data = await certificatesService.createCertificate(req.body);
+  res.status(201).json({ ok: true, data });
+}
+
+export async function getCertificate(req: Request, res: Response) {
+  const data = await certificatesService.getCertificate(req.params.id);
+  res.json({ ok: true, data });
+}
+
+export async function updateCertificate(req: Request, res: Response) {
+  const data = await certificatesService.updateCertificate(req.params.id, req.body);
+  res.json({ ok: true, data });
+}
+
+export async function deleteCertificate(req: Request, res: Response) {
+  await certificatesService.deleteCertificate(req.params.id);
+  res.json({ ok: true });
+}
+
+// ==================== ALERTS CONTROLLER ====================
+// File: apps/api/src/controllers/alerts.controller.ts
+
+import { Request, Response } from "express";
+import * as alertsService from "../services/alerts.service";
+
+export async function listAlerts(req: Request, res: Response) {
+  const clientId = req.query.client_id as string | undefined;
+  const data = await alertsService.listAlerts(clientId);
+  res.json({ ok: true, data });
+}
+
+export async function createAlert(req: Request, res: Response) {
+  const data = await alertsService.createAlert(req.body);
+  res.status(201).json({ ok: true, data });
+}
+
+export async function closeAlert(req: Request, res: Response) {
+  await alertsService.closeAlert(req.params.id);
+  res.json({ ok: true });
+}
