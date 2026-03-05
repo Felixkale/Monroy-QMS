@@ -1,10 +1,10 @@
 {
   "name": "monroy-qms",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": ["apps/*"],
   "scripts": {
-    "dev": "npm run dev -w apps/api & npm run dev -w apps/web",
-    "build": "npm run build -w packages/shared && npm run build -w apps/api && npm run build -w apps/web",
-    "lint": "npm run lint -w apps/api && npm run lint -w apps/web"
+    "dev": "npm run dev -w apps/web",
+    "build": "npm run build -w apps/web",
+    "lint": "npm run lint -w apps/web"
   }
 }
