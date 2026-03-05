@@ -3,156 +3,347 @@ import { useState } from "react";
 import AppLayout from "@/components/AppLayout";
 
 const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7", pink:"#f472b6", yellow:"#fbbf24" };
-const rgbaMap = {
-  [C.green]:"0,245,196",[C.blue]:"79,195,247",[C.purple]:"124,92,252",[C.pink]:"244,114,182",[C.yellow]:"251,191,36",
+
+const inputStyle = {
+  width:"100%", padding:"11px 14px",
+  background:"rgba(255,255,255,0.04)",
+  border:"1px solid rgba(124,92,252,0.25)",
+  borderRadius:10, color:"#e2e8f0",
+  fontSize:13, fontFamily:"inherit", outline:"none",
+};
+const labelStyle = { fontSize:11, fontWeight:700, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6, display:"block" };
+const selectStyle = { ...inputStyle, cursor:"pointer" };
+
+const nameplateSections = {
+  "Pressure Vessel": [
+    { key:"mawp",             label:"MAWP (bar)"               },
+    { key:"shellThickness",   label:"Shell Thickness (mm)"      },
+    { key:"headThickness",    label:"Head Thickness (mm)"       },
+    { key:"corrosionAllowance",label:"Corrosion Allowance (mm)" },
+    { key:"jointEfficiency",  label:"Joint Efficiency"          },
+    { key:"mdmt",             label:"MDMT (°C)"                 },
+    { key:"reliefValve",      label:"Relief Valve Set Pressure" },
+  ],
+  "Boiler": [
+    { key:"workingPressure",  label:"Working Pressure (bar)"   },
+    { key:"steamCapacity",    label:"Steam Capacity (kg/h)"    },
+    { key:"heatingSurface",   label:"Heating Surface Area (m²)"},
+    { key:"fuelType",         label:"Fuel Type"                },
+  ],
+  "Lifting Equipment": [
+    { key:"swl",              label:"Safe Working Load (t)"    },
+    { key:"proofLoad",        label:"Proof Load (t)"           },
+    { key:"ropeDetails",      label:"Rope Details"             },
+    { key:"hookSerial",       label:"Hook Serial Number"       },
+  ],
+  "Air Receiver": [
+    { key:"receiverVolume",   label:"Receiver Volume (L)"      },
+    { key:"reliefSetting",    label:"Relief Valve Setting (bar)"},
+    { key:"compressorCapacity",label:"Compressor Capacity (m³/min)"},
+  ],
 };
 
-const equipment = [
-  { tag:"PV-0041", serial:"S-10041", type:"Pressure Vessel", client:"Acme Industrial Corp", manufacturer:"ASME Corp",  year:2018, status:"Active",        license:"Valid",    nextInsp:"2026-06-01" },
-  { tag:"BL-0012", serial:"S-20012", type:"Boiler",          client:"SteelWorks Ltd",       manufacturer:"ThermTech", year:2015, status:"Active",        license:"Expiring", nextInsp:"2026-04-15" },
-  { tag:"AR-0067", serial:"S-30067", type:"Air Receiver",    client:"MineOps Ltd",          manufacturer:"CompAir",   year:2020, status:"Active",        license:"Valid",    nextInsp:"2026-08-20" },
-  { tag:"LE-0034", serial:"S-40034", type:"Lifting Equip",   client:"Cargo Hub",            manufacturer:"CraneWorks",year:2019, status:"Active",        license:"Valid",    nextInsp:"2026-05-10" },
-  { tag:"CP-0089", serial:"S-50089", type:"Compressor",      client:"TechPlant Inc",        manufacturer:"Atlas",     year:2017, status:"Active",        license:"Expired",  nextInsp:"2026-03-01" },
-  { tag:"ST-0023", serial:"S-60023", type:"Storage Tank",    client:"Delta Refineries",     manufacturer:"TankCo",    year:2016, status:"Active",        license:"Valid",    nextInsp:"2026-07-30" },
-  { tag:"PV-0055", serial:"S-10055", type:"Pressure Vessel", client:"PowerGen Africa",      manufacturer:"ASME Corp", year:2014, status:"Decommissioned",license:"Expired",  nextInsp:"N/A"        },
-  { tag:"BL-0031", serial:"S-20031", type:"Boiler",          client:"SafePort Holdings",    manufacturer:"ThermTech", year:2021, status:"Active",        license:"Valid",    nextInsp:"2026-09-12" },
-];
+export default function RegisterEquipmentPage() {
+  const [step, setStep] = useState(1);
+  const [submitted, setSubmitted] = useState(false);
+  const [form, setForm] = useState({
+    tag:"", serial:"", type:"Pressure Vessel", client:"", manufacturer:"",
+    model:"", year:"", location:"", status:"Active",
+    // General nameplate
+    designCode:"", designPressure:"", testPressure:"", designTemp:"",
+    material:"", capacity:"",
+    // Type-specific
+    mawp:"", shellThickness:"", headThickness:"", corrosionAllowance:"",
+    jointEfficiency:"", mdmt:"", reliefValve:"",
+    workingPressure:"", steamCapacity:"", heatingSurface:"", fuelType:"",
+    swl:"", proofLoad:"", ropeDetails:"", hookSerial:"",
+    receiverVolume:"", reliefSetting:"", compressorCapacity:"",
+  });
 
-const typeColors = {
-  "Pressure Vessel":C.green, "Boiler":C.purple, "Air Receiver":C.blue,
-  "Lifting Equip":C.yellow, "Compressor":C.pink, "Storage Tank":"#a78bfa",
-};
-const licenseColor = { Valid:C.green, Expiring:C.yellow, Expired:C.pink };
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
 
-export default function EquipmentPage() {
-  const [search,     setSearch]     = useState("");
-  const [filterType, setFilterType] = useState("All");
-
-  const types = ["All", ...Array.from(new Set(equipment.map(e=>e.type)))];
-  const filtered = equipment.filter(e =>
-    (filterType === "All" || e.type === filterType) &&
-    (e.tag.toLowerCase().includes(search.toLowerCase()) ||
-     e.client.toLowerCase().includes(search.toLowerCase()))
+  if (submitted) return (
+    <AppLayout>
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", minHeight:"60vh", textAlign:"center" }}>
+        <div style={{
+          width:80, height:80, borderRadius:"50%",
+          background:"rgba(0,245,196,0.15)", border:`2px solid ${C.green}`,
+          display:"flex", alignItems:"center", justifyContent:"center",
+          fontSize:36, marginBottom:20, boxShadow:`0 0 40px rgba(0,245,196,0.3)`,
+        }}>⚙️</div>
+        <h2 style={{ fontSize:24, fontWeight:900, color:"#fff", marginBottom:8 }}>Equipment Registered</h2>
+        <p style={{ color:"#64748b", fontSize:14, marginBottom:8 }}><strong style={{ color:C.green }}>{form.tag}</strong> has been added to the asset register.</p>
+        <p style={{ color:"#64748b", fontSize:13, marginBottom:28 }}>A QR code has been automatically generated.</p>
+        <div style={{ display:"flex", gap:12, flexWrap:"wrap", justifyContent:"center" }}>
+          <button onClick={()=>{ setSubmitted(false); setStep(1); }} style={{
+            padding:"11px 24px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13,
+            background:`linear-gradient(135deg,${C.purple},${C.blue})`,
+            border:"none", color:"#fff", boxShadow:`0 0 20px rgba(124,92,252,0.4)`,
+          }}>+ Register Another</button>
+          <a href="/equipment" style={{
+            padding:"11px 24px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13,
+            background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)",
+            color:"#94a3b8", textDecoration:"none", display:"inline-flex", alignItems:"center",
+          }}>View Equipment Register</a>
+          <a href="/qr-codes" style={{
+            padding:"11px 24px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13,
+            background:"rgba(0,245,196,0.1)", border:"1px solid rgba(0,245,196,0.3)",
+            color:C.green, textDecoration:"none", display:"inline-flex", alignItems:"center",
+          }}>🏷️ Generate QR Code</a>
+        </div>
+      </div>
+    </AppLayout>
   );
+
+  const typeSpecificFields = nameplateSections[form.type] || [];
 
   return (
     <AppLayout>
       {/* Header */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:12, marginBottom:28 }}>
-        <div>
-          <h1 style={{
-            fontSize:"clamp(22px,4vw,32px)", fontWeight:900, margin:0,
-            background:`linear-gradient(90deg,#fff 30%,${C.green})`,
-            WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent",
-          }}>Equipment Register</h1>
-          <p style={{ color:"#64748b", fontSize:13, margin:"4px 0 0" }}>Full asset register with nameplate data</p>
+      <div style={{ marginBottom:28 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:4 }}>
+          <a href="/equipment" style={{ color:"#64748b", fontSize:13, textDecoration:"none" }}>Equipment</a>
+          <span style={{ color:"#475569" }}>›</span>
+          <span style={{ color:"#e2e8f0", fontSize:13 }}>Register Equipment</span>
         </div>
-        <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-          <button style={{
-            padding:"10px 18px", borderRadius:12,
-            background:"rgba(0,245,196,0.1)", border:`1px solid rgba(0,245,196,0.3)`,
-            color:C.green, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit",
-          }}>🏷️ Generate QR</button>
-          <button style={{
-            padding:"10px 18px", borderRadius:12,
-            background:`linear-gradient(135deg,${C.purple},${C.blue})`,
-            border:"none", color:"#fff", fontWeight:700, fontSize:13,
-            cursor:"pointer", fontFamily:"inherit", boxShadow:`0 0 20px rgba(124,92,252,0.4)`,
-          }}>+ Register Equipment</button>
-        </div>
+        <h1 style={{
+          fontSize:"clamp(22px,4vw,32px)", fontWeight:900, margin:0,
+          background:`linear-gradient(90deg,#fff 30%,${C.blue})`,
+          WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent",
+        }}>Register Equipment</h1>
+        <p style={{ color:"#64748b", fontSize:13, margin:"4px 0 0" }}>Add new asset to the enterprise equipment register</p>
       </div>
 
-      {/* Stats */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:14, marginBottom:22 }}>
-        {[
-          { label:"Total Assets",      value:186, color:C.blue   },
-          { label:"Active",            value:181, color:C.green  },
-          { label:"Decommissioned",    value:5,   color:"#64748b"},
-          { label:"Licenses Expiring", value:11,  color:C.yellow },
-          { label:"Licenses Expired",  value:4,   color:C.pink   },
-        ].map(s=>(
-          <div key={s.label} style={{
-            background:`rgba(${rgbaMap[s.color]||"100,116,139"},0.07)`,
-            border:`1px solid rgba(${rgbaMap[s.color]||"100,116,139"},0.25)`,
-            borderRadius:14, padding:"16px 18px",
-          }}>
-            <div style={{ fontSize:10, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:6 }}>{s.label}</div>
-            <div style={{ fontSize:28, fontWeight:900, color:s.color }}>{s.value}</div>
+      {/* Steps */}
+      <div style={{ display:"flex", gap:0, marginBottom:28 }}>
+        {[{n:1,label:"Identity"},{n:2,label:"Nameplate"},{n:3,label:"Review"}].map((s,i,arr)=>(
+          <div key={s.n} style={{ display:"flex", alignItems:"center", flex:i<arr.length-1?1:"none" }}>
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+              <div style={{
+                width:36, height:36, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center",
+                fontWeight:800, fontSize:14,
+                background: step>s.n ? C.green : step===s.n ? `linear-gradient(135deg,${C.blue},${C.purple})` : "rgba(255,255,255,0.06)",
+                color: step>s.n ? "#0d0d1a" : "#fff",
+                border: step===s.n ? `2px solid ${C.blue}` : "2px solid transparent",
+                boxShadow: step===s.n ? `0 0 16px rgba(79,195,247,0.5)` : "none",
+              }}>{step>s.n?"✓":s.n}</div>
+              <span style={{ fontSize:10, color:step>=s.n?"#e2e8f0":"#475569", fontWeight:600 }}>{s.label}</span>
+            </div>
+            {i<arr.length-1 && (
+              <div style={{ flex:1, height:2, margin:"0 8px", marginBottom:18,
+                background:step>s.n?C.green:"rgba(255,255,255,0.07)", borderRadius:2 }}/>
+            )}
           </div>
         ))}
       </div>
 
-      {/* Filters */}
-      <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:16 }}>
-        <input
-          value={search} onChange={e=>setSearch(e.target.value)}
-          placeholder="Search by tag or client…"
-          style={{
-            flex:"1 1 220px", padding:"10px 16px",
-            background:"rgba(255,255,255,0.04)", border:"1px solid rgba(124,92,252,0.3)",
-            borderRadius:10, color:"#e2e8f0", fontSize:13, fontFamily:"inherit", outline:"none",
-          }}
-        />
-        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-          {types.map(t=>(
-            <button key={t} onClick={()=>setFilterType(t)} style={{
-              padding:"8px 14px", borderRadius:20, fontSize:12, cursor:"pointer",
-              fontFamily:"inherit", fontWeight:600,
-              background: filterType===t ? `rgba(124,92,252,0.25)` : "rgba(255,255,255,0.04)",
-              border: filterType===t ? `1px solid ${C.purple}` : "1px solid rgba(255,255,255,0.08)",
-              color: filterType===t ? C.purple : "#64748b",
-            }}>{t}</button>
-          ))}
-        </div>
-      </div>
+      <div style={{
+        background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
+        border:"1px solid rgba(79,195,247,0.2)", borderRadius:18,
+        padding:"28px", maxWidth:720,
+      }}>
 
-      {/* Equipment Cards Grid */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14 }}>
-        {filtered.map(e=>(
-          <div key={e.tag} style={{
-            background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
-            border:`1px solid rgba(${rgbaMap[typeColors[e.type]]||"124,92,252"},0.25)`,
-            borderRadius:14, padding:"18px 20px",
-            boxShadow:`0 0 20px rgba(${rgbaMap[typeColors[e.type]]||"124,92,252"},0.08)`,
-            position:"relative", overflow:"hidden", cursor:"pointer",
-          }}>
-            <div style={{ position:"absolute", top:0, left:0, right:0, height:3,
-              background:`linear-gradient(90deg,${typeColors[e.type]||C.purple},transparent)` }}/>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
-              <div>
-                <div style={{ fontSize:16, fontWeight:800, color:"#fff" }}>{e.tag}</div>
-                <div style={{ fontSize:11, color:"#64748b" }}>{e.serial}</div>
+        {/* Step 1 – Identity */}
+        {step===1 && (
+          <div>
+            <SectionTitle color={C.blue} title="Equipment Identity"/>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))", gap:16 }}>
+              <Field label="Equipment Tag *">
+                <input style={inputStyle} placeholder="e.g. PV-0042" value={form.tag} onChange={e=>set("tag",e.target.value)}/>
+              </Field>
+              <Field label="Serial Number">
+                <input style={inputStyle} placeholder="e.g. S-10042" value={form.serial} onChange={e=>set("serial",e.target.value)}/>
+              </Field>
+              <Field label="Equipment Type *">
+                <select style={selectStyle} value={form.type} onChange={e=>set("type",e.target.value)}>
+                  {["Pressure Vessel","Boiler","Air Receiver","Compressor","Lifting Equipment","Pipeline","Storage Tank","Industrial Machinery"].map(t=>(
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Client *">
+                <select style={selectStyle} value={form.client} onChange={e=>set("client",e.target.value)}>
+                  <option value="">Select client…</option>
+                  {["Acme Industrial Corp","SteelWorks Ltd","TechPlant Inc","MineOps Ltd","Cargo Hub","Delta Refineries","SafePort Holdings"].map(c=>(
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Manufacturer">
+                <input style={inputStyle} placeholder="e.g. ASME Corp" value={form.manufacturer} onChange={e=>set("manufacturer",e.target.value)}/>
+              </Field>
+              <Field label="Model">
+                <input style={inputStyle} placeholder="Model number or name" value={form.model} onChange={e=>set("model",e.target.value)}/>
+              </Field>
+              <Field label="Year Built">
+                <input style={inputStyle} type="number" placeholder="e.g. 2020" value={form.year} onChange={e=>set("year",e.target.value)}/>
+              </Field>
+              <Field label="Location / Site">
+                <input style={inputStyle} placeholder="e.g. Plant A – Bay 3" value={form.location} onChange={e=>set("location",e.target.value)}/>
+              </Field>
+              <Field label="Status">
+                <select style={selectStyle} value={form.status} onChange={e=>set("status",e.target.value)}>
+                  <option>Active</option>
+                  <option>Decommissioned</option>
+                </select>
+              </Field>
+            </div>
+
+            {/* Photo Upload */}
+            <div style={{ marginTop:18 }}>
+              <label style={labelStyle}>Equipment Photos</label>
+              <div style={{
+                border:"2px dashed rgba(79,195,247,0.3)", borderRadius:10,
+                padding:"24px", textAlign:"center", cursor:"pointer",
+                background:"rgba(79,195,247,0.04)",
+              }}>
+                <div style={{ fontSize:28, marginBottom:8 }}>📷</div>
+                <div style={{ fontSize:13, color:"#64748b" }}>Upload equipment photos</div>
+                <div style={{ fontSize:11, color:"#475569", marginTop:4 }}>PNG, JPG up to 20MB each</div>
               </div>
-              <span style={{
-                padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
-                background:`rgba(${rgbaMap[typeColors[e.type]]||"124,92,252"},0.15)`,
-                color: typeColors[e.type] || C.purple,
-                border:`1px solid rgba(${rgbaMap[typeColors[e.type]]||"124,92,252"},0.3)`,
-              }}>{e.type}</span>
-            </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, fontSize:12 }}>
-              <div><span style={{ color:"#64748b" }}>Client: </span><span style={{ color:"#cbd5e1" }}>{e.client}</span></div>
-              <div><span style={{ color:"#64748b" }}>Mfr: </span><span style={{ color:"#cbd5e1" }}>{e.manufacturer}</span></div>
-              <div><span style={{ color:"#64748b" }}>Year: </span><span style={{ color:"#cbd5e1" }}>{e.year}</span></div>
-              <div><span style={{ color:"#64748b" }}>Next Insp: </span><span style={{ color:"#cbd5e1" }}>{e.nextInsp}</span></div>
-            </div>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:12 }}>
-              <span style={{
-                padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
-                background:`rgba(${licenseColor[e.license]==="#00f5c4"?"0,245,196":licenseColor[e.license]==="#fbbf24"?"251,191,36":"244,114,182"},0.12)`,
-                color: licenseColor[e.license],
-                border:`1px solid rgba(${licenseColor[e.license]==="#00f5c4"?"0,245,196":licenseColor[e.license]==="#fbbf24"?"251,191,36":"244,114,182"},0.3)`,
-              }}>🔐 {e.license}</span>
-              <span style={{
-                padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
-                background: e.status==="Active" ? "rgba(0,245,196,0.1)" : "rgba(100,116,139,0.15)",
-                color: e.status==="Active" ? C.green : "#64748b",
-                border: e.status==="Active" ? "1px solid rgba(0,245,196,0.3)" : "1px solid rgba(100,116,139,0.2)",
-              }}>{e.status}</span>
             </div>
           </div>
-        ))}
+        )}
+
+        {/* Step 2 – Nameplate */}
+        {step===2 && (
+          <div>
+            <SectionTitle color={C.green} title="Nameplate Data"/>
+            <p style={{ fontSize:13, color:"#64748b", marginBottom:18 }}>Enter general nameplate data and {form.type}-specific fields.</p>
+
+            {/* General */}
+            <div style={{ marginBottom:20 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:C.blue, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:12 }}>
+                General Nameplate Fields
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:14 }}>
+                {[
+                  {key:"designCode",    label:"Design Code / Standard"},
+                  {key:"designPressure",label:"Design Pressure (bar)"},
+                  {key:"testPressure",  label:"Test Pressure (bar)"},
+                  {key:"designTemp",    label:"Design Temperature (°C)"},
+                  {key:"material",      label:"Material Specification"},
+                  {key:"capacity",      label:"Capacity / Volume"},
+                ].map(f=>(
+                  <Field key={f.key} label={f.label}>
+                    <input style={inputStyle} placeholder={f.label} value={form[f.key]} onChange={e=>set(f.key,e.target.value)}/>
+                  </Field>
+                ))}
+              </div>
+            </div>
+
+            {/* Type-specific */}
+            {typeSpecificFields.length>0 && (
+              <div>
+                <div style={{ fontSize:12, fontWeight:700, color:C.green, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:12 }}>
+                  {form.type} Specific Fields
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:14 }}>
+                  {typeSpecificFields.map(f=>(
+                    <Field key={f.key} label={f.label}>
+                      <input style={inputStyle} placeholder={f.label} value={form[f.key]} onChange={e=>set(f.key,e.target.value)}/>
+                    </Field>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Documents */}
+            <div style={{ marginTop:20 }}>
+              <label style={labelStyle}>Attach Documents / Manuals</label>
+              <div style={{
+                border:"2px dashed rgba(0,245,196,0.25)", borderRadius:10,
+                padding:"24px", textAlign:"center", cursor:"pointer",
+                background:"rgba(0,245,196,0.03)",
+              }}>
+                <div style={{ fontSize:28, marginBottom:8 }}>📎</div>
+                <div style={{ fontSize:13, color:"#64748b" }}>Upload technical drawings, manuals, certificates</div>
+                <div style={{ fontSize:11, color:"#475569", marginTop:4 }}>PDF, DOCX, DWG up to 50MB</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3 – Review */}
+        {step===3 && (
+          <div>
+            <SectionTitle color={C.yellow} title="Review & Register"/>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:10 }}>
+              {[
+                {label:"Tag",          value:form.tag         ||"—"},
+                {label:"Serial",       value:form.serial      ||"—"},
+                {label:"Type",         value:form.type},
+                {label:"Client",       value:form.client      ||"—"},
+                {label:"Manufacturer", value:form.manufacturer||"—"},
+                {label:"Model",        value:form.model       ||"—"},
+                {label:"Year Built",   value:form.year        ||"—"},
+                {label:"Location",     value:form.location    ||"—"},
+                {label:"Status",       value:form.status},
+                {label:"Design Code",  value:form.designCode  ||"—"},
+                {label:"Design Pressure",value:form.designPressure||"—"},
+                {label:"Material",     value:form.material    ||"—"},
+              ].map(r=>(
+                <div key={r.label} style={{
+                  display:"flex", justifyContent:"space-between",
+                  padding:"10px 14px", borderRadius:8,
+                  background:"rgba(255,255,255,0.03)", gap:12,
+                }}>
+                  <span style={{ fontSize:12, color:"#64748b" }}>{r.label}</span>
+                  <span style={{ fontSize:13, color:"#e2e8f0", fontWeight:600, textAlign:"right" }}>{r.value}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{
+              marginTop:16, padding:"12px 16px", borderRadius:10,
+              background:"rgba(0,245,196,0.07)", border:"1px solid rgba(0,245,196,0.2)",
+              fontSize:12, color:C.green,
+            }}>
+              ✅ A QR code will be automatically generated upon registration.
+            </div>
+          </div>
+        )}
+
+        {/* Nav */}
+        <div style={{ display:"flex", justifyContent:"space-between", marginTop:28, gap:12 }}>
+          {step>1
+            ? <button onClick={()=>setStep(s=>s-1)} style={{
+                padding:"11px 22px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13,
+                background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", color:"#94a3b8",
+              }}>← Back</button>
+            : <div/>
+          }
+          {step<3
+            ? <button onClick={()=>setStep(s=>s+1)} style={{
+                padding:"11px 28px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13,
+                background:`linear-gradient(135deg,${C.blue},${C.purple})`,
+                border:"none", color:"#fff", boxShadow:`0 0 20px rgba(79,195,247,0.4)`,
+              }}>Continue →</button>
+            : <button onClick={()=>setSubmitted(true)} style={{
+                padding:"11px 28px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13,
+                background:`linear-gradient(135deg,${C.green}cc,${C.blue})`,
+                border:"none", color:"#0d0d1a", boxShadow:`0 0 20px rgba(0,245,196,0.4)`,
+              }}>⚙️ Register Equipment</button>
+          }
+        </div>
       </div>
     </AppLayout>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function SectionTitle({ color, title }) {
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:22 }}>
+      <div style={{ width:4, height:22, borderRadius:2, background:color }}/>
+      <span style={{ fontSize:16, fontWeight:800, color:"#fff" }}>{title}</span>
+    </div>
   );
 }
