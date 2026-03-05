@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -19,7 +19,26 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [showDemoUsers, setShowDemoUsers] = useState(true);
+  const [allUsers, setAllUsers] = useState([]);
+
+  useEffect(() => {
+    fetchAvailableUsers();
+  }, []);
+
+  async function fetchAvailableUsers() {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('email, full_name, role')
+        .order('role');
+
+      if (!error && data) {
+        setAllUsers(data);
+      }
+    } catch (err) {
+      console.error("Error fetching users:", err);
+    }
+  }
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -38,24 +57,28 @@ export default function LoginPage() {
         return;
       }
 
-      // Route based on role
-      const userRole = getUserRole(email);
+      // Fetch user role from users table
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', data.user.id)
+        .single();
+
+      if (userError) {
+        setError("Error fetching user details");
+        setLoading(false);
+        return;
+      }
+
+      const role = userData?.role || 'user';
+      
       setTimeout(() => {
-        router.push(getRoleDashboard(userRole));
+        router.push(getRoleDashboard(role));
       }, 500);
     } catch (error) {
       setError("Login failed. Please try again.");
       setLoading(false);
     }
-  }
-
-  function getUserRole(email) {
-    if (email === "superadmin@monroy.com") return "superadmin";
-    if (email === "admin@monroy.com") return "admin";
-    if (email?.includes("inspector")) return "inspector";
-    if (email?.includes("supervisor")) return "supervisor";
-    if (email?.includes("client")) return "client";
-    return "user";
   }
 
   function getRoleDashboard(role) {
@@ -73,7 +96,7 @@ export default function LoginPage() {
     setEmail(demoEmail);
     setPassword(demoPassword);
     setTimeout(() => {
-      document.getElementById("login-form").dispatchEvent(
+      document.getElementById("login-form")?.dispatchEvent(
         new Event("submit", { bubbles: true })
       );
     }, 100);
