@@ -1,4 +1,4 @@
-import './globals.css'  // or wherever your global styles are
+import './globals.css'
 
 export const metadata = {
   title: 'Monroy QMS',
@@ -14,12 +14,8 @@ export default function RootLayout({ children }) {
 }
 ```
 
-**Your structure should then be:**
+---
+
+**Also, you have a second error:**
 ```
-src/apps/web/app/
-  ├── layout.jsx              ← ROOT layout (wraps everything)
-  ├── login/
-  │   └── page.jsx
-  ├── dashboard/
-  │   ├── layout.jsx          ← Dashboard-specific layout (optional, nested)
-  │   └── pages...
+Module not found: Can't resolve '@/lib/supabaseClient'
