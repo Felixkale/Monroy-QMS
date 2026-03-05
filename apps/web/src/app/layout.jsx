@@ -12,10 +12,3 @@ export default function RootLayout({ children }) {
     </html>
   )
 }
-```
-
----
-
-**Also, you have a second error:**
-```
-Module not found: Can't resolve '@/lib/supabaseClient'
