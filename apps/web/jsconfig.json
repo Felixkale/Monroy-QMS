@@ -6,22 +6,3 @@
     }
   }
 }
-```
-
-This tells Next.js that `@/lib/supabaseClient` should resolve to `./src/lib/supabaseClient.js`
-
----
-
-**Your file structure should be:**
-```
-src/apps/web/
-  ├── jsconfig.json          ← Put it here
-  ├── src/
-  │   ├── app/
-  │   │   ├── layout.jsx
-  │   │   └── login/
-  │   │       └── page.jsx
-  │   └── lib/
-  │       └── supabaseClient.js
-  ├── package.json
-  └── next.config.js
