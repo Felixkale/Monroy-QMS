@@ -82,7 +82,6 @@ export default function EquipmentPage() {
         </div>
       </div>
 
-      {/* Stats */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:14, marginBottom:22 }}>
         {[
           { label:"Total Assets",      value:186, color:C.blue   },
@@ -102,7 +101,6 @@ export default function EquipmentPage() {
         ))}
       </div>
 
-      {/* Filters */}
       <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:16 }}>
         <input
           value={search} onChange={e=>setSearch(e.target.value)}
@@ -126,7 +124,6 @@ export default function EquipmentPage() {
         </div>
       </div>
 
-      {/* Equipment Cards - Now Clickable */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14 }}>
         {filtered.map(e=>{
           const tColor = typeColors[e.type] || C.purple;
