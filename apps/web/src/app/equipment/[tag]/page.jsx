@@ -151,7 +151,7 @@ export default function EquipmentDetailPage() {
           <button onClick={() => router.push("/equipment")} style={{
             marginTop:"20px", padding:"10px 20px",
             backgroundColor:"#667eea", color:"white", border:"none",
-            borderRadius:"6px", cursor:"pointer",
+            borderRadius:"6px", cursor:"pointer", fontFamily:"inherit",
           }}>Back to Equipment</button>
         </div>
       </AppLayout>
