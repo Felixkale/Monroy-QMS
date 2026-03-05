@@ -180,4 +180,151 @@ export default function CreateInspectionPage() {
                     <div style={{
                       width:22, height:22, borderRadius:6, flexShrink:0,
                       background: checked ? C.green : "rgba(255,255,255,0.06)",
-                      border: checked ? "none" : "1px solid rgba(2
+                      border: checked ? "none" : "1px solid rgba(255,255,255,0.15)",
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                      color:"#0d0d1a", fontWeight:900, fontSize:13,
+                    }}>{checked?"✓":""}</div>
+                    <span style={{ fontSize:13, color:checked?"#e2e8f0":"#94a3b8", fontWeight:checked?600:400 }}>{item}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{
+              marginTop:16, padding:"10px 14px", borderRadius:10,
+              background:"rgba(0,245,196,0.06)", border:"1px solid rgba(0,245,196,0.15)",
+              fontSize:12, color:C.green,
+            }}>
+              {form.checklist.length} / {checklistItems.length} items completed
+            </div>
+          </div>
+        )}
+
+        {/* Step 3 */}
+        {step===3 && (
+          <div>
+            <SectionTitle color={C.green} title="Findings & Result"/>
+            <div style={{ display:"flex", flexDirection:"column", gap:18 }}>
+              <Field label="Inspection Result *">
+                <div style={{ display:"flex", gap:10 }}>
+                  {["Pass","Fail","Conditional"].map(r=>(
+                    <button key={r} onClick={()=>set("result",r)} style={{
+                      flex:1, padding:"12px", borderRadius:10, cursor:"pointer", fontFamily:"inherit",
+                      fontWeight:700, fontSize:13,
+                      background: form.result===r
+                        ? r==="Pass" ? "rgba(0,245,196,0.2)" : r==="Fail" ? "rgba(244,114,182,0.2)" : "rgba(251,191,36,0.2)"
+                        : "rgba(255,255,255,0.04)",
+                      border: form.result===r
+                        ? `2px solid ${r==="Pass"?C.green:r==="Fail"?C.pink:C.yellow}`
+                        : "2px solid rgba(255,255,255,0.08)",
+                      color: form.result===r
+                        ? r==="Pass"?C.green:r==="Fail"?C.pink:C.yellow
+                        : "#64748b",
+                    }}>{r==="Pass"?"✅":r==="Fail"?"❌":"⚠️"} {r}</button>
+                  ))}
+                </div>
+              </Field>
+              <Field label="Findings & Observations *">
+                <textarea style={{ ...inputStyle, minHeight:100, resize:"vertical" }}
+                  placeholder="Describe findings, observations, measurements…"
+                  value={form.findings} onChange={e=>set("findings",e.target.value)}/>
+              </Field>
+              <Field label="Additional Notes">
+                <textarea style={{ ...inputStyle, minHeight:70, resize:"vertical" }}
+                  placeholder="Recommendations, actions required…"
+                  value={form.notes} onChange={e=>set("notes",e.target.value)}/>
+              </Field>
+              <Field label="Upload Evidence (Photos / Reports)">
+                <div style={{
+                  border:"2px dashed rgba(124,92,252,0.3)", borderRadius:10,
+                  padding:"24px", textAlign:"center", cursor:"pointer",
+                  background:"rgba(124,92,252,0.04)",
+                }}>
+                  <div style={{ fontSize:28, marginBottom:8 }}>📎</div>
+                  <div style={{ fontSize:13, color:"#64748b" }}>Click to upload or drag and drop</div>
+                  <div style={{ fontSize:11, color:"#475569", marginTop:4 }}>PNG, JPG, PDF up to 20MB</div>
+                </div>
+              </Field>
+            </div>
+          </div>
+        )}
+
+        {/* Step 4 */}
+        {step===4 && (
+          <div>
+            <SectionTitle color={C.yellow} title="Review & Submit"/>
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              {[
+                { label:"Equipment",  value:form.equipment||"—" },
+                { label:"Client",     value:form.client||"—"    },
+                { label:"Inspector",  value:form.inspector||"—" },
+                { label:"Type",       value:form.type           },
+                { label:"Date",       value:form.date||"—"      },
+                { label:"Next Due",   value:form.scheduled||"—" },
+                { label:"Checklist",  value:`${form.checklist.length} / ${checklistItems.length} items` },
+                { label:"Result",     value:form.result         },
+                { label:"Findings",   value:form.findings||"—"  },
+              ].map(r=>(
+                <div key={r.label} style={{
+                  display:"flex", justifyContent:"space-between", alignItems:"flex-start",
+                  padding:"10px 14px", borderRadius:8,
+                  background:"rgba(255,255,255,0.03)", gap:16,
+                }}>
+                  <span style={{ fontSize:12, color:"#64748b", minWidth:100 }}>{r.label}</span>
+                  <span style={{ fontSize:13, color:"#e2e8f0", fontWeight:600, textAlign:"right" }}>{r.value}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{
+              marginTop:16, padding:"12px 16px", borderRadius:10,
+              background:"rgba(251,191,36,0.07)", border:"1px solid rgba(251,191,36,0.2)",
+              fontSize:12, color:C.yellow,
+            }}>
+              ⚠️ Once submitted, this inspection will enter the supervisor review workflow.
+            </div>
+          </div>
+        )}
+
+        {/* Nav Buttons */}
+        <div style={{ display:"flex", justifyContent:"space-between", marginTop:28, gap:12 }}>
+          {step>1
+            ? <button onClick={()=>setStep(s=>s-1)} style={{
+                padding:"11px 22px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13,
+                background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", color:"#94a3b8",
+              }}>← Back</button>
+            : <div/>
+          }
+          {step<4
+            ? <button onClick={()=>setStep(s=>s+1)} style={{
+                padding:"11px 28px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13,
+                background:`linear-gradient(135deg,${C.purple},${C.blue})`,
+                border:"none", color:"#fff", boxShadow:`0 0 20px rgba(124,92,252,0.4)`,
+              }}>Continue →</button>
+            : <button onClick={()=>setSubmitted(true)} style={{
+                padding:"11px 28px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13,
+                background:`linear-gradient(135deg,${C.green}cc,${C.blue})`,
+                border:"none", color:"#0d0d1a", boxShadow:`0 0 20px rgba(0,245,196,0.4)`,
+              }}>✅ Submit Inspection</button>
+          }
+        </div>
+      </div>
+    </AppLayout>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function SectionTitle({ color, title }) {
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:22 }}>
+      <div style={{ width:4, height:22, borderRadius:2, background:color }}/>
+      <span style={{ fontSize:16, fontWeight:800, color:"#fff" }}>{title}</span>
+    </div>
+  );
+}
