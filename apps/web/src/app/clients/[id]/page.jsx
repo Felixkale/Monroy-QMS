@@ -45,7 +45,6 @@ const allClients = {
   },
 };
 
-// Fallback for other client IDs
 function buildFallback(id) {
   const names = {
     "CLT-002":"SteelWorks Ltd","CLT-003":"TechPlant Inc","CLT-004":"MineOps Ltd",
