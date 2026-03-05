@@ -12,7 +12,7 @@ const allCertificates = [
     serialNo:"S-10041", model:"PV-Standard-2020", swl:"N/A", mawp:"10 bar",
     countryOfOrigin:"South Africa", yearOfManufacture:2018, manufacturer:"ASME Corp",
     inspectionDate:"2026-03-05", nextInspectionDate:"2026-06-01", testStatus:"Pass",
-    legalFramework:"MIBE, Quarries Works and Machinery Act CAP 4.4:02, Factories Act 44.01",
+    legalFramework:"Mines and Quarries Act CAP 4.4:02, Factories Act 44.01, Machinery and Related Industries Safety and Health Regulations",
     issued:"2025-06-01", expiry:"2026-06-01", status:"Valid", client:"Acme Industrial Corp",
   },
   {
@@ -20,7 +20,7 @@ const allCertificates = [
     serialNo:"S-20012", model:"BL-2015", swl:"N/A", mawp:"16 bar",
     countryOfOrigin:"South Africa", yearOfManufacture:2015, manufacturer:"ThermTech",
     inspectionDate:"2025-09-15", nextInspectionDate:"2026-09-15", testStatus:"Pass",
-    legalFramework:"MIBE, Quarries Works and Machinery Act CAP 4.4:02",
+    legalFramework:"Mines and Quarries Act CAP 4.4:02, Factories Act 44.01",
     issued:"2025-01-15", expiry:"2026-01-15", status:"Expired", client:"SteelWorks Ltd",
   },
 ];
@@ -31,6 +31,7 @@ export default function CertificateDetailPage() {
   const [certificate, setCertificate] = useState(null);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     checkAuth();
@@ -55,180 +56,263 @@ export default function CertificateDetailPage() {
     setLoading(false);
   }
 
-  function downloadCertificate() {
-    const doc = `
-CERTIFICATE OF COMPLIANCE
+  function downloadPDF() {
+    if (!certificate) return;
+    
+    setExporting(true);
+    const element = document.getElementById("certificate-content");
+    
+    const html2canvas = window.html2canvas || (() => Promise.resolve(null));
+    const jsPDF = window.jsPDF?.jsPDF;
 
-Certificate No: ${certificate?.certNo}
-Type: ${certificate?.type}
-Status: ${certificate?.status}
-Date Issued: ${certificate?.issued}
-Expiry Date: ${certificate?.expiry}
+    if (!jsPDF) {
+      alert("PDF library not available. Using Word export instead.");
+      downloadWord();
+      setExporting(false);
+      return;
+    }
 
-EQUIPMENT DETAILS
-================
-Equipment Tag: ${certificate?.equipmentTag}
-Equipment Type: ${certificate?.equipmentType}
-Serial Number: ${certificate?.serialNo}
-Model: ${certificate?.model}
-Manufacturer: ${certificate?.manufacturer}
-Year of Manufacture: ${certificate?.yearOfManufacture}
-Country of Origin: ${certificate?.countryOfOrigin}
-
-TECHNICAL SPECIFICATIONS
-========================
-Safe Working Load (SWL): ${certificate?.swl}
-Maximum Allowable Working Pressure (MAWP): ${certificate?.mawp}
-
-INSPECTION DETAILS
-==================
-Inspection Date: ${certificate?.inspectionDate}
-Next Inspection Date: ${certificate?.nextInspectionDate}
-Test Status: ${certificate?.testStatus}
-
-LEGAL FRAMEWORK
-===============
-This certificate confirms compliance with:
-${certificate?.legalFramework}
-
-CLIENT INFORMATION
-==================
-Client: ${certificate?.client}
-
----
-Generated: ${new Date().toLocaleDateString()}
-This is an official certificate issued by Monroy QMS Platform
-    `;
-    const element = document.createElement("a");
-    const file = new Blob([doc], {type:'text/plain'});
-    element.href = URL.createObjectURL(file);
-    element.download = `${certificate?.certNo}.txt`;
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
-  }
-
-  function printCertificate() {
+    // Create a temporary container for printing
     const printWindow = window.open("", "_blank");
-    printWindow.document.write(`
+    const htmlContent = `
       <!DOCTYPE html>
       <html>
         <head>
-          <title>${certificate?.certNo}</title>
+          <title>${certificate.certNo}</title>
           <style>
-            body { font-family: Arial; margin: 40px; color: #333; line-height: 1.8; }
-            h1 { color: #667eea; border-bottom: 3px solid #667eea; padding-bottom: 10px; text-align: center; }
-            .section { margin: 20px 0; border-left: 4px solid #667eea; padding-left: 15px; }
-            .section h2 { margin: 0 0 10px; font-size: 16px; color: #667eea; }
-            .field { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
-            .label { font-weight: bold; color: #666; }
-            .value { color: #333; }
-            .status { color: #00c851; font-weight: bold; font-size: 18px; }
-            .footer { margin-top: 40px; text-align: center; font-size: 12px; color: #999; border-top: 2px solid #eee; padding-top: 20px; }
-            @media print { body { margin: 20px; } }
+            body { font-family: Arial, sans-serif; margin: 0; padding: 40px; background: white; color: #333; }
+            .container { max-width: 900px; margin: 0 auto; }
+            .header { text-align: center; border-bottom: 3px solid #667eea; padding-bottom: 20px; margin-bottom: 30px; }
+            .header h1 { margin: 0; color: #667eea; font-size: 28px; }
+            .header p { margin: 5px 0; font-size: 12px; color: #666; }
+            .section { margin: 30px 0; }
+            .section-title { font-size: 14px; font-weight: bold; color: #667eea; background: #f5f5f5; padding: 10px; margin-bottom: 15px; border-left: 4px solid #667eea; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+            th { background: #667eea; color: white; padding: 12px; text-align: left; font-size: 12px; }
+            td { padding: 10px 12px; border-bottom: 1px solid #ddd; font-size: 12px; }
+            tr:nth-child(even) { background: #f9f9f9; }
+            .status { display: inline-block; padding: 3px 10px; border-radius: 20px; font-weight: bold; font-size: 11px; }
+            .status-valid { background: #00f5c420; color: #00c851; border: 1px solid #00c851; }
+            .status-expired { background: #f4728620; color: #d81b60; border: 1px solid #d81b60; }
+            .status-expiring { background: #fbbf2420; color: #ff6f00; border: 1px solid #ff6f00; }
+            .footer { margin-top: 40px; text-align: center; font-size: 11px; color: #999; border-top: 1px solid #ddd; padding-top: 20px; }
+            .signature-area { margin-top: 40px; display: flex; justify-content: space-around; }
+            .signature-line { text-align: center; width: 30%; }
+            .signature-line p { margin: 30px 0 0; border-top: 1px solid #333; padding-top: 5px; font-size: 11px; }
           </style>
         </head>
         <body>
-          <h1>CERTIFICATE OF COMPLIANCE</h1>
-          
-          <div class="section">
-            <h2>Certificate Information</h2>
-            <div class="field">
-              <span class="label">Certificate No:</span>
-              <span class="value">${certificate?.certNo}</span>
+          <div class="container">
+            <div class="header">
+              <h1>CERTIFICATE OF COMPLIANCE</h1>
+              <p>Monroy QMS Platform - Official Certificate</p>
             </div>
-            <div class="field">
-              <span class="label">Type:</span>
-              <span class="value">${certificate?.type}</span>
-            </div>
-            <div class="field">
-              <span class="label">Status:</span>
-              <span class="value status">${certificate?.status}</span>
-            </div>
-            <div class="field">
-              <span class="label">Date Issued:</span>
-              <span class="value">${certificate?.issued}</span>
-            </div>
-            <div class="field">
-              <span class="label">Expiry Date:</span>
-              <span class="value">${certificate?.expiry}</span>
-            </div>
-          </div>
 
-          <div class="section">
-            <h2>Equipment Details</h2>
-            <div class="field">
-              <span class="label">Equipment Tag:</span>
-              <span class="value">${certificate?.equipmentTag}</span>
+            <div class="section">
+              <div class="section-title">Certificate Information</div>
+              <table>
+                <tr>
+                  <th style="width: 40%;">Field</th>
+                  <th>Value</th>
+                </tr>
+                <tr>
+                  <td><strong>Certificate Number</strong></td>
+                  <td>${certificate.certNo}</td>
+                </tr>
+                <tr>
+                  <td><strong>Certificate Type</strong></td>
+                  <td>${certificate.type}</td>
+                </tr>
+                <tr>
+                  <td><strong>Status</strong></td>
+                  <td><span class="status status-${certificate.status.toLowerCase()}">${certificate.status}</span></td>
+                </tr>
+                <tr>
+                  <td><strong>Date Issued</strong></td>
+                  <td>${certificate.issued}</td>
+                </tr>
+                <tr>
+                  <td><strong>Expiry Date</strong></td>
+                  <td>${certificate.expiry}</td>
+                </tr>
+                <tr>
+                  <td><strong>Client</strong></td>
+                  <td>${certificate.client}</td>
+                </tr>
+              </table>
             </div>
-            <div class="field">
-              <span class="label">Equipment Type:</span>
-              <span class="value">${certificate?.equipmentType}</span>
-            </div>
-            <div class="field">
-              <span class="label">Serial Number:</span>
-              <span class="value">${certificate?.serialNo}</span>
-            </div>
-            <div class="field">
-              <span class="label">Model:</span>
-              <span class="value">${certificate?.model}</span>
-            </div>
-            <div class="field">
-              <span class="label">Manufacturer:</span>
-              <span class="value">${certificate?.manufacturer}</span>
-            </div>
-            <div class="field">
-              <span class="label">Year of Manufacture:</span>
-              <span class="value">${certificate?.yearOfManufacture}</span>
-            </div>
-            <div class="field">
-              <span class="label">Country of Origin:</span>
-              <span class="value">${certificate?.countryOfOrigin}</span>
-            </div>
-          </div>
 
-          <div class="section">
-            <h2>Technical Specifications</h2>
-            <div class="field">
-              <span class="label">Safe Working Load (SWL):</span>
-              <span class="value">${certificate?.swl}</span>
+            <div class="section">
+              <div class="section-title">Equipment Information</div>
+              <table>
+                <tr>
+                  <th style="width: 40%;">Field</th>
+                  <th>Value</th>
+                </tr>
+                <tr>
+                  <td><strong>Equipment Tag</strong></td>
+                  <td>${certificate.equipmentTag}</td>
+                </tr>
+                <tr>
+                  <td><strong>Equipment Type</strong></td>
+                  <td>${certificate.equipmentType}</td>
+                </tr>
+                <tr>
+                  <td><strong>Serial Number</strong></td>
+                  <td>${certificate.serialNo}</td>
+                </tr>
+                <tr>
+                  <td><strong>Model</strong></td>
+                  <td>${certificate.model}</td>
+                </tr>
+                <tr>
+                  <td><strong>Manufacturer</strong></td>
+                  <td>${certificate.manufacturer}</td>
+                </tr>
+                <tr>
+                  <td><strong>Year of Manufacture</strong></td>
+                  <td>${certificate.yearOfManufacture}</td>
+                </tr>
+                <tr>
+                  <td><strong>Country of Origin</strong></td>
+                  <td>${certificate.countryOfOrigin}</td>
+                </tr>
+              </table>
             </div>
-            <div class="field">
-              <span class="label">Maximum Allowable Working Pressure (MAWP):</span>
-              <span class="value">${certificate?.mawp}</span>
-            </div>
-          </div>
 
-          <div class="section">
-            <h2>Inspection Details</h2>
-            <div class="field">
-              <span class="label">Inspection Date:</span>
-              <span class="value">${certificate?.inspectionDate}</span>
+            <div class="section">
+              <div class="section-title">Technical Specifications</div>
+              <table>
+                <tr>
+                  <th style="width: 40%;">Field</th>
+                  <th>Value</th>
+                </tr>
+                <tr>
+                  <td><strong>Safe Working Load (SWL)</strong></td>
+                  <td>${certificate.swl}</td>
+                </tr>
+                <tr>
+                  <td><strong>Maximum Allowable Working Pressure (MAWP)</strong></td>
+                  <td>${certificate.mawp}</td>
+                </tr>
+                <tr>
+                  <td><strong>Inspection Date</strong></td>
+                  <td>${certificate.inspectionDate}</td>
+                </tr>
+                <tr>
+                  <td><strong>Next Inspection Date</strong></td>
+                  <td>${certificate.nextInspectionDate}</td>
+                </tr>
+                <tr>
+                  <td><strong>Test Status</strong></td>
+                  <td><span class="status status-${certificate.testStatus.toLowerCase()}">${certificate.testStatus}</span></td>
+                </tr>
+              </table>
             </div>
-            <div class="field">
-              <span class="label">Next Inspection Date:</span>
-              <span class="value">${certificate?.nextInspectionDate}</span>
-            </div>
-            <div class="field">
-              <span class="label">Test Status:</span>
-              <span class="value">${certificate?.testStatus}</span>
-            </div>
-          </div>
 
-          <div class="section">
-            <h2>Legal Framework</h2>
-            <p>${certificate?.legalFramework}</p>
-          </div>
+            <div class="section">
+              <div class="section-title">Legal Framework & Compliance</div>
+              <p style="padding: 10px; background: #f9f9f9; border-left: 4px solid #667eea; font-size: 12px; line-height: 1.6;">
+                This certificate confirms compliance with the following legal frameworks and regulations:
+              </p>
+              <p style="font-size: 12px; line-height: 1.8; margin: 10px 0;">
+                ${certificate.legalFramework}
+              </p>
+            </div>
 
-          <div class="footer">
-            <p>Generated: ${new Date().toLocaleDateString()} | Monroy QMS Platform</p>
-            <p>This is an official certificate. For verification, contact Monroy QMS.</p>
+            <div class="signature-area">
+              <div class="signature-line">
+                <p>Inspector Name</p>
+              </div>
+              <div class="signature-line">
+                <p>Date</p>
+              </div>
+              <div class="signature-line">
+                <p>Monroy QMS Authority</p>
+              </div>
+            </div>
+
+            <div class="footer">
+              <p>Generated on ${new Date().toLocaleDateString()} | Monroy QMS Platform</p>
+              <p>This is an official certificate. For verification and inquiries, contact Monroy QMS.</p>
+              <p>Certificate No: ${certificate.certNo} | Validity Period: ${certificate.issued} to ${certificate.expiry}</p>
+            </div>
           </div>
         </body>
       </html>
-    `);
+    `;
+    
+    printWindow.document.write(htmlContent);
     printWindow.document.close();
-    printWindow.print();
+    
+    setTimeout(() => {
+      printWindow.print();
+      setExporting(false);
+    }, 500);
+  }
+
+  function downloadWord() {
+    if (!certificate) return;
+
+    setExporting(true);
+    
+    try {
+      const wordContent = `
+        CERTIFICATE OF COMPLIANCE
+
+        Certificate Information
+        ${'-'.repeat(80)}
+        Certificate Number:          ${certificate.certNo}
+        Certificate Type:            ${certificate.type}
+        Status:                      ${certificate.status}
+        Date Issued:                 ${certificate.issued}
+        Expiry Date:                 ${certificate.expiry}
+        Client:                      ${certificate.client}
+
+        Equipment Information
+        ${'-'.repeat(80)}
+        Equipment Tag:               ${certificate.equipmentTag}
+        Equipment Type:              ${certificate.equipmentType}
+        Serial Number:               ${certificate.serialNo}
+        Model:                       ${certificate.model}
+        Manufacturer:                ${certificate.manufacturer}
+        Year of Manufacture:         ${certificate.yearOfManufacture}
+        Country of Origin:           ${certificate.countryOfOrigin}
+
+        Technical Specifications
+        ${'-'.repeat(80)}
+        Safe Working Load (SWL):     ${certificate.swl}
+        Max Allowable Working 
+        Pressure (MAWP):             ${certificate.mawp}
+        Inspection Date:             ${certificate.inspectionDate}
+        Next Inspection Date:        ${certificate.nextInspectionDate}
+        Test Status:                 ${certificate.testStatus}
+
+        Legal Framework & Compliance
+        ${'-'.repeat(80)}
+        ${certificate.legalFramework}
+
+        ---
+        Generated: ${new Date().toLocaleDateString()}
+        Monroy QMS Platform - Official Certificate
+        For verification, contact Monroy QMS
+        Certificate No: ${certificate.certNo}
+        Validity: ${certificate.issued} to ${certificate.expiry}
+      `;
+
+      const element = document.createElement("a");
+      const file = new Blob([wordContent], {type:'application/msword'});
+      element.href = URL.createObjectURL(file);
+      element.download = `${certificate.certNo}.doc`;
+      document.body.appendChild(element);
+      element.click();
+      document.body.removeChild(element);
+      setExporting(false);
+    } catch (error) {
+      console.error("Error:", error);
+      alert("Error downloading Word document");
+      setExporting(false);
+    }
   }
 
   if (loading) {
@@ -250,7 +334,7 @@ This is an official certificate issued by Monroy QMS Platform
     );
   }
 
-  const statusColor = { Valid:C.green, Expiring:C.yellow, Expired:C.pink };
+  const statusColor = { Valid:"#00c851", Expiring:"#ff6f00", Expired:"#d81b60" };
 
   return (
     <AppLayout>
@@ -263,16 +347,18 @@ This is an official certificate issued by Monroy QMS Platform
           <p style={{ color:"#64748b", margin:0, fontSize:13 }}>{certificate.type} · {certificate.client}</p>
         </div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-          <button onClick={downloadCertificate} style={{
+          <button onClick={downloadPDF} disabled={exporting} style={{
             padding:"9px 16px", borderRadius:10,
             background:"rgba(0,245,196,0.1)", border:"1px solid rgba(0,245,196,0.3)",
-            color:"#00f5c4", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit",
-          }}>⬇️ Download</button>
-          <button onClick={printCertificate} style={{
+            color:"#00f5c4", fontWeight:700, fontSize:12, cursor:exporting?"not-allowed":"pointer", fontFamily:"inherit",
+            opacity:exporting?0.6:1,
+          }}>📄 Export PDF</button>
+          <button onClick={downloadWord} disabled={exporting} style={{
             padding:"9px 16px", borderRadius:10,
             background:"rgba(79,195,247,0.15)", border:"1px solid rgba(79,195,247,0.3)",
-            color:C.blue, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit",
-          }}>🖨️ Print</button>
+            color:C.blue, fontWeight:700, fontSize:12, cursor:exporting?"not-allowed":"pointer", fontFamily:"inherit",
+            opacity:exporting?0.6:1,
+          }}>📋 Export Word</button>
         </div>
       </div>
 
@@ -280,8 +366,8 @@ This is an official certificate issued by Monroy QMS Platform
         {[
           { label:"Status", value:certificate.status, color:statusColor[certificate.status] },
           { label:"Issued", value:certificate.issued, color:C.blue },
-          { label:"Expiry", value:certificate.expiry, color:certificate.status==="Valid"?C.green:C.pink },
-          { label:"Test Status", value:certificate.testStatus, color:C.green },
+          { label:"Expiry", value:certificate.expiry, color:statusColor[certificate.status] },
+          { label:"Test Status", value:certificate.testStatus, color:"#00c851" },
         ].map(s=>(
           <div key={s.label} style={{
             background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.1)",
@@ -293,56 +379,177 @@ This is an official certificate issued by Monroy QMS Platform
         ))}
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))", gap:16 }}>
-        <div style={{
-          background:"rgba(255,255,255,0.02)", border:"1px solid rgba(79,195,247,0.2)",
-          borderRadius:16, padding:"20px",
-        }}>
-          <h3 style={{ fontSize:16, fontWeight:700, color:"#fff", marginTop:0 }}>Equipment Information</h3>
-          {[
-            { label:"Equipment Tag", value:certificate.equipmentTag },
-            { label:"Equipment Type", value:certificate.equipmentType },
-            { label:"Serial Number", value:certificate.serialNo },
-            { label:"Model", value:certificate.model },
-            { label:"Manufacturer", value:certificate.manufacturer },
-            { label:"Year", value:certificate.yearOfManufacture },
-            { label:"Country of Origin", value:certificate.countryOfOrigin },
-          ].map(f=>(
-            <div key={f.label} style={{ display:"flex", justifyContent:"space-between", padding:"10px 0", borderBottom:"1px solid rgba(255,255,255,0.04)", fontSize:13 }}>
-              <span style={{ color:"#64748b" }}>{f.label}</span>
-              <span style={{ color:"#e2e8f0", fontWeight:600 }}>{f.value}</span>
-            </div>
-          ))}
-        </div>
-
-        <div style={{
-          background:"rgba(255,255,255,0.02)", border:"1px solid rgba(0,245,196,0.2)",
-          borderRadius:16, padding:"20px",
-        }}>
-          <h3 style={{ fontSize:16, fontWeight:700, color:"#fff", marginTop:0 }}>Technical Specifications</h3>
-          {[
-            { label:"Safe Working Load (SWL)", value:certificate.swl },
-            { label:"Max Allowable Working Pressure (MAWP)", value:certificate.mawp },
-            { label:"Inspection Date", value:certificate.inspectionDate },
-            { label:"Next Inspection", value:certificate.nextInspectionDate },
-            { label:"Test Status", value:certificate.testStatus },
-          ].map(f=>(
-            <div key={f.label} style={{ display:"flex", justifyContent:"space-between", padding:"10px 0", borderBottom:"1px solid rgba(255,255,255,0.04)", fontSize:13 }}>
-              <span style={{ color:"#64748b" }}>{f.label}</span>
-              <span style={{ color:"#00f5c4", fontWeight:600 }}>{f.value}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={{
-        background:"rgba(255,255,255,0.02)", border:"1px solid rgba(124,92,252,0.2)",
-        borderRadius:16, padding:"20px", marginTop:16,
+      <div id="certificate-content" style={{
+        background:"rgba(255,255,255,0.02)", border:"1px solid rgba(79,195,247,0.2)",
+        borderRadius:16, padding:"24px",
       }}>
-        <h3 style={{ fontSize:16, fontWeight:700, color:"#fff", marginTop:0 }}>Legal Framework</h3>
-        <p style={{ color:"#cbd5e1", fontSize:13, lineHeight:"1.8" }}>
-          {certificate.legalFramework}
-        </p>
+        <div style={{ textAlign:"center", marginBottom:30, paddingBottom:20, borderBottom:"3px solid #667eea" }}>
+          <h2 style={{ color:"#667eea", margin:"0 0 8px", fontSize:28 }}>CERTIFICATE OF COMPLIANCE</h2>
+          <p style={{ margin:0, color:"#64748b", fontSize:12 }}>Monroy QMS Platform - Official Certificate</p>
+        </div>
+
+        {/* Certificate Information Table */}
+        <div style={{ marginBottom:30 }}>
+          <h3 style={{ fontSize:14, fontWeight:700, color:"#667eea", background:"#f5f5f5", padding:"10px", marginBottom:0, borderLeft:"4px solid #667eea" }}>
+            Certificate Information
+          </h3>
+          <table style={{ width:"100%", borderCollapse:"collapse", margin:"0" }}>
+            <tbody>
+              <tr style={{ borderBottom:"1px solid #ddd" }}>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, width:"40%", color:"#333" }}>Certificate Number</td>
+                <td style={{ padding:"12px", color:"#666" }}>{certificate.certNo}</td>
+              </tr>
+              <tr style={{ borderBottom:"1px solid #ddd" }}>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, color:"#333" }}>Certificate Type</td>
+                <td style={{ padding:"12px", color:"#666" }}>{certificate.type}</td>
+              </tr>
+              <tr style={{ borderBottom:"1px solid #ddd" }}>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, color:"#333" }}>Status</td>
+                <td style={{ padding:"12px" }}>
+                  <span style={{
+                    padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
+                    background:statusColor[certificate.status]+"33", color:statusColor[certificate.status],
+                    border:`1px solid ${statusColor[certificate.status]}`,
+                  }}>{certificate.status}</span>
+                </td>
+              </tr>
+              <tr style={{ borderBottom:"1px solid #ddd" }}>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, color:"#333" }}>Date Issued</td>
+                <td style={{ padding:"12px", color:"#666" }}>{certificate.issued}</td>
+              </tr>
+              <tr style={{ borderBottom:"1px solid #ddd" }}>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, color:"#333" }}>Expiry Date</td>
+                <td style={{ padding:"12px", color:"#666" }}>{certificate.expiry}</td>
+              </tr>
+              <tr>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, color:"#333" }}>Client</td>
+                <td style={{ padding:"12px", color:"#666" }}>{certificate.client}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Equipment Information Table */}
+        <div style={{ marginBottom:30 }}>
+          <h3 style={{ fontSize:14, fontWeight:700, color:"#667eea", background:"#f5f5f5", padding:"10px", marginBottom:0, borderLeft:"4px solid #667eea" }}>
+            Equipment Information
+          </h3>
+          <table style={{ width:"100%", borderCollapse:"collapse", margin:"0" }}>
+            <tbody>
+              <tr style={{ borderBottom:"1px solid #ddd" }}>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, width:"40%", color:"#333" }}>Equipment Tag</td>
+                <td style={{ padding:"12px", color:"#666" }}>{certificate.equipmentTag}</td>
+              </tr>
+              <tr style={{ borderBottom:"1px solid #ddd" }}>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, color:"#333" }}>Equipment Type</td>
+                <td style={{ padding:"12px", color:"#666" }}>{certificate.equipmentType}</td>
+              </tr>
+              <tr style={{ borderBottom:"1px solid #ddd" }}>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, color:"#333" }}>Serial Number</td>
+                <td style={{ padding:"12px", color:"#666" }}>{certificate.serialNo}</td>
+              </tr>
+              <tr style={{ borderBottom:"1px solid #ddd" }}>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, color:"#333" }}>Model</td>
+                <td style={{ padding:"12px", color:"#666" }}>{certificate.model}</td>
+              </tr>
+              <tr style={{ borderBottom:"1px solid #ddd" }}>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, color:"#333" }}>Manufacturer</td>
+                <td style={{ padding:"12px", color:"#666" }}>{certificate.manufacturer}</td>
+              </tr>
+              <tr style={{ borderBottom:"1px solid #ddd" }}>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, color:"#333" }}>Year of Manufacture</td>
+                <td style={{ padding:"12px", color:"#666" }}>{certificate.yearOfManufacture}</td>
+              </tr>
+              <tr>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, color:"#333" }}>Country of Origin</td>
+                <td style={{ padding:"12px", color:"#666" }}>{certificate.countryOfOrigin}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Technical Specifications Table */}
+        <div style={{ marginBottom:30 }}>
+          <h3 style={{ fontSize:14, fontWeight:700, color:"#667eea", background:"#f5f5f5", padding:"10px", marginBottom:0, borderLeft:"4px solid #667eea" }}>
+            Technical Specifications
+          </h3>
+          <table style={{ width:"100%", borderCollapse:"collapse", margin:"0" }}>
+            <tbody>
+              <tr style={{ borderBottom:"1px solid #ddd" }}>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, width:"40%", color:"#333" }}>Safe Working Load (SWL)</td>
+                <td style={{ padding:"12px", color:"#666" }}>{certificate.swl}</td>
+              </tr>
+              <tr style={{ borderBottom:"1px solid #ddd" }}>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, color:"#333" }}>Maximum Allowable Working Pressure (MAWP)</td>
+                <td style={{ padding:"12px", color:"#666" }}>{certificate.mawp}</td>
+              </tr>
+              <tr style={{ borderBottom:"1px solid #ddd" }}>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, color:"#333" }}>Inspection Date</td>
+                <td style={{ padding:"12px", color:"#666" }}>{certificate.inspectionDate}</td>
+              </tr>
+              <tr style={{ borderBottom:"1px solid #ddd" }}>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, color:"#333" }}>Next Inspection Date</td>
+                <td style={{ padding:"12px", color:"#666" }}>{certificate.nextInspectionDate}</td>
+              </tr>
+              <tr>
+                <td style={{ padding:"12px", background:"#fafafa", fontWeight:600, color:"#333" }}>Test Status</td>
+                <td style={{ padding:"12px" }}>
+                  <span style={{
+                    padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
+                    background:"#00c85133", color:"#00c851",
+                    border:"1px solid #00c851",
+                  }}>{certificate.testStatus}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Legal Framework Table */}
+        <div style={{ marginBottom:30 }}>
+          <h3 style={{ fontSize:14, fontWeight:700, color:"#667eea", background:"#f5f5f5", padding:"10px", marginBottom:0, borderLeft:"4px solid #667eea" }}>
+            Legal Framework & Compliance
+          </h3>
+          <div style={{ padding:"16px", background:"#fafafa", borderTop:"1px solid #ddd" }}>
+            <p style={{ margin:"0 0 10px", color:"#333", fontSize:12, fontWeight:600 }}>
+              This certificate confirms compliance with the following legal frameworks and regulations:
+            </p>
+            <p style={{ margin:0, color:"#666", fontSize:12, lineHeight:"1.8" }}>
+              {certificate.legalFramework}
+            </p>
+          </div>
+        </div>
+
+        {/* Signature Area */}
+        <div style={{
+          display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:20, marginTop:40, paddingTop:20, borderTop:"1px solid #ddd"
+        }}>
+          <div style={{ textAlign:"center" }}>
+            <div style={{ height:"60px", marginBottom:"10px" }}></div>
+            <p style={{ margin:0, borderTop:"1px solid #333", paddingTop:"8px", fontSize:11, color:"#333" }}>Inspector Signature</p>
+          </div>
+          <div style={{ textAlign:"center" }}>
+            <div style={{ height:"60px", marginBottom:"10px" }}></div>
+            <p style={{ margin:0, borderTop:"1px solid #333", paddingTop:"8px", fontSize:11, color:"#333" }}>Date</p>
+          </div>
+          <div style={{ textAlign:"center" }}>
+            <div style={{ height:"60px", marginBottom:"10px" }}></div>
+            <p style={{ margin:0, borderTop:"1px solid #333", paddingTop:"8px", fontSize:11, color:"#333" }}>Monroy QMS Authority</p>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ marginTop:40, textAlign:"center", paddingTop:20, borderTop:"1px solid #ddd" }}>
+          <p style={{ margin:"5px 0", fontSize:11, color:"#999" }}>
+            Generated on {new Date().toLocaleDateString()} | Monroy QMS Platform
+          </p>
+          <p style={{ margin:"5px 0", fontSize:11, color:"#999" }}>
+            This is an official certificate. For verification and inquiries, contact Monroy QMS.
+          </p>
+          <p style={{ margin:"5px 0", fontSize:11, color:"#999" }}>
+            Certificate No: {certificate.certNo} | Validity Period: {certificate.issued} to {certificate.expiry}
+          </p>
+        </div>
       </div>
     </AppLayout>
   );
