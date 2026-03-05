@@ -1,235 +1,228 @@
-
 "use client";
-import { useState, useEffect } from "react";
-import { useRouter, usePathname } from "next/navigation";
-import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 
-const C = {
-  green:  "#00f5c4",
-  purple: "#7c5cfc",
-  blue:   "#4fc3f7",
-  pink:   "#f472b6",
-  yellow: "#fbbf24",
-};
-
-const navItems = [
-  { id: "dashboard",    label: "Dashboard",    icon: "📊", href: "/dashboard"    },
-  { id: "clients",      label: "Clients",      icon: "🏢", href: "/clients"      },
-  { id: "equipment",    label: "Equipment",    icon: "⚙️", href: "/equipment"    },
-  { id: "inspections",  label: "Inspections",  icon: "🔍", href: "/inspections"  },
-  { id: "ncr",          label: "NCR",          icon: "⚠️", href: "/ncr"          },
-  { id: "certificates", label: "Certificates", icon: "📜", href: "/certificates" },
-  { id: "reports",      label: "Reports",      icon: "📈", href: "/reports"      },
-  { id: "admin",        label: "Admin",        icon: "⚡", href: "/admin"        },
-];
+const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7" };
 
 export default function AppLayout({ children }) {
-  const [user,        setUser]        = useState(null);
-  const [loading,     setLoading]     = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [pulse,       setPulse]       = useState(false);
-  const router   = useRouter();
-  const pathname = usePathname();
+  const router = useRouter();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  useEffect(() => { checkUser(); }, []);
-  useEffect(() => {
-    const t = setInterval(() => setPulse(p => !p), 2000);
-    return () => clearInterval(t);
-  }, []);
-
-  async function checkUser() {
-    try {
-      const { data } = await supabase.auth.getUser();
-      if (!data?.user) { router.push("/login"); return; }
-      setUser(data.user);
-    } catch { router.push("/login"); }
-    finally  { setLoading(false); }
-  }
-
-  async function handleLogout() {
-    await supabase.auth.signOut();
-    router.push("/login");
-  }
-
-  if (loading) return (
-    <div style={{
-      minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center",
-      background:"#0d0d1a", color:C.green, fontFamily:"Sora,sans-serif",
-      fontSize:16, fontWeight:700, letterSpacing:"0.1em",
-    }}>Loading…</div>
-  );
-
-  const SidebarContent = () => (
-    <div style={{ display:"flex", flexDirection:"column", height:"100%" }}>
-      {/* Logo */}
-      <div style={{ padding:"0 20px 28px" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:4 }}>
-          <div style={{
-            width:36, height:36, borderRadius:10,
-            background:`linear-gradient(135deg,${C.purple},${C.green})`,
-            display:"flex", alignItems:"center", justifyContent:"center",
-            fontSize:18, boxShadow:`0 0 16px rgba(124,92,252,0.5)`, flexShrink:0,
-          }}>⚡</div>
-          <div>
-            <div style={{
-              fontSize:16, fontWeight:800, letterSpacing:"0.04em",
-              background:`linear-gradient(90deg,${C.green},${C.blue})`,
-              WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent",
-            }}>Monroy QMS</div>
-            <div style={{ fontSize:9, color:"#64748b", letterSpacing:"0.15em", textTransform:"uppercase" }}>
-              Enterprise Platform
-            </div>
-          </div>
-        </div>
-        <div style={{
-          display:"flex", alignItems:"center", gap:6, marginTop:12,
-          padding:"6px 12px", background:"rgba(0,245,196,0.08)",
-          border:"1px solid rgba(0,245,196,0.2)", borderRadius:20, width:"fit-content",
-        }}>
-          <div style={{
-            width:7, height:7, borderRadius:"50%", background:C.green,
-            boxShadow: pulse ? `0 0 8px ${C.green}` : "none", transition:"box-shadow 0.5s",
-          }}/>
-          <span style={{ fontSize:10, color:C.green, fontWeight:600, letterSpacing:"0.08em" }}>LIVE</span>
-        </div>
-      </div>
-
-      {/* Nav */}
-      <nav style={{ flex:1, padding:"0 10px" }}>
-        {navItems.map(item => {
-          const active = pathname.startsWith(item.href);
-          return (
-            <Link key={item.id} href={item.href}
-              onClick={() => setSidebarOpen(false)}
-              style={{
-                display:"flex", alignItems:"center", gap:12,
-                padding:"11px 14px", borderRadius:10, marginBottom:3,
-                cursor:"pointer", textDecoration:"none",
-                background: active
-                  ? "linear-gradient(90deg,rgba(124,92,252,0.25),rgba(0,245,196,0.1))"
-                  : "transparent",
-                borderLeft: active ? `3px solid ${C.green}` : "3px solid transparent",
-                color: active ? "#fff" : "#64748b",
-                fontWeight: active ? 700 : 400,
-                fontSize:13, transition:"all 0.2s",
-              }}>
-              <span style={{ fontSize:15 }}>{item.icon}</span>
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* User */}
-      <div style={{ padding:"16px 16px 0" }}>
-        <div style={{
-          padding:"12px 14px", borderRadius:12,
-          background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.06)",
-          marginBottom:10, display:"flex", alignItems:"center", gap:10,
-        }}>
-          <div style={{
-            width:34, height:34, borderRadius:"50%", flexShrink:0,
-            background:`linear-gradient(135deg,${C.purple},${C.green})`,
-            display:"flex", alignItems:"center", justifyContent:"center",
-            fontWeight:800, fontSize:13,
-          }}>{user?.email?.[0].toUpperCase()}</div>
-          <div style={{ minWidth:0 }}>
-            <div style={{ fontSize:11, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-              {user?.email}
-            </div>
-            <div style={{ fontSize:10, color:"#64748b" }}>Admin</div>
-          </div>
-        </div>
-        <button onClick={handleLogout} style={{
-          width:"100%", padding:"9px",
-          background:"linear-gradient(90deg,rgba(124,92,252,0.3),rgba(0,245,196,0.15))",
-          border:"1px solid rgba(124,92,252,0.4)",
-          borderRadius:10, color:C.green,
-          fontWeight:700, fontSize:12, cursor:"pointer",
-          letterSpacing:"0.05em", fontFamily:"inherit",
-        }}>Logout</button>
-      </div>
-    </div>
-  );
+  const handleDashboardClick = () => {
+    router.push("/dashboard");
+    setMobileMenuOpen(false);
+  };
 
   return (
-    <div style={{ display:"flex", minHeight:"100vh", background:"#0d0d1a",
-      fontFamily:"'Sora','DM Sans',sans-serif", color:"#e2e8f0" }}>
-
-      {/* Desktop Sidebar */}
-      <aside className="desktop-sidebar" style={{
-        width:230, flexShrink:0,
-        background:"linear-gradient(180deg,#13132a 0%,#0f0f22 100%)",
-        borderRight:"1px solid rgba(124,92,252,0.2)",
-        padding:"28px 0 20px",
-        position:"sticky", top:0, height:"100vh", overflowY:"auto",
+    <div style={{ display:"flex", minHeight:"100vh", backgroundColor:"#0f1419", color:"#e2e8f0" }}>
+      {/* Sidebar - Hidden on mobile */}
+      <aside style={{
+        width:"280px", background:"linear-gradient(180deg, #1a1f2e 0%, #16192b 100%)",
+        padding:"24px 0", display:"flex", flexDirection:"column",
+        borderRight:"1px solid rgba(102, 126, 234, 0.15)",
+        position:"sticky", top:0, height:"100vh",
+        overflowY:"auto",
       }}>
-        <SidebarContent />
-      </aside>
-
-      {/* Mobile Overlay */}
-      {sidebarOpen && (
-        <div onClick={() => setSidebarOpen(false)} style={{
-          position:"fixed", inset:0, background:"rgba(0,0,0,0.6)",
-          zIndex:40, display:"none",
-        }} className="mobile-overlay"/>
-      )}
-
-      {/* Mobile Drawer */}
-      <aside className="mobile-sidebar" style={{
-        position:"fixed", left:0, top:0, bottom:0, width:230,
-        background:"linear-gradient(180deg,#13132a 0%,#0f0f22 100%)",
-        borderRight:"1px solid rgba(124,92,252,0.2)",
-        padding:"28px 0 20px",
-        zIndex:50, overflowY:"auto",
-        transform: sidebarOpen ? "translateX(0)" : "translateX(-100%)",
-        transition:"transform 0.3s ease",
-        display:"none",
-      }}>
-        <SidebarContent />
-      </aside>
-
-      {/* Content */}
-      <div style={{ flex:1, display:"flex", flexDirection:"column", minWidth:0 }}>
-
-        {/* Mobile topbar */}
-        <div className="mobile-topbar" style={{
-          display:"none", alignItems:"center", justifyContent:"space-between",
-          padding:"14px 16px",
-          background:"#13132a", borderBottom:"1px solid rgba(124,92,252,0.2)",
-          position:"sticky", top:0, zIndex:30,
-        }}>
-          <button onClick={() => setSidebarOpen(o => !o)} style={{
-            background:"rgba(124,92,252,0.15)", border:"1px solid rgba(124,92,252,0.3)",
-            borderRadius:8, color:"#fff", padding:"6px 10px", cursor:"pointer",
-            fontSize:18, lineHeight:1,
-          }}>☰</button>
-          <div style={{
-            fontSize:15, fontWeight:800,
-            background:`linear-gradient(90deg,${C.green},${C.blue})`,
-            WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent",
-          }}>Monroy QMS</div>
-          <div style={{ width:36 }}/>
+        {/* Logo */}
+        <div 
+          onClick={handleDashboardClick}
+          style={{
+            padding:"0 24px 32px", borderBottom:"1px solid rgba(102, 126, 234, 0.1)",
+            cursor:"pointer", transition:"all 0.25s", display:"flex", alignItems:"center", gap:12,
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.opacity = "0.8"}
+          onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
+        >
+          <div style={{ width:50, height:50, position:"relative", flexShrink:0 }}>
+            <img 
+              src="/logo.png" 
+              alt="Monroy Logo"
+              style={{ width:"100%", height:"100%", objectFit:"contain" }}
+            />
+          </div>
+          <div>
+            <h2 style={{
+              fontSize:14, fontWeight:900, margin:0, color:"#fff", letterSpacing:"-0.5px",
+            }}>Monroy</h2>
+            <p style={{ margin:"2px 0 0", fontSize:10, color:"rgba(255,255,255,0.6)", fontWeight:500, textTransform:"uppercase", letterSpacing:"0.5px" }}>QMS Platform</p>
+          </div>
         </div>
 
-        <main style={{ flex:1, padding:"32px", overflowY:"auto" }} className="main-content">
+        {/* Navigation */}
+        <nav style={{ flex:1, padding:"16px 12px", display:"flex", flexDirection:"column", gap:6 }}>
+          {[
+            { id:"dashboard", label:"Dashboard", icon:"📊", href:"/dashboard" },
+            { id:"clients", label:"Clients", icon:"🏢", href:"/clients" },
+            { id:"equipment", label:"Equipment", icon:"⚙️", href:"/equipment" },
+            { id:"inspections", label:"Inspections", icon:"🔍", href:"/inspections" },
+            { id:"ncr", label:"NCR", icon:"⚠️", href:"/ncr" },
+            { id:"certificates", label:"Certificates", icon:"📜", href:"/certificates" },
+            { id:"reports", label:"Reports", icon:"📈", href:"/reports" },
+            { id:"admin", label:"Admin", icon:"⚡", href:"/admin" },
+          ].map(item => (
+            <button
+              key={item.id}
+              onClick={() => router.push(item.href)}
+              style={{
+                background:"none", border:"none", color:"rgba(255,255,255,0.65)",
+                padding:"12px 16px", fontSize:14, fontWeight:500, borderRadius:8,
+                cursor:"pointer", transition:"all 0.25s", textAlign:"left",
+                display:"flex", alignItems:"center", gap:12, fontFamily:"inherit",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(102, 126, 234, 0.12)";
+                e.currentTarget.style.color = "#fff";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "none";
+                e.currentTarget.style.color = "rgba(255,255,255,0.65)";
+              }}
+            >
+              <span style={{ fontSize:18, minWidth:24 }}>{item.icon}</span>
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        {/* User Section */}
+        <div style={{ padding:"16px 12px", borderTop:"1px solid rgba(102, 126, 234, 0.1)" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
+            <div style={{
+              width:40, height:40, borderRadius:10,
+              background:`linear-gradient(135deg, #667eea 0%, #764ba2 100%)`,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              fontWeight:700, fontSize:16,
+            }}>A</div>
+            <div style={{ minWidth:0 }}>
+              <p style={{ fontSize:13, fontWeight:500, color:"#fff", margin:0 }}>Admin</p>
+              <p style={{ fontSize:11, margin:"2px 0 0", color:"rgba(255,255,255,0.5)" }}>admin@monroy.com</p>
+            </div>
+          </div>
+          <button style={{
+            width:"100%", background:"rgba(102, 126, 234, 0.15)",
+            border:"1px solid rgba(102, 126, 234, 0.3)", color:"#667eea",
+            padding:"8px 12px", borderRadius:6, fontSize:12, fontWeight:600,
+            cursor:"pointer", transition:"all 0.25s", fontFamily:"inherit",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "rgba(102, 126, 234, 0.25)";
+            e.currentTarget.style.borderColor = "rgba(102, 126, 234, 0.5)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "rgba(102, 126, 234, 0.15)";
+            e.currentTarget.style.borderColor = "rgba(102, 126, 234, 0.3)";
+          }}>
+            Logout
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <div style={{ flex:1, display:"flex", flexDirection:"column" }}>
+        {/* Top Header - Mobile */}
+        <header style={{
+          display:"none", alignItems:"center", justifyContent:"space-between",
+          padding:"12px 16px", backgroundColor:"#1a1f2e",
+          borderBottom:"1px solid rgba(102, 126, 234, 0.15)",
+          position:"sticky", top:0, zIndex:100,
+        }}>
+          {/* Logo/Title */}
+          <div 
+            onClick={handleDashboardClick}
+            style={{
+              display:"flex", alignItems:"center", gap:8, cursor:"pointer",
+              transition:"all 0.25s",
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.opacity = "0.8"}
+            onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
+          >
+            <div style={{ width:40, height:40, position:"relative" }}>
+              <img 
+                src="/logo.png" 
+                alt="Monroy Logo"
+                style={{ width:"100%", height:"100%", objectFit:"contain" }}
+              />
+            </div>
+            <div>
+              <h1 style={{
+                fontSize:14, fontWeight:900, margin:0, color:"#fff"
+              }}>Monroy</h1>
+              <p style={{ margin:0, fontSize:9, color:"rgba(255,255,255,0.5)" }}>QMS</p>
+            </div>
+          </div>
+
+          {/* Mobile Menu Button */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            style={{
+              background:"rgba(102, 126, 234, 0.15)", border:"1px solid rgba(102, 126, 234, 0.3)",
+              color:"#667eea", padding:8, borderRadius:6, cursor:"pointer",
+              fontSize:18, display:"flex", alignItems:"center", justifyContent:"center",
+              fontFamily:"inherit",
+            }}
+          >
+            {mobileMenuOpen ? "✕" : "☰"}
+          </button>
+        </header>
+
+        {/* Mobile Menu */}
+        {mobileMenuOpen && (
+          <nav style={{
+            display:"flex", flexDirection:"column", gap:2, padding:"12px",
+            backgroundColor:"#1a1f2e", borderBottom:"1px solid rgba(102, 126, 234, 0.15)",
+          }}>
+            {[
+              { id:"dashboard", label:"Dashboard", icon:"📊", href:"/dashboard" },
+              { id:"clients", label:"Clients", icon:"🏢", href:"/clients" },
+              { id:"equipment", label:"Equipment", icon:"⚙️", href:"/equipment" },
+              { id:"inspections", label:"Inspections", icon:"🔍", href:"/inspections" },
+              { id:"ncr", label:"NCR", icon:"⚠️", href:"/ncr" },
+              { id:"certificates", label:"Certificates", icon:"📜", href:"/certificates" },
+              { id:"reports", label:"Reports", icon:"📈", href:"/reports" },
+              { id:"admin", label:"Admin", icon:"⚡", href:"/admin" },
+            ].map(item => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  router.push(item.href);
+                  setMobileMenuOpen(false);
+                }}
+                style={{
+                  background:"rgba(102, 126, 234, 0.08)", border:"none",
+                  color:"#e2e8f0", padding:"12px 16px", fontSize:13,
+                  fontWeight:500, borderRadius:6, cursor:"pointer",
+                  transition:"all 0.25s", textAlign:"left",
+                  display:"flex", alignItems:"center", gap:12,
+                  fontFamily:"inherit",
+                }}
+              >
+                <span style={{ fontSize:16 }}>{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
+        )}
+
+        {/* Page Content */}
+        <main style={{
+          flex:1, padding:"32px", overflowY:"auto",
+        }}>
           {children}
         </main>
       </div>
 
+      {/* Mobile Responsive Styles */}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800;900&display=swap');
-        * { box-sizing:border-box; margin:0; padding:0; }
-        ::-webkit-scrollbar { width:6px; }
-        ::-webkit-scrollbar-track { background:#0d0d1a; }
-        ::-webkit-scrollbar-thumb { background:rgba(124,92,252,0.4); border-radius:4px; }
         @media (max-width: 768px) {
-          .desktop-sidebar { display: none !important; }
-          .mobile-sidebar   { display: block !important; }
-          .mobile-topbar    { display: flex !important; }
-          .mobile-overlay   { display: block !important; }
-          .main-content     { padding: 16px !important; }
+          aside {
+            display: none !important;
+          }
+          header {
+            display: flex !important;
+          }
+          main {
+            padding: 16px !important;
+          }
         }
       `}</style>
     </div>
