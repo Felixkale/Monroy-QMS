@@ -6,6 +6,7 @@ const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
   const [role, setRole] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -16,12 +17,28 @@ export function AuthProvider({ children }) {
   async function checkAuth() {
     try {
       const { data } = await supabase.auth.getUser();
+      
       if (data?.user) {
         setUser(data.user);
-        // Get user role from database or use email pattern
-        const userRole = getUserRole(data.user.email);
-        setRole(userRole);
+        
+        // Fetch user profile from users table
+        const { data: profileData, error } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', data.user.id)
+          .single();
+
+        if (error) {
+          console.error("Error fetching profile:", error);
+          setRole('user');
+        } else {
+          setUserProfile(profileData);
+          setRole(profileData?.role || 'user');
+        }
+      } else {
+        setRole(null);
       }
+      
       setLoading(false);
     } catch (error) {
       console.error("Auth error:", error);
@@ -29,23 +46,15 @@ export function AuthProvider({ children }) {
     }
   }
 
-  function getUserRole(email) {
-    // Super Admin
-    if (email === "superadmin@monroy.com") return "superadmin";
-    // Admin
-    if (email === "admin@monroy.com") return "admin";
-    // Inspector
-    if (email?.includes("inspector")) return "inspector";
-    // Supervisor
-    if (email?.includes("supervisor")) return "supervisor";
-    // Client
-    if (email?.includes("client")) return "client";
-    // Default
-    return "user";
+  async function logout() {
+    await supabase.auth.signOut();
+    setUser(null);
+    setUserProfile(null);
+    setRole(null);
   }
 
   return (
-    <AuthContext.Provider value={{ user, role, loading, checkAuth }}>
+    <AuthContext.Provider value={{ user, userProfile, role, loading, checkAuth, logout }}>
       {children}
     </AuthContext.Provider>
   );
