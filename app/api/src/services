@@ -1,0 +1,569 @@
+// ==================== CLIENTS SERVICE ====================
+// File: apps/api/src/services/clients.service.ts
+
+import { supabaseService } from "../config/supabase";
+import { HttpError } from "../utils/httpError";
+
+export async function listClients() {
+  const { data, error } = await supabaseService
+    .from("clients")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data ?? [];
+}
+
+export async function createClient(payload: any) {
+  if (!payload?.company_name) throw new HttpError(400, "Company name is required");
+
+  const { data, error } = await supabaseService
+    .from("clients")
+    .insert({
+      company_name: payload.company_name,
+      company_code: payload.company_code ?? null,
+      contact_email: payload.contact_email ?? null,
+      contact_phone: payload.contact_phone ?? null,
+      status: payload.status ?? "active"
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data;
+}
+
+export async function getClient(id: string) {
+  const { data, error } = await supabaseService
+    .from("clients")
+    .select("*, sites(*), assets(*)")
+    .eq("id", id)
+    .single();
+
+  if (error) throw new HttpError(404, "Client not found");
+  return data;
+}
+
+export async function updateClient(id: string, payload: any) {
+  const { data, error } = await supabaseService
+    .from("clients")
+    .update({
+      company_name: payload.company_name,
+      company_code: payload.company_code,
+      contact_email: payload.contact_email,
+      contact_phone: payload.contact_phone,
+      status: payload.status
+    })
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data;
+}
+
+export async function deleteClient(id: string) {
+  const { error } = await supabaseService.from("clients").delete().eq("id", id);
+  if (error) throw new HttpError(400, error.message, error);
+}
+
+// ==================== SITES SERVICE ====================
+// File: apps/api/src/services/sites.service.ts
+
+export async function listSites(clientId?: string) {
+  let query = supabaseService.from("sites").select("*");
+
+  if (clientId) {
+    query = query.eq("client_id", clientId);
+  }
+
+  const { data, error } = await query.order("created_at", { ascending: false });
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data ?? [];
+}
+
+export async function createSite(payload: any) {
+  if (!payload?.site_name) throw new HttpError(400, "Site name is required");
+
+  const { data, error } = await supabaseService
+    .from("sites")
+    .insert({
+      client_id: payload.client_id,
+      site_name: payload.site_name,
+      site_code: payload.site_code ?? null,
+      location: payload.location ?? null,
+      status: payload.status ?? "active"
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data;
+}
+
+export async function getSite(id: string) {
+  const { data, error } = await supabaseService
+    .from("sites")
+    .select("*, assets(*)")
+    .eq("id", id)
+    .single();
+
+  if (error) throw new HttpError(404, "Site not found");
+  return data;
+}
+
+export async function updateSite(id: string, payload: any) {
+  const { data, error } = await supabaseService
+    .from("sites")
+    .update({
+      site_name: payload.site_name,
+      site_code: payload.site_code,
+      location: payload.location,
+      status: payload.status
+    })
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data;
+}
+
+export async function deleteSite(id: string) {
+  const { error } = await supabaseService.from("sites").delete().eq("id", id);
+  if (error) throw new HttpError(400, error.message, error);
+}
+
+// ==================== ASSETS SERVICE ====================
+// File: apps/api/src/services/assets.service.ts
+
+export async function listAssets(clientId?: string, siteId?: string) {
+  let query = supabaseService.from("assets").select("*");
+
+  if (clientId) query = query.eq("client_id", clientId);
+  if (siteId) query = query.eq("site_id", siteId);
+
+  const { data, error } = await query.order("created_at", { ascending: false });
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data ?? [];
+}
+
+export async function createAsset(payload: any) {
+  if (!payload?.asset_name) throw new HttpError(400, "Asset name is required");
+
+  const { data, error } = await supabaseService
+    .from("assets")
+    .insert({
+      client_id: payload.client_id,
+      site_id: payload.site_id,
+      asset_tag: payload.asset_tag ?? null,
+      asset_name: payload.asset_name,
+      manufacturer: payload.manufacturer ?? null,
+      model: payload.model ?? null,
+      serial_number: payload.serial_number ?? null,
+      year_of_make: payload.year_of_make ?? null,
+      service: payload.service ?? null,
+      status: payload.status ?? "active",
+      risk_class: payload.risk_class ?? "medium",
+      next_due_date: payload.next_due_date ?? null
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+
+  if (payload.nameplate) {
+    await addAssetNameplate(data.id, payload.nameplate);
+  }
+
+  return data;
+}
+
+export async function getAsset(id: string) {
+  const { data: asset, error } = await supabaseService
+    .from("assets")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (error) throw new HttpError(404, "Asset not found");
+
+  const { data: nameplate } = await supabaseService
+    .from("asset_nameplate")
+    .select("*")
+    .eq("asset_id", id)
+    .single();
+
+  return { ...asset, nameplate };
+}
+
+export async function updateAsset(id: string, payload: any) {
+  const { data, error } = await supabaseService
+    .from("assets")
+    .update({
+      asset_name: payload.asset_name,
+      manufacturer: payload.manufacturer,
+      model: payload.model,
+      serial_number: payload.serial_number,
+      year_of_make: payload.year_of_make,
+      service: payload.service,
+      status: payload.status,
+      risk_class: payload.risk_class,
+      next_due_date: payload.next_due_date
+    })
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+
+  if (payload.nameplate) {
+    await addAssetNameplate(id, payload.nameplate);
+  }
+
+  return data;
+}
+
+export async function deleteAsset(id: string) {
+  const { error } = await supabaseService.from("assets").delete().eq("id", id);
+  if (error) throw new HttpError(400, error.message, error);
+}
+
+export async function addAssetNameplate(assetId: string, payload: any) {
+  const { error } = await supabaseService
+    .from("asset_nameplate")
+    .upsert({
+      asset_id: assetId,
+      design_code: payload.design_code ?? null,
+      mawp: payload.mawp ?? null,
+      design_pressure: payload.design_pressure ?? null,
+      test_pressure: payload.test_pressure ?? null,
+      design_temp_min: payload.design_temp_min ?? null,
+      design_temp_max: payload.design_temp_max ?? null,
+      material: payload.material ?? null,
+      corrosion_allowance: payload.corrosion_allowance ?? null,
+      capacity: payload.capacity ?? null,
+      joint_efficiency: payload.joint_efficiency ?? null,
+      relief_valve_pressure: payload.relief_valve_pressure ?? null
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+}
+
+// ==================== INSPECTIONS SERVICE ====================
+// File: apps/api/src/services/inspections.service.ts
+
+export async function listInspections(clientId?: string) {
+  let query = supabaseService
+    .from("inspections")
+    .select("*, assets(*), users(*), ncrs(*)");
+
+  if (clientId) query = query.eq("client_id", clientId);
+
+  const { data, error } = await query.order("created_at", { ascending: false });
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data ?? [];
+}
+
+export async function createInspection(payload: any) {
+  if (!payload?.asset_id) throw new HttpError(400, "Asset ID is required");
+
+  const { data, error } = await supabaseService
+    .from("inspections")
+    .insert({
+      client_id: payload.client_id,
+      site_id: payload.site_id,
+      asset_id: payload.asset_id,
+      inspection_type: payload.inspection_type ?? "routine",
+      status: payload.status ?? "planned",
+      inspector_id: payload.inspector_id ?? null,
+      next_due_date: payload.next_due_date ?? null
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data;
+}
+
+export async function getInspection(id: string) {
+  const { data, error } = await supabaseService
+    .from("inspections")
+    .select("*, assets(*), users(*), inspection_responses(*), inspection_measurements(*), inspection_files(*), ncrs(*)")
+    .eq("id", id)
+    .single();
+
+  if (error) throw new HttpError(404, "Inspection not found");
+  return data;
+}
+
+export async function updateInspection(id: string, payload: any) {
+  const { data, error } = await supabaseService
+    .from("inspections")
+    .update({
+      status: payload.status,
+      result: payload.result,
+      summary: payload.summary,
+      inspected_at: payload.inspected_at,
+      next_due_date: payload.next_due_date
+    })
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data;
+}
+
+export async function deleteInspection(id: string) {
+  const { error } = await supabaseService.from("inspections").delete().eq("id", id);
+  if (error) throw new HttpError(400, error.message, error);
+}
+
+export async function addInspectionMeasurement(payload: any) {
+  const { data, error } = await supabaseService
+    .from("inspection_measurements")
+    .insert({
+      inspection_id: payload.inspection_id,
+      measurement_type: payload.measurement_type,
+      point_code: payload.point_code,
+      value: payload.value,
+      unit: payload.unit ?? "mm",
+      notes: payload.notes ?? null
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data;
+}
+
+// ==================== NCR SERVICE ====================
+// File: apps/api/src/services/ncr.service.ts
+
+export async function listNCRs(clientId?: string) {
+  let query = supabaseService
+    .from("ncrs")
+    .select("*, assets(*), users(*), ncr_actions(*), ncr_evidence(*)");
+
+  if (clientId) query = query.eq("client_id", clientId);
+
+  const { data, error } = await query.order("created_at", { ascending: false });
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data ?? [];
+}
+
+export async function createNCR(payload: any) {
+  if (!payload?.title) throw new HttpError(400, "NCR title is required");
+
+  const ncrNumber = `NCR-${Date.now()}`;
+
+  const { data, error } = await supabaseService
+    .from("ncrs")
+    .insert({
+      client_id: payload.client_id,
+      site_id: payload.site_id ?? null,
+      asset_id: payload.asset_id ?? null,
+      inspection_id: payload.inspection_id ?? null,
+      ncr_number: ncrNumber,
+      title: payload.title,
+      description: payload.description ?? null,
+      severity: payload.severity ?? "major",
+      status: payload.status ?? "open",
+      assigned_to: payload.assigned_to ?? null,
+      due_date: payload.due_date ?? null
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data;
+}
+
+export async function getNCR(id: string) {
+  const { data, error } = await supabaseService
+    .from("ncrs")
+    .select("*, assets(*), users(*), ncr_actions(*), ncr_evidence(*)")
+    .eq("id", id)
+    .single();
+
+  if (error) throw new HttpError(404, "NCR not found");
+  return data;
+}
+
+export async function updateNCR(id: string, payload: any) {
+  const { data, error } = await supabaseService
+    .from("ncrs")
+    .update({
+      title: payload.title,
+      description: payload.description,
+      severity: payload.severity,
+      status: payload.status,
+      root_cause: payload.root_cause,
+      assigned_to: payload.assigned_to,
+      due_date: payload.due_date
+    })
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data;
+}
+
+export async function deleteNCR(id: string) {
+  const { error } = await supabaseService.from("ncrs").delete().eq("id", id);
+  if (error) throw new HttpError(400, error.message, error);
+}
+
+export async function addNCRAction(payload: any) {
+  const { data, error } = await supabaseService
+    .from("ncr_actions")
+    .insert({
+      ncr_id: payload.ncr_id,
+      action_text: payload.action_text,
+      owner_id: payload.owner_id,
+      due_date: payload.due_date,
+      status: payload.status ?? "open"
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data;
+}
+
+export async function updateNCRAction(actionId: string, status: string) {
+  const { data, error } = await supabaseService
+    .from("ncr_actions")
+    .update({ status })
+    .eq("id", actionId)
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data;
+}
+
+// ==================== CERTIFICATES SERVICE ====================
+// File: apps/api/src/services/certificates.service.ts
+
+export async function listCertificates(clientId?: string) {
+  let query = supabaseService
+    .from("certificates")
+    .select("*, assets(*), inspections(*)");
+
+  if (clientId) query = query.eq("client_id", clientId);
+
+  const { data, error } = await query.order("created_at", { ascending: false });
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data ?? [];
+}
+
+export async function createCertificate(payload: any) {
+  if (!payload?.certificate_number) 
+    throw new HttpError(400, "Certificate number is required");
+
+  const { data, error } = await supabaseService
+    .from("certificates")
+    .insert({
+      client_id: payload.client_id,
+      site_id: payload.site_id ?? null,
+      asset_id: payload.asset_id ?? null,
+      inspection_id: payload.inspection_id ?? null,
+      certificate_number: payload.certificate_number,
+      valid_from: payload.valid_from,
+      valid_to: payload.valid_to,
+      status: payload.status ?? "issued"
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data;
+}
+
+export async function getCertificate(id: string) {
+  const { data, error } = await supabaseService
+    .from("certificates")
+    .select("*, assets(*), inspections(*)")
+    .eq("id", id)
+    .single();
+
+  if (error) throw new HttpError(404, "Certificate not found");
+  return data;
+}
+
+export async function updateCertificate(id: string, payload: any) {
+  const { data, error } = await supabaseService
+    .from("certificates")
+    .update({
+      valid_from: payload.valid_from,
+      valid_to: payload.valid_to,
+      status: payload.status
+    })
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data;
+}
+
+export async function deleteCertificate(id: string) {
+  const { error } = await supabaseService.from("certificates").delete().eq("id", id);
+  if (error) throw new HttpError(400, error.message, error);
+}
+
+// ==================== ALERTS SERVICE ====================
+// File: apps/api/src/services/alerts.service.ts
+
+export async function listAlerts(clientId?: string) {
+  let query = supabaseService.from("alerts").select("*");
+
+  if (clientId) query = query.eq("client_id", clientId);
+
+  const { data, error } = await query
+    .eq("status", "open")
+    .order("created_at", { ascending: false });
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data ?? [];
+}
+
+export async function createAlert(payload: any) {
+  const { data, error } = await supabaseService
+    .from("alerts")
+    .insert({
+      client_id: payload.client_id,
+      site_id: payload.site_id ?? null,
+      asset_id: payload.asset_id ?? null,
+      ncr_id: payload.ncr_id ?? null,
+      alert_type: payload.alert_type,
+      severity: payload.severity ?? "medium",
+      title: payload.title,
+      message: payload.message,
+      status: payload.status ?? "open"
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new HttpError(400, error.message, error);
+  return data;
+}
+
+export async function closeAlert(id: string) {
+  const { error } = await supabaseService
+    .from("alerts")
+    .update({ status: "closed" })
+    .eq("id", id);
+
+  if (error) throw new HttpError(400, error.message, error);
+}
