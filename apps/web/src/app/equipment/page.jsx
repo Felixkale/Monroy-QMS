@@ -1,5 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 import AppLayout from "@/components/AppLayout";
 
 const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7", pink:"#f472b6", yellow:"#fbbf24" };
@@ -25,8 +27,23 @@ const typeColors = {
 const licenseColor = { Valid:C.green, Expiring:C.yellow, Expired:C.pink };
 
 export default function EquipmentPage() {
+  const router = useRouter();
   const [search,     setSearch]     = useState("");
   const [filterType, setFilterType] = useState("All");
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  async function checkAuth() {
+    const { data } = await supabase.auth.getUser();
+    if (!data?.user) {
+      router.push("/login");
+      return;
+    }
+    setUser(data.user);
+  }
 
   const types = ["All", ...Array.from(new Set(equipment.map(e=>e.type)))];
   const filtered = equipment.filter(e =>
@@ -34,6 +51,10 @@ export default function EquipmentPage() {
     (e.tag.toLowerCase().includes(search.toLowerCase()) ||
      e.client.toLowerCase().includes(search.toLowerCase()))
   );
+
+  const handleEquipmentClick = (tag) => {
+    router.push(`/equipment/${tag}`);
+  };
 
   return (
     <AppLayout>
@@ -105,7 +126,7 @@ export default function EquipmentPage() {
         </div>
       </div>
 
-      {/* Equipment Cards */}
+      {/* Equipment Cards - Now Clickable */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14 }}>
         {filtered.map(e=>{
           const tColor = typeColors[e.type] || C.purple;
@@ -113,13 +134,28 @@ export default function EquipmentPage() {
           const lColor = licenseColor[e.license];
           const lRgba  = rgbaMap[lColor];
           return (
-            <div key={e.tag} style={{
-              background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
-              border:`1px solid rgba(${tRgba},0.25)`,
-              borderRadius:14, padding:"18px 20px",
-              boxShadow:`0 0 20px rgba(${tRgba},0.08)`,
-              position:"relative", overflow:"hidden", cursor:"pointer",
-            }}>
+            <div 
+              key={e.tag} 
+              onClick={() => handleEquipmentClick(e.tag)}
+              style={{
+                background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
+                border:`1px solid rgba(${tRgba},0.25)`,
+                borderRadius:14, padding:"18px 20px",
+                boxShadow:`0 0 20px rgba(${tRgba},0.08)`,
+                position:"relative", overflow:"hidden", cursor:"pointer",
+                transition:"all 0.25s ease",
+              }}
+              onMouseEnter={(el) => {
+                el.currentTarget.style.borderColor = `rgba(${tRgba},0.5)`;
+                el.currentTarget.style.boxShadow = `0 0 30px rgba(${tRgba},0.2)`;
+                el.currentTarget.style.transform = "translateY(-4px)";
+              }}
+              onMouseLeave={(el) => {
+                el.currentTarget.style.borderColor = `rgba(${tRgba},0.25)`;
+                el.currentTarget.style.boxShadow = `0 0 20px rgba(${tRgba},0.08)`;
+                el.currentTarget.style.transform = "translateY(0)";
+              }}
+            >
               <div style={{ position:"absolute", top:0, left:0, right:0, height:3,
                 background:`linear-gradient(90deg,${tColor},transparent)` }}/>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
@@ -133,13 +169,13 @@ export default function EquipmentPage() {
                   border:`1px solid rgba(${tRgba},0.3)`,
                 }}>{e.type}</span>
               </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, fontSize:12 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, fontSize:12, marginBottom:12 }}>
                 <div><span style={{ color:"#64748b" }}>Client: </span><span style={{ color:"#cbd5e1" }}>{e.client}</span></div>
                 <div><span style={{ color:"#64748b" }}>Mfr: </span><span style={{ color:"#cbd5e1" }}>{e.manufacturer}</span></div>
                 <div><span style={{ color:"#64748b" }}>Year: </span><span style={{ color:"#cbd5e1" }}>{e.year}</span></div>
                 <div><span style={{ color:"#64748b" }}>Next: </span><span style={{ color:"#cbd5e1" }}>{e.nextInsp}</span></div>
               </div>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:12 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, flexWrap:"wrap" }}>
                 <span style={{
                   padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
                   background:`rgba(${lRgba},0.12)`, color:lColor,
