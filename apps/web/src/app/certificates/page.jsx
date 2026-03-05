@@ -1,27 +1,71 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 import AppLayout from "@/components/AppLayout";
 
 const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7", pink:"#f472b6", yellow:"#fbbf24" };
 const rgbaMap = { [C.green]:"0,245,196",[C.blue]:"79,195,247",[C.purple]:"124,92,252",[C.pink]:"244,114,182",[C.yellow]:"251,191,36" };
 
-const certs = [
-  { id:"CERT-0889", type:"Equipment Certification",    equipment:"PV-0041",  client:"Acme Industrial Corp", issued:"2025-06-01", expiry:"2026-06-01", status:"Valid"    },
-  { id:"CERT-0888", type:"Inspection Approval",        equipment:"AR-0067",  client:"MineOps Ltd",          issued:"2025-08-20", expiry:"2026-08-20", status:"Valid"    },
-  { id:"CERT-0887", type:"ISO Certification",          equipment:"N/A",      client:"TechPlant Inc",        issued:"2025-01-15", expiry:"2026-04-15", status:"Expiring" },
-  { id:"CERT-0886", type:"Compliance Certificate",     equipment:"LE-0034",  client:"Cargo Hub",            issued:"2025-05-10", expiry:"2026-05-10", status:"Valid"    },
-  { id:"CERT-0885", type:"Equipment Certification",    equipment:"BL-0031",  client:"SafePort Holdings",    issued:"2025-09-12", expiry:"2026-09-12", status:"Valid"    },
-  { id:"CERT-0884", type:"Inspection Approval",        equipment:"ST-0023",  client:"Delta Refineries",     issued:"2025-07-30", expiry:"2026-07-30", status:"Valid"    },
-  { id:"CERT-0883", type:"Equipment Certification",    equipment:"CP-0089",  client:"TechPlant Inc",        issued:"2024-03-01", expiry:"2025-03-01", status:"Expired"  },
-  { id:"CERT-0882", type:"ISO Certification",          equipment:"N/A",      client:"PowerGen Africa",      issued:"2024-01-01", expiry:"2025-01-01", status:"Expired"  },
+const allCertificates = [
+  {
+    id:"CERT-0889", certNo:"CERT-0889", type:"Equipment Certification", equipmentTag:"PV-0041", equipmentType:"Pressure Vessel",
+    serialNo:"S-10041", model:"PV-Standard-2020", swl:"N/A", mawp:"10 bar",
+    countryOfOrigin:"South Africa", yearOfManufacture:2018, manufacturer:"ASME Corp",
+    inspectionDate:"2026-03-05", nextInspectionDate:"2026-06-01", testStatus:"Pass",
+    legalFramework:"MIBE, Quarries Works and Machinery Act CAP 4.4:02, Factories Act 44.01",
+    issued:"2025-06-01", expiry:"2026-06-01", status:"Valid", client:"Acme Industrial Corp",
+  },
+  {
+    id:"CERT-0856", certNo:"CERT-0856", type:"ISO Certification", equipmentTag:"BL-0012", equipmentType:"Boiler",
+    serialNo:"S-20012", model:"BL-2015", swl:"N/A", mawp:"16 bar",
+    countryOfOrigin:"South Africa", yearOfManufacture:2015, manufacturer:"ThermTech",
+    inspectionDate:"2025-09-15", nextInspectionDate:"2026-09-15", testStatus:"Pass",
+    legalFramework:"MIBE, Quarries Works and Machinery Act CAP 4.4:02",
+    issued:"2025-01-15", expiry:"2026-01-15", status:"Expired", client:"SteelWorks Ltd",
+  },
+  {
+    id:"CERT-0901", certNo:"CERT-0901", type:"Compliance Certificate", equipmentTag:"AR-0067", equipmentType:"Air Receiver",
+    serialNo:"S-30067", model:"AR-2020", swl:"N/A", mawp:"14 bar",
+    countryOfOrigin:"South Africa", yearOfManufacture:2020, manufacturer:"CompAir",
+    inspectionDate:"2026-02-20", nextInspectionDate:"2026-08-20", testStatus:"Pass",
+    legalFramework:"Machinery Act CAP 4.4:02, Factories Act 44.01",
+    issued:"2025-09-10", expiry:"2026-09-10", status:"Valid", client:"MineOps Ltd",
+  },
 ];
 
-const statusColor = { Valid:C.green, Expiring:C.yellow, Expired:C.pink };
-
 export default function CertificatesPage() {
-  const [filter, setFilter] = useState("All");
-  const filters = ["All","Valid","Expiring","Expired"];
-  const filtered = certs.filter(c => filter==="All" || c.status===filter);
+  const router = useRouter();
+  const [certificates, setCertificates] = useState(allCertificates);
+  const [filterStatus, setFilterStatus] = useState("All");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  async function checkAuth() {
+    const { data } = await supabase.auth.getUser();
+    if (!data?.user) {
+      router.push("/login");
+      return;
+    }
+    setUser(data.user);
+  }
+
+  const statuses = ["All", "Valid", "Expiring", "Expired"];
+  const filtered = certificates.filter(c =>
+    (filterStatus === "All" || c.status === filterStatus) &&
+    (c.certNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+     c.client.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
+
+  const handleCertificateClick = (id) => {
+    router.push(`/certificates/${id}`);
+  };
+
+  const statusColor = { Valid:C.green, Expiring:C.yellow, Expired:C.pink };
 
   return (
     <AppLayout>
@@ -29,30 +73,31 @@ export default function CertificatesPage() {
         <div>
           <h1 style={{
             fontSize:"clamp(22px,4vw,32px)", fontWeight:900, margin:0,
-            background:`linear-gradient(90deg,#fff 30%,${C.yellow})`,
+            background:`linear-gradient(90deg,#fff 30%,${C.blue})`,
             WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent",
-          }}>Certificates</h1>
-          <p style={{ color:"#64748b", fontSize:13, margin:"4px 0 0" }}>Certificate issuance and license tracking</p>
+          }}>Certificates & Licenses</h1>
+          <p style={{ color:"#64748b", fontSize:13, margin:"4px 0 0" }}>Manage all issued certificates and licenses</p>
         </div>
         <button style={{
-          padding:"10px 20px", borderRadius:12,
-          background:`linear-gradient(135deg,${C.yellow}cc,${C.green})`,
-          border:"none", color:"#0d0d1a", fontWeight:700, fontSize:13,
-          cursor:"pointer", fontFamily:"inherit", boxShadow:`0 0 20px rgba(251,191,36,0.4)`,
-        }}>+ Issue Certificate</button>
+          padding:"10px 18px", borderRadius:12, textDecoration:"none",
+          background:`linear-gradient(135deg,${C.green},${C.blue})`,
+          border:"none", color:"#fff", fontWeight:700, fontSize:13,
+          boxShadow:`0 0 20px rgba(0,245,196,0.4)`, cursor:"pointer", fontFamily:"inherit",
+        }}>
+          📜 Issue Certificate
+        </button>
       </div>
 
-      {/* Stats */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:14, marginBottom:22 }}>
         {[
-          { label:"Total Issued", value:156, color:C.blue   },
-          { label:"Valid",        value:141, color:C.green  },
-          { label:"Expiring Soon",value:11,  color:C.yellow },
-          { label:"Expired",      value:4,   color:C.pink   },
+          { label:"Total Certificates", value:allCertificates.length, color:C.blue },
+          { label:"Valid", value:allCertificates.filter(c=>c.status==="Valid").length, color:C.green },
+          { label:"Expiring", value:allCertificates.filter(c=>c.status==="Expiring").length, color:C.yellow },
+          { label:"Expired", value:allCertificates.filter(c=>c.status==="Expired").length, color:C.pink },
         ].map(s=>(
           <div key={s.label} style={{
-            background:`rgba(${rgbaMap[s.color]},0.07)`,
-            border:`1px solid rgba(${rgbaMap[s.color]},0.25)`,
+            background:`rgba(${rgbaMap[s.color]||"100,116,139"},0.07)`,
+            border:`1px solid rgba(${rgbaMap[s.color]||"100,116,139"},0.25)`,
             borderRadius:14, padding:"16px 18px",
           }}>
             <div style={{ fontSize:10, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:6 }}>{s.label}</div>
@@ -61,76 +106,73 @@ export default function CertificatesPage() {
         ))}
       </div>
 
-      {/* Filter */}
-      <div style={{ display:"flex", gap:6, marginBottom:18, flexWrap:"wrap" }}>
-        {filters.map(f=>(
-          <button key={f} onClick={()=>setFilter(f)} style={{
-            padding:"8px 16px", borderRadius:20, fontSize:12, cursor:"pointer", fontFamily:"inherit", fontWeight:600,
-            background: filter===f ? "rgba(251,191,36,0.2)" : "rgba(255,255,255,0.04)",
-            border: filter===f ? `1px solid ${C.yellow}` : "1px solid rgba(255,255,255,0.08)",
-            color: filter===f ? C.yellow : "#64748b",
-          }}>{f}</button>
-        ))}
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:16 }}>
+        <input
+          value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}
+          placeholder="Search certificates…"
+          style={{
+            flex:"1 1 220px", padding:"10px 16px",
+            background:"rgba(255,255,255,0.04)", border:"1px solid rgba(124,92,252,0.3)",
+            borderRadius:10, color:"#e2e8f0", fontSize:13, fontFamily:"inherit", outline:"none",
+          }}
+        />
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+          {statuses.map(s=>(
+            <button key={s} onClick={()=>setFilterStatus(s)} style={{
+              padding:"8px 14px", borderRadius:20, fontSize:12, cursor:"pointer",
+              fontFamily:"inherit", fontWeight:600,
+              background: filterStatus===s ? "rgba(79,195,247,0.25)" : "rgba(255,255,255,0.04)",
+              border: filterStatus===s ? `1px solid ${C.blue}` : "1px solid rgba(255,255,255,0.08)",
+              color: filterStatus===s ? C.blue : "#64748b",
+            }}>{s}</button>
+          ))}
+        </div>
       </div>
 
-      {/* Grid */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:14 }}>
-        {filtered.map(cert=>(
-          <div key={cert.id} style={{
-            background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
-            border:`1px solid rgba(${statusColor[cert.status]===C.green?"0,245,196":statusColor[cert.status]===C.yellow?"251,191,36":"244,114,182"},0.25)`,
-            borderRadius:16, padding:"20px",
-            boxShadow:`0 0 20px rgba(${statusColor[cert.status]===C.green?"0,245,196":statusColor[cert.status]===C.yellow?"251,191,36":"244,114,182"},0.08)`,
-            position:"relative", overflow:"hidden",
-          }}>
-            {/* Top stripe */}
-            <div style={{
-              position:"absolute", top:0, left:0, right:0, height:3,
-              background:`linear-gradient(90deg,${statusColor[cert.status]},transparent)`,
-            }}/>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:14 }}>
+        {filtered.map(c=>(
+          <div
+            key={c.id}
+            onClick={() => handleCertificateClick(c.id)}
+            style={{
+              background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
+              border:"1px solid rgba(79,195,247,0.25)",
+              borderRadius:14, padding:"20px",
+              cursor:"pointer", transition:"all 0.25s",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "rgba(79,195,247,0.5)";
+              e.currentTarget.style.boxShadow = "0 0 30px rgba(79,195,247,0.2)";
+              e.currentTarget.style.transform = "translateY(-4px)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "rgba(79,195,247,0.25)";
+              e.currentTarget.style.boxShadow = "none";
+              e.currentTarget.style.transform = "translateY(0)";
+            }}
+          >
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
               <div>
-                <div style={{ fontSize:14, fontWeight:800, color:"#fff" }}>{cert.id}</div>
-                <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>{cert.type}</div>
+                <h3 style={{ fontSize:16, fontWeight:800, color:"#fff", margin:"0 0 4px" }}>{c.certNo}</h3>
+                <p style={{ fontSize:11, color:"#64748b", margin:0 }}>{c.type}</p>
               </div>
               <span style={{
-                padding:"4px 12px", borderRadius:20, fontSize:11, fontWeight:700,
-                background:`rgba(${statusColor[cert.status]===C.green?"0,245,196":statusColor[cert.status]===C.yellow?"251,191,36":"244,114,182"},0.12)`,
-                color: statusColor[cert.status],
-                border:`1px solid rgba(${statusColor[cert.status]===C.green?"0,245,196":statusColor[cert.status]===C.yellow?"251,191,36":"244,114,182"},0.3)`,
-              }}>
-                {cert.status==="Valid"?"✅":cert.status==="Expiring"?"⏳":"❌"} {cert.status}
-              </span>
+                padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
+                background:`rgba(${rgbaMap[statusColor[c.status]]},0.12)`, color:statusColor[c.status],
+                border:`1px solid rgba(${rgbaMap[statusColor[c.status]]},0.3)`,
+              }}>{c.status}</span>
             </div>
-            <div style={{ display:"flex", flexDirection:"column", gap:6, fontSize:12 }}>
-              <div style={{ display:"flex", justifyContent:"space-between" }}>
-                <span style={{ color:"#64748b" }}>Client</span>
-                <span style={{ color:"#e2e8f0", fontWeight:600 }}>{cert.client}</span>
-              </div>
-              <div style={{ display:"flex", justifyContent:"space-between" }}>
-                <span style={{ color:"#64748b" }}>Equipment</span>
-                <span style={{ color:"#e2e8f0", fontWeight:600 }}>{cert.equipment}</span>
-              </div>
-              <div style={{ display:"flex", justifyContent:"space-between" }}>
-                <span style={{ color:"#64748b" }}>Issued</span>
-                <span style={{ color:"#e2e8f0" }}>{cert.issued}</span>
-              </div>
-              <div style={{ display:"flex", justifyContent:"space-between" }}>
-                <span style={{ color:"#64748b" }}>Expires</span>
-                <span style={{ color: statusColor[cert.status], fontWeight:700 }}>{cert.expiry}</span>
-              </div>
+            <div style={{ fontSize:12, color:"#94a3b8", marginBottom:12, lineHeight:"1.4" }}>
+              <p style={{ margin:"0 0 4px" }}>Equipment: <strong>{c.equipmentTag}</strong></p>
+              <p style={{ margin:0 }}>Client: <strong>{c.client}</strong></p>
             </div>
-            <div style={{ display:"flex", gap:8, marginTop:14 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", paddingTop:12, borderTop:"1px solid rgba(255,255,255,0.04)", fontSize:11 }}>
+              <span style={{ color:"#64748b" }}>Expires: {c.expiry}</span>
               <button style={{
-                flex:1, padding:"8px", borderRadius:8, fontSize:12, cursor:"pointer",
-                fontFamily:"inherit", fontWeight:600,
-                background:"rgba(124,92,252,0.15)", border:"1px solid rgba(124,92,252,0.3)", color:C.purple,
-              }}>⬇ Download PDF</button>
-              <button style={{
-                flex:1, padding:"8px", borderRadius:8, fontSize:12, cursor:"pointer",
-                fontFamily:"inherit", fontWeight:600,
-                background:"rgba(0,245,196,0.1)", border:"1px solid rgba(0,245,196,0.3)", color:C.green,
-              }}>🔗 View QR</button>
+                padding:"4px 10px", borderRadius:6, fontSize:10, fontWeight:600,
+                background:"rgba(0,245,196,0.15)", border:`1px solid rgba(0,245,196,0.3)`,
+                color:C.green, cursor:"pointer", fontFamily:"inherit",
+              }}>⬇ Download</button>
             </div>
           </div>
         ))}
