@@ -12,20 +12,37 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     checkAuth();
+
+    // Subscribe to auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (session?.user) {
+          checkAuth();
+        } else {
+          setUser(null);
+          setUserProfile(null);
+          setRole(null);
+        }
+      }
+    );
+
+    return () => {
+      subscription?.unsubscribe();
+    };
   }, []);
 
   async function checkAuth() {
     try {
       const { data } = await supabase.auth.getUser();
-      
+
       if (data?.user) {
         setUser(data.user);
-        
+
         // Fetch user profile from users table
         const { data: profileData, error } = await supabase
           .from('users')
           .select('*')
-          .eq('id', data.user.id)
+          .eq('auth_user_id', data.user.id)
           .single();
 
         if (error) {
@@ -38,7 +55,7 @@ export function AuthProvider({ children }) {
       } else {
         setRole(null);
       }
-      
+
       setLoading(false);
     } catch (error) {
       console.error("Auth error:", error);
