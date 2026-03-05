@@ -1,0 +1,175 @@
+// ==================== CLIENTS ROUTES ====================
+// File: apps/api/src/routes/clients.routes.ts
+
+import { Router } from "express";
+import { auth } from "../middleware/auth";
+import { requireRole } from "../middleware/requireRole";
+import { asyncHandler } from "../utils/asyncHandler";
+import * as c from "../controllers/clients.controller";
+
+const r = Router();
+r.use(auth);
+
+r.get("/", requireRole("super_admin", "admin", "auditor"), asyncHandler(c.listClients));
+r.post("/", requireRole("super_admin", "admin"), asyncHandler(c.createClient));
+r.get("/:id", requireRole("super_admin", "admin", "auditor"), asyncHandler(c.getClient));
+r.patch("/:id", requireRole("super_admin", "admin"), asyncHandler(c.updateClient));
+r.delete("/:id", requireRole("super_admin", "admin"), asyncHandler(c.deleteClient));
+
+export default r;
+
+// ==================== SITES ROUTES ====================
+// File: apps/api/src/routes/sites.routes.ts
+
+import { Router } from "express";
+import { auth } from "../middleware/auth";
+import { requireRole } from "../middleware/requireRole";
+import { asyncHandler } from "../utils/asyncHandler";
+import * as s from "../controllers/sites.controller";
+
+const r = Router();
+r.use(auth);
+
+r.get("/", requireRole("super_admin", "admin", "auditor"), asyncHandler(s.listSites));
+r.post("/", requireRole("super_admin", "admin"), asyncHandler(s.createSite));
+r.get("/:id", requireRole("super_admin", "admin", "auditor"), asyncHandler(s.getSite));
+r.patch("/:id", requireRole("super_admin", "admin"), asyncHandler(s.updateSite));
+r.delete("/:id", requireRole("super_admin", "admin"), asyncHandler(s.deleteSite));
+
+export default r;
+
+// ==================== ASSETS ROUTES ====================
+// File: apps/api/src/routes/assets.routes.ts
+
+import { Router } from "express";
+import { auth } from "../middleware/auth";
+import { requireRole } from "../middleware/requireRole";
+import { asyncHandler } from "../utils/asyncHandler";
+import * as a from "../controllers/assets.controller";
+
+const r = Router();
+r.use(auth);
+
+r.get("/", requireRole("super_admin", "admin", "auditor"), asyncHandler(a.listAssets));
+r.post("/", requireRole("super_admin", "admin"), asyncHandler(a.createAsset));
+r.get("/:id", requireRole("super_admin", "admin", "auditor"), asyncHandler(a.getAsset));
+r.patch("/:id", requireRole("super_admin", "admin"), asyncHandler(a.updateAsset));
+r.delete("/:id", requireRole("super_admin", "admin"), asyncHandler(a.deleteAsset));
+r.post("/:id/nameplate", requireRole("super_admin", "admin"), asyncHandler(a.addNameplate));
+
+export default r;
+
+// ==================== INSPECTIONS ROUTES ====================
+// File: apps/api/src/routes/inspections.routes.ts
+
+import { Router } from "express";
+import { auth } from "../middleware/auth";
+import { requireRole } from "../middleware/requireRole";
+import { asyncHandler } from "../utils/asyncHandler";
+import * as i from "../controllers/inspections.controller";
+
+const r = Router();
+r.use(auth);
+
+r.get("/", requireRole("super_admin", "admin", "auditor"), asyncHandler(i.listInspections));
+r.post("/", requireRole("super_admin", "admin", "auditor"), asyncHandler(i.createInspection));
+r.get("/:id", requireRole("super_admin", "admin", "auditor"), asyncHandler(i.getInspection));
+r.patch("/:id", requireRole("super_admin", "admin", "auditor"), asyncHandler(i.updateInspection));
+r.delete("/:id", requireRole("super_admin", "admin"), asyncHandler(i.deleteInspection));
+r.post("/:id/measurements", requireRole("super_admin", "admin", "auditor"), asyncHandler(i.addMeasurement));
+
+export default r;
+
+// ==================== NCR ROUTES ====================
+// File: apps/api/src/routes/ncr.routes.ts
+
+import { Router } from "express";
+import { auth } from "../middleware/auth";
+import { requireRole } from "../middleware/requireRole";
+import { asyncHandler } from "../utils/asyncHandler";
+import * as n from "../controllers/ncr.controller";
+
+const r = Router();
+r.use(auth);
+
+r.get("/", requireRole("super_admin", "admin", "auditor"), asyncHandler(n.listNCRs));
+r.post("/", requireRole("super_admin", "admin", "auditor"), asyncHandler(n.createNCR));
+r.get("/:id", requireRole("super_admin", "admin", "auditor"), asyncHandler(n.getNCR));
+r.patch("/:id", requireRole("super_admin", "admin", "auditor"), asyncHandler(n.updateNCR));
+r.delete("/:id", requireRole("super_admin", "admin"), asyncHandler(n.deleteNCR));
+r.post("/:id/actions", requireRole("super_admin", "admin", "auditor"), asyncHandler(n.addAction));
+r.patch("/actions/:actionId", requireRole("super_admin", "admin", "auditor"), asyncHandler(n.updateAction));
+
+export default r;
+
+// ==================== CERTIFICATES ROUTES ====================
+// File: apps/api/src/routes/certificates.routes.ts
+
+import { Router } from "express";
+import { auth } from "../middleware/auth";
+import { requireRole } from "../middleware/requireRole";
+import { asyncHandler } from "../utils/asyncHandler";
+import * as c from "../controllers/certificates.controller";
+
+const r = Router();
+r.use(auth);
+
+r.get("/", requireRole("super_admin", "admin", "auditor"), asyncHandler(c.listCertificates));
+r.post("/", requireRole("super_admin", "admin"), asyncHandler(c.createCertificate));
+r.get("/:id", requireRole("super_admin", "admin", "auditor"), asyncHandler(c.getCertificate));
+r.patch("/:id", requireRole("super_admin", "admin"), asyncHandler(c.updateCertificate));
+r.delete("/:id", requireRole("super_admin", "admin"), asyncHandler(c.deleteCertificate));
+
+export default r;
+
+// ==================== ALERTS ROUTES ====================
+// File: apps/api/src/routes/alerts.routes.ts
+
+import { Router } from "express";
+import { auth } from "../middleware/auth";
+import { requireRole } from "../middleware/requireRole";
+import { asyncHandler } from "../utils/asyncHandler";
+import * as a from "../controllers/alerts.controller";
+
+const r = Router();
+r.use(auth);
+
+r.get("/", requireRole("super_admin", "admin", "auditor"), asyncHandler(a.listAlerts));
+r.post("/", requireRole("super_admin", "admin"), asyncHandler(a.createAlert));
+r.patch("/:id/close", requireRole("super_admin", "admin"), asyncHandler(a.closeAlert));
+
+export default r;
+
+// ==================== UPDATE INDEX ====================
+// File: apps/api/src/routes/index.ts (UPDATE THIS FILE)
+
+import { Router } from "express";
+import health from "./health.routes";
+import authRoutes from "./auth.routes";
+import users from "./users.routes";
+import clients from "./clients.routes";
+import sites from "./sites.routes";
+import assets from "./assets.routes";
+import inspections from "./inspections.routes";
+import ncr from "./ncr.routes";
+import certificates from "./certificates.routes";
+import alerts from "./alerts.routes";
+import uploads from "./uploads.routes";
+import dashboard from "./dashboard.routes";
+
+const r = Router();
+
+r.use("/health", health);
+r.use("/auth", authRoutes);
+r.use("/users", users);
+r.use("/clients", clients);
+r.use("/sites", sites);
+r.use("/assets", assets);
+r.use("/inspections", inspections);
+r.use("/ncr", ncr);
+r.use("/certificates", certificates);
+r.use("/alerts", alerts);
+r.use("/uploads", uploads);
+r.use("/dashboard", dashboard);
+
+export default r;
