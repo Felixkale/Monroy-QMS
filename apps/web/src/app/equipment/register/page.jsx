@@ -64,10 +64,108 @@ export default function RegisterEquipmentPage() {
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
   const typeSpecificFields = nameplateSections[form.type] || [];
 
+  async function handlePhotoUpload(e) {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    
+    setUploading(true);
+    const uploadedPhotos = [];
+    
+    try {
+      for (const file of files) {
+        const fileName = `${form.tag}-${Date.now()}-${file.name}`;
+        
+        const { data, error } = await supabase.storage
+          .from("equipment-photos")
+          .upload(fileName, file, {
+            cacheControl: "3600",
+            upsert: false,
+          });
+        
+        if (error) {
+          console.error("Upload error:", error);
+          alert(`Error uploading ${file.name}: ${error.message}`);
+          continue;
+        }
+        
+        const { data: urlData } = supabase.storage
+          .from("equipment-photos")
+          .getPublicUrl(fileName);
+        
+        uploadedPhotos.push({
+          name: file.name,
+          path: fileName,
+          url: urlData.publicUrl,
+        });
+      }
+      
+      if (uploadedPhotos.length > 0) {
+        set("photos", [...(form.photos || []), ...uploadedPhotos]);
+        alert(`${uploadedPhotos.length} photo(s) uploaded successfully!`);
+      }
+    } catch (error) {
+      console.error("Upload error:", error);
+      alert("Error uploading photos: " + error.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleDocumentUpload(e) {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    
+    setUploading(true);
+    const uploadedDocs = [];
+    
+    try {
+      for (const file of files) {
+        const fileName = `${form.tag}-${Date.now()}-${file.name}`;
+        
+        const { data, error } = await supabase.storage
+          .from("equipment-documents")
+          .upload(fileName, file, {
+            cacheControl: "3600",
+            upsert: false,
+          });
+        
+        if (error) {
+          console.error("Upload error:", error);
+          alert(`Error uploading ${file.name}: ${error.message}`);
+          continue;
+        }
+        
+        const { data: urlData } = supabase.storage
+          .from("equipment-documents")
+          .getPublicUrl(fileName);
+        
+        uploadedDocs.push({
+          name: file.name,
+          path: fileName,
+          url: urlData.publicUrl,
+        });
+      }
+      
+      if (uploadedDocs.length > 0) {
+        set("documents", [...(form.documents || []), ...uploadedDocs]);
+        alert(`${uploadedDocs.length} document(s) uploaded successfully!`);
+      }
+    } catch (error) {
+      console.error("Upload error:", error);
+      alert("Error uploading documents: " + error.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function handleSubmit() {
+    if (!form.tag || !form.type || !form.client) {
+      alert("Please fill in all required fields");
+      return;
+    }
+
     setUploading(true);
     try {
-      // Save to Supabase
       const { data, error } = await supabase
         .from("equipment")
         .insert([{
@@ -77,14 +175,37 @@ export default function RegisterEquipmentPage() {
           client: form.client,
           manufacturer: form.manufacturer,
           model: form.model,
-          year: form.year,
+          year: form.year ? parseInt(form.year) : null,
           location: form.location,
           status: form.status,
           nameplate: {
             designCode: form.designCode,
             designPressure: form.designPressure,
-            // ... add all nameplate fields
+            testPressure: form.testPressure,
+            designTemp: form.designTemp,
+            material: form.material,
+            capacity: form.capacity,
+            mawp: form.mawp,
+            shellThickness: form.shellThickness,
+            headThickness: form.headThickness,
+            corrosionAllowance: form.corrosionAllowance,
+            jointEfficiency: form.jointEfficiency,
+            mdmt: form.mdmt,
+            reliefValve: form.reliefValve,
+            workingPressure: form.workingPressure,
+            steamCapacity: form.steamCapacity,
+            heatingSurface: form.heatingSurface,
+            fuelType: form.fuelType,
+            swl: form.swl,
+            proofLoad: form.proofLoad,
+            ropeDetails: form.ropeDetails,
+            hookSerial: form.hookSerial,
+            receiverVolume: form.receiverVolume,
+            reliefSetting: form.reliefSetting,
+            compressorCapacity: form.compressorCapacity,
           },
+          photos: form.photos,
+          documents: form.documents,
           created_at: new Date(),
         }]);
 
@@ -92,25 +213,6 @@ export default function RegisterEquipmentPage() {
       setSubmitted(true);
     } catch (error) {
       alert("Error registering equipment: " + error.message);
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function handlePhotoUpload(e) {
-    const files = Array.from(e.target.files || []);
-    setUploading(true);
-    try {
-      for (const file of files) {
-        const { data, error } = await supabase.storage
-          .from("equipment-photos")
-          .upload(`${form.tag}/${file.name}`, file);
-        
-        if (error) throw error;
-        set("photos", [...(form.photos || []), data.path]);
-      }
-    } catch (error) {
-      alert("Error uploading photos: " + error.message);
     } finally {
       setUploading(false);
     }
@@ -129,7 +231,7 @@ export default function RegisterEquipmentPage() {
         <p style={{ color:"#64748b", fontSize:14, marginBottom:8 }}><strong style={{ color:C.green }}>{form.tag}</strong> has been added to the asset register.</p>
         <p style={{ color:"#64748b", fontSize:13, marginBottom:28 }}>A QR code has been automatically generated.</p>
         <div style={{ display:"flex", gap:12, flexWrap:"wrap", justifyContent:"center" }}>
-          <button onClick={()=>{ setSubmitted(false); setStep(1); }} style={{
+          <button onClick={()=>{ setSubmitted(false); setStep(1); set("tag",""); set("serial",""); }} style={{
             padding:"11px 24px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13,
             background:`linear-gradient(135deg,${C.purple},${C.blue})`,
             border:"none", color:"#fff",
@@ -165,7 +267,6 @@ export default function RegisterEquipmentPage() {
         <p style={{ color:"#64748b", fontSize:13, margin:"4px 0 0" }}>Add new asset to the enterprise equipment register</p>
       </div>
 
-      {/* Steps */}
       <div style={{ display:"flex", gap:0, marginBottom:28 }}>
         {[{n:1,label:"Identity"},{n:2,label:"Nameplate"},{n:3,label:"Review"}].map((s,i,arr)=>(
           <div key={s.n} style={{ display:"flex", alignItems:"center", flex:i<arr.length-1?1:"none" }}>
@@ -191,10 +292,9 @@ export default function RegisterEquipmentPage() {
       <div style={{
         background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
         border:"1px solid rgba(79,195,247,0.2)", borderRadius:18,
-        padding:"28px", maxWidth:720,
+        padding:"28px", maxWidth:"100%", overflowX:"auto",
       }}>
 
-        {/* Step 1 */}
         {step===1 && (
           <div>
             <SectionTitle color={C.blue} title="Equipment Identity"/>
@@ -215,7 +315,7 @@ export default function RegisterEquipmentPage() {
               <Field label="Client *">
                 <select style={selectStyle} value={form.client} onChange={e=>set("client",e.target.value)}>
                   <option value="">Select client…</option>
-                  {["Acme Industrial Corp","SteelWorks Ltd","TechPlant Inc","MineOps Ltd","Cargo Hub","Delta Refineries","SafePort Holdings"].map(c=>(
+                  {["Acme Industrial Corp","SteelWorks Ltd","TechPlant Inc","MineOps Ltd","Cargo Hub","Delta Refineries","SafePort Holdings","PowerGen Africa"].map(c=>(
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
@@ -239,25 +339,33 @@ export default function RegisterEquipmentPage() {
                 </select>
               </Field>
             </div>
-            <div style={{ marginTop:18 }}>
+            <div style={{ marginTop:18, gridColumn:"1/-1" }}>
               <label style={labelStyle}>Equipment Photos</label>
               <label style={{
                 display:"block", border:"2px dashed rgba(79,195,247,0.3)", borderRadius:10,
-                padding:"24px", textAlign:"center", cursor:"pointer",
-                background:"rgba(79,195,247,0.04)", transition:"all 0.25s",
+                padding:"24px", textAlign:"center", cursor:"pointer", transition:"all 0.25s",
+                background:"rgba(79,195,247,0.04)",
               }}
               onMouseEnter={e=>e.currentTarget.style.borderColor="rgba(79,195,247,0.6)"}
               onMouseLeave={e=>e.currentTarget.style.borderColor="rgba(79,195,247,0.3)"}>
                 <div style={{ fontSize:28, marginBottom:8 }}>📷</div>
                 <div style={{ fontSize:13, color:"#64748b" }}>Upload equipment photos</div>
                 <div style={{ fontSize:11, color:"#475569", marginTop:4 }}>PNG, JPG up to 20MB each</div>
-                <input type="file" multiple accept="image/*" onChange={handlePhotoUpload} style={{ display:"none" }} />
+                <input type="file" multiple accept="image/*" onChange={handlePhotoUpload} style={{ display:"none" }} disabled={uploading}/>
               </label>
+              {form.photos.length > 0 && (
+                <div style={{ marginTop:12, display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))", gap:8 }}>
+                  {form.photos.map((photo,idx)=>(
+                    <div key={idx} style={{ fontSize:11, color:"#94a3b8", padding:8, background:"rgba(255,255,255,0.03)", borderRadius:6, textAlign:"center", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      ✓ {photo.name}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* Step 2 */}
         {step===2 && (
           <div>
             <SectionTitle color={C.green} title="Nameplate Data"/>
@@ -299,21 +407,29 @@ export default function RegisterEquipmentPage() {
               <label style={labelStyle}>Attach Documents / Manuals</label>
               <label style={{
                 display:"block", border:"2px dashed rgba(0,245,196,0.25)", borderRadius:10,
-                padding:"24px", textAlign:"center", cursor:"pointer",
-                background:"rgba(0,245,196,0.03)", transition:"all 0.25s",
+                padding:"24px", textAlign:"center", cursor:"pointer", transition:"all 0.25s",
+                background:"rgba(0,245,196,0.03)",
               }}
               onMouseEnter={e=>e.currentTarget.style.borderColor="rgba(0,245,196,0.6)"}
               onMouseLeave={e=>e.currentTarget.style.borderColor="rgba(0,245,196,0.25)"}>
                 <div style={{ fontSize:28, marginBottom:8 }}>📎</div>
                 <div style={{ fontSize:13, color:"#64748b" }}>Upload technical drawings, manuals, certificates</div>
                 <div style={{ fontSize:11, color:"#475569", marginTop:4 }}>PDF, DOCX, DWG up to 50MB</div>
-                <input type="file" multiple onChange={(e)=>set("documents",[...form.documents, ...Array.from(e.target.files||[])])} style={{ display:"none" }} />
+                <input type="file" multiple onChange={handleDocumentUpload} style={{ display:"none" }} disabled={uploading}/>
               </label>
+              {form.documents.length > 0 && (
+                <div style={{ marginTop:12, display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))", gap:8 }}>
+                  {form.documents.map((doc,idx)=>(
+                    <div key={idx} style={{ fontSize:11, color:"#94a3b8", padding:8, background:"rgba(255,255,255,0.03)", borderRadius:6, textAlign:"center", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      ✓ {doc.name}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* Step 3 */}
         {step===3 && (
           <div>
             <SectionTitle color={C.yellow} title="Review & Register"/>
@@ -328,9 +444,8 @@ export default function RegisterEquipmentPage() {
                 {label:"Year Built",    value:form.year         ||"—"},
                 {label:"Location",      value:form.location     ||"—"},
                 {label:"Status",        value:form.status},
-                {label:"Design Code",   value:form.designCode   ||"—"},
-                {label:"Design Pressure",value:form.designPressure||"—"},
-                {label:"Material",      value:form.material     ||"—"},
+                {label:"Photos",        value:`${form.photos.length} uploaded`},
+                {label:"Documents",     value:`${form.documents.length} uploaded`},
               ].map(r=>(
                 <div key={r.label} style={{
                   display:"flex", justifyContent:"space-between",
@@ -352,8 +467,7 @@ export default function RegisterEquipmentPage() {
           </div>
         )}
 
-        {/* Nav */}
-        <div style={{ display:"flex", justifyContent:"space-between", marginTop:28, gap:12 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", marginTop:28, gap:12, flexWrap:"wrap" }}>
           {step>1
             ? <button onClick={()=>setStep(s=>s-1)} style={{
                 padding:"11px 22px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13,
@@ -367,11 +481,11 @@ export default function RegisterEquipmentPage() {
                 background:`linear-gradient(135deg,${C.blue},${C.purple})`,
                 border:"none", color:"#fff", boxShadow:`0 0 20px rgba(79,195,247,0.4)`,
               }}>Continue →</button>
-            : <button onClick={handleSubmit} disabled={uploading} style={{
-                padding:"11px 28px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13,
+            : <button onClick={handleSubmit} disabled={uploading || !form.tag} style={{
+                padding:"11px 28px", borderRadius:12, cursor:uploading || !form.tag?"not-allowed":"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13,
                 background:`linear-gradient(135deg,${C.green}cc,${C.blue})`,
                 border:"none", color:"#0d0d1a", boxShadow:`0 0 20px rgba(0,245,196,0.4)`,
-                opacity: uploading ? 0.6 : 1,
+                opacity:uploading || !form.tag?0.6:1,
               }}>{uploading ? "Registering..." : "⚙️ Register Equipment"}</button>
           }
         </div>
