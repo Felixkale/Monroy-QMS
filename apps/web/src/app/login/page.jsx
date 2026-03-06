@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-// import { supabase } from "@/lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";
 
 const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7" };
 
@@ -18,20 +18,28 @@ export default function LoginPage() {
     setError("");
 
     try {
-      // Mock login - replace with actual supabase auth
-      if (email && password) {
-        // const { data, error } = await supabase.auth.signInWithPassword({
-        //   email,
-        //   password,
-        // });
-        // if (error) throw error;
+      if (!supabase) {
+        setError("Supabase is not configured. Check your environment variables.");
+        setLoading(false);
+        return;
+      }
+
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (signInError) {
+        setError(signInError.message || "Login failed");
+        setLoading(false);
+        return;
+      }
+
+      if (data?.user) {
         router.push("/dashboard");
-      } else {
-        setError("Please fill in all fields");
       }
     } catch (err) {
-      setError(err.message || "Login failed");
-    } finally {
+      setError(err.message || "An error occurred");
       setLoading(false);
     }
   };
@@ -49,7 +57,7 @@ export default function LoginPage() {
         <div style={{ textAlign:"center", marginBottom:28 }}>
           <div style={{ fontSize:48, marginBottom:12 }}>🔐</div>
           <h1 style={{ fontSize:28, fontWeight:900, margin:0, color:"#fff" }}>Monroy QMS</h1>
-          <p style={{ color:"#64748b", fontSize:13, margin:"4px 0 0" }}>Sign in to your account</p>
+          <p style={{ color:"#64748b", fontSize:13, margin:"4px 0 0" }}>Quality Management System</p>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -120,9 +128,10 @@ export default function LoginPage() {
         </form>
 
         <div style={{ marginTop:20, textAlign:"center" }}>
+          <p style={{ fontSize:12, color:"#64748b", margin:"0 0 12px" }}>Don't have an account?</p>
           <a href="#" style={{
             fontSize:12, color:C.green, textDecoration:"none", fontWeight:600,
-          }}>Forgot password?</a>
+          }}>Contact your administrator</a>
         </div>
       </div>
     </div>
