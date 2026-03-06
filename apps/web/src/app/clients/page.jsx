@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import AppLayout from "@/components/AppLayout";
+import AppLayout from "../../components/AppLayout";
 
 const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7", pink:"#f472b6", yellow:"#fbbf24" };
 const rgbaMap = { [C.green]:"0,245,196",[C.blue]:"79,195,247",[C.purple]:"124,92,252",[C.pink]:"244,114,182",[C.yellow]:"251,191,36" };
