@@ -4,10 +4,10 @@
   "description": "Monroy Quality Management System - Enterprise Edition",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
+    "dev": "cd apps/web && npm run dev",
+    "build": "cd apps/web && npm run build",
+    "start": "cd apps/web && npm run start",
+    "lint": "cd apps/web && npm run lint",
     "seed:users": "node --require dotenv/config scripts/seedUsers.js",
     "seed:data": "node --require dotenv/config scripts/seedSampleData.js",
     "seed": "npm run seed:users && npm run seed:data"
