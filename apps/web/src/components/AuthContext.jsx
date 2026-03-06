@@ -14,6 +14,7 @@ export function AuthProvider({ children }) {
     const checkUser = async () => {
       try {
         if (!supabase) {
+          console.warn("Supabase client not initialized. Check your environment variables.");
           setLoading(false);
           return;
         }
@@ -30,20 +31,37 @@ export function AuthProvider({ children }) {
 
     checkUser();
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase?.auth.onAuthStateChanged((session) => {
-      setUser(session?.user || null);
-    }) || { data: { subscription: null } };
+    // Listen for auth changes - only if supabase is available
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
 
-    return () => {
-      subscription?.unsubscribe();
-    };
+    try {
+      const { data: { subscription } } = supabase.auth.onAuthStateChanged((session) => {
+        setUser(session?.user || null);
+      });
+
+      return () => {
+        subscription?.unsubscribe();
+      };
+    } catch (error) {
+      console.error("Failed to subscribe to auth changes:", error);
+      setLoading(false);
+    }
   }, []);
 
   const logout = async () => {
-    if (!supabase) return;
-    await supabase.auth.signOut();
-    setUser(null);
+    if (!supabase) {
+      console.warn("Supabase not available for logout");
+      return;
+    }
+    try {
+      await supabase.auth.signOut();
+      setUser(null);
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
 
   return (
