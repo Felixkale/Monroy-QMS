@@ -1,8 +1,8 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
-import AppLayout from "@/components/AppLayout";
+// import { supabase } from "@/lib/supabaseClient";
+// import AppLayout from "@/components/AppLayout";
 
 const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7", pink:"#f472b6", yellow:"#fbbf24" };
 const rgbaMap = {
@@ -33,17 +33,17 @@ export default function EquipmentPage() {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    checkAuth();
+    // checkAuth();
   }, []);
 
-  async function checkAuth() {
-    const { data } = await supabase.auth.getUser();
-    if (!data?.user) {
-      router.push("/login");
-      return;
-    }
-    setUser(data.user);
-  }
+  // async function checkAuth() {
+  //   const { data } = await supabase.auth.getUser();
+  //   if (!data?.user) {
+  //     router.push("/login");
+  //     return;
+  //   }
+  //   setUser(data.user);
+  // }
 
   const types = ["All", ...Array.from(new Set(equipment.map(e=>e.type)))];
   const filtered = equipment.filter(e =>
@@ -57,138 +57,177 @@ export default function EquipmentPage() {
   };
 
   return (
-    <AppLayout>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:12, marginBottom:28 }}>
-        <div>
-          <h1 style={{
-            fontSize:"clamp(22px,4vw,32px)", fontWeight:900, margin:0,
-            background:`linear-gradient(90deg,#fff 30%,${C.green})`,
-            WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent",
-          }}>Equipment Register</h1>
-          <p style={{ color:"#64748b", fontSize:13, margin:"4px 0 0" }}>Full asset register with nameplate data</p>
+    <div
+      style={{
+        display: "flex",
+        minHeight: "100vh",
+        backgroundColor: "#0f1419",
+        color: "#e2e8f0",
+        flexDirection: "column",
+      }}
+    >
+      <main
+        style={{
+          flex: 1,
+          padding: "32px",
+          overflowY: "auto",
+        }}
+      >
+        <div style={{ marginBottom: 24 }}>
+          <h1
+            style={{
+              margin: 0,
+              fontSize: "clamp(22px,4vw,32px)",
+              fontWeight: 900,
+              color: "#ffffff",
+              letterSpacing: "-0.5px",
+            }}
+          >
+            Equipment Register
+          </h1>
+          <div
+            style={{
+              marginTop: 8,
+              width: 72,
+              height: 4,
+              borderRadius: 999,
+              background: `linear-gradient(90deg, ${C.green} 0%, ${C.purple} 50%, ${C.blue} 100%)`,
+            }}
+          />
         </div>
-        <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-          <a href="/qr-codes" style={{
-            padding:"10px 18px", borderRadius:12, textDecoration:"none",
-            background:"rgba(0,245,196,0.1)", border:"1px solid rgba(0,245,196,0.3)",
-            color:C.green, fontWeight:700, fontSize:13,
-          }}>🏷️ Generate QR</a>
-          <a href="/equipment/register" style={{
-            padding:"10px 18px", borderRadius:12, textDecoration:"none",
-            background:`linear-gradient(135deg,${C.purple},${C.blue})`,
-            border:"none", color:"#fff", fontWeight:700, fontSize:13,
-            boxShadow:`0 0 20px rgba(124,92,252,0.4)`,
-          }}>+ Register Equipment</a>
-        </div>
-      </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:14, marginBottom:22 }}>
-        {[
-          { label:"Total Assets",      value:186, color:C.blue   },
-          { label:"Active",            value:181, color:C.green  },
-          { label:"Decommissioned",    value:5,   color:"#64748b"},
-          { label:"Licenses Expiring", value:11,  color:C.yellow },
-          { label:"Licenses Expired",  value:4,   color:C.pink   },
-        ].map(s=>(
-          <div key={s.label} style={{
-            background:`rgba(${rgbaMap[s.color]||"100,116,139"},0.07)`,
-            border:`1px solid rgba(${rgbaMap[s.color]||"100,116,139"},0.25)`,
-            borderRadius:14, padding:"16px 18px",
-          }}>
-            <div style={{ fontSize:10, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:6 }}>{s.label}</div>
-            <div style={{ fontSize:28, fontWeight:900, color:s.color }}>{s.value}</div>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:12, marginBottom:28 }}>
+          <div>
+            <h1 style={{
+              fontSize:"clamp(22px,4vw,32px)", fontWeight:900, margin:0,
+              background:`linear-gradient(90deg,#fff 30%,${C.green})`,
+              WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent",
+            }}>Equipment Register</h1>
+            <p style={{ color:"#64748b", fontSize:13, margin:"4px 0 0" }}>Full asset register with nameplate data</p>
           </div>
-        ))}
-      </div>
+          <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+            <a href="/qr-codes" style={{
+              padding:"10px 18px", borderRadius:12, textDecoration:"none",
+              background:"rgba(0,245,196,0.1)", border:"1px solid rgba(0,245,196,0.3)",
+              color:C.green, fontWeight:700, fontSize:13,
+            }}>🏷️ Generate QR</a>
+            <a href="/equipment/register" style={{
+              padding:"10px 18px", borderRadius:12, textDecoration:"none",
+              background:`linear-gradient(135deg,${C.purple},${C.blue})`,
+              border:"none", color:"#fff", fontWeight:700, fontSize:13,
+              boxShadow:`0 0 20px rgba(124,92,252,0.4)`,
+            }}>+ Register Equipment</a>
+          </div>
+        </div>
 
-      <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:16 }}>
-        <input
-          value={search} onChange={e=>setSearch(e.target.value)}
-          placeholder="Search by tag or client…"
-          style={{
-            flex:"1 1 220px", padding:"10px 16px",
-            background:"rgba(255,255,255,0.04)", border:"1px solid rgba(124,92,252,0.3)",
-            borderRadius:10, color:"#e2e8f0", fontSize:13, fontFamily:"inherit", outline:"none",
-          }}
-        />
-        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-          {types.map(t=>(
-            <button key={t} onClick={()=>setFilterType(t)} style={{
-              padding:"8px 14px", borderRadius:20, fontSize:12, cursor:"pointer",
-              fontFamily:"inherit", fontWeight:600,
-              background: filterType===t ? "rgba(124,92,252,0.25)" : "rgba(255,255,255,0.04)",
-              border: filterType===t ? `1px solid ${C.purple}` : "1px solid rgba(255,255,255,0.08)",
-              color: filterType===t ? C.purple : "#64748b",
-            }}>{t}</button>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:14, marginBottom:22 }}>
+          {[
+            { label:"Total Assets",      value:186, color:C.blue   },
+            { label:"Active",            value:181, color:C.green  },
+            { label:"Decommissioned",    value:5,   color:"#64748b"},
+            { label:"Licenses Expiring", value:11,  color:C.yellow },
+            { label:"Licenses Expired",  value:4,   color:C.pink   },
+          ].map(s=>(
+            <div key={s.label} style={{
+              background:`rgba(${rgbaMap[s.color]||"100,116,139"},0.07)`,
+              border:`1px solid rgba(${rgbaMap[s.color]||"100,116,139"},0.25)`,
+              borderRadius:14, padding:"16px 18px",
+            }}>
+              <div style={{ fontSize:10, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:6 }}>{s.label}</div>
+              <div style={{ fontSize:28, fontWeight:900, color:s.color }}>{s.value}</div>
+            </div>
           ))}
         </div>
-      </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14 }}>
-        {filtered.map(e=>{
-          const tColor = typeColors[e.type] || C.purple;
-          const tRgba  = rgbaMap[tColor] || "124,92,252";
-          const lColor = licenseColor[e.license];
-          const lRgba  = rgbaMap[lColor];
-          return (
-            <div 
-              key={e.tag} 
-              onClick={() => handleEquipmentClick(e.tag)}
-              style={{
-                background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
-                border:`1px solid rgba(${tRgba},0.25)`,
-                borderRadius:14, padding:"18px 20px",
-                boxShadow:`0 0 20px rgba(${tRgba},0.08)`,
-                position:"relative", overflow:"hidden", cursor:"pointer",
-                transition:"all 0.25s ease",
-              }}
-              onMouseEnter={(el) => {
-                el.currentTarget.style.borderColor = `rgba(${tRgba},0.5)`;
-                el.currentTarget.style.boxShadow = `0 0 30px rgba(${tRgba},0.2)`;
-                el.currentTarget.style.transform = "translateY(-4px)";
-              }}
-              onMouseLeave={(el) => {
-                el.currentTarget.style.borderColor = `rgba(${tRgba},0.25)`;
-                el.currentTarget.style.boxShadow = `0 0 20px rgba(${tRgba},0.08)`;
-                el.currentTarget.style.transform = "translateY(0)";
-              }}
-            >
-              <div style={{ position:"absolute", top:0, left:0, right:0, height:3,
-                background:`linear-gradient(90deg,${tColor},transparent)` }}/>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
-                <div>
-                  <div style={{ fontSize:16, fontWeight:800, color:"#fff" }}>{e.tag}</div>
-                  <div style={{ fontSize:11, color:"#64748b" }}>{e.serial}</div>
+        <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:16 }}>
+          <input
+            value={search} onChange={e=>setSearch(e.target.value)}
+            placeholder="Search by tag or client…"
+            style={{
+              flex:"1 1 220px", padding:"10px 16px",
+              background:"rgba(255,255,255,0.04)", border:"1px solid rgba(124,92,252,0.3)",
+              borderRadius:10, color:"#e2e8f0", fontSize:13, fontFamily:"inherit", outline:"none",
+            }}
+          />
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            {types.map(t=>(
+              <button key={t} onClick={()=>setFilterType(t)} style={{
+                padding:"8px 14px", borderRadius:20, fontSize:12, cursor:"pointer",
+                fontFamily:"inherit", fontWeight:600,
+                background: filterType===t ? "rgba(124,92,252,0.25)" : "rgba(255,255,255,0.04)",
+                border: filterType===t ? `1px solid ${C.purple}` : "1px solid rgba(255,255,255,0.08)",
+                color: filterType===t ? C.purple : "#64748b",
+              }}>{t}</button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14 }}>
+          {filtered.map(e=>{
+            const tColor = typeColors[e.type] || C.purple;
+            const tRgba  = rgbaMap[tColor] || "124,92,252";
+            const lColor = licenseColor[e.license];
+            const lRgba  = rgbaMap[lColor];
+            return (
+              <div 
+                key={e.tag} 
+                onClick={() => handleEquipmentClick(e.tag)}
+                style={{
+                  background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
+                  border:`1px solid rgba(${tRgba},0.25)`,
+                  borderRadius:14, padding:"18px 20px",
+                  boxShadow:`0 0 20px rgba(${tRgba},0.08)`,
+                  position:"relative", overflow:"hidden", cursor:"pointer",
+                  transition:"all 0.25s ease",
+                }}
+                onMouseEnter={(el) => {
+                  el.currentTarget.style.borderColor = `rgba(${tRgba},0.5)`;
+                  el.currentTarget.style.boxShadow = `0 0 30px rgba(${tRgba},0.2)`;
+                  el.currentTarget.style.transform = "translateY(-4px)";
+                }}
+                onMouseLeave={(el) => {
+                  el.currentTarget.style.borderColor = `rgba(${tRgba},0.25)`;
+                  el.currentTarget.style.boxShadow = `0 0 20px rgba(${tRgba},0.08)`;
+                  el.currentTarget.style.transform = "translateY(0)";
+                }}
+              >
+                <div style={{ position:"absolute", top:0, left:0, right:0, height:3,
+                  background:`linear-gradient(90deg,${tColor},transparent)` }}/>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+                  <div>
+                    <div style={{ fontSize:16, fontWeight:800, color:"#fff" }}>{e.tag}</div>
+                    <div style={{ fontSize:11, color:"#64748b" }}>{e.serial}</div>
+                  </div>
+                  <span style={{
+                    padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
+                    background:`rgba(${tRgba},0.15)`, color:tColor,
+                    border:`1px solid rgba(${tRgba},0.3)`,
+                  }}>{e.type}</span>
                 </div>
-                <span style={{
-                  padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
-                  background:`rgba(${tRgba},0.15)`, color:tColor,
-                  border:`1px solid rgba(${tRgba},0.3)`,
-                }}>{e.type}</span>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, fontSize:12, marginBottom:12 }}>
+                  <div><span style={{ color:"#64748b" }}>Client: </span><span style={{ color:"#cbd5e1" }}>{e.client}</span></div>
+                  <div><span style={{ color:"#64748b" }}>Mfr: </span><span style={{ color:"#cbd5e1" }}>{e.manufacturer}</span></div>
+                  <div><span style={{ color:"#64748b" }}>Year: </span><span style={{ color:"#cbd5e1" }}>{e.year}</span></div>
+                  <div><span style={{ color:"#64748b" }}>Next: </span><span style={{ color:"#cbd5e1" }}>{e.nextInsp}</span></div>
+                </div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                  <span style={{
+                    padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
+                    background:`rgba(${lRgba},0.12)`, color:lColor,
+                    border:`1px solid rgba(${lRgba},0.3)`,
+                  }}>🔐 {e.license}</span>
+                  <span style={{
+                    padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
+                    background: e.status==="Active" ? "rgba(0,245,196,0.1)" : "rgba(100,116,139,0.15)",
+                    color: e.status==="Active" ? C.green : "#64748b",
+                    border: e.status==="Active" ? "1px solid rgba(0,245,196,0.3)" : "1px solid rgba(100,116,139,0.2)",
+                  }}>{e.status}</span>
+                </div>
               </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, fontSize:12, marginBottom:12 }}>
-                <div><span style={{ color:"#64748b" }}>Client: </span><span style={{ color:"#cbd5e1" }}>{e.client}</span></div>
-                <div><span style={{ color:"#64748b" }}>Mfr: </span><span style={{ color:"#cbd5e1" }}>{e.manufacturer}</span></div>
-                <div><span style={{ color:"#64748b" }}>Year: </span><span style={{ color:"#cbd5e1" }}>{e.year}</span></div>
-                <div><span style={{ color:"#64748b" }}>Next: </span><span style={{ color:"#cbd5e1" }}>{e.nextInsp}</span></div>
-              </div>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                <span style={{
-                  padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
-                  background:`rgba(${lRgba},0.12)`, color:lColor,
-                  border:`1px solid rgba(${lRgba},0.3)`,
-                }}>🔐 {e.license}</span>
-                <span style={{
-                  padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:700,
-                  background: e.status==="Active" ? "rgba(0,245,196,0.1)" : "rgba(100,116,139,0.15)",
-                  color: e.status==="Active" ? C.green : "#64748b",
-                  border: e.status==="Active" ? "1px solid rgba(0,245,196,0.3)" : "1px solid rgba(100,116,139,0.2)",
-                }}>{e.status}</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </AppLayout>
+            );
+          })}
+        </div>
+      </main>
+    </div>
   );
 }
