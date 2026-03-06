@@ -6,11 +6,11 @@ import { supabase } from "@/lib/supabaseClient";
 const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7", pink:"#f472b6", yellow:"#fbbf24" };
 
 const demoUsers = [
-  { email: "superadmin@monroy.com", password: "superadmin123", role: "Super Admin", description: "Full system access" },
-  { email: "admin@monroy.com", password: "admin123", role: "Admin", description: "User & module management" },
-  { email: "inspector@monroy.com", password: "inspector123", role: "Inspector", description: "Inspection management" },
-  { email: "supervisor@monroy.com", password: "supervisor123", role: "Supervisor", description: "Team oversight" },
-  { email: "client@acme.com", password: "client123", role: "Client Manager", description: "Compliance view" },
+  { email: "superadmin@monroy.com", role: "Super Admin", description: "Full system access - Set strong password in Supabase" },
+  { email: "admin@monroy.com", role: "Admin", description: "User & module management - Set strong password in Supabase" },
+  { email: "inspector@monroy.com", role: "Inspector", description: "Inspection management - Set strong password in Supabase" },
+  { email: "supervisor@monroy.com", role: "Supervisor", description: "Team oversight - Set strong password in Supabase" },
+  { email: "client@acme.com", role: "Client Manager", description: "Compliance view - Set strong password in Supabase" },
 ];
 
 export default function LoginPage() {
