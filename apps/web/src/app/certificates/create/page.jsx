@@ -209,8 +209,8 @@ function CertificatePreview({ formData, statusMeta, signatureSrc }) {
               <div>
                 {secHead("NAMEPLATE DATA")}
                 {secBody(<>
-                  {row("SWL:", formData.swl)}
-                  {row("MAWP:", formData.mawp)}
+                  {row("SWL:", formData.swl ? `${formData.swl} TON` : (formData.mawp ? "N/A" : "—"))}
+                  {row("MAWP:", formData.mawp ? `${formData.mawp} kPa` : (formData.swl ? "N/A" : "—"))}
                   {row("Design Temperature:", formData.designTemperature)}
                   {row("Capacity / Volume:", formData.capacityVolume)}
                   {row("Shell Thickness:", formData.shellThickness)}
@@ -337,6 +337,7 @@ export default function CreateCertificatePage() {
     serialNumber:         "",
     yearManufactured:     "",
     designCode:           "ASME BPVC Section VIII Div 1",
+    ratingType:           "swl",
     swl:                  "",
     mawp:                 "",
     designTemperature:    "",
@@ -429,8 +430,8 @@ export default function CreateCertificatePage() {
     if (!validateEmail(formData.inspectorEmail)) e.inspectorEmail      = "Invalid email";
     if (formData.contactPhone   && !validatePhone(formData.contactPhone))    e.contactPhone   = "Invalid phone";
     if (formData.inspectorPhone && !validatePhone(formData.inspectorPhone))  e.inspectorPhone = "Invalid phone";
-    if (formData.swl  && !validateMeasurement(formData.swl))  e.swl  = "e.g. 50 TON";
-    if (formData.mawp && !validateMeasurement(formData.mawp)) e.mawp = "e.g. 10 bar";
+    if (formData.ratingType==="swl"  && formData.swl  && isNaN(Number(formData.swl)))  e.swl  = "Enter a valid number (Tons)";
+    if (formData.ratingType==="mawp" && formData.mawp && isNaN(Number(formData.mawp))) e.mawp = "Enter a valid number (kPa)";
     if (new Date(formData.expiryDate) <= new Date(formData.issueDate)) e.expiryDate = "Must be after issue date";
     if (formData.equipmentStatus==="conditional" && !formData.gracePeriodDate) e.gracePeriodDate = "Grace period date required for conditional pass";
     setErrors(e);
@@ -452,8 +453,8 @@ export default function CreateCertificatePage() {
         serial_number:         sanitizeInput(formData.serialNumber),
         year_manufactured:     sanitizeInput(formData.yearManufactured),
         design_code:           sanitizeInput(formData.designCode),
-        swl:                   sanitizeInput(formData.swl),
-        mawp:                  sanitizeInput(formData.mawp),
+        swl:                   formData.ratingType==="swl" && formData.swl ? `${formData.swl} TON` : "N/A",
+        mawp:                  formData.ratingType==="mawp" && formData.mawp ? `${formData.mawp} kPa` : "N/A",
         design_temperature:    sanitizeInput(formData.designTemperature),
         capacity_volume:       sanitizeInput(formData.capacityVolume),
         shell_thickness:       sanitizeInput(formData.shellThickness),
@@ -571,13 +572,59 @@ export default function CreateCertificatePage() {
 
           <Section title="Technical / Nameplate Data" color={C.blue}/>
           <Grid>
-            <Field label="SWL">
-              <input style={{ ...inputStyle, border:errors.swl?"1px solid #f472b6":inputStyle.border }} value={formData.swl} onChange={e=>set("swl",e.target.value)} placeholder="e.g. 50 TON"/>
-              {errors.swl && <Err msg={errors.swl}/>}
-            </Field>
-            <Field label="MAWP">
-              <input style={{ ...inputStyle, border:errors.mawp?"1px solid #f472b6":inputStyle.border }} value={formData.mawp} onChange={e=>set("mawp",e.target.value)} placeholder="e.g. 10 bar"/>
-              {errors.mawp && <Err msg={errors.mawp}/>}
+            <Field label="Equipment Rating">
+              {/* Toggle */}
+              <div style={{ display:"flex", marginBottom:10, borderRadius:8, overflow:"hidden", border:"1px solid rgba(124,92,252,0.3)" }}>
+                {[
+                  { key:"swl",  label:"SWL (Tons)"  },
+                  { key:"mawp", label:"MAWP (kPa)"  },
+                ].map(opt => (
+                  <button key={opt.key} type="button"
+                    onClick={() => { set("ratingType", opt.key); set("swl",""); set("mawp",""); }}
+                    style={{
+                      flex:1, padding:"8px 0", border:"none", cursor:"pointer",
+                      fontFamily:"inherit", fontWeight:700, fontSize:12,
+                      background: formData.ratingType===opt.key
+                        ? `linear-gradient(135deg,${C.purple},${C.blue})`
+                        : "rgba(255,255,255,0.03)",
+                      color: formData.ratingType===opt.key ? "#fff" : "#64748b",
+                      transition:"all 0.2s",
+                    }}
+                  >{opt.label}</button>
+                ))}
+              </div>
+              {/* SWL input */}
+              {formData.ratingType === "swl" && (
+                <div>
+                  <div style={{ display:"flex", alignItems:"center", gap:0 }}>
+                    <input
+                      style={{ ...inputStyle, borderRadius:"8px 0 0 8px", border: errors.swl?"1px solid #f472b6":inputStyle.border }}
+                      value={formData.swl}
+                      onChange={e => set("swl", e.target.value.replace(/[^0-9.]/g,""))}
+                      placeholder="e.g. 50"
+                      type="number" min="0"
+                    />
+                    <span style={{ padding:"10px 14px", background:"rgba(124,92,252,0.2)", border:"1px solid rgba(124,92,252,0.25)", borderLeft:"none", borderRadius:"0 8px 8px 0", color:"#94a3b8", fontSize:12, fontWeight:700, whiteSpace:"nowrap" }}>TON</span>
+                  </div>
+                  {errors.swl && <Err msg={errors.swl}/>}
+                </div>
+              )}
+              {/* MAWP input */}
+              {formData.ratingType === "mawp" && (
+                <div>
+                  <div style={{ display:"flex", alignItems:"center", gap:0 }}>
+                    <input
+                      style={{ ...inputStyle, borderRadius:"8px 0 0 8px", border: errors.mawp?"1px solid #f472b6":inputStyle.border }}
+                      value={formData.mawp}
+                      onChange={e => set("mawp", e.target.value.replace(/[^0-9.]/g,""))}
+                      placeholder="e.g. 1600"
+                      type="number" min="0"
+                    />
+                    <span style={{ padding:"10px 14px", background:"rgba(124,92,252,0.2)", border:"1px solid rgba(124,92,252,0.25)", borderLeft:"none", borderRadius:"0 8px 8px 0", color:"#94a3b8", fontSize:12, fontWeight:700, whiteSpace:"nowrap" }}>kPa</span>
+                  </div>
+                  {errors.mawp && <Err msg={errors.mawp}/>}
+                </div>
+              )}
             </Field>
             <Field label="Design Temperature"><input style={inputStyle} value={formData.designTemperature} onChange={e=>set("designTemperature",e.target.value)} placeholder="e.g. −20°C to 60°C"/></Field>
             <Field label="Capacity / Volume"><input style={inputStyle} value={formData.capacityVolume} onChange={e=>set("capacityVolume",e.target.value)} placeholder="e.g. 40 m³"/></Field>
