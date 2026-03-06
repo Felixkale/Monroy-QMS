@@ -1,8 +1,8 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabaseClient";
-import AppLayout from "../../components/AppLayout";
+import { supabase } from "../../../lib/supabaseClient";
+import AppLayout from "../../../components/AppLayout";
 
 const C = { green: "#00f5c4", purple: "#7c5cfc", blue: "#4fc3f7", pink: "#f472b6", yellow: "#fbbf24" };
 
