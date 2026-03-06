@@ -1,78 +1,132 @@
 "use client";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-// import { supabase } from "@/lib/supabaseClient";
+// import AppLayout from "@/components/AppLayout";
 
-const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7", pink:"#f472b6" };
-const rgbaMap = { [C.green]:"0,245,196", [C.blue]:"79,195,247", [C.purple]:"124,92,252", [C.pink]:"244,114,182" };
+const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7" };
 
-const mockReports = [
-  { id:"RPT-001", title:"Q1 2026 Inspection Summary", date:"2026-03-05", type:"Inspection", client:"All" },
-  { id:"RPT-002", title:"Equipment License Audit", date:"2026-02-28", type:"Compliance", client:"All" },
-  { id:"RPT-003", title:"NCR Analysis Report", date:"2026-02-20", type:"Analysis", client:"All" },
-];
+const inputStyle = {
+  width:"100%", padding:"11px 14px",
+  background:"rgba(255,255,255,0.04)",
+  border:"1px solid rgba(124,92,252,0.25)",
+  borderRadius:10, color:"#e2e8f0",
+  fontSize:13, fontFamily:"inherit", outline:"none",
+};
 
-export default function ReportsPage() {
-  const router = useRouter();
-  const [reports] = useState(mockReports);
+const labelStyle = {
+  fontSize:11, fontWeight:700, color:"#64748b",
+  textTransform:"uppercase", letterSpacing:"0.08em",
+  marginBottom:6, display:"block",
+};
+
+export default function ExportReportPage() {
+  const [formData, setFormData] = useState({
+    reportType:"Inspection",
+    startDate:"",
+    endDate:"",
+    client:"All",
+    format:"PDF",
+  });
+
+  const [submitted, setSubmitted] = useState(false);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setSubmitted(true);
+  };
+
+  if (submitted) {
+    return (
+      <div style={{ display:"flex", minHeight:"100vh", backgroundColor:"#0f1419", color:"#e2e8f0", alignItems:"center", justifyContent:"center", padding:"20px" }}>
+        <div style={{ textAlign:"center" }}>
+          <div style={{ fontSize:64, marginBottom:20 }}>✅</div>
+          <h2 style={{ fontSize:28, fontWeight:900, color:"#fff", marginBottom:10 }}>Report Generated</h2>
+          <p style={{ color:"#64748b", marginBottom:20 }}>Your {formData.reportType} report has been created</p>
+          <button onClick={() => setSubmitted(false)} style={{
+            padding:"11px 24px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700,
+            background:`linear-gradient(135deg,${C.purple},${C.blue})`,
+            border:"none", color:"#fff", boxShadow:`0 0 20px rgba(124,92,252,0.4)`,
+          }}>⬇ Download Report</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display:"flex", minHeight:"100vh", backgroundColor:"#0f1419", color:"#e2e8f0", flexDirection:"column" }}>
       <main style={{ flex:1, padding:"32px", overflowY:"auto" }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:12, marginBottom:28 }}>
-          <div>
-            <h1 style={{
-              fontSize:"clamp(22px,4vw,32px)", fontWeight:900, margin:0,
-              background:`linear-gradient(90deg,#fff 30%,${C.blue})`,
-              WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent",
-            }}>Reports</h1>
-            <p style={{ color:"#64748b", fontSize:13, margin:"4px 0 0" }}>View and download QMS reports</p>
-          </div>
-          <button onClick={() => router.push("/reports/export")} style={{
-            padding:"10px 18px", borderRadius:12,
-            background:`linear-gradient(135deg,${C.purple},${C.blue})`,
-            border:"none", color:"#fff", fontWeight:700, fontSize:13,
-            boxShadow:`0 0 20px rgba(124,92,252,0.4)`, cursor:"pointer", fontFamily:"inherit",
-          }}>+ Generate Report</button>
+        <div style={{ marginBottom:28 }}>
+          <h1 style={{
+            fontSize:"clamp(22px,4vw,32px)", fontWeight:900, margin:0,
+            background:`linear-gradient(90deg,#fff 30%,${C.blue})`,
+            WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent",
+          }}>Generate Report</h1>
+          <p style={{ color:"#64748b", fontSize:13, margin:"4px 0 0" }}>Create custom reports from QMS data</p>
         </div>
 
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:14 }}>
-          {reports.map(report => (
-            <div
-              key={report.id}
-              onClick={() => router.push(`/reports/${report.id}`)}
-              style={{
-                background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
-                border:"1px solid rgba(124,92,252,0.25)",
-                borderRadius:14, padding:"18px 20px",
-                cursor:"pointer", transition:"all 0.25s ease",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "rgba(124,92,252,0.5)";
-                e.currentTarget.style.transform = "translateY(-4px)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = "rgba(124,92,252,0.25)";
-                e.currentTarget.style.transform = "translateY(0)";
-              }}
-            >
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
-                <div>
-                  <div style={{ fontSize:16, fontWeight:800, color:"#fff" }}>{report.id}</div>
-                  <div style={{ fontSize:11, color:"#64748b" }}>{report.date}</div>
-                </div>
-                <span style={{
-                  padding:"4px 10px", borderRadius:20, fontSize:11, fontWeight:700,
-                  background:`rgba(${rgbaMap[C.blue]},0.15)`,
-                  color:C.blue,
-                  border:`1px solid rgba(${rgbaMap[C.blue]},0.3)`,
-                }}>{report.type}</span>
-              </div>
-              <div style={{ fontSize:13, color:"#e2e8f0", marginBottom:8 }}>{report.title}</div>
-              <div style={{ fontSize:12, color:"#64748b" }}>Client: {report.client}</div>
+        <form onSubmit={handleSubmit} style={{
+          background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
+          border:"1px solid rgba(124,92,252,0.2)", borderRadius:18,
+          padding:"28px", maxWidth:600,
+        }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(250px,1fr))", gap:16, marginBottom:24 }}>
+            <div>
+              <label style={labelStyle}>Report Type *</label>
+              <select style={{...inputStyle, cursor:"pointer"}} name="reportType" value={formData.reportType} onChange={handleChange}>
+                <option>Inspection</option>
+                <option>Compliance</option>
+                <option>NCR</option>
+                <option>Equipment</option>
+                <option>License</option>
+              </select>
             </div>
-          ))}
-        </div>
+
+            <div>
+              <label style={labelStyle}>Format *</label>
+              <select style={{...inputStyle, cursor:"pointer"}} name="format" value={formData.format} onChange={handleChange}>
+                <option>PDF</option>
+                <option>Excel</option>
+                <option>CSV</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Start Date</label>
+              <input style={inputStyle} type="date" name="startDate" value={formData.startDate} onChange={handleChange} />
+            </div>
+
+            <div>
+              <label style={labelStyle}>End Date</label>
+              <input style={inputStyle} type="date" name="endDate" value={formData.endDate} onChange={handleChange} />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Client</label>
+              <select style={{...inputStyle, cursor:"pointer"}} name="client" value={formData.client} onChange={handleChange}>
+                <option>All</option>
+                <option>Acme Corp</option>
+                <option>SteelWorks Ltd</option>
+                <option>MineOps Ltd</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display:"flex", gap:12, justifyContent:"flex-end" }}>
+            <button type="button" onClick={() => window.history.back()} style={{
+              padding:"11px 24px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700,
+              background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", color:"#94a3b8",
+            }}>Cancel</button>
+            <button type="submit" style={{
+              padding:"11px 28px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700,
+              background:`linear-gradient(135deg,${C.purple},${C.blue})`,
+              border:"none", color:"#fff", boxShadow:`0 0 20px rgba(124,92,252,0.4)`,
+            }}>Generate Report</button>
+          </div>
+        </form>
       </main>
     </div>
   );
