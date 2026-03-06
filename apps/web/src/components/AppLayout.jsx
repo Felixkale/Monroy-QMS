@@ -2,6 +2,7 @@
 
 import { useRouter, usePathname } from "next/navigation";
 import { useState } from "react";
+import { useAuth } from "@/components/AuthContext";
 
 const C = { green: "#00f5c4", purple: "#7c5cfc", blue: "#4fc3f7" };
 
@@ -20,6 +21,7 @@ const navItems = [
 export default function AppLayout({ children, title = "Monroy QMS" }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { user, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleDashboardClick = () => {
@@ -36,6 +38,15 @@ export default function AppLayout({ children, title = "Monroy QMS" }) {
     router.push(href);
     setMobileMenuOpen(false);
   };
+
+  const handleLogout = async () => {
+    await logout();
+    router.push("/login");
+  };
+
+  // Get user initials
+  const userInitial = user?.email?.charAt(0).toUpperCase() || "U";
+  const userName = user?.email?.split("@")[0] || "User";
 
   return (
     <div
@@ -202,17 +213,18 @@ export default function AppLayout({ children, title = "Monroy QMS" }) {
                 fontSize: 16,
               }}
             >
-              A
+              {userInitial}
             </div>
             <div style={{ minWidth: 0 }}>
-              <p style={{ fontSize: 13, fontWeight: 500, color: "#fff", margin: 0 }}>Admin</p>
-              <p style={{ fontSize: 11, margin: "2px 0 0", color: "rgba(255,255,255,0.5)" }}>
-                admin@monroy.com
+              <p style={{ fontSize: 13, fontWeight: 500, color: "#fff", margin: 0 }}>{userName}</p>
+              <p style={{ fontSize: 11, margin: "2px 0 0", color: "rgba(255,255,255,0.5)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {user?.email}
               </p>
             </div>
           </div>
 
           <button
+            onClick={handleLogout}
             type="button"
             style={{
               width: "100%",
