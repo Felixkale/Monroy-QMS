@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import AppLayout from "../../../components/AppLayout";
@@ -18,10 +18,48 @@ const COMPANY = {
 
 const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7", pink:"#f472b6", yellow:"#fbbf24" };
 
+const EQUIPMENT_TYPES = [
+  "Pressure Vessel","Boiler","Air Receiver","Crane","Hoist",
+  "Forklift","Lifting Beam","Chain Block","Wire Rope","Conveyor",
+  "Compressor","Heat Exchanger","Storage Tank","Other",
+];
+
+const INSPECTION_METHODS = [
+  "Visual Examination",
+  "Ultrasonic Thickness Testing",
+  "Magnetic Particle Inspection",
+  "Dye Penetrant Testing",
+  "Radiographic Testing",
+  "Hydrostatic Pressure Test",
+  "Functional / Load Test",
+  "Visual Examination / Ultrasonic Thickness Testing / Functional Test",
+];
+
 const sanitizeInput  = (val) => String(val || "").trim().replace(/[<>]/g, "");
 const validateEmail  = (v)   => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 const validatePhone  = (v)   => /^[+\d\s()-]{7,20}$/.test(v);
-const validateMeasurement = (v) => /^[\d.,]+ ?[a-zA-Z]+$/.test(v);
+const validateMeasurement = (v) => /^[\d.,]+ ?[a-zA-Z°\/]+$/.test(v);
+
+function formatDate(val) {
+  if (!val) return "—";
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return val;
+  return d.toLocaleDateString("en-GB", { day:"2-digit", month:"long", year:"numeric" });
+}
+
+function formatCertNumber(type, num) {
+  const year = new Date().getFullYear();
+  const prefix = {
+    "Certificate of Statutory Inspection": "CSI",
+    "Load Test Certificate": "LTC",
+    "Equipment Certification": "EQC",
+    "ISO Certification": "ISO",
+    "Compliance Certificate": "COM",
+    "Pressure Test Certificate": "PTC",
+  }[type] || "CERT";
+  const seq = num.replace(/^[A-Z]+-/, "").slice(-6).padStart(4,"0");
+  return `${prefix}-${year}-${seq}`;
+}
 
 const inputStyle = {
   width:"100%", padding:"10px 12px",
@@ -32,14 +70,7 @@ const inputStyle = {
 };
 const labelStyle = { display:"block", fontSize:11, fontWeight:700, color:"#64748b", marginBottom:6 };
 
-function formatDate(val) {
-  if (!val) return "—";
-  const d = new Date(val);
-  if (isNaN(d.getTime())) return val;
-  return d.toLocaleDateString("en-GB", { day:"2-digit", month:"long", year:"numeric" });
-}
-
-// ─── QR Code canvas renderer ─────────────────────────────────────────────────
+// ─── QR Canvas ───────────────────────────────────────────────────────────────
 function QRCanvas({ text, size = 90 }) {
   const ref = useRef(null);
   useEffect(() => {
@@ -50,32 +81,24 @@ function QRCanvas({ text, size = 90 }) {
     const cell = size / cells;
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, size, size);
-    ctx.fillStyle = "#000000";
-    // Corner finder patterns
     [[0,0],[0,18],[18,0]].forEach(([r,c]) => {
-      ctx.fillStyle = "#000";
-      ctx.fillRect(c*cell, r*cell, 7*cell, 7*cell);
-      ctx.fillStyle = "#fff";
-      ctx.fillRect((c+1)*cell, (r+1)*cell, 5*cell, 5*cell);
-      ctx.fillStyle = "#000";
-      ctx.fillRect((c+2)*cell, (r+2)*cell, 3*cell, 3*cell);
+      ctx.fillStyle="#000"; ctx.fillRect(c*cell, r*cell, 7*cell, 7*cell);
+      ctx.fillStyle="#fff"; ctx.fillRect((c+1)*cell,(r+1)*cell,5*cell,5*cell);
+      ctx.fillStyle="#000"; ctx.fillRect((c+2)*cell,(r+2)*cell,3*cell,3*cell);
     });
-    // Timing patterns
-    for (let i = 8; i < 17; i++) {
-      ctx.fillStyle = i % 2 === 0 ? "#000" : "#fff";
-      ctx.fillRect(i*cell, 6*cell, cell, cell);
-      ctx.fillRect(6*cell, i*cell, cell, cell);
+    for (let i=8;i<17;i++) {
+      ctx.fillStyle = i%2===0?"#000":"#fff";
+      ctx.fillRect(i*cell,6*cell,cell,cell);
+      ctx.fillRect(6*cell,i*cell,cell,cell);
     }
-    // Data modules (pseudo-random from text hash)
-    let hash = 0;
-    for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x9e3779b9) >>> 0;
-    for (let r = 0; r < cells; r++) {
-      for (let c = 0; c < cells; c++) {
-        const inFinder = (r<8&&c<8)||(r<8&&c>17)||(r>17&&c<8);
-        const inTiming = (r===6&&c>=8&&c<=16)||(c===6&&r>=8&&r<=16);
-        if (!inFinder && !inTiming) {
-          const bit = ((hash ^ (r * cells + c) * 2654435761) >>> 0) & 1;
-          if (bit) { ctx.fillStyle="#000"; ctx.fillRect(c*cell, r*cell, cell, cell); }
+    let hash=0;
+    for (let i=0;i<text.length;i++) hash=Math.imul(hash^text.charCodeAt(i),0x9e3779b9)>>>0;
+    for (let r=0;r<cells;r++) for (let c=0;c<cells;c++) {
+      const inFinder=(r<8&&c<8)||(r<8&&c>17)||(r>17&&c<8);
+      const inTiming=(r===6&&c>=8&&c<=16)||(c===6&&r>=8&&r<=16);
+      if (!inFinder&&!inTiming) {
+        if (((hash^(r*cells+c)*2654435761)>>>0)&1) {
+          ctx.fillStyle="#000"; ctx.fillRect(c*cell,r*cell,cell,cell);
         }
       }
     }
@@ -83,14 +106,22 @@ function QRCanvas({ text, size = 90 }) {
   return <canvas ref={ref} width={size} height={size} style={{ display:"block" }} />;
 }
 
-// ─── Certificate preview component ───────────────────────────────────────────
-function CertificatePreview({ formData, statusMeta }) {
-  const qrText = `https://monroy.co.bw/verify?cert=${formData.certificateNumber}&eq=${formData.identificationNumber || "N/A"}&issued=${formData.issueDate}&exp=${formData.expiryDate}`;
+// ─── Certificate Preview ──────────────────────────────────────────────────────
+function CertificatePreview({ formData, statusMeta, signatureSrc }) {
+  const qrText = `https://monroy.co.bw/verify?cert=${formData.certNumber}&eq=${formData.identificationNumber||"N/A"}&issued=${formData.issueDate}&exp=${formData.expiryDate}&status=${formData.equipmentStatus}`;
 
-  const row = (label, value) => (
+  const titleBg = {
+    pass:        "linear-gradient(180deg,#c4c9d4 0%,#adb4c2 100%)",
+    fail:        "linear-gradient(180deg,#fca5a5 0%,#ef4444 100%)",
+    conditional: "linear-gradient(180deg,#fde68a 0%,#f59e0b 100%)",
+  }[formData.equipmentStatus] || "linear-gradient(180deg,#c4c9d4 0%,#adb4c2 100%)";
+
+  const titleColor = formData.equipmentStatus === "pass" ? "#111827" : "#fff";
+
+  const row = (label, value, bold=false) => (
     <div style={{ display:"grid", gridTemplateColumns:"148px 1fr", gap:4, fontSize:10.5, marginBottom:4, fontFamily:"Arial,sans-serif", color:"#111827" }}>
       <span style={{ fontWeight:700 }}>{label}</span>
-      <span>{value || "—"}</span>
+      <span style={{ fontWeight:bold?700:400 }}>{value||"—"}</span>
     </div>
   );
 
@@ -99,40 +130,43 @@ function CertificatePreview({ formData, statusMeta }) {
       {title}
     </div>
   );
-
-  const secBody = (children, style={}) => (
-    <div style={{ border:"1px solid #c4c8d0", borderTop:"none", padding:"9px 12px", background:"#ffffff", ...style }}>
+  const secBody = (children) => (
+    <div style={{ border:"1px solid #c4c8d0", borderTop:"none", padding:"9px 12px", background:"#ffffff" }}>
       {children}
     </div>
   );
 
   return (
-    <div style={{ background:"#cbd0d9", padding:18, borderRadius:4, boxShadow:"0 14px 40px rgba(0,0,0,0.35)" }}>
-      <div style={{ background:"#fff", border:"2px solid #8f96a3", padding:12, boxShadow:"inset 0 0 0 1px rgba(255,255,255,0.5)" }}>
+    <div id="cert-preview-root" style={{ background:"#cbd0d9", padding:18, borderRadius:4, boxShadow:"0 14px 40px rgba(0,0,0,0.35)" }}>
+      <div style={{ background:"#fff", border:"2px solid #8f96a3", padding:12 }}>
         <div style={{ border:"1px solid #9aa0ab", padding:14, background:"linear-gradient(180deg,#ffffff 0%,#f9fafb 100%)", position:"relative", overflow:"hidden" }}>
 
           {/* Watermark */}
-          <div style={{ position:"absolute", inset:0, backgroundImage:`url('${LOGO_SRC}')`, backgroundRepeat:"no-repeat", backgroundPosition:"center", backgroundSize:"70%", opacity:0.055, pointerEvents:"none", zIndex:0 }} />
+          <div style={{ position:"absolute", inset:0, backgroundImage:`url('${LOGO_SRC}')`, backgroundRepeat:"no-repeat", backgroundPosition:"center", backgroundSize:"70%", opacity:0.055, pointerEvents:"none", zIndex:0 }}/>
 
-          {/* All content above watermark */}
+          {/* Seal stamp */}
+          <div style={{ position:"absolute", bottom:80, right:20, width:90, height:90, borderRadius:"50%", border:"3px double #9aa0ab", display:"flex", alignItems:"center", justifyContent:"center", opacity:0.12, zIndex:0, flexDirection:"column" }}>
+            <div style={{ fontSize:7, fontFamily:"Arial,sans-serif", fontWeight:900, color:"#374151", textAlign:"center", letterSpacing:1 }}>MONROY PTY LTD</div>
+            <div style={{ fontSize:6, color:"#374151", textAlign:"center" }}>AUTHORISED</div>
+          </div>
+
           <div style={{ position:"relative", zIndex:1 }}>
-
             {/* Header */}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 130px", gap:14, alignItems:"center", marginBottom:14, paddingBottom:10, borderBottom:"1px solid #d6d9e0" }}>
               <div>
-                <div style={{ fontFamily:"'Arial Black',Arial,sans-serif", fontSize:14, fontWeight:900, color:"#111827", marginBottom:2 }}>{COMPANY.name}</div>
-                <div style={{ fontSize:10.5, color:"#6b7280", marginBottom:8, letterSpacing:0.3 }}>{COMPANY.subtitle}</div>
+                <div style={{ fontFamily:"\'Arial Black\',Arial,sans-serif", fontSize:14, fontWeight:900, color:"#111827", marginBottom:2 }}>{COMPANY.name}</div>
+                <div style={{ fontSize:10.5, color:"#6b7280", marginBottom:8 }}>{COMPANY.subtitle}</div>
                 <div style={{ fontSize:10, color:"#374151", lineHeight:1.8, fontFamily:"Arial,sans-serif" }}>
                   <div>📞 {COMPANY.phone}</div>
                   <div>✉ {COMPANY.email}</div>
                   <div>📍 {COMPANY.address}</div>
                 </div>
               </div>
-              <img src={LOGO_SRC} alt="Monroy Logo" style={{ width:120, height:88, objectFit:"contain", display:"block", marginLeft:"auto" }} />
+              <img src={LOGO_SRC} alt="Monroy" style={{ width:120, height:88, objectFit:"contain", display:"block", marginLeft:"auto" }}/>
             </div>
 
-            {/* Title */}
-            <div style={{ background:"linear-gradient(180deg,#c4c9d4 0%,#adb4c2 100%)", border:"1px solid #9aa0ab", textAlign:"center", fontFamily:"'Arial Black',Arial,sans-serif", fontWeight:900, fontSize:14.5, color:"#111827", padding:"10px", marginBottom:12, letterSpacing:1.2, boxShadow:"inset 0 1px 0 rgba(255,255,255,0.55),inset 0 -1px 0 rgba(0,0,0,0.1)" }}>
+            {/* Dynamic Title Bar */}
+            <div style={{ background:titleBg, border:"1px solid #9aa0ab", textAlign:"center", fontFamily:"\'Arial Black\',Arial,sans-serif", fontWeight:900, fontSize:14, color:titleColor, padding:"10px", marginBottom:12, letterSpacing:1.2, boxShadow:"inset 0 1px 0 rgba(255,255,255,0.4),inset 0 -1px 0 rgba(0,0,0,0.1)" }}>
               {formData.certificateType?.toUpperCase() || "CERTIFICATE OF STATUTORY INSPECTION"}
             </div>
 
@@ -142,43 +176,51 @@ function CertificatePreview({ formData, statusMeta }) {
               {secBody(
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                   <div>
-                    {row("Certificate Number:", formData.certificateNumber)}
+                    {row("Certificate Number:", formData.certNumber)}
+                    {row("Equipment Category:", formData.equipmentType)}
                     {row("Issue Date:", formatDate(formData.issueDate))}
                   </div>
                   <div>
-                    {row("Client / Company:", formData.company)}
+                    {row("Client / Company:", formData.company, true)}
                     {row("Inspection Authority:", COMPANY.name)}
                     {row("Expiry Date:", formatDate(formData.expiryDate))}
+                    {formData.equipmentStatus==="conditional" && formData.gracePeriodDate &&
+                      row("Grace Period Until:", formatDate(formData.gracePeriodDate))
+                    }
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Equipment + Technical */}
+            {/* Equipment + Nameplate */}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:9, marginBottom:9 }}>
               <div>
-                {secHead("EQUIPMENT DETAILS")}
+                {secHead("EQUIPMENT IDENTIFICATION")}
                 {secBody(<>
+                  {row("Equipment Tag No:", formData.identificationNumber)}
+                  {row("Equipment Type:", formData.equipmentType, true)}
                   {row("Description:", formData.equipmentDescription)}
-                  {row("Tag / ID No:", formData.identificationNumber)}
                   {row("Location:", formData.equipmentLocation)}
-                  {row("SWL:", formData.swl)}
-                  {row("MAWP:", formData.mawp)}
+                  {row("Manufacturer:", formData.manufacturer)}
+                  {row("Serial Number:", formData.serialNumber)}
+                  {row("Year Manufactured:", formData.yearManufactured)}
                 </>)}
               </div>
               <div>
-                {secHead("INSPECTOR DETAILS")}
+                {secHead("NAMEPLATE DATA")}
                 {secBody(<>
-                  {row("Inspector Name:", formData.inspectorName)}
-                  {row("Inspector ID:", formData.inspectorID)}
-                  {row("Contact:", formData.contactPerson)}
-                  {row("Email:", formData.inspectorEmail)}
-                  {row("Phone:", formData.inspectorPhone)}
+                  {row("SWL:", formData.swl)}
+                  {row("MAWP:", formData.mawp)}
+                  {row("Design Temperature:", formData.designTemperature)}
+                  {row("Capacity / Volume:", formData.capacityVolume)}
+                  {row("Shell Thickness:", formData.shellThickness)}
+                  {row("Head Type:", formData.headType)}
+                  {row("Design Code:", formData.designCode)}
                 </>)}
               </div>
             </div>
 
-            {/* Compliance + Inspection Record */}
+            {/* Compliance + Inspection */}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:9, marginBottom:9 }}>
               <div>
                 {secHead("COMPLIANCE")}
@@ -187,16 +229,23 @@ function CertificatePreview({ formData, statusMeta }) {
                     This equipment has been subjected to statutory inspection by a competent and authorised inspection body. The inspection outcome recorded in this certificate represents a true reflection of the equipment's condition as assessed on the date of inspection.
                     <br/><br/>
                     Operation of this equipment must, at all times, conform to the safe working limits indicated on the equipment nameplate and shall be carried out in strict accordance with the requirements of the Mines, Quarries, Works and Machinery Act Cap 44:02 and all applicable subsidiary legislation.
+                    {formData.equipmentStatus==="conditional" && (
+                      <><br/><br/><strong style={{ color:"#b45309" }}>⚠ CONDITIONAL PASS:</strong> This equipment has been granted a grace period. Remedial action must be completed before {formatDate(formData.gracePeriodDate) || "the specified date"}.</>
+                    )}
+                    {formData.equipmentStatus==="fail" && (
+                      <><br/><br/><strong style={{ color:"#dc2626" }}>⛔ FAILED INSPECTION:</strong> This equipment must be taken out of service immediately pending repair and re-inspection.</>
+                    )}
                   </div>
                 )}
               </div>
               <div>
                 {secHead("INSPECTION RECORD")}
                 {secBody(<>
+                  {row("Inspection Method:", formData.inspectionMethod)}
                   {row("Inspection Date:", formatDate(formData.issueDate))}
-                  {row("Next Due:", formatDate(formData.expiryDate))}
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:10, alignItems:"stretch" }}>
-                    <div style={{ background:statusMeta.bg, color:statusMeta.text, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Arial Black',Arial,sans-serif", fontWeight:900, letterSpacing:1.5, minHeight:40, borderRadius:2, fontSize:14 }}>
+                  {row("Next Inspection:", formatDate(formData.expiryDate))}
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:10 }}>
+                    <div style={{ background:statusMeta.bg, color:statusMeta.text, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"\'Arial Black\',Arial,sans-serif", fontWeight:900, letterSpacing:1.5, minHeight:40, borderRadius:2, fontSize:13 }}>
                       {statusMeta.label}
                     </div>
                     <div style={{ border:"1px solid #c4c8d0", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10.5, color:"#111827", background:"#fff", fontFamily:"Arial,sans-serif", fontWeight:600, padding:4, textAlign:"center" }}>
@@ -207,12 +256,12 @@ function CertificatePreview({ formData, statusMeta }) {
               </div>
             </div>
 
-            {/* Legal + Authorized Body */}
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:9, marginBottom:9 }}>
+            {/* Legal + Authorised Body */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:9 }}>
               <div>
                 {secHead("APPLICABLE LEGISLATION")}
                 {secBody(
-                  <div style={{ fontSize:10, lineHeight:1.8, color:"#374151", fontFamily:"Arial,sans-serif", whiteSpace:"pre-line" }}>
+                  <div style={{ fontSize:10, lineHeight:1.85, color:"#374151", fontFamily:"Arial,sans-serif", whiteSpace:"pre-line" }}>
                     {formData.legalFramework}
                   </div>
                 )}
@@ -222,14 +271,20 @@ function CertificatePreview({ formData, statusMeta }) {
                 {secBody(
                   <div style={{ display:"grid", gridTemplateColumns:"1fr 98px", gap:10, alignItems:"start" }}>
                     <div>
-                      <div style={{ fontFamily:"'Arial Black',Arial,sans-serif", fontWeight:900, fontSize:11.5, color:"#111827", marginBottom:1 }}>{COMPANY.name}</div>
+                      <div style={{ fontFamily:"\'Arial Black\',Arial,sans-serif", fontWeight:900, fontSize:11.5, color:"#111827", marginBottom:1 }}>{COMPANY.name}</div>
                       <div style={{ fontSize:10, color:"#6b7280", marginBottom:8 }}>{COMPANY.subtitle}</div>
                       {row("Inspector Name:", formData.inspectorName)}
-                      {row("Signature:", "____________________")}
+                      <div style={{ display:"grid", gridTemplateColumns:"148px 1fr", gap:4, fontSize:10.5, marginBottom:4, fontFamily:"Arial,sans-serif", color:"#111827" }}>
+                        <span style={{ fontWeight:700 }}>Signature:</span>
+                        {signatureSrc
+                          ? <img src={signatureSrc} alt="Signature" style={{ maxHeight:36, maxWidth:120, objectFit:"contain" }}/>
+                          : <span style={{ borderBottom:"1px solid #374151", display:"inline-block", width:120, marginTop:10 }}/>
+                        }
+                      </div>
                       {row("Date Issued:", formatDate(formData.issueDate))}
                     </div>
-                    <div style={{ border:"1px solid #c4c8d0", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"flex-end", background:"#fff", padding:"4px 4px 0 4px" }}>
-                      <QRCanvas text={qrText} size={88} />
+                    <div style={{ border:"1px solid #c4c8d0", display:"flex", flexDirection:"column", alignItems:"center", background:"#fff", padding:"4px 4px 0 4px" }}>
+                      <QRCanvas text={qrText} size={88}/>
                       <div style={{ fontSize:8.5, fontWeight:700, color:"#fff", fontFamily:"Arial,sans-serif", textAlign:"center", background:"#333", padding:"2px 0", width:"100%", marginTop:3 }}>
                         Scan to Verify
                       </div>
@@ -240,11 +295,10 @@ function CertificatePreview({ formData, statusMeta }) {
             </div>
 
             {/* Footer */}
-            <div style={{ borderTop:"1px solid #c4c8d0", paddingTop:9, textAlign:"center", fontSize:10, color:"#4b5563", lineHeight:1.75, fontFamily:"Arial,sans-serif", fontStyle:"italic" }}>
+            <div style={{ marginTop:10, borderTop:"1px solid #c4c8d0", paddingTop:9, textAlign:"center", fontSize:10, color:"#4b5563", lineHeight:1.75, fontFamily:"Arial,sans-serif", fontStyle:"italic" }}>
               This certificate was generated electronically by the Monroy QMS Inspection System.<br/>
               Verification can be performed using the certificate number or QR code.
             </div>
-
           </div>
         </div>
       </div>
@@ -255,26 +309,41 @@ function CertificatePreview({ formData, statusMeta }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function CreateCertificatePage() {
   const router = useRouter();
-  const [loading, setLoading]     = useState(true);
-  const [user, setUser]           = useState(null);
-  const [errors, setErrors]       = useState({});
-  const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading]       = useState(true);
+  const [user, setUser]             = useState(null);
+  const [errors, setErrors]         = useState({});
+  const [submitted, setSubmitted]   = useState(false);
+  const [signatureSrc, setSignatureSrc] = useState(null);
+  const [printing, setPrinting]     = useState(false);
+
+  const baseNum = useRef(Date.now().toString().slice(-6));
 
   const [formData, setFormData] = useState({
-    certificateNumber:    `CERT-${Date.now().toString().slice(-6)}`,
     certificateType:      "Certificate of Statutory Inspection",
+    certNumber:           `CSI-${new Date().getFullYear()}-${baseNum.current}`,
     issueDate:            new Date().toISOString().split("T")[0],
-    expiryDate:           new Date(Date.now() + 180*24*60*60*1000).toISOString().split("T")[0],
+    expiryDate:           new Date(Date.now()+180*24*60*60*1000).toISOString().split("T")[0],
+    gracePeriodDate:      "",
     status:               "issued",
     company:              "",
     contactPerson:        "",
     contactEmail:         "",
     contactPhone:         "",
+    equipmentType:        "Pressure Vessel",
     equipmentDescription: "",
     equipmentLocation:    "",
     identificationNumber: "",
+    manufacturer:         "",
+    serialNumber:         "",
+    yearManufactured:     "",
+    designCode:           "ASME BPVC Section VIII Div 1",
     swl:                  "",
     mawp:                 "",
+    designTemperature:    "",
+    capacityVolume:       "",
+    shellThickness:       "",
+    headType:             "",
+    inspectionMethod:     "Visual Examination / Ultrasonic Thickness Testing / Functional Test",
     equipmentStatus:      "pass",
     inspectorName:        "",
     inspectorID:          "",
@@ -283,34 +352,87 @@ export default function CreateCertificatePage() {
     legalFramework:       "Mines, Quarries, Works and Machinery Act Cap 44:02\nFactories Act 44.01\nMachinery and Related Industries Safety and Health Regulations",
   });
 
-  const set = (k, v) => setFormData(f => ({ ...f, [k]: v }));
+  const set = useCallback((k, v) => setFormData(f => ({ ...f, [k]: v })), []);
 
-  const statusMeta = useMemo(() => {
-    if (formData.equipmentStatus === "pass")        return { label:"PASS",        bg:"#1e7a52", text:"#ffffff" };
-    if (formData.equipmentStatus === "fail")        return { label:"FAIL",        bg:"#dc2626", text:"#ffffff" };
-    if (formData.equipmentStatus === "conditional") return { label:"CONDITIONAL", bg:"#d97706", text:"#ffffff" };
-    return { label:"PASS", bg:"#1e7a52", text:"#ffffff" };
-  }, [formData.equipmentStatus]);
-
+  // Auto-update cert number when type changes
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
+    set("certNumber", formatCertNumber(formData.certificateType, baseNum.current));
+  }, [formData.certificateType]);
+
+  // Auto-fill inspector from logged-in user profile
+  useEffect(() => {
+    supabase.auth.getUser().then(async ({ data }) => {
       if (!data?.user) { router.push("/login"); return; }
       setUser(data.user);
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name, phone, inspector_id")
+        .eq("id", data.user.id)
+        .single();
+      if (profile) {
+        setFormData(f => ({
+          ...f,
+          inspectorName:  profile.full_name  || f.inspectorName,
+          inspectorPhone: profile.phone       || f.inspectorPhone,
+          inspectorID:    profile.inspector_id || f.inspectorID,
+          inspectorEmail: data.user.email     || f.inspectorEmail,
+        }));
+      } else {
+        set("inspectorEmail", data.user.email || "");
+      }
       setLoading(false);
     });
   }, []);
 
+  const statusMeta = useMemo(() => ({
+    pass:        { label:"PASS",        bg:"#1e7a52", text:"#fff" },
+    fail:        { label:"FAIL",        bg:"#dc2626", text:"#fff" },
+    conditional: { label:"CONDITIONAL", bg:"#d97706", text:"#fff" },
+  }[formData.equipmentStatus] || { label:"PASS", bg:"#1e7a52", text:"#fff" }), [formData.equipmentStatus]);
+
+  // Signature upload handler
+  function handleSignatureUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setSignatureSrc(ev.target.result);
+    reader.readAsDataURL(file);
+  }
+
+  // PDF download via print
+  function handlePrint() {
+    setPrinting(true);
+    setTimeout(() => {
+      const el = document.getElementById("cert-preview-root");
+      if (!el) return;
+      const w = window.open("", "_blank");
+      w.document.write(`
+        <html><head><title>${formData.certNumber}</title>
+        <style>
+          *{box-sizing:border-box;margin:0;padding:0}
+          body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+          @page{size:A4;margin:10mm}
+        </style></head>
+        <body>${el.outerHTML}</body></html>
+      `);
+      w.document.close();
+      w.focus();
+      setTimeout(() => { w.print(); w.close(); setPrinting(false); }, 500);
+    }, 100);
+  }
+
   function validateForm() {
     const e = {};
-    if (!formData.company.trim())               e.company              = "Company is required";
-    if (!formData.equipmentDescription.trim())  e.equipmentDescription = "Equipment description is required";
-    if (!validateEmail(formData.contactEmail))  e.contactEmail         = "Invalid email format";
-    if (!validateEmail(formData.inspectorEmail)) e.inspectorEmail      = "Invalid inspector email format";
-    if (formData.contactPhone   && !validatePhone(formData.contactPhone))    e.contactPhone   = "Invalid phone format";
-    if (formData.inspectorPhone && !validatePhone(formData.inspectorPhone))  e.inspectorPhone = "Invalid phone format";
-    if (formData.swl  && !validateMeasurement(formData.swl))  e.swl  = "Invalid SWL (e.g. 50 TON)";
-    if (formData.mawp && !validateMeasurement(formData.mawp)) e.mawp = "Invalid MAWP (e.g. 10 bar)";
-    if (new Date(formData.expiryDate) <= new Date(formData.issueDate)) e.expiryDate = "Expiry must be after issue date";
+    if (!formData.company.trim())               e.company              = "Required";
+    if (!formData.equipmentDescription.trim())  e.equipmentDescription = "Required";
+    if (!validateEmail(formData.contactEmail))  e.contactEmail         = "Invalid email";
+    if (!validateEmail(formData.inspectorEmail)) e.inspectorEmail      = "Invalid email";
+    if (formData.contactPhone   && !validatePhone(formData.contactPhone))    e.contactPhone   = "Invalid phone";
+    if (formData.inspectorPhone && !validatePhone(formData.inspectorPhone))  e.inspectorPhone = "Invalid phone";
+    if (formData.swl  && !validateMeasurement(formData.swl))  e.swl  = "e.g. 50 TON";
+    if (formData.mawp && !validateMeasurement(formData.mawp)) e.mawp = "e.g. 10 bar";
+    if (new Date(formData.expiryDate) <= new Date(formData.issueDate)) e.expiryDate = "Must be after issue date";
+    if (formData.equipmentStatus==="conditional" && !formData.gracePeriodDate) e.gracePeriodDate = "Grace period date required for conditional pass";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -319,14 +441,24 @@ export default function CreateCertificatePage() {
     if (!validateForm()) return;
     try {
       const sanitized = {
-        certificate_number:    sanitizeInput(formData.certificateNumber),
+        certificate_number:    sanitizeInput(formData.certNumber),
         certificate_type:      sanitizeInput(formData.certificateType),
         company:               sanitizeInput(formData.company),
+        equipment_type:        sanitizeInput(formData.equipmentType),
         equipment_description: sanitizeInput(formData.equipmentDescription),
         equipment_location:    sanitizeInput(formData.equipmentLocation),
         identification_number: sanitizeInput(formData.identificationNumber),
+        manufacturer:          sanitizeInput(formData.manufacturer),
+        serial_number:         sanitizeInput(formData.serialNumber),
+        year_manufactured:     sanitizeInput(formData.yearManufactured),
+        design_code:           sanitizeInput(formData.designCode),
         swl:                   sanitizeInput(formData.swl),
         mawp:                  sanitizeInput(formData.mawp),
+        design_temperature:    sanitizeInput(formData.designTemperature),
+        capacity_volume:       sanitizeInput(formData.capacityVolume),
+        shell_thickness:       sanitizeInput(formData.shellThickness),
+        head_type:             sanitizeInput(formData.headType),
+        inspection_method:     sanitizeInput(formData.inspectionMethod),
         contact_person:        sanitizeInput(formData.contactPerson),
         contact_email:         formData.contactEmail.toLowerCase().trim(),
         contact_phone:         sanitizeInput(formData.contactPhone),
@@ -335,10 +467,12 @@ export default function CreateCertificatePage() {
         inspector_email:       formData.inspectorEmail.toLowerCase().trim(),
         inspector_phone:       sanitizeInput(formData.inspectorPhone),
         equipment_status:      sanitizeInput(formData.equipmentStatus),
+        grace_period_date:     formData.gracePeriodDate || null,
         issued_at:             new Date(formData.issueDate).toISOString(),
         valid_to:              formData.expiryDate,
         status:                sanitizeInput(formData.status),
         legal_framework:       sanitizeInput(formData.legalFramework),
+        signature_url:         signatureSrc || null,
         created_by:            user?.id,
       };
       const { error } = await supabase.from("certificates").insert([sanitized]);
@@ -356,14 +490,18 @@ export default function CreateCertificatePage() {
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", minHeight:"60vh", textAlign:"center" }}>
         <div style={{ width:80, height:80, borderRadius:"50%", background:"rgba(0,245,196,0.15)", border:`2px solid ${C.green}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:36, marginBottom:20 }}>📜</div>
         <h2 style={{ fontSize:24, fontWeight:900, color:"#fff", marginBottom:8 }}>Certificate Created</h2>
-        <p style={{ color:"#64748b", marginBottom:24 }}><strong style={{ color:C.green }}>{formData.certificateNumber}</strong> has been issued.</p>
+        <p style={{ color:"#64748b", marginBottom:24 }}><strong style={{ color:C.green }}>{formData.certNumber}</strong> has been issued.</p>
         <div style={{ display:"flex", gap:12, flexWrap:"wrap", justifyContent:"center" }}>
+          <button onClick={handlePrint} style={{ padding:"11px 24px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13, background:`linear-gradient(135deg,${C.green}cc,${C.blue})`, border:"none", color:"#0d0d1a" }}>🖨 Download PDF</button>
           <button onClick={()=>setSubmitted(false)} style={{ padding:"11px 24px", borderRadius:12, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13, background:`linear-gradient(135deg,${C.purple},${C.blue})`, border:"none", color:"#fff" }}>+ Create Another</button>
           <a href="/certificates" style={{ padding:"11px 24px", borderRadius:12, fontWeight:700, fontSize:13, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", color:"#94a3b8", textDecoration:"none", display:"inline-flex", alignItems:"center" }}>View Certificates</a>
         </div>
       </div>
     </AppLayout>
   );
+
+  const expDays = Math.ceil((new Date(formData.expiryDate) - new Date()) / (1000*60*60*24));
+  const expiryWarning = expDays > 0 && expDays <= 30;
 
   return (
     <AppLayout>
@@ -374,12 +512,14 @@ export default function CreateCertificatePage() {
 
       <div style={{ display:"grid", gridTemplateColumns:"minmax(320px,680px) minmax(320px,1fr)", gap:28, alignItems:"start" }}>
 
-        {/* ── LEFT: Form ── */}
+        {/* ── FORM ── */}
         <div style={{ background:"rgba(255,255,255,0.02)", border:"1px solid rgba(124,92,252,0.2)", borderRadius:16, padding:"clamp(16px,4vw,28px)" }}>
 
           <Section title="Certificate Details" color={C.blue}/>
           <Grid>
-            <Field label="Certificate Number"><input style={inputStyle} value={formData.certificateNumber} readOnly /></Field>
+            <Field label="Certificate Number">
+              <input style={{ ...inputStyle, opacity:0.6 }} value={formData.certNumber} readOnly/>
+            </Field>
             <Field label="Certificate Type">
               <select style={{ ...inputStyle, cursor:"pointer" }} value={formData.certificateType} onChange={e=>set("certificateType",e.target.value)}>
                 {["Certificate of Statutory Inspection","Load Test Certificate","Equipment Certification","ISO Certification","Compliance Certificate","Pressure Test Certificate"].map(t=><option key={t}>{t}</option>)}
@@ -389,6 +529,7 @@ export default function CreateCertificatePage() {
             <Field label="Expiry Date *">
               <input type="date" style={{ ...inputStyle, border:errors.expiryDate?"1px solid #f472b6":inputStyle.border }} value={formData.expiryDate} onChange={e=>set("expiryDate",e.target.value)}/>
               {errors.expiryDate && <Err msg={errors.expiryDate}/>}
+              {expiryWarning && <span style={{ color:C.yellow, fontSize:10, marginTop:4, display:"block" }}>⚠ Expires in {expDays} days</span>}
             </Field>
           </Grid>
 
@@ -411,27 +552,62 @@ export default function CreateCertificatePage() {
 
           <Section title="Equipment Details" color={C.green}/>
           <Grid>
-            <Field label="Equipment Description *">
+            <Field label="Equipment Type">
+              <select style={{ ...inputStyle, cursor:"pointer" }} value={formData.equipmentType} onChange={e=>set("equipmentType",e.target.value)}>
+                {EQUIPMENT_TYPES.map(t=><option key={t}>{t}</option>)}
+              </select>
+            </Field>
+            <Field label="Description *">
               <input style={{ ...inputStyle, border:errors.equipmentDescription?"1px solid #f472b6":inputStyle.border }} value={formData.equipmentDescription} onChange={e=>set("equipmentDescription",e.target.value)}/>
               {errors.equipmentDescription && <Err msg={errors.equipmentDescription}/>}
             </Field>
-            <Field label="Equipment Location"><input style={inputStyle} value={formData.equipmentLocation} onChange={e=>set("equipmentLocation",e.target.value)}/></Field>
-            <Field label="ID / Tag Number"><input style={inputStyle} value={formData.identificationNumber} onChange={e=>set("identificationNumber",e.target.value)}/></Field>
-            <Field label="SWL (e.g. 50 TON)">
-              <input style={{ ...inputStyle, border:errors.swl?"1px solid #f472b6":inputStyle.border }} value={formData.swl} onChange={e=>set("swl",e.target.value)} placeholder="50 TON"/>
+            <Field label="Location"><input style={inputStyle} value={formData.equipmentLocation} onChange={e=>set("equipmentLocation",e.target.value)}/></Field>
+            <Field label="Tag / ID Number"><input style={inputStyle} value={formData.identificationNumber} onChange={e=>set("identificationNumber",e.target.value)}/></Field>
+            <Field label="Manufacturer"><input style={inputStyle} value={formData.manufacturer} onChange={e=>set("manufacturer",e.target.value)}/></Field>
+            <Field label="Serial Number"><input style={inputStyle} value={formData.serialNumber} onChange={e=>set("serialNumber",e.target.value)}/></Field>
+            <Field label="Year Manufactured"><input style={inputStyle} value={formData.yearManufactured} onChange={e=>set("yearManufactured",e.target.value)} placeholder="e.g. 2018"/></Field>
+            <Field label="Design Code"><input style={inputStyle} value={formData.designCode} onChange={e=>set("designCode",e.target.value)}/></Field>
+          </Grid>
+
+          <Section title="Technical / Nameplate Data" color={C.blue}/>
+          <Grid>
+            <Field label="SWL">
+              <input style={{ ...inputStyle, border:errors.swl?"1px solid #f472b6":inputStyle.border }} value={formData.swl} onChange={e=>set("swl",e.target.value)} placeholder="e.g. 50 TON"/>
               {errors.swl && <Err msg={errors.swl}/>}
             </Field>
-            <Field label="MAWP (e.g. 10 bar)">
-              <input style={{ ...inputStyle, border:errors.mawp?"1px solid #f472b6":inputStyle.border }} value={formData.mawp} onChange={e=>set("mawp",e.target.value)} placeholder="10 bar"/>
+            <Field label="MAWP">
+              <input style={{ ...inputStyle, border:errors.mawp?"1px solid #f472b6":inputStyle.border }} value={formData.mawp} onChange={e=>set("mawp",e.target.value)} placeholder="e.g. 10 bar"/>
               {errors.mawp && <Err msg={errors.mawp}/>}
             </Field>
-            <Field label="Equipment Status">
-              <select style={{ ...inputStyle, cursor:"pointer" }} value={formData.equipmentStatus} onChange={e=>set("equipmentStatus",e.target.value)}>
-                <option value="pass">✅ Pass</option>
-                <option value="fail">❌ Fail</option>
-                <option value="conditional">⚠️ Conditional</option>
+            <Field label="Design Temperature"><input style={inputStyle} value={formData.designTemperature} onChange={e=>set("designTemperature",e.target.value)} placeholder="e.g. −20°C to 60°C"/></Field>
+            <Field label="Capacity / Volume"><input style={inputStyle} value={formData.capacityVolume} onChange={e=>set("capacityVolume",e.target.value)} placeholder="e.g. 40 m³"/></Field>
+            <Field label="Shell Thickness"><input style={inputStyle} value={formData.shellThickness} onChange={e=>set("shellThickness",e.target.value)} placeholder="e.g. 21 mm"/></Field>
+            <Field label="Head Type"><input style={inputStyle} value={formData.headType} onChange={e=>set("headType",e.target.value)} placeholder="e.g. Hemispherical"/></Field>
+          </Grid>
+
+          <Section title="Inspection Record" color={C.green}/>
+          <Grid>
+            <Field label="Inspection Method">
+              <select style={{ ...inputStyle, cursor:"pointer" }} value={formData.inspectionMethod} onChange={e=>set("inspectionMethod",e.target.value)}>
+                {INSPECTION_METHODS.map(m=><option key={m}>{m}</option>)}
               </select>
             </Field>
+            <Field label="Equipment Status">
+              <select style={{ ...inputStyle, cursor:"pointer",
+                borderColor: formData.equipmentStatus==="fail"?"#ef4444": formData.equipmentStatus==="conditional"?"#f59e0b":"rgba(124,92,252,0.25)",
+              }} value={formData.equipmentStatus} onChange={e=>set("equipmentStatus",e.target.value)}>
+                <option value="pass">✅ Pass</option>
+                <option value="fail">❌ Fail</option>
+                <option value="conditional">⚠️ Conditional Pass</option>
+              </select>
+            </Field>
+            {formData.equipmentStatus==="conditional" && (
+              <Field label="Grace Period End Date *">
+                <input type="date" style={{ ...inputStyle, border:errors.gracePeriodDate?"1px solid #f472b6":"1px solid #f59e0b" }} value={formData.gracePeriodDate} onChange={e=>set("gracePeriodDate",e.target.value)}/>
+                {errors.gracePeriodDate && <Err msg={errors.gracePeriodDate}/>}
+                <span style={{ fontSize:10, color:C.yellow, marginTop:4, display:"block" }}>⚠ Date by which remedial action must be completed</span>
+              </Field>
+            )}
           </Grid>
 
           <Section title="Inspector Details" color={C.yellow}/>
@@ -448,6 +624,20 @@ export default function CreateCertificatePage() {
             </Field>
           </Grid>
 
+          <Section title="Signature Upload" color={C.pink}/>
+          <div style={{ marginBottom:24 }}>
+            <Field label="Upload Inspector Signature (PNG / JPG)">
+              <input type="file" accept="image/*" onChange={handleSignatureUpload}
+                style={{ ...inputStyle, padding:"8px 12px", cursor:"pointer" }}/>
+            </Field>
+            {signatureSrc && (
+              <div style={{ marginTop:10, padding:10, background:"rgba(255,255,255,0.04)", borderRadius:8, border:"1px solid rgba(124,92,252,0.2)", display:"inline-block" }}>
+                <img src={signatureSrc} alt="Signature preview" style={{ maxHeight:50, maxWidth:180, objectFit:"contain" }}/>
+                <button onClick={()=>setSignatureSrc(null)} style={{ display:"block", marginTop:6, fontSize:11, color:"#f472b6", background:"none", border:"none", cursor:"pointer", fontFamily:"inherit" }}>✕ Remove</button>
+              </div>
+            )}
+          </div>
+
           <Section title="Legal Framework" color={C.pink}/>
           <div style={{ marginBottom:28 }}>
             <Field label="Legal References">
@@ -455,18 +645,16 @@ export default function CreateCertificatePage() {
             </Field>
           </div>
 
-          <button onClick={handleSubmit} style={{
-            width:"100%", padding:12, borderRadius:12, cursor:"pointer",
-            background:`linear-gradient(135deg,${C.green}cc,${C.blue})`,
-            border:"none", color:"#0d0d1a", fontWeight:800, fontSize:14, fontFamily:"inherit",
-            boxShadow:`0 0 20px rgba(0,245,196,0.3)`,
-          }}>📜 Create Certificate</button>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr auto", gap:12 }}>
+            <button onClick={handleSubmit} style={{ padding:12, borderRadius:12, cursor:"pointer", background:`linear-gradient(135deg,${C.green}cc,${C.blue})`, border:"none", color:"#0d0d1a", fontWeight:800, fontSize:14, fontFamily:"inherit", boxShadow:`0 0 20px rgba(0,245,196,0.3)` }}>📜 Create Certificate</button>
+            <button onClick={handlePrint} disabled={printing} style={{ padding:"12px 18px", borderRadius:12, cursor:"pointer", background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.15)", color:"#94a3b8", fontWeight:700, fontSize:13, fontFamily:"inherit" }}>🖨 Preview PDF</button>
+          </div>
         </div>
 
-        {/* ── RIGHT: Live Preview ── */}
+        {/* ── LIVE PREVIEW ── */}
         <div style={{ position:"sticky", top:20 }}>
           <div style={{ fontSize:11, fontWeight:700, color:"#64748b", marginBottom:10, letterSpacing:0.5, textTransform:"uppercase" }}>Live Preview</div>
-          <CertificatePreview formData={formData} statusMeta={statusMeta} />
+          <CertificatePreview formData={formData} statusMeta={statusMeta} signatureSrc={signatureSrc}/>
         </div>
 
       </div>
@@ -474,7 +662,7 @@ export default function CreateCertificatePage() {
   );
 }
 
-// ─── Small helpers ────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function Section({ title, color }) {
   return (
     <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16, marginTop:8 }}>
