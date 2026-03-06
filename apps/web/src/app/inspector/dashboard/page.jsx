@@ -1,106 +1,175 @@
 "use client";
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+// import { supabase } from "@/lib/supabaseClient";
 
-const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7" };
+const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7", pink:"#f472b6", yellow:"#fbbf24" };
+const rgbaMap = { [C.green]:"0,245,196", [C.blue]:"79,195,247", [C.purple]:"124,92,252" };
 
-export default function InspectorDashboard() {
-  const router = useRouter();
+const mockTasks = [
+  { id:1, equipment:"PV-0041", client:"Acme Corp", dueDate:"2026-03-10", status:"Pending" },
+  { id:2, equipment:"BL-0012", client:"SteelWorks Ltd", dueDate:"2026-03-08", status:"In Progress" },
+  { id:3, equipment:"AR-0067", client:"MineOps Ltd", dueDate:"2026-03-15", status:"Pending" },
+];
+
+export default function InspectorDashboardPage() {
+  const [tasks, setTasks] = useState(mockTasks);
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    checkAuth();
+    // Mock user - replace with actual auth
+    setUser({ name: "John Smith", email: "john@monroy.com" });
   }, []);
 
-  async function checkAuth() {
-    const { data } = await supabase.auth.getUser();
-    if (!data?.user) {
-      router.push("/login");
-      return;
-    }
-    if (!data.user.email?.includes("inspector")) {
-      router.push("/dashboard");
-      return;
-    }
-    setUser(data.user);
-  }
-
-  if (!user) return <div style={{ padding:"40px", color:"#fff" }}>Loading...</div>;
+  const pendingCount = tasks.filter(t => t.status === "Pending").length;
+  const inProgressCount = tasks.filter(t => t.status === "In Progress").length;
 
   return (
-    <div style={{
-      minHeight:"100vh", backgroundColor:"#0f1419", color:"#e2e8f0",
-      padding:"24px",
-    }}>
-      <div style={{ marginBottom:24 }}>
-        <h1 style={{ fontSize:32, fontWeight:900, margin:"0 0 8px", color:"#fff" }}>
-          Inspector Dashboard
-        </h1>
-        <p style={{ color:"#64748b", margin:0 }}>Manage your inspections and reports</p>
-      </div>
+    <div style={{ display:"flex", minHeight:"100vh", backgroundColor:"#0f1419", color:"#e2e8f0", flexDirection:"column" }}>
+      <main style={{ flex:1, padding:"32px", overflowY:"auto" }}>
+        <div style={{ marginBottom:28 }}>
+          <h1 style={{
+            fontSize:"clamp(22px,4vw,32px)", fontWeight:900, margin:0,
+            background:`linear-gradient(90deg,#fff 30%,${C.green})`,
+            WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent",
+          }}>Inspector Dashboard</h1>
+          <p style={{ color:"#64748b", fontSize:13, margin:"4px 0 0" }}>Welcome back, {user?.name || "Inspector"}</p>
+        </div>
 
-      <div style={{
-        display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16, marginBottom:32
-      }}>
-        {[
-          { label:"My Inspections", value:24, color:C.blue },
-          { label:"Completed", value:18, color:C.green },
-          { label:"Pending", value:6, color:"#fbbf24" },
-          { label:"Reports Due", value:3, color:C.purple },
-        ].map((s, idx) => (
-          <div key={idx} style={{
-            background:`rgba(${s.color.substring(1).match(/.{1,2}/g).map(x=>parseInt(x,16))},0.07)`,
-            border:`1px solid rgba(${s.color.substring(1).match(/.{1,2}/g).map(x=>parseInt(x,16))},0.25)`,
-            borderRadius:14, padding:"16px 18px",
-          }}>
-            <div style={{ fontSize:11, color:"#64748b", textTransform:"uppercase", marginBottom:8 }}>{s.label}</div>
-            <div style={{ fontSize:24, fontWeight:900, color:s.color }}>{s.value}</div>
-          </div>
-        ))}
-      </div>
-
-      <div style={{
-        background:"rgba(255,255,255,0.02)", border:"1px solid rgba(79,195,247,0.2)",
-        borderRadius:16, padding:20,
-      }}>
-        <h2 style={{ fontSize:18, fontWeight:700, color:"#fff", margin:"0 0 16px" }}>Recent Inspections</h2>
-        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16, marginBottom:22 }}>
           {[
-            { equipment:"PV-0041", client:"Acme Corp", date:"2026-03-05", status:"Completed" },
-            { equipment:"BL-0012", client:"SteelWorks", date:"2026-03-04", status:"In Progress" },
-            { equipment:"AR-0067", client:"MineOps", date:"2026-03-03", status:"Pending" },
-          ].map((i, idx) => (
-            <div key={idx} style={{
-              display:"flex", justifyContent:"space-between", padding:12,
-              background:"rgba(255,255,255,0.03)", borderRadius:10,
+            { label:"Pending Tasks", value:pendingCount, color:C.blue, icon:"📋" },
+            { label:"In Progress", value:inProgressCount, color:C.yellow, icon:"⏳" },
+            { label:"Completed", value:tasks.length - pendingCount - inProgressCount, color:C.green, icon:"✅" },
+          ].map(card => (
+            <div key={card.label} style={{
+              background:`rgba(${rgbaMap[card.color]},0.07)`,
+              border:`1px solid rgba(${rgbaMap[card.color]},0.25)`,
+              borderRadius:14, padding:"20px",
+            }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                <span style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase" }}>{card.label}</span>
+                <span style={{ fontSize:18 }}>{card.icon}</span>
+              </div>
+              <div style={{ fontSize:36, fontWeight:900, color:card.color }}>{card.value}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{
+          background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
+          border:"1px solid rgba(124,92,252,0.2)", borderRadius:16, padding:"20px",
+        }}>
+          <h2 style={{ fontSize:14, fontWeight:700, color:"#fff", marginBottom:14 }}>Assigned Inspections</h2>
+          {tasks.map((task, i) => (
+            <div key={task.id} style={{
+              display:"flex", justifyContent:"space-between", alignItems:"center",
+              padding:"14px 0", borderBottom: i < tasks.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
             }}>
               <div>
-                <div style={{ fontWeight:600, color:"#fff" }}>{i.equipment}</div>
-                <div style={{ fontSize:12, color:"#64748b", marginTop:4 }}>{i.client}</div>
+                <div style={{ fontSize:13, fontWeight:600, color:"#e2e8f0" }}>{task.equipment}</div>
+                <div style={{ fontSize:11, color:"#64748b" }}>{task.client}</div>
               </div>
               <div style={{ textAlign:"right" }}>
-                <div style={{ fontSize:12, color:"#94a3b8" }}>{i.date}</div>
+                <div style={{ fontSize:11, color:"#64748b" }}>Due: {task.dueDate}</div>
                 <span style={{
-                  padding:"2px 8px", borderRadius:12, fontSize:10, fontWeight:700,
-                  background:i.status==="Completed"?"rgba(0,245,196,0.1)":"rgba(251,191,36,0.1)",
-                  color:i.status==="Completed"?C.green:"#fbbf24",
-                  marginTop:4, display:"inline-block",
-                }}>{i.status}</span>
+                  padding:"3px 10px", borderRadius:20, fontSize:10, fontWeight:700,
+                  background: task.status === "Pending" ? `rgba(${rgbaMap[C.blue]},0.15)` : `rgba(${rgbaMap[C.yellow]},0.15)`,
+                  color: task.status === "Pending" ? C.blue : C.yellow,
+                }}>
+                  {task.status}
+                </span>
               </div>
             </div>
           ))}
         </div>
-      </div>
+      </main>
+    </div>
+  );
+}"use client";
+import { useState, useEffect } from "react";
+// import { supabase } from "@/lib/supabaseClient";
 
-      <button onClick={() => {
-        supabase.auth.signOut();
-        router.push("/login");
-      }} style={{
-        marginTop:24, padding:"10px 20px", borderRadius:8,
-        background:"rgba(244,114,182,0.1)", border:"1px solid rgba(244,114,182,0.3)",
-        color:C.pink, fontWeight:600, cursor:"pointer", fontFamily:"inherit",
-      }}>Logout</button>
+const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7", pink:"#f472b6", yellow:"#fbbf24" };
+const rgbaMap = { [C.green]:"0,245,196", [C.blue]:"79,195,247", [C.purple]:"124,92,252" };
+
+const mockTasks = [
+  { id:1, equipment:"PV-0041", client:"Acme Corp", dueDate:"2026-03-10", status:"Pending" },
+  { id:2, equipment:"BL-0012", client:"SteelWorks Ltd", dueDate:"2026-03-08", status:"In Progress" },
+  { id:3, equipment:"AR-0067", client:"MineOps Ltd", dueDate:"2026-03-15", status:"Pending" },
+];
+
+export default function InspectorDashboardPage() {
+  const [tasks, setTasks] = useState(mockTasks);
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    // Mock user - replace with actual auth
+    setUser({ name: "John Smith", email: "john@monroy.com" });
+  }, []);
+
+  const pendingCount = tasks.filter(t => t.status === "Pending").length;
+  const inProgressCount = tasks.filter(t => t.status === "In Progress").length;
+
+  return (
+    <div style={{ display:"flex", minHeight:"100vh", backgroundColor:"#0f1419", color:"#e2e8f0", flexDirection:"column" }}>
+      <main style={{ flex:1, padding:"32px", overflowY:"auto" }}>
+        <div style={{ marginBottom:28 }}>
+          <h1 style={{
+            fontSize:"clamp(22px,4vw,32px)", fontWeight:900, margin:0,
+            background:`linear-gradient(90deg,#fff 30%,${C.green})`,
+            WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent",
+          }}>Inspector Dashboard</h1>
+          <p style={{ color:"#64748b", fontSize:13, margin:"4px 0 0" }}>Welcome back, {user?.name || "Inspector"}</p>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16, marginBottom:22 }}>
+          {[
+            { label:"Pending Tasks", value:pendingCount, color:C.blue, icon:"📋" },
+            { label:"In Progress", value:inProgressCount, color:C.yellow, icon:"⏳" },
+            { label:"Completed", value:tasks.length - pendingCount - inProgressCount, color:C.green, icon:"✅" },
+          ].map(card => (
+            <div key={card.label} style={{
+              background:`rgba(${rgbaMap[card.color]},0.07)`,
+              border:`1px solid rgba(${rgbaMap[card.color]},0.25)`,
+              borderRadius:14, padding:"20px",
+            }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                <span style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase" }}>{card.label}</span>
+                <span style={{ fontSize:18 }}>{card.icon}</span>
+              </div>
+              <div style={{ fontSize:36, fontWeight:900, color:card.color }}>{card.value}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{
+          background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
+          border:"1px solid rgba(124,92,252,0.2)", borderRadius:16, padding:"20px",
+        }}>
+          <h2 style={{ fontSize:14, fontWeight:700, color:"#fff", marginBottom:14 }}>Assigned Inspections</h2>
+          {tasks.map((task, i) => (
+            <div key={task.id} style={{
+              display:"flex", justifyContent:"space-between", alignItems:"center",
+              padding:"14px 0", borderBottom: i < tasks.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
+            }}>
+              <div>
+                <div style={{ fontSize:13, fontWeight:600, color:"#e2e8f0" }}>{task.equipment}</div>
+                <div style={{ fontSize:11, color:"#64748b" }}>{task.client}</div>
+              </div>
+              <div style={{ textAlign:"right" }}>
+                <div style={{ fontSize:11, color:"#64748b" }}>Due: {task.dueDate}</div>
+                <span style={{
+                  padding:"3px 10px", borderRadius:20, fontSize:10, fontWeight:700,
+                  background: task.status === "Pending" ? `rgba(${rgbaMap[C.blue]},0.15)` : `rgba(${rgbaMap[C.yellow]},0.15)`,
+                  color: task.status === "Pending" ? C.blue : C.yellow,
+                }}>
+                  {task.status}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </main>
     </div>
   );
 }
