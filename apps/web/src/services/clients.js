@@ -46,6 +46,7 @@ export async function registerClient(clientData) {
     .insert([{
       company_name:   clientData.company_name,
       company_code:   clientData.company_code,
+      industry:       clientData.industry,
       contact_person: clientData.contact_person,
       contact_email:  clientData.contact_email,
       contact_phone:  clientData.contact_phone,
