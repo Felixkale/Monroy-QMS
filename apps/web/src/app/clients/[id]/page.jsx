@@ -2,156 +2,270 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
-import { getClientById } from "@/services/clients";
+import { getClientById, updateClient } from "@/services/clients";
 
 const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7", pink:"#f472b6", yellow:"#fbbf24" };
-const rgbaMap = {
-  [C.green]:"0,245,196", [C.blue]:"79,195,247",
-  [C.purple]:"124,92,252", [C.pink]:"244,114,182", [C.yellow]:"251,191,36",
+
+const inputStyle = {
+  width:"100%", padding:"11px 14px", boxSizing:"border-box",
+  background:"#1a1f2e", border:"1px solid rgba(124,92,252,0.25)",
+  borderRadius:10, color:"#e2e8f0", fontSize:13, fontFamily:"inherit", outline:"none",
+  transition:"border-color 0.2s", appearance:"none", WebkitAppearance:"none",
 };
 
-function InfoRow({ label, value, color }) {
-  return (
-    <div style={{ display:"flex", flexDirection:"column", gap:4, padding:"14px 0", borderBottom:"1px solid rgba(255,255,255,0.04)" }}>
-      <span style={{ fontSize:11, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:600 }}>{label}</span>
-      <span style={{ fontSize:14, color: color || "#e2e8f0", fontWeight:500 }}>{value || "—"}</span>
-    </div>
-  );
-}
+const labelStyle = {
+  display:"block", fontSize:12, fontWeight:600,
+  color:"#94a3b8", marginBottom:6, textTransform:"uppercase", letterSpacing:"0.06em",
+};
 
-export default function ClientDetailPage() {
+const BOTSWANA_CITIES = [
+  "Gaborone","Francistown","Maun","Kasane","Palapye",
+  "Serowe","Lobatse","Selebi-Phikwe","Kanye","Mochudi","Jwaneng","Orapa",
+];
+
+const INDUSTRIES = [
+  "Mining","Construction","Oil & Gas","Manufacturing","Energy & Utilities",
+  "Logistics & Transport","Agriculture","Food & Beverage","Retail","Healthcare",
+  "Finance & Banking","Government","Education","Telecommunications","Other",
+];
+
+export default function EditClientPage() {
   const { id } = useParams();
   const router  = useRouter();
-  const [client,  setClient]  = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
 
+  const [loading, setLoading] = useState(true);
+  const [saving,  setSaving]  = useState(false);
+  const [error,   setError]   = useState(null);
+  const [success, setSuccess] = useState(false);
+
+  const [form, setForm] = useState({
+    company_name:"", company_code:"", industry:"",
+    contact_person:"", contact_email:"", contact_phone:"",
+    address:"", city:"Gaborone", country:"Botswana", status:"active",
+  });
+
+  const set = (field, val) => setForm(f => ({ ...f, [field]: val }));
+
+  // Load existing client data and pre-fill form
   useEffect(() => {
     if (!id) return;
     async function load() {
       setLoading(true);
       const { data, error: err } = await getClientById(id);
-      if (err || !data) setError("Client not found.");
-      else setClient(data);
+      if (err || !data) {
+        setError("Client not found.");
+        setLoading(false);
+        return;
+      }
+      // Pre-fill all fields with existing data
+      setForm({
+        company_name:   data.company_name   || "",
+        company_code:   data.company_code   || "",
+        industry:       data.industry       || "",
+        contact_person: data.contact_person || "",
+        contact_email:  data.contact_email  || "",
+        contact_phone:  data.contact_phone  || "",
+        address:        data.address        || "",
+        city:           data.city           || "Gaborone",
+        country:        data.country        || "Botswana",
+        status:         data.status         || "active",
+      });
       setLoading(false);
     }
     load();
   }, [id]);
 
+  const handleSubmit = async () => {
+    setError(null);
+    if (!form.company_name.trim()) { setError("Company name is required."); return; }
+    if (!form.contact_email.trim()) { setError("Contact email is required."); return; }
+    setSaving(true);
+    const { data, error: saveError } = await updateClient(id, form);
+    setSaving(false);
+    if (saveError) {
+      setError(typeof saveError === "string" ? saveError : saveError.message || "Failed to update client.");
+      return;
+    }
+    setSuccess(true);
+    setTimeout(() => router.push(`/clients/${id}`), 1500);
+  };
+
   if (loading) return (
-    <AppLayout title="Client Details">
+    <AppLayout title="Edit Client">
       <div style={{ textAlign:"center", padding:"80px 20px", color:"#64748b" }}>
         <div style={{ fontSize:32, marginBottom:12 }}>⏳</div>
-        <div style={{ fontSize:14 }}>Loading client…</div>
-      </div>
-    </AppLayout>
-  );
-
-  if (error || !client) return (
-    <AppLayout title="Client Not Found">
-      <div style={{ textAlign:"center", padding:"80px 20px" }}>
-        <div style={{ fontSize:48, marginBottom:16 }}>🔍</div>
-        <div style={{ fontSize:18, fontWeight:700, color:"#e2e8f0", marginBottom:8 }}>Client Not Found</div>
-        <div style={{ fontSize:13, color:"#64748b", marginBottom:24 }}>This client may have been removed or the ID is invalid.</div>
-        <a href="/clients" style={{
-          padding:"10px 24px", borderRadius:10, textDecoration:"none",
-          background:`linear-gradient(135deg,${C.purple},${C.blue})`,
-          color:"#fff", fontWeight:700, fontSize:13,
-        }}>← Back to Clients</a>
+        <div style={{ fontSize:14 }}>Loading client data…</div>
       </div>
     </AppLayout>
   );
 
   return (
-    <AppLayout title={client.company_name}>
+    <AppLayout title="Edit Client">
+      <style>{`
+        select option { background: #1a1f2e !important; color: #e2e8f0 !important; }
+        select:focus  { border-color: #7c5cfc !important; outline: none; }
+        select:hover  { border-color: rgba(124,92,252,0.5) !important; }
+      `}</style>
 
-      {/* Top Bar */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12, marginBottom:28 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-          <a href="/clients" style={{
-            padding:"8px 14px", borderRadius:10, textDecoration:"none",
-            background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)",
-            color:"#94a3b8", fontSize:13, fontWeight:600,
-          }}>← Back</a>
-          <span style={{
-            padding:"4px 12px", borderRadius:20, fontSize:12, fontWeight:700,
-            background: client.status==="active" ? "rgba(0,245,196,0.12)" : "rgba(244,114,182,0.12)",
-            color: client.status==="active" ? C.green : C.pink,
-            border:`1px solid rgba(${client.status==="active"?"0,245,196":"244,114,182"},0.3)`,
-            textTransform:"capitalize",
-          }}>{client.status}</span>
-        </div>
-        <a href={`/clients/${id}/edit`} style={{
-          padding:"9px 20px", borderRadius:10, textDecoration:"none",
-          background:`linear-gradient(135deg,${C.purple},${C.blue})`,
-          color:"#fff", fontWeight:700, fontSize:13,
-        }}>✏️ Edit Client</a>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
+        <p style={{ color:"#64748b", fontSize:13, margin:0 }}>Update client information</p>
+        <a href={`/clients/${id}`} style={{
+          padding:"8px 16px", borderRadius:10, textDecoration:"none",
+          background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)",
+          color:"#94a3b8", fontSize:13, fontWeight:600,
+        }}>← Back to Client</a>
       </div>
 
-      {/* Header Card */}
-      <div style={{
-        background:"linear-gradient(135deg,rgba(124,92,252,0.1),rgba(79,195,247,0.05))",
-        border:"1px solid rgba(124,92,252,0.25)", borderRadius:16, padding:"24px 28px", marginBottom:20,
-        position:"relative", overflow:"hidden",
-      }}>
-        <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:`linear-gradient(90deg,${C.purple},${C.blue})` }}/>
-        <div style={{ fontSize:24, fontWeight:900, color:"#fff", marginBottom:4 }}>{client.company_name}</div>
-        {client.company_code && (
-          <div style={{ fontSize:13, color:"#64748b", marginBottom:12 }}>{client.company_code}</div>
-        )}
-        <div style={{ display:"flex", gap:20, flexWrap:"wrap" }}>
-          {client.city && <span style={{ fontSize:13, color:"#94a3b8" }}>📍 {[client.city, client.country].filter(Boolean).join(", ")}</span>}
-          {client.contact_email && <span style={{ fontSize:13, color:"#94a3b8" }}>📧 {client.contact_email}</span>}
-          {client.contact_phone && <span style={{ fontSize:13, color:"#94a3b8" }}>📞 {client.contact_phone}</span>}
+      {success && (
+        <div style={{ background:"rgba(0,245,196,0.1)", border:"1px solid rgba(0,245,196,0.3)", borderRadius:12, padding:"14px 18px", marginBottom:20, color:C.green, fontSize:14, fontWeight:600 }}>
+          ✅ Client updated successfully! Redirecting…
+        </div>
+      )}
+      {error && (
+        <div style={{ background:"rgba(244,114,182,0.1)", border:"1px solid rgba(244,114,182,0.3)", borderRadius:12, padding:"12px 16px", marginBottom:20, color:C.pink, fontSize:13 }}>
+          ⚠️ {error}
+        </div>
+      )}
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(400px,1fr))", gap:20 }}>
+
+        {/* Company Details */}
+        <div style={{ background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))", border:"1px solid rgba(124,92,252,0.2)", borderRadius:16, padding:"24px" }}>
+          <h3 style={{ fontSize:14, fontWeight:700, color:"#fff", margin:"0 0 20px" }}>🏢 Company Details</h3>
+          <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+
+            <div>
+              <label style={labelStyle}>Company Name *</label>
+              <input style={inputStyle} value={form.company_name}
+                onChange={e => set("company_name", e.target.value)}
+                placeholder="e.g. Kgalagadi Mining (Pty) Ltd"
+                onFocus={e => e.target.style.borderColor=C.purple}
+                onBlur={e => e.target.style.borderColor="rgba(124,92,252,0.25)"} />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Company Code</label>
+              <input style={inputStyle} value={form.company_code}
+                onChange={e => set("company_code", e.target.value)}
+                placeholder="e.g. KGM-001"
+                onFocus={e => e.target.style.borderColor=C.purple}
+                onBlur={e => e.target.style.borderColor="rgba(124,92,252,0.25)"} />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Industry</label>
+              <div style={{ position:"relative" }}>
+                <select style={inputStyle} value={form.industry} onChange={e => set("industry", e.target.value)}>
+                  <option value="">Select industry…</option>
+                  {INDUSTRIES.map(i => <option key={i} value={i}>{i}</option>)}
+                </select>
+                <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", color:"#64748b", pointerEvents:"none" }}>▾</span>
+              </div>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Status</label>
+              <div style={{ position:"relative" }}>
+                <select style={inputStyle} value={form.status} onChange={e => set("status", e.target.value)}>
+                  <option value="active">Active</option>
+                  <option value="suspended">Suspended</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+                <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", color:"#64748b", pointerEvents:"none" }}>▾</span>
+              </div>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Physical Address</label>
+              <input style={inputStyle} value={form.address}
+                onChange={e => set("address", e.target.value)}
+                placeholder="e.g. Plot 1234, Tlokweng Road"
+                onFocus={e => e.target.style.borderColor=C.purple}
+                onBlur={e => e.target.style.borderColor="rgba(124,92,252,0.25)"} />
+            </div>
+
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+              <div>
+                <label style={labelStyle}>City / Town</label>
+                <div style={{ position:"relative" }}>
+                  <select style={inputStyle} value={form.city} onChange={e => set("city", e.target.value)}>
+                    {BOTSWANA_CITIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", color:"#64748b", pointerEvents:"none" }}>▾</span>
+                </div>
+              </div>
+              <div>
+                <label style={labelStyle}>Country</label>
+                <input style={{ ...inputStyle, opacity:0.6 }} value="Botswana" readOnly />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Contact Details */}
+        <div style={{ background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))", border:"1px solid rgba(79,195,247,0.2)", borderRadius:16, padding:"24px" }}>
+          <h3 style={{ fontSize:14, fontWeight:700, color:"#fff", margin:"0 0 20px" }}>👤 Contact Details</h3>
+          <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+
+            <div>
+              <label style={labelStyle}>Contact Person</label>
+              <input style={inputStyle} value={form.contact_person}
+                onChange={e => set("contact_person", e.target.value)}
+                placeholder="Full name"
+                onFocus={e => e.target.style.borderColor=C.blue}
+                onBlur={e => e.target.style.borderColor="rgba(124,92,252,0.25)"} />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Contact Email *</label>
+              <input style={inputStyle} type="email" value={form.contact_email}
+                onChange={e => set("contact_email", e.target.value)}
+                placeholder="email@company.co.bw"
+                onFocus={e => e.target.style.borderColor=C.blue}
+                onBlur={e => e.target.style.borderColor="rgba(124,92,252,0.25)"} />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Contact Phone</label>
+              <input style={inputStyle} value={form.contact_phone}
+                onChange={e => set("contact_phone", e.target.value)}
+                placeholder="+267 3900 000"
+                onFocus={e => e.target.style.borderColor=C.blue}
+                onBlur={e => e.target.style.borderColor="rgba(124,92,252,0.25)"} />
+            </div>
+          </div>
+
+          {/* Live Preview */}
+          {form.company_name && (
+            <div style={{ marginTop:24, padding:"16px", background:"rgba(0,245,196,0.05)", border:"1px solid rgba(0,245,196,0.15)", borderRadius:12 }}>
+              <div style={{ fontSize:11, color:"#64748b", marginBottom:8, textTransform:"uppercase", letterSpacing:"0.06em" }}>Preview</div>
+              <div style={{ fontSize:15, fontWeight:700, color:"#fff", marginBottom:4 }}>{form.company_name}</div>
+              {form.company_code   && <div style={{ fontSize:12, color:"#64748b", marginBottom:4 }}>{form.company_code}</div>}
+              {form.industry       && <div style={{ fontSize:12, color:C.blue, marginBottom:4 }}>🏭 {form.industry}</div>}
+              {form.contact_person && <div style={{ fontSize:12, color:"#94a3b8" }}>👤 {form.contact_person}</div>}
+              {form.contact_email  && <div style={{ fontSize:12, color:"#94a3b8" }}>📧 {form.contact_email}</div>}
+              {form.contact_phone  && <div style={{ fontSize:12, color:"#94a3b8" }}>📞 {form.contact_phone}</div>}
+              <div style={{ fontSize:12, color:"#94a3b8" }}>📍 {[form.address, form.city, "Botswana"].filter(Boolean).join(", ")}</div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Details Grid */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(340px,1fr))", gap:20 }}>
-
-        {/* Company Info */}
-        <div style={{ background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))", border:"1px solid rgba(124,92,252,0.2)", borderRadius:16, padding:"20px 24px" }}>
-          <h3 style={{ fontSize:13, fontWeight:700, color:"#fff", margin:"0 0 4px", textTransform:"uppercase", letterSpacing:"0.06em" }}>🏢 Company Information</h3>
-          <InfoRow label="Company Name"   value={client.company_name} />
-          <InfoRow label="Company Code"   value={client.company_code} />
-          <InfoRow label="Status"         value={client.status}       color={client.status==="active" ? C.green : C.pink} />
-          <InfoRow label="Address"        value={client.address} />
-          <InfoRow label="City"           value={client.city} />
-          <InfoRow label="Country"        value={client.country} />
-          <InfoRow label="Registered On"  value={new Date(client.created_at).toLocaleDateString("en-BW", { year:"numeric", month:"long", day:"numeric" })} />
-        </div>
-
-        {/* Contact Info */}
-        <div style={{ background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))", border:"1px solid rgba(79,195,247,0.2)", borderRadius:16, padding:"20px 24px" }}>
-          <h3 style={{ fontSize:13, fontWeight:700, color:"#fff", margin:"0 0 4px", textTransform:"uppercase", letterSpacing:"0.06em" }}>👤 Contact Details</h3>
-          <InfoRow label="Contact Person" value={client.contact_person} />
-          <InfoRow label="Email"          value={client.contact_email}  color={C.blue} />
-          <InfoRow label="Phone"          value={client.contact_phone} />
-        </div>
+      {/* Actions */}
+      <div style={{ display:"flex", gap:12, marginTop:24, justifyContent:"flex-end" }}>
+        <a href={`/clients/${id}`} style={{ padding:"12px 24px", borderRadius:12, textDecoration:"none", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)", color:"#94a3b8", fontSize:14, fontWeight:600 }}>
+          Cancel
+        </a>
+        <button onClick={handleSubmit} disabled={saving || success} style={{
+          padding:"12px 32px", borderRadius:12, cursor: saving ? "not-allowed" : "pointer",
+          background: saving ? "rgba(124,92,252,0.3)" : `linear-gradient(135deg,${C.purple},${C.blue})`,
+          border:"none", color:"#fff", fontSize:14, fontWeight:700, fontFamily:"inherit",
+          opacity: saving ? 0.7 : 1, boxShadow: saving ? "none" : `0 0 20px rgba(124,92,252,0.4)`,
+          transition:"all 0.2s",
+        }}>
+          {saving ? "Saving…" : "💾 Save Changes"}
+        </button>
       </div>
-
-      {/* Quick Actions */}
-      <div style={{ marginTop:20, display:"flex", gap:12, flexWrap:"wrap" }}>
-        {[
-          { label:"View Equipment",    href:`/equipment?client=${id}`,    color:C.green,  icon:"⚙️" },
-          { label:"View Inspections",  href:`/inspections?client=${id}`,  color:C.purple, icon:"🔍" },
-          { label:"View Certificates", href:`/certificates?client=${id}`, color:C.yellow, icon:"📜" },
-          { label:"View NCRs",         href:`/ncr?client=${id}`,          color:C.pink,   icon:"⚠️" },
-        ].map(a => (
-          <a key={a.label} href={a.href} style={{
-            padding:"10px 18px", borderRadius:10, textDecoration:"none",
-            background:`rgba(${rgbaMap[a.color]},0.08)`,
-            border:`1px solid rgba(${rgbaMap[a.color]},0.2)`,
-            color:"#e2e8f0", fontSize:13, fontWeight:600,
-            display:"flex", alignItems:"center", gap:8, transition:"all 0.2s",
-          }}
-          onMouseEnter={e => { e.currentTarget.style.background=`rgba(${rgbaMap[a.color]},0.18)`; e.currentTarget.style.color="#fff"; }}
-          onMouseLeave={e => { e.currentTarget.style.background=`rgba(${rgbaMap[a.color]},0.08)`; e.currentTarget.style.color="#e2e8f0"; }}>
-            {a.icon} {a.label}
-          </a>
-        ))}
-      </div>
-
     </AppLayout>
   );
 }
