@@ -1,67 +1,55 @@
-"use client";
-import { useState, useEffect } from "react";
-import AppLayout from "@/components/AppLayout";
+import { supabase } from "@/lib/supabaseClient";
 
-const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7", yellow:"#fbbf24" };
-const rgbaMap = { [C.green]:"0,245,196", [C.blue]:"79,195,247", [C.purple]:"124,92,252", [C.yellow]:"251,191,36" };
+// Get all dashboard stats in one call
+export async function getDashboardStats() {
+  if (!supabase) return getEmptyStats();
 
-const mockStats = [
-  { label:"Total Equipment", value:24, color:C.blue, icon:"⚙️", trend:"+2" },
-  { label:"Active Inspections", value:8, color:C.green, icon:"🔍", trend:"+1" },
-  { label:"Pending NCRs", value:3, color:C.yellow, icon:"⚠️", trend:"-1" },
-  { label:"Certificate Renewals", value:5, color:C.purple, icon:"📜", trend:"+3" },
-];
+  const [clients, equipment, inspections, ncrs, certificates] = await Promise.all([
+    supabase.from("clients").select("status"),
+    supabase.from("assets").select("status"),
+    supabase.from("inspections").select("status, created_at"),
+    supabase.from("ncrs").select("status"),
+    supabase.from("certificates").select("status, valid_to"),
+  ]);
 
-const mockRecentActivity = [
-  { action:"Equipment registered", detail:"PV-0041", time:"2 hours ago" },
-  { action:"Inspection completed", detail:"BL-0012", time:"5 hours ago" },
-  { action:"NCR created", detail:"AR-0067", time:"1 day ago" },
-  { action:"Certificate renewed", detail:"Test Lab", time:"2 days ago" },
-];
+  const today = new Date();
+  const in30Days = new Date();
+  in30Days.setDate(today.getDate() + 30);
 
-export default function DashboardPage() {
-  const [stats] = useState(mockStats);
-  const [activities] = useState(mockRecentActivity);
+  const certData = certificates.data || [];
+  const expiringSoon = certData.filter(c => {
+    if (!c.valid_to) return false;
+    const exp = new Date(c.valid_to);
+    return exp >= today && exp <= in30Days;
+  }).length;
 
-  return (
-    <AppLayout title="Dashboard">
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(250px,1fr))", gap:16, marginBottom:28 }}>
-        {stats.map(stat => (
-          <div key={stat.label} style={{
-            background:`rgba(${rgbaMap[stat.color]},0.07)`,
-            border:`1px solid rgba(${rgbaMap[stat.color]},0.25)`,
-            borderRadius:14, padding:"20px",
-          }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
-              <span style={{ fontSize:10, fontWeight:700, color:"#64748b", textTransform:"uppercase" }}>{stat.label}</span>
-              <span style={{ fontSize:18 }}>{stat.icon}</span>
-            </div>
-            <div style={{ display:"flex", alignItems:"baseline", gap:8 }}>
-              <div style={{ fontSize:32, fontWeight:900, color:stat.color }}>{stat.value}</div>
-              <span style={{ fontSize:11, color:stat.color, fontWeight:600 }}>{stat.trend}</span>
-            </div>
-          </div>
-        ))}
-      </div>
+  // Recent activity: last 5 inspections
+  const recentInspections = (inspections.data || [])
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 5);
 
-      <div style={{
-        background:"linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
-        border:"1px solid rgba(124,92,252,0.2)", borderRadius:16, padding:"20px",
-      }}>
-        <h2 style={{ fontSize:14, fontWeight:700, color:"#fff", marginBottom:14, margin:"0 0 14px 0" }}>Recent Activity</h2>
-        {activities.map((item, i) => (
-          <div key={i} style={{
-            display:"flex", justifyContent:"space-between", alignItems:"center",
-            padding:"12px 0", borderBottom: i < activities.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
-          }}>
-            <div>
-              <div style={{ fontSize:13, fontWeight:600, color:"#e2e8f0" }}>{item.action}</div>
-              <div style={{ fontSize:11, color:"#64748b" }}>{item.detail}</div>
-            </div>
-            <span style={{ fontSize:11, color:"#64748b" }}>{item.time}</span>
-          </div>
-        ))}
-      </div>
-    </AppLayout>
-  );
+  return {
+    totalClients:      (clients.data || []).length,
+    activeClients:     (clients.data || []).filter(c => c.status === "active").length,
+    totalEquipment:    (equipment.data || []).length,
+    activeEquipment:   (equipment.data || []).filter(e => e.status === "active").length,
+    activeInspections: (inspections.data || []).filter(i => i.status === "in_progress").length,
+    totalInspections:  (inspections.data || []).length,
+    openNcrs:          (ncrs.data || []).filter(n => n.status === "open").length,
+    totalNcrs:         (ncrs.data || []).length,
+    totalCertificates: certData.length,
+    expiringSoon,
+    recentInspections,
+  };
+}
+
+function getEmptyStats() {
+  return {
+    totalClients: 0, activeClients: 0,
+    totalEquipment: 0, activeEquipment: 0,
+    activeInspections: 0, totalInspections: 0,
+    openNcrs: 0, totalNcrs: 0,
+    totalCertificates: 0, expiringSoon: 0,
+    recentInspections: [],
+  };
 }
