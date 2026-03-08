@@ -142,6 +142,297 @@ export function BotswanaLocationPicker({ name, value, onChange, required }) {
   );
 }
 
+// ── Print: opens a clean standalone certificate in a new window ──────────────
+function printCertificate(data, certNo, today) {
+  const isLifting = data.equipment_type === "Lifting Equipment";
+
+  const row = (label, value) => value ? `
+    <tr>
+      <td class="label">${label}</td>
+      <td class="value">${value}</td>
+    </tr>` : "";
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Certificate ${certNo}</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #fff;
+      color: #1e293b;
+      padding: 40px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding-bottom: 20px;
+      border-bottom: 3px solid #667eea;
+      margin-bottom: 24px;
+    }
+    .header-left .authority {
+      font-size: 9px;
+      font-weight: 700;
+      color: #667eea;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .header-left h1 {
+      font-size: 24px;
+      font-weight: 900;
+      color: #0f172a;
+      letter-spacing: -0.5px;
+      margin-bottom: 4px;
+    }
+    .header-left .standard {
+      font-size: 11px;
+      color: #64748b;
+    }
+    .header-left .standard span { color: #667eea; font-weight: 600; }
+    .header-right { text-align: right; }
+    .header-right .cert-label {
+      font-size: 9px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 4px;
+    }
+    .header-right .cert-no {
+      font-size: 16px;
+      font-weight: 900;
+      color: #059669;
+      font-family: monospace;
+      letter-spacing: 0.05em;
+    }
+    .header-right .cert-date {
+      font-size: 10px;
+      color: #94a3b8;
+      margin-top: 4px;
+    }
+
+    /* ── Status banner ── */
+    .status {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .status-icon { font-size: 18px; }
+    .status-title { font-size: 13px; font-weight: 700; color: #16a34a; }
+    .status-sub { font-size: 11px; color: #64748b; margin-top: 2px; }
+
+    /* ── Sections ── */
+    .section-title {
+      font-size: 10px;
+      font-weight: 800;
+      color: #667eea;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 6px;
+      margin: 20px 0 10px;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    tr { border-bottom: 1px solid #f1f5f9; }
+    td { padding: 7px 4px; vertical-align: top; }
+    td.label {
+      width: 45%;
+      font-size: 10px;
+      font-weight: 600;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    td.value {
+      width: 55%;
+      font-size: 12px;
+      font-weight: 600;
+      color: #1e293b;
+    }
+
+    /* ── Signature strip ── */
+    .signatures {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
+      margin-top: 40px;
+      padding-top: 16px;
+      border-top: 1px solid #e2e8f0;
+    }
+    .sig-box { text-align: center; }
+    .sig-line {
+      border-top: 1px solid #cbd5e1;
+      padding-top: 8px;
+      margin-top: 40px;
+      font-size: 9px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    /* ── Footer ── */
+    .footer {
+      margin-top: 24px;
+      padding-top: 12px;
+      border-top: 1px dashed #e2e8f0;
+      text-align: center;
+      font-size: 9px;
+      color: #cbd5e1;
+      line-height: 1.6;
+    }
+
+    /* ── Watermark (print only) ── */
+    @media print {
+      body { padding: 20px; }
+      .no-print { display: none !important; }
+    }
+
+    /* ── Print button (screen only) ── */
+    .print-bar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: #fff;
+      border-top: 1px solid #e2e8f0;
+      padding: 14px 24px;
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.08);
+    }
+    .btn {
+      padding: 10px 22px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: 700;
+      font-size: 13px;
+      border: none;
+    }
+    .btn-print {
+      background: linear-gradient(135deg,#667eea,#764ba2);
+      color: #fff;
+    }
+    .btn-close {
+      background: #f1f5f9;
+      color: #64748b;
+      border: 1px solid #e2e8f0 !important;
+    }
+  </style>
+</head>
+<body>
+  <!-- Print bar (hidden on print) -->
+  <div class="print-bar no-print">
+    <button class="btn btn-close" onclick="window.close()">✕ Close</button>
+    <button class="btn btn-print" onclick="window.print()">🖨 Save / Print PDF</button>
+  </div>
+
+  <!-- Certificate -->
+  <div class="header">
+    <div class="header-left">
+      <div class="authority">Republic of Botswana · Pressure Equipment Directorate</div>
+      <h1>${data.cert_type || "Inspection Certificate"}</h1>
+      <div class="standard">Issued under <span>${data.design_standard}</span></div>
+    </div>
+    <div class="header-right">
+      <div class="cert-label">Certificate No.</div>
+      <div class="cert-no">${certNo}</div>
+      <div class="cert-date">Issued: ${today}</div>
+    </div>
+  </div>
+
+  <div class="status">
+    <div class="status-icon">✅</div>
+    <div>
+      <div class="status-title">Certificate Valid — Equipment Successfully Registered</div>
+      <div class="status-sub">${data.tag} · ${data.equipment_type} · ${data.location}</div>
+    </div>
+  </div>
+
+  <div class="section-title">⚙ Equipment Identity</div>
+  <table>
+    ${row("Equipment Tag",       data.tag)}
+    ${row("Serial Number",       data.serial)}
+    ${row("Equipment Type",      data.equipment_type)}
+    ${row("Manufacturer",        data.manufacturer)}
+    ${row("Model / Drawing No.", data.model)}
+    ${row("Year of Manufacture", data.year_built)}
+  </table>
+
+  <div class="section-title">🏢 Owner & Installation</div>
+  <table>
+    ${row("Owner / Client",        data.client)}
+    ${row("Installation Location", data.location)}
+    ${row("Department / Plant",    data.department)}
+    ${row("Installation Date",     data.installation_date)}
+  </table>
+
+  <div class="section-title">📐 Design & Technical Parameters</div>
+  <table>
+    ${row("Design Standard",      data.design_standard)}
+    ${row("Shell / Body Material",data.shell_material)}
+    ${row("Fluid / Contents",     data.fluid_type)}
+    ${!isLifting ? `
+    ${row("Design Pressure",         data.design_pressure    ? data.design_pressure    + " bar" : "")}
+    ${row("Working Pressure",        data.working_pressure   ? data.working_pressure   + " kPa" : "")}
+    ${row("Test Pressure",           data.test_pressure      ? data.test_pressure      + " kPa" : "")}
+    ${row("Design Temperature",      data.design_temperature ? data.design_temperature + " °C"  : "")}
+    ${row("Volume / Capacity",       data.capacity_volume    ? data.capacity_volume    + " L"   : "")}
+    ` : `
+    ${row("Safe Working Load", data.safe_working_load ? data.safe_working_load + " kg" : "")}
+    `}
+  </table>
+
+  <div class="section-title">📜 Registration & Compliance</div>
+  <table>
+    ${row("National Reg. Number",      data.national_reg_no)}
+    ${row("Notified Body / Inspector", data.notified_body)}
+    ${row("Last Inspection Date",      data.last_inspection_date)}
+    ${row("Next Inspection Due",       data.next_inspection_date)}
+    ${row("Inspection Frequency",      data.inspection_freq)}
+  </table>
+
+  ${data.notes ? `
+  <div class="section-title">📝 Remarks</div>
+  <p style="font-size:12px;color:#334155;line-height:1.7;padding:10px;background:#f8fafc;border-radius:6px;">${data.notes}</p>
+  ` : ""}
+
+  <div class="signatures">
+    ${["Registered By", "Approved By", "Inspecting Authority"].map(r => `
+      <div class="sig-box">
+        <div class="sig-line">${r}</div>
+      </div>
+    `).join("")}
+  </div>
+
+  <div class="footer">
+    Computer-generated certificate &nbsp;·&nbsp; Cert No. ${certNo} &nbsp;·&nbsp; ${today}<br/>
+    Verify at the Botswana Pressure Equipment Directorate portal.
+  </div>
+
+  <!-- Add padding at bottom for print bar -->
+  <div style="height:70px" class="no-print"></div>
+</body>
+</html>`;
+
+  const win = window.open("", "_blank", "width=860,height=900");
+  win.document.write(html);
+  win.document.close();
+}
+
 // ── Certificate Modal (auto-generated on submit) ──────────────────────────────
 function CertificateModal({ data, certNo, onClose }) {
   const isLifting = data.equipment_type === "Lifting Equipment";
@@ -296,12 +587,12 @@ function CertificateModal({ data, certNo, onClose }) {
             fontFamily: "inherit", fontWeight: 600, fontSize: 13,
             background: "rgba(102,126,234,0.1)", border: "1px solid rgba(102,126,234,0.25)", color: "#667eea",
           }}>Close</button>
-          <button onClick={() => window.print()} style={{
+          <button onClick={() => printCertificate(data, certNo, today)} style={{
             padding: "9px 22px", borderRadius: 8, cursor: "pointer",
             fontFamily: "inherit", fontWeight: 700, fontSize: 13,
             background: "linear-gradient(135deg,#667eea,#764ba2)",
             border: "none", color: "#fff", boxShadow: "0 0 18px rgba(102,126,234,0.35)",
-          }}>🖨 Print / Save PDF</button>
+          }}>🖨 Preview & Save PDF</button>
         </div>
       </div>
     </div>
