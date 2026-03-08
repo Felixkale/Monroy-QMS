@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { getEquipment, getEquipmentStats } from "@/services/equipment";
@@ -16,7 +16,7 @@ const typeColors = {
 };
 const licenseColor = { valid:C.green, expiring:C.yellow, expired:C.pink };
 
-export default function EquipmentPage() {
+function EquipmentPageInner() {
   const searchParams  = useSearchParams();
   const clientId      = searchParams.get("client");
 
@@ -206,5 +206,13 @@ export default function EquipmentPage() {
         </div>
       )}
     </AppLayout>
+  );
+}
+
+export default function EquipmentPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight:"100vh", background:"#0f1419", display:"flex", alignItems:"center", justifyContent:"center", color:"#64748b" }}>Loading…</div>}>
+      <EquipmentPageInner />
+    </Suspense>
   );
 }
