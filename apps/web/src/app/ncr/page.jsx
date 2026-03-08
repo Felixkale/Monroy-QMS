@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { getNCRs, getNCRStats } from "@/services/ncrs";
@@ -12,7 +12,7 @@ const severityColor = { critical:C.pink, major:C.yellow, minor:C.blue };
 const statusColor   = { open:C.pink, closed:C.green, "in_progress":C.yellow };
 const statusLabel   = { open:"Open", closed:"Closed", in_progress:"In Progress" };
 
-export default function NCRPage() {
+function NCRPageInner() {
   const searchParams = useSearchParams();
   const clientId     = searchParams.get("client");
 
@@ -191,5 +191,13 @@ export default function NCRPage() {
         </div>
       )}
     </AppLayout>
+  );
+}
+
+export default function NCRPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight:"100vh", background:"#0f1419", display:"flex", alignItems:"center", justifyContent:"center", color:"#64748b" }}>Loading…</div>}>
+      <NCRPageInner />
+    </Suspense>
   );
 }
