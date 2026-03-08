@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
@@ -38,7 +38,7 @@ function Td({ children, strong }) {
   return <td style={{ padding:"14px", color: strong ? "#fff" : "#cbd5e1", fontSize:13, fontWeight: strong ? 800 : 500, verticalAlign:"middle" }}>{children}</td>;
 }
 
-export default function CertificatesPage() {
+function CertificatesPageInner() {
   const searchParams = useSearchParams();
   const clientId     = searchParams.get("client");
 
@@ -208,5 +208,13 @@ export default function CertificatesPage() {
         )}
       </div>
     </AppLayout>
+  );
+}
+
+export default function CertificatesPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight:"100vh", background:"#0f1419", display:"flex", alignItems:"center", justifyContent:"center", color:"#64748b" }}>Loading…</div>}>
+      <CertificatesPageInner />
+    </Suspense>
   );
 }
