@@ -305,11 +305,11 @@ export default function RegisterEquipmentPage() {
                 <input style={inputStyle} type="number" step="0.01" name="designPressure" placeholder="e.g. 15.0" value={formData.designPressure} onChange={handleChange} />
               </div>
               <div>
-                <label style={labelStyle}>Working Pressure (bar)</label>
+                <label style={labelStyle}>Working Pressure (kPa)</label>
                 <input style={inputStyle} type="number" step="0.01" name="workingPressure" placeholder="e.g. 10.0" value={formData.workingPressure} onChange={handleChange} />
               </div>
               <div>
-                <label style={labelStyle}>Test Pressure (bar)</label>
+                <label style={labelStyle}>Test Pressure (kPa)</label>
                 <input style={inputStyle} type="number" step="0.01" name="testPressure" placeholder="e.g. 22.5" value={formData.testPressure} onChange={handleChange} />
               </div>
               <div>
