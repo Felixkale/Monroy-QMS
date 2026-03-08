@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { getInspections, getInspectionStats } from "@/services/inspections";
@@ -10,7 +10,7 @@ const rgbaMap = { [C.green]:"0,245,196",[C.blue]:"79,195,247",[C.purple]:"124,92
 const resultColor = { pass:C.green, fail:C.pink, conditional:C.yellow };
 const resultLabel  = { pass:"Pass", fail:"Fail", conditional:"Conditional" };
 
-export default function InspectionsPage() {
+function InspectionsPageInner() {
   const searchParams = useSearchParams();
   const clientId     = searchParams.get("client");
 
@@ -184,5 +184,13 @@ export default function InspectionsPage() {
         </div>
       )}
     </AppLayout>
+  );
+}
+
+export default function InspectionsPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight:"100vh", background:"#0f1419", display:"flex", alignItems:"center", justifyContent:"center", color:"#64748b" }}>Loading…</div>}>
+      <InspectionsPageInner />
+    </Suspense>
   );
 }
