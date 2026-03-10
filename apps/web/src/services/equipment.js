@@ -1,7 +1,7 @@
 import { supabase } from "@/lib/supabaseClient";
 
 function notConfigured(defaultData = null) {
-  return { data: defaultData, error: "Supabase not configured" };
+  return { data: defaultData, error: { message: "Supabase not configured" } };
 }
 
 function normalizeText(value, fallback = null) {
@@ -151,15 +151,11 @@ const NCR_SELECT = `
   id,
   ncr_number,
   asset_id,
-  equipment_id,
   title,
   description,
   status,
   severity,
-  raised_by,
-  assigned_to,
   due_date,
-  closed_at,
   created_at,
   updated_at
 `;
@@ -168,7 +164,6 @@ const REPORT_SELECT = `
   id,
   report_number,
   asset_id,
-  equipment_id,
   title,
   report_type,
   summary,
@@ -183,26 +178,24 @@ const REPORT_SELECT = `
 const INSPECTION_SELECT = `
   id,
   asset_id,
-  equipment_id,
-  inspection_type,
+  inspection_number,
   inspection_date,
-  inspector_name,
+  next_inspection_date,
+  result,
   status,
-  remarks,
+  notes,
   created_at,
   updated_at
 `;
 
 const DOCUMENT_SELECT = `
   id,
-  asset_id,
-  equipment_id,
-  title,
+  inspection_id,
   file_name,
   file_url,
-  document_type,
-  created_at,
-  updated_at
+  file_type,
+  file_size,
+  created_at
 `;
 
 function mapCertificateRow(row) {
@@ -211,6 +204,8 @@ function mapCertificateRow(row) {
   return {
     ...row,
     certificate_no: row.certificate_number || null,
+    issue_date: row.issued_at ? String(row.issued_at).slice(0, 10) : null,
+    expiry_date: row.valid_to || null,
   };
 }
 
@@ -232,8 +227,29 @@ function mapReportRow(row) {
   };
 }
 
+function mapInspectionRow(row) {
+  if (!row) return null;
+
+  return {
+    ...row,
+    inspection_type: row.inspection_number || "Inspection",
+    inspector_name: null,
+    remarks: row.notes || null,
+  };
+}
+
+function mapDocumentRow(row) {
+  if (!row) return null;
+
+  return {
+    ...row,
+    title: row.file_name || "Document",
+    document_type: row.file_type || null,
+  };
+}
+
 async function fetchLatestCertificate(assetId) {
-  if (!assetId) return null;
+  if (!assetId || !supabase) return null;
 
   const { data } = await supabase
     .from("certificates")
@@ -247,10 +263,10 @@ async function fetchLatestCertificate(assetId) {
 }
 
 async function fetchLatestNcr(assetId) {
-  if (!assetId) return null;
+  if (!assetId || !supabase) return null;
 
   const { data } = await supabase
-    .from("ncr")
+    .from("ncrs")
     .select(NCR_SELECT)
     .eq("asset_id", assetId)
     .order("created_at", { ascending: false })
@@ -261,23 +277,18 @@ async function fetchLatestNcr(assetId) {
 }
 
 async function fetchLatestReport(assetId) {
-  if (!assetId) return null;
-
-  const { data } = await supabase
-    .from("reports")
-    .select(REPORT_SELECT)
-    .eq("asset_id", assetId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  return mapReportRow(data);
+  if (!assetId || !supabase) return null;
+  return null;
 }
 
 async function enrichEquipmentRow(asset) {
   if (!asset?.id) {
     return {
       ...asset,
+      equipment_type: asset?.asset_type || null,
+      client_name: asset?.clients?.company_name || null,
+      certificate_status: asset?.license_status || null,
+      inspection_status: asset?.status || null,
       latest_certificate: null,
       latest_ncr: null,
       latest_report: null,
@@ -293,6 +304,7 @@ async function enrichEquipmentRow(asset) {
   return {
     ...asset,
     equipment_type: asset.asset_type || null,
+    client_name: asset.clients?.company_name || null,
     certificate_status: asset.license_status || null,
     inspection_status: asset.status || null,
     latest_certificate: latestCertificate,
@@ -392,7 +404,7 @@ export async function getLatestNcrByAssetId(assetId) {
   if (!assetId) return { data: null, error: { message: "Asset ID is required" } };
 
   const { data, error } = await supabase
-    .from("ncr")
+    .from("ncrs")
     .select(NCR_SELECT)
     .eq("asset_id", assetId)
     .order("created_at", { ascending: false })
@@ -407,7 +419,7 @@ export async function getNcrsByAssetId(assetId) {
   if (!assetId) return { data: [], error: { message: "Asset ID is required" } };
 
   const { data, error } = await supabase
-    .from("ncr")
+    .from("ncrs")
     .select(NCR_SELECT)
     .eq("asset_id", assetId)
     .order("created_at", { ascending: false });
@@ -418,29 +430,14 @@ export async function getNcrsByAssetId(assetId) {
 export async function getLatestReportByAssetId(assetId) {
   if (!supabase) return notConfigured(null);
   if (!assetId) return { data: null, error: { message: "Asset ID is required" } };
-
-  const { data, error } = await supabase
-    .from("reports")
-    .select(REPORT_SELECT)
-    .eq("asset_id", assetId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  return { data: mapReportRow(data), error };
+  return { data: null, error: null };
 }
 
 export async function getReportsByAssetId(assetId) {
   if (!supabase) return notConfigured([]);
   if (!assetId) return { data: [], error: { message: "Asset ID is required" } };
 
-  const { data, error } = await supabase
-    .from("reports")
-    .select(REPORT_SELECT)
-    .eq("asset_id", assetId)
-    .order("created_at", { ascending: false });
-
-  return { data: (data || []).map(mapReportRow), error };
+  return { data: [], error: null };
 }
 
 export async function getInspectionsByAssetId(assetId) {
@@ -453,20 +450,35 @@ export async function getInspectionsByAssetId(assetId) {
     .eq("asset_id", assetId)
     .order("created_at", { ascending: false });
 
-  return { data: data || [], error };
+  return { data: (data || []).map(mapInspectionRow), error };
 }
 
 export async function getDocumentsByAssetId(assetId) {
   if (!supabase) return notConfigured([]);
   if (!assetId) return { data: [], error: { message: "Asset ID is required" } };
 
+  const inspectionIdsRes = await supabase
+    .from("inspections")
+    .select("id")
+    .eq("asset_id", assetId);
+
+  if (inspectionIdsRes.error) {
+    return { data: [], error: inspectionIdsRes.error };
+  }
+
+  const inspectionIds = (inspectionIdsRes.data || []).map((row) => row.id);
+
+  if (!inspectionIds.length) {
+    return { data: [], error: null };
+  }
+
   const { data, error } = await supabase
-    .from("documents")
+    .from("inspection_files")
     .select(DOCUMENT_SELECT)
-    .eq("asset_id", assetId)
+    .in("inspection_id", inspectionIds)
     .order("created_at", { ascending: false });
 
-  return { data: data || [], error };
+  return { data: (data || []).map(mapDocumentRow), error };
 }
 
 export async function getEquipmentFullById(id) {
@@ -479,13 +491,15 @@ export async function getEquipmentFullById(id) {
     return equipmentRes;
   }
 
+  const assetId = equipmentRes.data.id;
+
   const [certificatesRes, ncrsRes, reportsRes, inspectionsRes, documentsRes] =
     await Promise.all([
-      getCertificatesByAssetId(id),
-      getNcrsByAssetId(id),
-      getReportsByAssetId(id),
-      getInspectionsByAssetId(id),
-      getDocumentsByAssetId(id),
+      getCertificatesByAssetId(assetId),
+      getNcrsByAssetId(assetId),
+      getReportsByAssetId(assetId),
+      getInspectionsByAssetId(assetId),
+      getDocumentsByAssetId(assetId),
     ]);
 
   return {
@@ -622,7 +636,7 @@ export async function getEquipmentStats(clientId = null) {
 
   return {
     total: data.length,
-    active: data.filter((e) => (e.status || "").toLowerCase() === "active").length,
+    active: data.filter((e) => (e.license_status || "valid").toLowerCase() === "valid").length,
     expiring: data.filter((e) => (e.license_status || "").toLowerCase() === "expiring").length,
     expired: data.filter((e) => (e.license_status || "").toLowerCase() === "expired").length,
   };
