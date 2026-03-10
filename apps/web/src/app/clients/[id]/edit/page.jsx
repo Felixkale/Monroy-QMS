@@ -12,6 +12,29 @@ const INDUSTRIES = [
 ];
 const COUNTRIES = ["Botswana","South Africa","Zimbabwe","Zambia","Namibia","Mozambique","Other"];
 
+const BOTSWANA_LOCATIONS = [
+  "Gaborone","Francistown","Maun","Lobatse","Selebi-Phikwe","Jwaneng","Orapa",
+  "Sowa Town","Kasane","Ghanzi","Tsabong","Shakawe","Serowe","Molepolole","Kanye",
+  "Mahalapye","Palapye","Mochudi","Ramotswa","Mogoditshane","Tlokweng","Gabane",
+  "Letlhakane","Bobonong","Tutume","Tonota","Tati Siding","Mmadinare","Sefhare",
+  "Mmashoro","Machaneng","Lerala","Maunatlala","Artesia","Dibete","Palla Road",
+  "Moshupa","Thamaga","Kopong","Otse","Mogobane","Ramatlabama","Pitsane","Goodhope",
+  "Mabule","Moshaneng","Phitshane Molopo","Metlojane","Barolong","Mmathethe",
+  "Molapowabojang","Sekoma","Werda","Khakhea","Pilane","Bokaa","Mmathubudukwane",
+  "Sikwane","Oodi","Modipane","Boatlaname","Rasesa","Malolwane","Khumaga",
+  "Letlhakeng","Takatokwane","Dutlwe","Shoshong","Paje","Mookane","Mosolotshane",
+  "Ramokgonami","Tamasane","Gweta","Nata","Dukwi","Nkange","Tobane","Tsetsebjwe",
+  "Sefophe","Mathangwane","Chadibe","Mosetse","Matshelagabedi","Tsamaya","Goshwe",
+  "Masunga","Gulumani","Matsinde","Zwenshambe","Mapoka","Siviya","Ramokgwebana",
+  "Kazungula","Kavimba","Pandamatenga","Kachikau","Satau","Muchenje","Sehithwa",
+  "Nokaneng","Gumare","Etsha 6","Etsha 13","Seronga","Beetsha","Tsau","Kareng",
+  "Toteng","Bodibeng","Shorobe","Khwai","Sankoyo","Hukuntsi","Tshane","Lehututu",
+  "Kang","Charleshill","Bere","Ncojane","Hunhukwe","Kokotsha","Zutshwa","Struizendam",
+  "Morupule Colliery","Sua Pan (Botash)","Damtshaa Mine","Letlhakane Mine",
+  "Jwaneng Mine Complex","BCL Smelter (Selebi-Phikwe)","Morupule Power Station",
+  "Gaborone Industrial","Francistown Industrial","Lobatse Industrial",
+];
+
 const inputStyle = {
   width:"100%", padding:"11px 14px",
   background:"rgba(255,255,255,0.04)",
@@ -34,6 +57,47 @@ const sectionStyle = {
 
 const focus = (e) => (e.target.style.borderColor = "#667eea");
 const blur  = (e) => (e.target.style.borderColor = "rgba(102,126,234,0.25)");
+
+function CityPicker({ value, onChange }) {
+  const isManual = value && !BOTSWANA_LOCATIONS.includes(value);
+  const [manual, setManual] = useState(isManual);
+
+  const handleSelect = (e) => {
+    if (e.target.value === "__manual__") {
+      setManual(true);
+      onChange("");
+    } else {
+      setManual(false);
+      onChange(e.target.value);
+    }
+  };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+      <select
+        style={{ ...inputStyle, cursor:"pointer" }}
+        value={manual ? "__manual__" : (value || "")}
+        onChange={handleSelect}
+      >
+        <option value="">— Select city / town —</option>
+        {BOTSWANA_LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
+        <option value="__manual__">✏️  Type manually…</option>
+      </select>
+      {manual && (
+        <input
+          style={{ ...inputStyle, borderColor:"rgba(0,245,196,0.4)" }}
+          type="text"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder="Enter city / town name"
+          autoFocus
+          onFocus={e => (e.target.style.borderColor = "#00f5c4")}
+          onBlur={e => (e.target.style.borderColor = "rgba(0,245,196,0.4)")}
+        />
+      )}
+    </div>
+  );
+}
 
 function DeleteModal({ clientName, onConfirm, onCancel, deleting }) {
   return (
@@ -271,7 +335,7 @@ export default function EditClientPage() {
           </div>
           <div>
             <label style={labelStyle}>City / Town</label>
-            <input style={inputStyle} value={form.city} onChange={e => set("city", e.target.value)} placeholder="e.g. Gaborone" onFocus={focus} onBlur={blur} />
+            <CityPicker value={form.city} onChange={v => set("city", v)} />
           </div>
           <div>
             <label style={labelStyle}>Country</label>
