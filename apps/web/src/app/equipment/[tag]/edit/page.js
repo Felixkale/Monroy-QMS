@@ -1,3 +1,4 @@
+// src/app/equipment/[tag]/edit/page.js
 "use client";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -146,6 +147,45 @@ const blur = (e) => {
   e.target.style.borderColor = "rgba(102,126,234,0.25)";
 };
 
+function SelectField({ name, value, onChange, required = false, disabled = false, children }) {
+  return (
+    <div style={{ position: "relative" }}>
+      <select
+        name={name}
+        value={value}
+        onChange={onChange}
+        required={required}
+        disabled={disabled}
+        style={{
+          ...inputStyle,
+          cursor: disabled ? "not-allowed" : "pointer",
+          appearance: "none",
+          WebkitAppearance: "none",
+          MozAppearance: "none",
+          paddingRight: 40,
+          background: "#1a1f2e",
+          color: "#e2e8f0",
+        }}
+      >
+        {children}
+      </select>
+      <span
+        style={{
+          position: "absolute",
+          right: 12,
+          top: "50%",
+          transform: "translateY(-50%)",
+          color: "#94a3b8",
+          pointerEvents: "none",
+          fontSize: 12,
+        }}
+      >
+        ▾
+      </span>
+    </div>
+  );
+}
+
 function BotswanaLocationPicker({ name, value, onChange, required }) {
   const [manual, setManual] = useState(
     value && !BOTSWANA_LOCATIONS.includes(value) && value !== ""
@@ -163,8 +203,7 @@ function BotswanaLocationPicker({ name, value, onChange, required }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <select
-        style={{ ...inputStyle, cursor: "pointer" }}
+      <SelectField
         name={name}
         value={manual ? "__manual__" : (value || "")}
         onChange={handleSelect}
@@ -174,8 +213,8 @@ function BotswanaLocationPicker({ name, value, onChange, required }) {
         {BOTSWANA_LOCATIONS.map((loc) => (
           <option key={loc} value={loc}>{loc}</option>
         ))}
-        <option value="__manual__">✏️ Type manually…</option>
-      </select>
+        <option value="__manual__">Type manually…</option>
+      </SelectField>
 
       {manual && (
         <input
@@ -230,7 +269,6 @@ export default function EditEquipmentPage() {
     sling_length: "",
     chain_size: "",
     rope_diameter: "",
-    installation_date: "",
     last_inspection_date: "",
     next_inspection_date: "",
     license_status: "valid",
@@ -283,7 +321,7 @@ export default function EditEquipmentPage() {
         asset_type: data.asset_type || "Pressure Vessel",
         manufacturer: data.manufacturer || "",
         model: data.model || "",
-        year_built: data.year_built ?? "",
+        year_built: data.year_built || "",
         client_id: data.client_id || "",
         location: data.location || "",
         department: data.department || "",
@@ -297,13 +335,12 @@ export default function EditEquipmentPage() {
         test_pressure: data.test_pressure ?? "",
         design_temperature: data.design_temperature ?? "",
         capacity_volume: data.capacity_volume ?? "",
-        safe_working_load: data.safe_working_load ?? "",
-        proof_load: data.proof_load ?? "",
-        lifting_height: data.lifting_height ?? "",
-        sling_length: data.sling_length ?? "",
+        safe_working_load: data.safe_working_load || "",
+        proof_load: data.proof_load || "",
+        lifting_height: data.lifting_height || "",
+        sling_length: data.sling_length || "",
         chain_size: data.chain_size || "",
         rope_diameter: data.rope_diameter || "",
-        installation_date: data.installation_date || "",
         last_inspection_date: data.last_inspection_date || "",
         next_inspection_date: data.next_inspection_date || "",
         license_status: data.license_status || "valid",
@@ -354,7 +391,6 @@ export default function EditEquipmentPage() {
           next.design_temperature = "";
           next.capacity_volume = "";
           next.fluid_type = "";
-
           next.safe_working_load = "";
           next.proof_load = "";
           next.lifting_height = "";
@@ -374,7 +410,12 @@ export default function EditEquipmentPage() {
     setError(null);
 
     try {
+      const assetName = formData.model
+        ? `${formData.asset_type} - ${formData.model}`
+        : `${formData.asset_type} - ${formData.serial_number}`;
+
       const payload = {
+        asset_name: assetName,
         client_id: formData.client_id,
         asset_type: formData.asset_type,
         serial_number: formData.serial_number,
@@ -399,7 +440,6 @@ export default function EditEquipmentPage() {
         sling_length: formData.sling_length,
         chain_size: formData.chain_size,
         rope_diameter: formData.rope_diameter,
-        installation_date: formData.installation_date,
         last_inspection_date: formData.last_inspection_date,
         next_inspection_date: formData.next_inspection_date,
         license_status: formData.license_status,
@@ -413,7 +453,6 @@ export default function EditEquipmentPage() {
       };
 
       const { error: updateError } = await updateEquipmentByTag(tag, payload);
-
       if (updateError) throw updateError;
 
       router.push(`/equipment/${tag}`);
@@ -442,6 +481,25 @@ export default function EditEquipmentPage() {
 
   return (
     <AppLayout title={`Edit ${formData.asset_tag || "Equipment"}`}>
+      <style>{`
+        select {
+          background: #1a1f2e !important;
+          color: #e2e8f0 !important;
+        }
+        select option {
+          background: #111827 !important;
+          color: #f8fafc !important;
+        }
+        select optgroup {
+          background: #111827 !important;
+          color: #f8fafc !important;
+        }
+        input[type="date"]::-webkit-calendar-picker-indicator {
+          filter: invert(0.8);
+          cursor: pointer;
+        }
+      `}</style>
+
       <div style={{ marginBottom: 24 }}>
         <button
           onClick={() => router.push(`/equipment/${tag}`)}
@@ -466,7 +524,7 @@ export default function EditEquipmentPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))", border: "1px solid rgba(102,126,234,0.2)", borderRadius: 16, padding: 28, maxWidth: 900 }}>
+      <form onSubmit={handleSubmit} style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))", border: "1px solid rgba(102,126,234,0.2)", borderRadius: 16, padding: 28, maxWidth: 900, overflow: "visible" }}>
         <div style={sectionHeadStyle}>⚙️ Equipment Identity</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 24 }}>
           <div>
@@ -481,11 +539,11 @@ export default function EditEquipmentPage() {
 
           <div>
             <label style={labelStyle}>Equipment Type *</label>
-            <select style={{ ...inputStyle, cursor: "pointer" }} name="asset_type" value={formData.asset_type} onChange={handleChange}>
+            <SelectField name="asset_type" value={formData.asset_type} onChange={handleChange}>
               {EQUIPMENT_TYPES.map((t) => (
                 <option key={t} value={t}>{t}</option>
               ))}
-            </select>
+            </SelectField>
           </div>
 
           <div>
@@ -500,7 +558,16 @@ export default function EditEquipmentPage() {
 
           <div>
             <label style={labelStyle}>Year Built</label>
-            <input style={inputStyle} type="number" name="year_built" value={formData.year_built} onChange={handleChange} onFocus={focus} onBlur={blur} />
+            <input
+              style={inputStyle}
+              type="text"
+              name="year_built"
+              value={formData.year_built}
+              onChange={handleChange}
+              placeholder="e.g. 2020"
+              onFocus={focus}
+              onBlur={blur}
+            />
           </div>
         </div>
 
@@ -508,14 +575,14 @@ export default function EditEquipmentPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 24 }}>
           <div>
             <label style={labelStyle}>Client *</label>
-            <select style={{ ...inputStyle, cursor: "pointer" }} name="client_id" value={formData.client_id} onChange={handleChange} required disabled={clientsLoading}>
+            <SelectField name="client_id" value={formData.client_id} onChange={handleChange} required disabled={clientsLoading}>
               <option value="">{clientsLoading ? "Loading clients..." : "— Select registered client —"}</option>
               {clients.map((client) => (
                 <option key={client.id} value={client.id}>
                   {client.company_name} {client.company_code ? `(${client.company_code})` : ""}
                 </option>
               ))}
-            </select>
+            </SelectField>
           </div>
 
           <div>
@@ -533,29 +600,29 @@ export default function EditEquipmentPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 24 }}>
           <div>
             <label style={labelStyle}>Certificate Type *</label>
-            <select style={{ ...inputStyle, cursor: "pointer" }} name="cert_type" value={formData.cert_type} onChange={handleChange}>
+            <SelectField name="cert_type" value={formData.cert_type} onChange={handleChange}>
               {CERT_TYPES.map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
-            </select>
+            </SelectField>
           </div>
 
           <div>
             <label style={labelStyle}>Inspection Frequency</label>
-            <select style={{ ...inputStyle, cursor: "pointer" }} name="inspection_freq" value={formData.inspection_freq} onChange={handleChange}>
+            <SelectField name="inspection_freq" value={formData.inspection_freq} onChange={handleChange}>
               {INSPECTION_FREQS.map((f) => (
                 <option key={f} value={f}>{f}</option>
               ))}
-            </select>
+            </SelectField>
           </div>
 
           <div>
             <label style={labelStyle}>License Status</label>
-            <select style={{ ...inputStyle, cursor: "pointer" }} name="license_status" value={formData.license_status} onChange={handleChange}>
+            <SelectField name="license_status" value={formData.license_status} onChange={handleChange}>
               <option value="valid">valid</option>
               <option value="expiring">expiring</option>
               <option value="expired">expired</option>
-            </select>
+            </SelectField>
           </div>
         </div>
 
@@ -563,35 +630,35 @@ export default function EditEquipmentPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 24 }}>
           <div>
             <label style={labelStyle}>Shell / Body Material</label>
-            <select style={{ ...inputStyle, cursor: "pointer" }} name="shell_material" value={formData.shell_material} onChange={handleChange}>
+            <SelectField name="shell_material" value={formData.shell_material} onChange={handleChange}>
               {MATERIALS.map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
-            </select>
+            </SelectField>
           </div>
 
           <div>
             <label style={labelStyle}>Design Standard</label>
-            <select style={{ ...inputStyle, cursor: "pointer" }} name="design_standard" value={formData.design_standard} onChange={handleChange}>
+            <SelectField name="design_standard" value={formData.design_standard} onChange={handleChange}>
               {STANDARDS.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
-            </select>
+            </SelectField>
           </div>
 
           {isPressureEquipment && (
             <>
               <div>
                 <label style={labelStyle}>Fluid / Contents Type</label>
-                <select style={{ ...inputStyle, cursor: "pointer" }} name="fluid_type" value={formData.fluid_type} onChange={handleChange}>
+                <SelectField name="fluid_type" value={formData.fluid_type} onChange={handleChange}>
                   {FLUID_TYPES.map((f) => (
                     <option key={f} value={f}>{f}</option>
                   ))}
-                </select>
+                </SelectField>
               </div>
 
               <div>
-                <label style={labelStyle}>Design Pressure (bar)</label>
+                <label style={labelStyle}>Design Pressure (kPa)</label>
                 <input style={inputStyle} type="number" step="0.01" name="design_pressure" value={formData.design_pressure} onChange={handleChange} onFocus={focus} onBlur={blur} />
               </div>
 
@@ -620,23 +687,59 @@ export default function EditEquipmentPage() {
           {isLiftingEquipment && (
             <>
               <div>
-                <label style={labelStyle}>Safe Working Load (SWL)</label>
-                <input style={inputStyle} type="number" step="0.01" name="safe_working_load" value={formData.safe_working_load} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <label style={labelStyle}>SWL (Tons)</label>
+                <input
+                  style={inputStyle}
+                  type="text"
+                  name="safe_working_load"
+                  value={formData.safe_working_load}
+                  onChange={handleChange}
+                  placeholder="e.g. 5"
+                  onFocus={focus}
+                  onBlur={blur}
+                />
               </div>
 
               <div>
-                <label style={labelStyle}>Proof Load</label>
-                <input style={inputStyle} type="number" step="0.01" name="proof_load" value={formData.proof_load} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <label style={labelStyle}>Proof Load (Tons)</label>
+                <input
+                  style={inputStyle}
+                  type="text"
+                  name="proof_load"
+                  value={formData.proof_load}
+                  onChange={handleChange}
+                  placeholder="e.g. 7.5"
+                  onFocus={focus}
+                  onBlur={blur}
+                />
               </div>
 
               <div>
-                <label style={labelStyle}>Lifting Height / Travel</label>
-                <input style={inputStyle} type="number" step="0.01" name="lifting_height" value={formData.lifting_height} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <label style={labelStyle}>Lift Height</label>
+                <input
+                  style={inputStyle}
+                  type="text"
+                  name="lifting_height"
+                  value={formData.lifting_height}
+                  onChange={handleChange}
+                  placeholder="e.g. 3 m"
+                  onFocus={focus}
+                  onBlur={blur}
+                />
               </div>
 
               <div>
                 <label style={labelStyle}>Sling Length</label>
-                <input style={inputStyle} type="number" step="0.01" name="sling_length" value={formData.sling_length} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <input
+                  style={inputStyle}
+                  type="text"
+                  name="sling_length"
+                  value={formData.sling_length}
+                  onChange={handleChange}
+                  placeholder="e.g. 2 m"
+                  onFocus={focus}
+                  onBlur={blur}
+                />
               </div>
 
               <div>
@@ -654,11 +757,6 @@ export default function EditEquipmentPage() {
 
         <div style={sectionHeadStyle}>📅 Inspection & Service Dates</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 24 }}>
-          <div>
-            <label style={labelStyle}>Installation Date</label>
-            <input style={inputStyle} type="date" name="installation_date" value={formData.installation_date} onChange={handleChange} />
-          </div>
-
           <div>
             <label style={labelStyle}>Last Inspection Date</label>
             <input style={inputStyle} type="date" name="last_inspection_date" value={formData.last_inspection_date} onChange={handleChange} />
@@ -684,11 +782,11 @@ export default function EditEquipmentPage() {
 
           <div>
             <label style={labelStyle}>Status</label>
-            <select style={{ ...inputStyle, cursor: "pointer" }} name="status" value={formData.status} onChange={handleChange}>
+            <SelectField name="status" value={formData.status} onChange={handleChange}>
               <option value="active">active</option>
               <option value="inactive">inactive</option>
               <option value="suspended">suspended</option>
-            </select>
+            </SelectField>
           </div>
         </div>
 
