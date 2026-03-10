@@ -1,9 +1,10 @@
 "use client";
+
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
-import { getEquipmentByTag, updateEquipmentByTag } from "@/services/equipment";
+import { getEquipmentByTag, updateEquipmentByTag, getCertificateByAssetId } from "@/services/equipment";
 
 const C = {
   green: "#00f5c4",
@@ -138,14 +139,6 @@ const sectionHeadStyle = {
   gap: 8,
 };
 
-const focus = (e) => {
-  e.target.style.borderColor = "#667eea";
-};
-
-const blur = (e) => {
-  e.target.style.borderColor = "rgba(102,126,234,0.25)";
-};
-
 function SelectField({ name, value, onChange, required = false, disabled = false, children }) {
   return (
     <div style={{ position: "relative" }}>
@@ -241,6 +234,7 @@ export default function EditEquipmentPage() {
   const [error, setError] = useState(null);
   const [clients, setClients] = useState([]);
   const [clientsLoading, setClientsLoading] = useState(true);
+  const [certificate, setCertificate] = useState(null);
 
   const [formData, setFormData] = useState({
     asset_tag: "",
@@ -308,8 +302,14 @@ export default function EditEquipmentPage() {
 
       const { data, error } = await getEquipmentByTag(tag);
 
-      if (error || !data) {
+      if (error) {
         setError(error?.message || "Failed to load equipment.");
+        setLoading(false);
+        return;
+      }
+
+      if (!data) {
+        setError("Equipment not found.");
         setLoading(false);
         return;
       }
@@ -320,7 +320,7 @@ export default function EditEquipmentPage() {
         asset_type: data.asset_type || "Pressure Vessel",
         manufacturer: data.manufacturer || "",
         model: data.model || "",
-        year_built: data.year_built ?? "",
+        year_built: data.year_built || "",
         client_id: data.client_id || "",
         location: data.location || "",
         department: data.department || "",
@@ -329,15 +329,15 @@ export default function EditEquipmentPage() {
         inspection_freq: data.inspection_freq || "12 Months",
         shell_material: data.shell_material || "Carbon Steel",
         fluid_type: data.fluid_type || "Air / Compressed Air",
-        design_pressure: data.design_pressure ?? "",
-        working_pressure: data.working_pressure ?? "",
-        test_pressure: data.test_pressure ?? "",
-        design_temperature: data.design_temperature ?? "",
-        capacity_volume: data.capacity_volume ?? "",
-        safe_working_load: data.safe_working_load ?? "",
-        proof_load: data.proof_load ?? "",
-        lifting_height: data.lifting_height ?? "",
-        sling_length: data.sling_length ?? "",
+        design_pressure: data.design_pressure || "",
+        working_pressure: data.working_pressure || "",
+        test_pressure: data.test_pressure || "",
+        design_temperature: data.design_temperature || "",
+        capacity_volume: data.capacity_volume || "",
+        safe_working_load: data.safe_working_load || "",
+        proof_load: data.proof_load || "",
+        lifting_height: data.lifting_height || "",
+        sling_length: data.sling_length || "",
         chain_size: data.chain_size || "",
         rope_diameter: data.rope_diameter || "",
         last_inspection_date: data.last_inspection_date || "",
@@ -348,6 +348,11 @@ export default function EditEquipmentPage() {
         status: data.status || "active",
         notes: data.notes || "",
       });
+
+      const certResult = await getCertificateByAssetId(data.id);
+      if (certResult.data) {
+        setCertificate(certResult.data);
+      }
 
       setLoading(false);
     }
@@ -468,11 +473,8 @@ export default function EditEquipmentPage() {
   if (loading) {
     return (
       <AppLayout title="Edit Equipment">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 0" }}>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>⚙️</div>
-            <div style={{ color: "#64748b", fontSize: 14 }}>Loading equipment…</div>
-          </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 0", color: "#fff" }}>
+          Loading equipment...
         </div>
       </AppLayout>
     );
@@ -486,10 +488,6 @@ export default function EditEquipmentPage() {
           color: #e2e8f0 !important;
         }
         select option {
-          background: #111827 !important;
-          color: #f8fafc !important;
-        }
-        select optgroup {
           background: #111827 !important;
           color: #f8fafc !important;
         }
@@ -512,9 +510,6 @@ export default function EditEquipmentPage() {
         </h1>
 
         <div style={{ marginTop: 8, width: 72, height: 4, borderRadius: 999, background: `linear-gradient(90deg,${C.green},${C.purple},${C.blue})` }} />
-        <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, margin: "8px 0 0" }}>
-          Update equipment details linked to the registered client.
-        </p>
       </div>
 
       {error && (
@@ -522,6 +517,26 @@ export default function EditEquipmentPage() {
           ⚠️ {error}
         </div>
       )}
+
+      <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={() => router.push(`/equipment/${tag}`)}
+          style={{ padding: "11px 20px", borderRadius: 8, cursor: "pointer", fontWeight: 700, background: "rgba(102,126,234,0.1)", border: "1px solid rgba(102,126,234,0.25)", color: "#667eea" }}
+        >
+          View Equipment
+        </button>
+
+        {certificate?.id && (
+          <button
+            type="button"
+            onClick={() => router.push(`/certificates/${certificate.id}`)}
+            style={{ padding: "11px 20px", borderRadius: 8, cursor: "pointer", fontWeight: 700, background: "linear-gradient(135deg,#00f5c4,#4fc3f7)", border: "none", color: "#111827" }}
+          >
+            View Equipment Certificate
+          </button>
+        )}
+      </div>
 
       <form onSubmit={handleSubmit} style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))", border: "1px solid rgba(102,126,234,0.2)", borderRadius: 16, padding: 28, maxWidth: 900, overflow: "visible" }}>
         <div style={sectionHeadStyle}>⚙️ Equipment Identity</div>
@@ -533,7 +548,7 @@ export default function EditEquipmentPage() {
 
           <div>
             <label style={labelStyle}>Serial Number *</label>
-            <input style={inputStyle} type="text" name="serial_number" value={formData.serial_number} onChange={handleChange} required onFocus={focus} onBlur={blur} />
+            <input style={inputStyle} type="text" name="serial_number" value={formData.serial_number} onChange={handleChange} required />
           </div>
 
           <div>
@@ -547,26 +562,17 @@ export default function EditEquipmentPage() {
 
           <div>
             <label style={labelStyle}>Manufacturer *</label>
-            <input style={inputStyle} type="text" name="manufacturer" value={formData.manufacturer} onChange={handleChange} required onFocus={focus} onBlur={blur} />
+            <input style={inputStyle} type="text" name="manufacturer" value={formData.manufacturer} onChange={handleChange} required />
           </div>
 
           <div>
             <label style={labelStyle}>Model / Drawing No.</label>
-            <input style={inputStyle} type="text" name="model" value={formData.model} onChange={handleChange} onFocus={focus} onBlur={blur} />
+            <input style={inputStyle} type="text" name="model" value={formData.model} onChange={handleChange} />
           </div>
 
           <div>
             <label style={labelStyle}>Year Built</label>
-            <input
-              style={inputStyle}
-              type="number"
-              name="year_built"
-              value={formData.year_built}
-              onChange={handleChange}
-              placeholder="e.g. 2020"
-              onFocus={focus}
-              onBlur={blur}
-            />
+            <input style={inputStyle} type="text" name="year_built" value={formData.year_built} onChange={handleChange} placeholder="Fully manual text" />
           </div>
         </div>
 
@@ -591,7 +597,7 @@ export default function EditEquipmentPage() {
 
           <div>
             <label style={labelStyle}>Department / Plant</label>
-            <input style={inputStyle} type="text" name="department" value={formData.department} onChange={handleChange} onFocus={focus} onBlur={blur} />
+            <input style={inputStyle} type="text" name="department" value={formData.department} onChange={handleChange} />
           </div>
         </div>
 
@@ -658,27 +664,27 @@ export default function EditEquipmentPage() {
 
               <div>
                 <label style={labelStyle}>Design Pressure (kPa)</label>
-                <input style={inputStyle} type="number" step="0.01" name="design_pressure" value={formData.design_pressure} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <input style={inputStyle} type="text" name="design_pressure" value={formData.design_pressure} onChange={handleChange} placeholder="Manual text, unit is kPa" />
               </div>
 
               <div>
                 <label style={labelStyle}>Working Pressure (kPa)</label>
-                <input style={inputStyle} type="number" step="0.01" name="working_pressure" value={formData.working_pressure} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <input style={inputStyle} type="text" name="working_pressure" value={formData.working_pressure} onChange={handleChange} placeholder="Manual text, unit is kPa" />
               </div>
 
               <div>
                 <label style={labelStyle}>Test Pressure (kPa)</label>
-                <input style={inputStyle} type="number" step="0.01" name="test_pressure" value={formData.test_pressure} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <input style={inputStyle} type="text" name="test_pressure" value={formData.test_pressure} onChange={handleChange} placeholder="Manual text, unit is kPa" />
               </div>
 
               <div>
-                <label style={labelStyle}>Design Temperature (°C)</label>
-                <input style={inputStyle} type="number" step="0.01" name="design_temperature" value={formData.design_temperature} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <label style={labelStyle}>Design Temperature</label>
+                <input style={inputStyle} type="text" name="design_temperature" value={formData.design_temperature} onChange={handleChange} />
               </div>
 
               <div>
-                <label style={labelStyle}>Volume / Capacity (L)</label>
-                <input style={inputStyle} type="number" step="0.01" name="capacity_volume" value={formData.capacity_volume} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <label style={labelStyle}>Volume / Capacity</label>
+                <input style={inputStyle} type="text" name="capacity_volume" value={formData.capacity_volume} onChange={handleChange} />
               </div>
             </>
           )}
@@ -687,72 +693,32 @@ export default function EditEquipmentPage() {
             <>
               <div>
                 <label style={labelStyle}>SWL (Tons)</label>
-                <input
-                  style={inputStyle}
-                  type="number"
-                  step="0.01"
-                  name="safe_working_load"
-                  value={formData.safe_working_load}
-                  onChange={handleChange}
-                  placeholder="e.g. 5"
-                  onFocus={focus}
-                  onBlur={blur}
-                />
+                <input style={inputStyle} type="text" name="safe_working_load" value={formData.safe_working_load} onChange={handleChange} placeholder="Manual text, unit is Tons" />
               </div>
 
               <div>
                 <label style={labelStyle}>Proof Load (Tons)</label>
-                <input
-                  style={inputStyle}
-                  type="number"
-                  step="0.01"
-                  name="proof_load"
-                  value={formData.proof_load}
-                  onChange={handleChange}
-                  placeholder="e.g. 7.5"
-                  onFocus={focus}
-                  onBlur={blur}
-                />
+                <input style={inputStyle} type="text" name="proof_load" value={formData.proof_load} onChange={handleChange} placeholder="Manual text, unit is Tons" />
               </div>
 
               <div>
                 <label style={labelStyle}>Lift Height</label>
-                <input
-                  style={inputStyle}
-                  type="number"
-                  step="0.01"
-                  name="lifting_height"
-                  value={formData.lifting_height}
-                  onChange={handleChange}
-                  placeholder="e.g. 3"
-                  onFocus={focus}
-                  onBlur={blur}
-                />
+                <input style={inputStyle} type="text" name="lifting_height" value={formData.lifting_height} onChange={handleChange} placeholder="Fully manual text" />
               </div>
 
               <div>
                 <label style={labelStyle}>Sling Length</label>
-                <input
-                  style={inputStyle}
-                  type="number"
-                  step="0.01"
-                  name="sling_length"
-                  value={formData.sling_length}
-                  onChange={handleChange}
-                  placeholder="e.g. 2"
-                  onFocus={focus}
-                  onBlur={blur}
-                />
+                <input style={inputStyle} type="text" name="sling_length" value={formData.sling_length} onChange={handleChange} placeholder="Fully manual text" />
               </div>
 
               <div>
                 <label style={labelStyle}>Chain Size</label>
-                <input style={inputStyle} type="text" name="chain_size" value={formData.chain_size} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <input style={inputStyle} type="text" name="chain_size" value={formData.chain_size} onChange={handleChange} />
               </div>
 
               <div>
                 <label style={labelStyle}>Rope / Wire Diameter</label>
-                <input style={inputStyle} type="text" name="rope_diameter" value={formData.rope_diameter} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <input style={inputStyle} type="text" name="rope_diameter" value={formData.rope_diameter} onChange={handleChange} />
               </div>
             </>
           )}
@@ -780,7 +746,7 @@ export default function EditEquipmentPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 24 }}>
           <div>
             <label style={labelStyle}>Condition</label>
-            <input style={inputStyle} type="text" name="condition" value={formData.condition} onChange={handleChange} onFocus={focus} onBlur={blur} />
+            <input style={inputStyle} type="text" name="condition" value={formData.condition} onChange={handleChange} />
           </div>
 
           <div>
@@ -795,7 +761,7 @@ export default function EditEquipmentPage() {
 
         <div style={sectionHeadStyle}>📝 Notes</div>
         <div style={{ marginBottom: 24 }}>
-          <textarea style={{ ...inputStyle, minHeight: 100, resize: "vertical" }} name="notes" value={formData.notes} onChange={handleChange} onFocus={focus} onBlur={blur} />
+          <textarea style={{ ...inputStyle, minHeight: 100, resize: "vertical" }} name="notes" value={formData.notes} onChange={handleChange} />
         </div>
 
         <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", paddingTop: 16, borderTop: "1px solid rgba(102,126,234,0.12)" }}>
@@ -812,7 +778,7 @@ export default function EditEquipmentPage() {
             disabled={saving}
             style={{ padding: "11px 28px", borderRadius: 8, cursor: saving ? "wait" : "pointer", fontFamily: "inherit", fontWeight: 700, background: "linear-gradient(135deg,#667eea,#764ba2)", border: "none", color: "#fff", boxShadow: "0 0 20px rgba(102,126,234,0.4)", opacity: saving ? 0.7 : 1 }}
           >
-            {saving ? "Saving…" : "💾 Save Changes"}
+            {saving ? "Saving..." : "Save Changes"}
           </button>
         </div>
       </form>
