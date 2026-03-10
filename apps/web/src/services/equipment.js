@@ -60,9 +60,13 @@ function normalizeEquipmentPayload(equipmentData = {}) {
     test_pressure: normalizeText(equipmentData.test_pressure),
     design_temperature: normalizeText(equipmentData.design_temperature),
     capacity_volume: normalizeText(equipmentData.capacity_volume),
-    safe_working_load: normalizeText(equipmentData.safe_working_load),
+    safe_working_load: normalizeText(
+      equipmentData.safe_working_load ?? equipmentData.swl
+    ),
     proof_load: normalizeText(equipmentData.proof_load),
-    lifting_height: normalizeText(equipmentData.lifting_height),
+    lifting_height: normalizeText(
+      equipmentData.lifting_height ?? equipmentData.lift_height
+    ),
     sling_length: normalizeText(equipmentData.sling_length),
     chain_size: normalizeText(equipmentData.chain_size),
     rope_diameter: normalizeText(equipmentData.rope_diameter),
@@ -118,6 +122,185 @@ const EQUIPMENT_SELECT = `
   )
 `;
 
+const CERTIFICATE_SELECT = `
+  id,
+  certificate_number,
+  certificate_type,
+  asset_id,
+  company,
+  equipment_description,
+  equipment_location,
+  equipment_id,
+  swl,
+  mawp,
+  equipment_status,
+  issued_at,
+  valid_to,
+  status,
+  legal_framework,
+  inspector_name,
+  inspector_id,
+  signature_url,
+  logo_url,
+  pdf_url,
+  created_at,
+  updated_at
+`;
+
+const NCR_SELECT = `
+  id,
+  ncr_number,
+  asset_id,
+  equipment_id,
+  title,
+  description,
+  status,
+  severity,
+  raised_by,
+  assigned_to,
+  due_date,
+  closed_at,
+  created_at,
+  updated_at
+`;
+
+const REPORT_SELECT = `
+  id,
+  report_number,
+  asset_id,
+  equipment_id,
+  title,
+  report_type,
+  summary,
+  findings,
+  recommendations,
+  status,
+  pdf_url,
+  created_at,
+  updated_at
+`;
+
+const INSPECTION_SELECT = `
+  id,
+  asset_id,
+  equipment_id,
+  inspection_type,
+  inspection_date,
+  inspector_name,
+  status,
+  remarks,
+  created_at,
+  updated_at
+`;
+
+const DOCUMENT_SELECT = `
+  id,
+  asset_id,
+  equipment_id,
+  title,
+  file_name,
+  file_url,
+  document_type,
+  created_at,
+  updated_at
+`;
+
+function mapCertificateRow(row) {
+  if (!row) return null;
+
+  return {
+    ...row,
+    certificate_no: row.certificate_number || null,
+  };
+}
+
+function mapNcrRow(row) {
+  if (!row) return null;
+
+  return {
+    ...row,
+    ncr_no: row.ncr_number || null,
+  };
+}
+
+function mapReportRow(row) {
+  if (!row) return null;
+
+  return {
+    ...row,
+    report_no: row.report_number || null,
+  };
+}
+
+async function fetchLatestCertificate(assetId) {
+  if (!assetId) return null;
+
+  const { data } = await supabase
+    .from("certificates")
+    .select(CERTIFICATE_SELECT)
+    .eq("asset_id", assetId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return mapCertificateRow(data);
+}
+
+async function fetchLatestNcr(assetId) {
+  if (!assetId) return null;
+
+  const { data } = await supabase
+    .from("ncr")
+    .select(NCR_SELECT)
+    .eq("asset_id", assetId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return mapNcrRow(data);
+}
+
+async function fetchLatestReport(assetId) {
+  if (!assetId) return null;
+
+  const { data } = await supabase
+    .from("reports")
+    .select(REPORT_SELECT)
+    .eq("asset_id", assetId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return mapReportRow(data);
+}
+
+async function enrichEquipmentRow(asset) {
+  if (!asset?.id) {
+    return {
+      ...asset,
+      latest_certificate: null,
+      latest_ncr: null,
+      latest_report: null,
+    };
+  }
+
+  const [latestCertificate, latestNcr, latestReport] = await Promise.all([
+    fetchLatestCertificate(asset.id),
+    fetchLatestNcr(asset.id),
+    fetchLatestReport(asset.id),
+  ]);
+
+  return {
+    ...asset,
+    equipment_type: asset.asset_type || null,
+    certificate_status: asset.license_status || null,
+    inspection_status: asset.status || null,
+    latest_certificate: latestCertificate,
+    latest_ncr: latestNcr,
+    latest_report: latestReport,
+  };
+}
+
 export async function getEquipment(clientId = null) {
   if (!supabase) return notConfigured([]);
 
@@ -131,7 +314,13 @@ export async function getEquipment(clientId = null) {
   }
 
   const { data, error } = await query;
-  return { data: data || [], error };
+
+  if (error) {
+    return { data: [], error };
+  }
+
+  const enriched = await Promise.all((data || []).map(enrichEquipmentRow));
+  return { data: enriched, error: null };
 }
 
 export async function getEquipmentById(id) {
@@ -144,7 +333,12 @@ export async function getEquipmentById(id) {
     .eq("id", id)
     .maybeSingle();
 
-  return { data, error };
+  if (error || !data) {
+    return { data: null, error };
+  }
+
+  const enriched = await enrichEquipmentRow(data);
+  return { data: enriched, error: null };
 }
 
 export async function getEquipmentByTag(tag) {
@@ -157,7 +351,12 @@ export async function getEquipmentByTag(tag) {
     .eq("asset_tag", tag)
     .maybeSingle();
 
-  return { data, error };
+  if (error || !data) {
+    return { data: null, error };
+  }
+
+  const enriched = await enrichEquipmentRow(data);
+  return { data: enriched, error: null };
 }
 
 export async function getCertificateByAssetId(assetId) {
@@ -166,36 +365,147 @@ export async function getCertificateByAssetId(assetId) {
 
   const { data, error } = await supabase
     .from("certificates")
-    .select(`
-      id,
-      certificate_number,
-      certificate_type,
-      asset_id,
-      company,
-      equipment_description,
-      equipment_location,
-      equipment_id,
-      swl,
-      mawp,
-      equipment_status,
-      issued_at,
-      valid_to,
-      status,
-      legal_framework,
-      inspector_name,
-      inspector_id,
-      signature_url,
-      logo_url,
-      pdf_url,
-      created_at,
-      updated_at
-    `)
+    .select(CERTIFICATE_SELECT)
     .eq("asset_id", assetId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  return { data, error };
+  return { data: mapCertificateRow(data), error };
+}
+
+export async function getCertificatesByAssetId(assetId) {
+  if (!supabase) return notConfigured([]);
+  if (!assetId) return { data: [], error: { message: "Asset ID is required" } };
+
+  const { data, error } = await supabase
+    .from("certificates")
+    .select(CERTIFICATE_SELECT)
+    .eq("asset_id", assetId)
+    .order("created_at", { ascending: false });
+
+  return { data: (data || []).map(mapCertificateRow), error };
+}
+
+export async function getLatestNcrByAssetId(assetId) {
+  if (!supabase) return notConfigured(null);
+  if (!assetId) return { data: null, error: { message: "Asset ID is required" } };
+
+  const { data, error } = await supabase
+    .from("ncr")
+    .select(NCR_SELECT)
+    .eq("asset_id", assetId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return { data: mapNcrRow(data), error };
+}
+
+export async function getNcrsByAssetId(assetId) {
+  if (!supabase) return notConfigured([]);
+  if (!assetId) return { data: [], error: { message: "Asset ID is required" } };
+
+  const { data, error } = await supabase
+    .from("ncr")
+    .select(NCR_SELECT)
+    .eq("asset_id", assetId)
+    .order("created_at", { ascending: false });
+
+  return { data: (data || []).map(mapNcrRow), error };
+}
+
+export async function getLatestReportByAssetId(assetId) {
+  if (!supabase) return notConfigured(null);
+  if (!assetId) return { data: null, error: { message: "Asset ID is required" } };
+
+  const { data, error } = await supabase
+    .from("reports")
+    .select(REPORT_SELECT)
+    .eq("asset_id", assetId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return { data: mapReportRow(data), error };
+}
+
+export async function getReportsByAssetId(assetId) {
+  if (!supabase) return notConfigured([]);
+  if (!assetId) return { data: [], error: { message: "Asset ID is required" } };
+
+  const { data, error } = await supabase
+    .from("reports")
+    .select(REPORT_SELECT)
+    .eq("asset_id", assetId)
+    .order("created_at", { ascending: false });
+
+  return { data: (data || []).map(mapReportRow), error };
+}
+
+export async function getInspectionsByAssetId(assetId) {
+  if (!supabase) return notConfigured([]);
+  if (!assetId) return { data: [], error: { message: "Asset ID is required" } };
+
+  const { data, error } = await supabase
+    .from("inspections")
+    .select(INSPECTION_SELECT)
+    .eq("asset_id", assetId)
+    .order("created_at", { ascending: false });
+
+  return { data: data || [], error };
+}
+
+export async function getDocumentsByAssetId(assetId) {
+  if (!supabase) return notConfigured([]);
+  if (!assetId) return { data: [], error: { message: "Asset ID is required" } };
+
+  const { data, error } = await supabase
+    .from("documents")
+    .select(DOCUMENT_SELECT)
+    .eq("asset_id", assetId)
+    .order("created_at", { ascending: false });
+
+  return { data: data || [], error };
+}
+
+export async function getEquipmentFullById(id) {
+  if (!supabase) return notConfigured(null);
+  if (!id) return { data: null, error: { message: "Equipment ID is required" } };
+
+  const equipmentRes = await getEquipmentById(id);
+
+  if (equipmentRes.error || !equipmentRes.data) {
+    return equipmentRes;
+  }
+
+  const [certificatesRes, ncrsRes, reportsRes, inspectionsRes, documentsRes] =
+    await Promise.all([
+      getCertificatesByAssetId(id),
+      getNcrsByAssetId(id),
+      getReportsByAssetId(id),
+      getInspectionsByAssetId(id),
+      getDocumentsByAssetId(id),
+    ]);
+
+  return {
+    data: {
+      equipment: equipmentRes.data,
+      certificates: certificatesRes.data || [],
+      ncrs: ncrsRes.data || [],
+      reports: reportsRes.data || [],
+      inspections: inspectionsRes.data || [],
+      documents: documentsRes.data || [],
+    },
+    error:
+      equipmentRes.error ||
+      certificatesRes.error ||
+      ncrsRes.error ||
+      reportsRes.error ||
+      inspectionsRes.error ||
+      documentsRes.error ||
+      null,
+  };
 }
 
 export async function registerEquipment(equipmentData) {
@@ -229,7 +539,12 @@ export async function registerEquipment(equipmentData) {
     .select(EQUIPMENT_SELECT)
     .single();
 
-  return { data, error };
+  if (error || !data) {
+    return { data: null, error };
+  }
+
+  const enriched = await enrichEquipmentRow(data);
+  return { data: enriched, error: null };
 }
 
 export async function updateEquipmentByTag(tag, updates) {
@@ -245,7 +560,33 @@ export async function updateEquipmentByTag(tag, updates) {
     .select(EQUIPMENT_SELECT)
     .single();
 
-  return { data, error };
+  if (error || !data) {
+    return { data: null, error };
+  }
+
+  const enriched = await enrichEquipmentRow(data);
+  return { data: enriched, error: null };
+}
+
+export async function updateEquipmentById(id, updates) {
+  if (!supabase) return notConfigured(null);
+  if (!id) return { data: null, error: { message: "Equipment ID is required" } };
+
+  const payload = normalizeEquipmentPayload(updates);
+
+  const { data, error } = await supabase
+    .from("assets")
+    .update(payload)
+    .eq("id", id)
+    .select(EQUIPMENT_SELECT)
+    .single();
+
+  if (error || !data) {
+    return { data: null, error };
+  }
+
+  const enriched = await enrichEquipmentRow(data);
+  return { data: enriched, error: null };
 }
 
 export async function deleteEquipmentById(id) {
@@ -265,7 +606,9 @@ export async function getEquipmentStats(clientId = null) {
     return { total: 0, active: 0, expiring: 0, expired: 0 };
   }
 
-  let query = supabase.from("assets").select("status, license_status, client_id");
+  let query = supabase
+    .from("assets")
+    .select("id, status, license_status, client_id");
 
   if (clientId) {
     query = query.eq("client_id", clientId);
@@ -279,8 +622,8 @@ export async function getEquipmentStats(clientId = null) {
 
   return {
     total: data.length,
-    active: data.filter((e) => e.status === "active").length,
-    expiring: data.filter((e) => e.license_status === "expiring").length,
-    expired: data.filter((e) => e.license_status === "expired").length,
+    active: data.filter((e) => (e.status || "").toLowerCase() === "active").length,
+    expiring: data.filter((e) => (e.license_status || "").toLowerCase() === "expiring").length,
+    expired: data.filter((e) => (e.license_status || "").toLowerCase() === "expired").length,
   };
 }
