@@ -1,5 +1,7 @@
 "use client";
+
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 import { registerEquipment } from "@/services/equipment";
@@ -137,14 +139,6 @@ const sectionHeadStyle = {
   gap: 8,
 };
 
-const focus = (e) => {
-  e.target.style.borderColor = "#667eea";
-};
-
-const blur = (e) => {
-  e.target.style.borderColor = "rgba(102,126,234,0.25)";
-};
-
 function SelectField({ name, value, onChange, required = false, disabled = false, children }) {
   return (
     <div style={{ position: "relative" }}>
@@ -264,177 +258,13 @@ const emptyForm = {
   notes: "",
 };
 
-function printCertificate(data, certNo, today) {
-  const isPressureEquipment = PRESSURE_EQUIPMENT_TYPES.includes(data.asset_type);
-  const isLiftingEquipment = LIFTING_EQUIPMENT_TYPES.includes(data.asset_type);
-
-  const row = (label, value) => {
-    if (!value && value !== 0) return "";
-    return `<tr><td class="label">${label}</td><td class="value">${value}</td></tr>`;
-  };
-
-  const withKpa = (value) => (value || value === 0 ? `${value} kPa` : "");
-  const withTons = (value) => (value || value === 0 ? `${value} Tons` : "");
-
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <title>Certificate ${certNo}</title>
-  <style>
-    body { font-family: Arial, sans-serif; background:#fff; color:#111827; padding:40px; max-width:800px; margin:0 auto; }
-    .header { display:flex; justify-content:space-between; align-items:flex-start; padding-bottom:20px; border-bottom:3px solid #667eea; margin-bottom:24px; }
-    .cert-no { font-size:16px; font-weight:900; color:#059669; font-family:monospace; }
-    .status { background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:12px 16px; margin-bottom:24px; }
-    .section-title { font-size:11px; font-weight:800; color:#667eea; text-transform:uppercase; border-bottom:1px solid #e5e7eb; padding-bottom:6px; margin:20px 0 10px; }
-    table { width:100%; border-collapse:collapse; }
-    tr { border-bottom:1px solid #f3f4f6; }
-    td { padding:7px 4px; vertical-align:top; }
-    td.label { width:45%; font-size:11px; font-weight:600; color:#6b7280; text-transform:uppercase; }
-    td.value { width:55%; font-size:12px; font-weight:600; color:#111827; }
-    .print-bar { position:fixed; bottom:0; left:0; right:0; background:#fff; border-top:1px solid #e5e7eb; padding:14px 24px; display:flex; gap:10px; justify-content:flex-end; }
-    .btn { padding:10px 22px; border-radius:8px; cursor:pointer; font-weight:700; font-size:13px; border:none; }
-    .btn-print { background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; }
-    .btn-close { background:#f3f4f6; color:#4b5563; }
-    @media print { .no-print { display:none !important; } }
-  </style>
-</head>
-<body>
-  <div class="print-bar no-print">
-    <button class="btn btn-close" onclick="window.close()">Close</button>
-    <button class="btn btn-print" onclick="window.print()">Print / Save PDF</button>
-  </div>
-
-  <div class="header">
-    <div>
-      <div style="font-size:10px;font-weight:700;color:#667eea;text-transform:uppercase;">Republic of Botswana · Pressure Equipment Directorate</div>
-      <h1 style="margin:6px 0 0;font-size:24px;">${data.cert_type || "Inspection Certificate"}</h1>
-      <div style="font-size:12px;color:#6b7280;">Issued under ${data.design_standard || ""}</div>
-    </div>
-    <div style="text-align:right;">
-      <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;">Certificate No.</div>
-      <div class="cert-no">${certNo}</div>
-      <div style="font-size:10px;color:#9ca3af;">Issued: ${today}</div>
-    </div>
-  </div>
-
-  <div class="status">
-    <strong>Certificate Valid</strong><br/>
-    Equipment successfully registered
-  </div>
-
-  <div class="section-title">Equipment Identity</div>
-  <table>
-    ${row("Equipment Tag", data.asset_tag)}
-    ${row("Asset Name", data.asset_name)}
-    ${row("Serial Number", data.serial_number)}
-    ${row("Equipment Type", data.asset_type)}
-    ${row("Manufacturer", data.manufacturer)}
-    ${row("Model / Drawing No.", data.model)}
-    ${row("Year Built", data.year_built)}
-  </table>
-
-  <div class="section-title">Owner & Location</div>
-  <table>
-    ${row("Owner / Client", data.client_name)}
-    ${row("Location", data.location)}
-    ${row("Department / Plant", data.department)}
-  </table>
-
-  <div class="section-title">Technical Data</div>
-  <table>
-    ${row("Design Standard", data.design_standard)}
-    ${row("Shell / Body Material", data.shell_material)}
-    ${isPressureEquipment ? row("Fluid / Contents", data.fluid_type) : ""}
-    ${isPressureEquipment ? row("Design Pressure", withKpa(data.design_pressure)) : ""}
-    ${isPressureEquipment ? row("Working Pressure", withKpa(data.working_pressure)) : ""}
-    ${isPressureEquipment ? row("Test Pressure", withKpa(data.test_pressure)) : ""}
-    ${isPressureEquipment ? row("Design Temperature", data.design_temperature || data.design_temperature === 0 ? `${data.design_temperature} °C` : "") : ""}
-    ${isPressureEquipment ? row("Volume / Capacity", data.capacity_volume || data.capacity_volume === 0 ? `${data.capacity_volume} L` : "") : ""}
-    ${isLiftingEquipment ? row("SWL", withTons(data.safe_working_load)) : ""}
-    ${isLiftingEquipment ? row("Proof Load", withTons(data.proof_load)) : ""}
-    ${isLiftingEquipment ? row("Lifting Height / Travel", data.lifting_height) : ""}
-    ${isLiftingEquipment ? row("Sling Length", data.sling_length) : ""}
-    ${isLiftingEquipment ? row("Chain Size", data.chain_size) : ""}
-    ${isLiftingEquipment ? row("Rope / Wire Diameter", data.rope_diameter) : ""}
-  </table>
-
-  <div class="section-title">Inspection Dates</div>
-  <table>
-    ${row("Last Inspection Date", data.last_inspection_date)}
-    ${row("Next Inspection Due", data.next_inspection_date)}
-    ${row("Inspection Frequency", data.inspection_freq)}
-  </table>
-
-  ${data.notes ? `<div class="section-title">Remarks</div><p>${data.notes}</p>` : ""}
-  <div style="height:70px" class="no-print"></div>
-</body>
-</html>`;
-
-  const win = window.open("", "_blank", "width=860,height=900");
-  if (!win) return;
-  win.document.write(html);
-  win.document.close();
-}
-
-function CertificateModal({ data, certNo, onClose }) {
-  const today = new Date().toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  });
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.82)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
-      <div style={{ background: "linear-gradient(160deg,#1a1f2e,#0f1419)", border: "1px solid rgba(102,126,234,0.35)", borderRadius: 20, width: "100%", maxWidth: 680, maxHeight: "90vh", overflowY: "auto" }}>
-        <div style={{ padding: "26px 30px 20px", borderBottom: "1px solid rgba(102,126,234,0.2)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div>
-              <div style={{ fontSize: 9, fontWeight: 800, color: "#667eea", textTransform: "uppercase" }}>Republic of Botswana · Pressure Equipment Directorate</div>
-              <h2 style={{ margin: "6px 0 0", fontSize: 22, fontWeight: 900, color: "#fff" }}>{data.cert_type || "Inspection Certificate"}</h2>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", textTransform: "uppercase" }}>Certificate No.</div>
-              <div style={{ fontSize: 14, fontWeight: 900, color: C.green, fontFamily: "monospace" }}>{certNo}</div>
-              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 4 }}>Issued: {today}</div>
-            </div>
-          </div>
-        </div>
-
-        <div style={{ padding: "24px 30px" }}>
-          <div style={{ background: "rgba(0,245,196,0.07)", border: "1px solid rgba(0,245,196,0.2)", borderRadius: 10, padding: "11px 16px", marginBottom: 22, color: C.green }}>
-            ✅ Equipment successfully registered and linked to client.
-          </div>
-
-          <div style={{ color: "#e2e8f0", lineHeight: 1.8, fontSize: 13 }}>
-            <div><strong>Equipment Tag:</strong> {data.asset_tag}</div>
-            <div><strong>Asset Name:</strong> {data.asset_name}</div>
-            <div><strong>Client:</strong> {data.client_name}</div>
-            <div><strong>Equipment Type:</strong> {data.asset_type}</div>
-            <div><strong>Location:</strong> {data.location}</div>
-          </div>
-        </div>
-
-        <div style={{ padding: "14px 24px", display: "flex", gap: 10, justifyContent: "flex-end", borderTop: "1px solid rgba(102,126,234,0.15)" }}>
-          <button onClick={onClose} style={{ padding: "9px 20px", borderRadius: 8, cursor: "pointer", fontWeight: 600, background: "rgba(102,126,234,0.1)", border: "1px solid rgba(102,126,234,0.25)", color: "#667eea" }}>
-            Close
-          </button>
-          <button onClick={() => printCertificate(data, certNo, today)} style={{ padding: "9px 22px", borderRadius: 8, cursor: "pointer", fontWeight: 700, background: "linear-gradient(135deg,#667eea,#764ba2)", border: "none", color: "#fff" }}>
-            🖨 Preview & Save PDF
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function RegisterEquipmentPage() {
+  const router = useRouter();
   const [formData, setFormData] = useState(emptyForm);
   const [clients, setClients] = useState([]);
   const [clientsLoading, setClientsLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState(null);
-  const [certData, setCertData] = useState(null);
 
   useEffect(() => {
     async function loadClients() {
@@ -511,12 +341,6 @@ export default function RegisterEquipmentPage() {
     setSubmitError(null);
   };
 
-  const handleCertClose = () => {
-    setCertData(null);
-    setFormData(emptyForm);
-    setSubmitError(null);
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -584,26 +408,25 @@ export default function RegisterEquipmentPage() {
             equipment_description: formData.equipment_type,
             equipment_location: formData.location || null,
             equipment_id: asset.asset_tag,
-            swl: formData.safe_working_load ? `${formData.safe_working_load} Tons` : null,
-            mawp: formData.working_pressure ? `${formData.working_pressure} kPa` : null,
-            equipment_status: "active",
+            swl: formData.safe_working_load
+              ? `${formData.safe_working_load} Tons`
+              : null,
+            mawp: formData.working_pressure
+              ? `${formData.working_pressure} kPa`
+              : null,
+            equipment_status: "PASS",
             issued_at: new Date().toISOString(),
             valid_to: formData.next_inspection_date || null,
             status: "issued",
             legal_framework: formData.design_standard || null,
           },
         ])
-        .select("certificate_number")
+        .select("id, certificate_number")
         .single();
 
       if (certError) throw certError;
 
-      setCertData({
-        ...asset,
-        asset_name: asset.asset_name || assetName,
-        client_name: selectedClient.company_name,
-        certNo: certificate.certificate_number,
-      });
+      router.push(`/equipment/${asset.asset_tag}`);
     } catch (err) {
       setSubmitError(err?.message || "Failed to register equipment.");
     } finally {
@@ -625,10 +448,6 @@ export default function RegisterEquipmentPage() {
           background: #111827 !important;
           color: #f8fafc !important;
         }
-        select optgroup {
-          background: #111827 !important;
-          color: #f8fafc !important;
-        }
         input[type="date"]::-webkit-calendar-picker-indicator {
           filter: invert(0.8);
           cursor: pointer;
@@ -641,7 +460,7 @@ export default function RegisterEquipmentPage() {
         </h1>
         <div style={{ marginTop: 8, width: 72, height: 4, borderRadius: 999, background: `linear-gradient(90deg,${C.green},${C.purple},${C.blue})` }} />
         <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, margin: "8px 0 0" }}>
-          Link equipment to a registered client. Equipment tag is generated automatically by the system.
+          Equipment tag is auto generated as CERT-01, CERT-02, CERT-03 and continues automatically.
         </p>
       </div>
 
@@ -656,12 +475,12 @@ export default function RegisterEquipmentPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 24 }}>
           <div>
             <label style={labelStyle}>Equipment Tag</label>
-            <input style={{ ...inputStyle, opacity: 0.7, cursor: "not-allowed" }} type="text" value="Auto generated by system" readOnly />
+            <input style={{ ...inputStyle, opacity: 0.7, cursor: "not-allowed" }} type="text" value="Auto generated, example CERT-01" readOnly />
           </div>
 
           <div>
             <label style={labelStyle}>Serial Number *</label>
-            <input style={inputStyle} type="text" name="serial_number" value={formData.serial_number} onChange={handleChange} required onFocus={focus} onBlur={blur} />
+            <input style={inputStyle} type="text" name="serial_number" value={formData.serial_number} onChange={handleChange} required />
           </div>
 
           <div>
@@ -675,25 +494,23 @@ export default function RegisterEquipmentPage() {
 
           <div>
             <label style={labelStyle}>Manufacturer *</label>
-            <input style={inputStyle} type="text" name="manufacturer" value={formData.manufacturer} onChange={handleChange} required onFocus={focus} onBlur={blur} />
+            <input style={inputStyle} type="text" name="manufacturer" value={formData.manufacturer} onChange={handleChange} required />
           </div>
 
           <div>
             <label style={labelStyle}>Model / Drawing No.</label>
-            <input style={inputStyle} type="text" name="model" value={formData.model} onChange={handleChange} onFocus={focus} onBlur={blur} />
+            <input style={inputStyle} type="text" name="model" value={formData.model} onChange={handleChange} />
           </div>
 
           <div>
             <label style={labelStyle}>Year Built</label>
             <input
               style={inputStyle}
-              type="number"
+              type="text"
               name="year_built"
               value={formData.year_built}
               onChange={handleChange}
-              placeholder="e.g. 2020"
-              onFocus={focus}
-              onBlur={blur}
+              placeholder="Type freely"
             />
           </div>
         </div>
@@ -719,7 +536,7 @@ export default function RegisterEquipmentPage() {
 
           <div>
             <label style={labelStyle}>Department / Plant</label>
-            <input style={inputStyle} type="text" name="department" value={formData.department} onChange={handleChange} onFocus={focus} onBlur={blur} />
+            <input style={inputStyle} type="text" name="department" value={formData.department} onChange={handleChange} />
           </div>
         </div>
 
@@ -786,27 +603,27 @@ export default function RegisterEquipmentPage() {
 
               <div>
                 <label style={labelStyle}>Design Pressure (kPa)</label>
-                <input style={inputStyle} type="number" step="0.01" name="design_pressure" value={formData.design_pressure} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <input style={inputStyle} type="text" name="design_pressure" value={formData.design_pressure} onChange={handleChange} placeholder="Manual text, unit is kPa" />
               </div>
 
               <div>
                 <label style={labelStyle}>Working Pressure (kPa)</label>
-                <input style={inputStyle} type="number" step="0.01" name="working_pressure" value={formData.working_pressure} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <input style={inputStyle} type="text" name="working_pressure" value={formData.working_pressure} onChange={handleChange} placeholder="Manual text, unit is kPa" />
               </div>
 
               <div>
                 <label style={labelStyle}>Test Pressure (kPa)</label>
-                <input style={inputStyle} type="number" step="0.01" name="test_pressure" value={formData.test_pressure} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <input style={inputStyle} type="text" name="test_pressure" value={formData.test_pressure} onChange={handleChange} placeholder="Manual text, unit is kPa" />
               </div>
 
               <div>
-                <label style={labelStyle}>Design Temperature (°C)</label>
-                <input style={inputStyle} type="number" step="0.01" name="design_temperature" value={formData.design_temperature} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <label style={labelStyle}>Design Temperature</label>
+                <input style={inputStyle} type="text" name="design_temperature" value={formData.design_temperature} onChange={handleChange} />
               </div>
 
               <div>
-                <label style={labelStyle}>Volume / Capacity (L)</label>
-                <input style={inputStyle} type="number" step="0.01" name="capacity_volume" value={formData.capacity_volume} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <label style={labelStyle}>Volume / Capacity</label>
+                <input style={inputStyle} type="text" name="capacity_volume" value={formData.capacity_volume} onChange={handleChange} />
               </div>
             </>
           )}
@@ -817,14 +634,11 @@ export default function RegisterEquipmentPage() {
                 <label style={labelStyle}>SWL (Tons)</label>
                 <input
                   style={inputStyle}
-                  type="number"
-                  step="0.01"
+                  type="text"
                   name="safe_working_load"
                   value={formData.safe_working_load}
                   onChange={handleChange}
-                  placeholder="e.g. 5"
-                  onFocus={focus}
-                  onBlur={blur}
+                  placeholder="Manual text, unit is Tons"
                 />
               </div>
 
@@ -832,14 +646,11 @@ export default function RegisterEquipmentPage() {
                 <label style={labelStyle}>Proof Load (Tons)</label>
                 <input
                   style={inputStyle}
-                  type="number"
-                  step="0.01"
+                  type="text"
                   name="proof_load"
                   value={formData.proof_load}
                   onChange={handleChange}
-                  placeholder="e.g. 7.5"
-                  onFocus={focus}
-                  onBlur={blur}
+                  placeholder="Manual text, unit is Tons"
                 />
               </div>
 
@@ -847,14 +658,11 @@ export default function RegisterEquipmentPage() {
                 <label style={labelStyle}>Lift Height</label>
                 <input
                   style={inputStyle}
-                  type="number"
-                  step="0.01"
+                  type="text"
                   name="lifting_height"
                   value={formData.lifting_height}
                   onChange={handleChange}
-                  placeholder="e.g. 3"
-                  onFocus={focus}
-                  onBlur={blur}
+                  placeholder="Fully manual text"
                 />
               </div>
 
@@ -862,25 +670,22 @@ export default function RegisterEquipmentPage() {
                 <label style={labelStyle}>Sling Length</label>
                 <input
                   style={inputStyle}
-                  type="number"
-                  step="0.01"
+                  type="text"
                   name="sling_length"
                   value={formData.sling_length}
                   onChange={handleChange}
-                  placeholder="e.g. 2"
-                  onFocus={focus}
-                  onBlur={blur}
+                  placeholder="Fully manual text"
                 />
               </div>
 
               <div>
                 <label style={labelStyle}>Chain Size</label>
-                <input style={inputStyle} type="text" name="chain_size" value={formData.chain_size} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <input style={inputStyle} type="text" name="chain_size" value={formData.chain_size} onChange={handleChange} />
               </div>
 
               <div>
                 <label style={labelStyle}>Rope / Wire Diameter</label>
-                <input style={inputStyle} type="text" name="rope_diameter" value={formData.rope_diameter} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <input style={inputStyle} type="text" name="rope_diameter" value={formData.rope_diameter} onChange={handleChange} />
               </div>
             </>
           )}
@@ -908,7 +713,7 @@ export default function RegisterEquipmentPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 24 }}>
           <div>
             <label style={labelStyle}>Condition</label>
-            <input style={inputStyle} type="text" name="condition" value={formData.condition} onChange={handleChange} onFocus={focus} onBlur={blur} />
+            <input style={inputStyle} type="text" name="condition" value={formData.condition} onChange={handleChange} />
           </div>
 
           <div>
@@ -923,7 +728,7 @@ export default function RegisterEquipmentPage() {
 
         <div style={sectionHeadStyle}>📝 Notes</div>
         <div style={{ marginBottom: 24 }}>
-          <textarea style={{ ...inputStyle, minHeight: 100, resize: "vertical" }} name="notes" value={formData.notes} onChange={handleChange} onFocus={focus} onBlur={blur} />
+          <textarea style={{ ...inputStyle, minHeight: 100, resize: "vertical" }} name="notes" value={formData.notes} onChange={handleChange} />
         </div>
 
         <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", paddingTop: 16, borderTop: "1px solid rgba(102,126,234,0.12)" }}>
@@ -932,18 +737,10 @@ export default function RegisterEquipmentPage() {
           </button>
 
           <button type="submit" disabled={loading || clientsLoading} style={{ padding: "11px 28px", borderRadius: 8, cursor: loading ? "wait" : "pointer", fontFamily: "inherit", fontWeight: 700, background: "linear-gradient(135deg,#667eea,#764ba2)", border: "none", color: "#fff", boxShadow: "0 0 20px rgba(102,126,234,0.4)", opacity: loading ? 0.7 : 1 }}>
-            {loading ? "⏳ Saving…" : "📜 Register & Generate Certificate"}
+            {loading ? "Saving..." : "Register Equipment"}
           </button>
         </div>
       </form>
-
-      {certData && (
-        <CertificateModal
-          data={certData}
-          certNo={certData.certNo}
-          onClose={handleCertClose}
-        />
-      )}
     </AppLayout>
   );
 }
