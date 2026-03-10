@@ -1,113 +1,187 @@
 "use client";
-import { useState, useEffect } from "react";
+
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../../lib/supabaseClient";
-import AppLayout from "../../../components/AppLayout";
+import AppLayout from "@/components/AppLayout";
+import { supabase } from "@/lib/supabaseClient";
 
-const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7", pink:"#f472b6" };
+const boxStyle = {
+  background: "rgba(255,255,255,0.03)",
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: 16,
+  padding: 24,
+};
 
-export default function ImportCertificatePage() {
+export default function ImportCertificatesPage() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [file, setFile] = useState(null);
-  const [dragActive, setDragActive] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [text, setText] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  useEffect(() => { checkAuth(); }, []);
+  async function handleImport() {
+    setLoading(true);
+    setError("");
+    setSuccess("");
 
-  async function checkAuth() {
-    const { data } = await supabase.auth.getUser();
-    if (!data?.user) { router.push("/login"); return; }
-    setUser(data.user);
-    setLoading(false);
-  }
-
-  function handleDrag(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") setDragActive(true);
-    else if (e.type === "dragleave") setDragActive(false);
-  }
-
-  function handleDrop(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
-  }
-
-  async function handleUpload() {
-    if (!file) { alert("Please select a file"); return; }
-    setUploading(true);
     try {
-      const fileName = `${Date.now()}-${file.name}`;
-      const { error: uploadError } = await supabase.storage.from("certificates").upload(fileName, file);
-      if (uploadError) throw uploadError;
-      alert("✅ Certificate imported successfully!");
-      router.push("/certificates");
-    } catch (error) {
-      alert("Error uploading certificate: " + error.message);
+      if (!text.trim()) {
+        throw new Error("Paste JSON data first.");
+      }
+
+      let rows;
+      try {
+        rows = JSON.parse(text);
+      } catch {
+        throw new Error("Invalid JSON format.");
+      }
+
+      if (!Array.isArray(rows) || rows.length === 0) {
+        throw new Error("JSON must be a non-empty array.");
+      }
+
+      const payload = rows.map((row) => ({
+        certificate_number: row.certificate_number || null,
+        certificate_type: row.certificate_type || null,
+        asset_id: row.asset_id || null,
+        company: row.company || null,
+        equipment_description: row.equipment_description || null,
+        equipment_location: row.equipment_location || null,
+        equipment_id: row.equipment_id || null,
+        swl: row.swl || null,
+        mawp: row.mawp || null,
+        equipment_status: row.equipment_status || "PASS",
+        issued_at: row.issued_at || new Date().toISOString(),
+        valid_to: row.valid_to || null,
+        status: row.status || "issued",
+        legal_framework: row.legal_framework || null,
+        inspector_name: row.inspector_name || null,
+        inspector_id: row.inspector_id || null,
+        signature_url: row.signature_url || null,
+        logo_url: row.logo_url || null,
+        pdf_url: row.pdf_url || null,
+      }));
+
+      const { error } = await supabase.from("certificates").insert(payload);
+
+      if (error) throw error;
+
+      setSuccess(`${payload.length} certificate(s) imported successfully.`);
+      setText("");
+    } catch (err) {
+      setError(err?.message || "Import failed.");
     } finally {
-      setUploading(false);
+      setLoading(false);
     }
   }
 
-  if (loading) return <AppLayout><div style={{ padding:"40px", color:"#fff" }}>Loading...</div></AppLayout>;
-
   return (
-    <AppLayout>
-      <div style={{ marginBottom:"2rem" }}>
-        <a href="/certificates" style={{ color:"#64748b", fontSize:13, textDecoration:"none", marginBottom:10, display:"block" }}>← Back to Certificates</a>
-        <h1 style={{ fontSize:"clamp(20px,5vw,32px)", fontWeight:900, margin:"0 0 8px", color:"#fff" }}>Import Certificate</h1>
-        <p style={{ color:"#64748b", margin:0, fontSize:13 }}>Upload an existing PDF certificate</p>
-      </div>
+    <AppLayout title="Import Certificates">
+      <div style={{ maxWidth: 1000, margin: "0 auto" }}>
+        <h1 style={{ color: "#fff", marginBottom: 20 }}>Import Certificates</h1>
 
-      <div style={{ background:"rgba(255,255,255,0.02)", border:"1px solid rgba(124,92,252,0.2)", borderRadius:16, padding:"clamp(16px,4vw,24px)" }}>
-        {/* Drop Zone */}
-        <div
-          onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
-          style={{
-            border:`2px dashed ${dragActive ? C.purple : "rgba(124,92,252,0.3)"}`,
-            borderRadius:12, padding:"3rem 2rem", textAlign:"center",
-            background: dragActive ? "rgba(124,92,252,0.1)" : "rgba(255,255,255,0.02)",
-            cursor:"pointer", transition:"all 0.3s", marginBottom:"2rem",
-          }}>
-          <div style={{ fontSize:40, marginBottom:"1rem" }}>📄</div>
-          <p style={{ fontSize:"clamp(14px,3vw,16px)", fontWeight:700, color:"#fff", margin:"0 0 8px" }}>Drag & drop your PDF here</p>
-          <p style={{ fontSize:12, color:"#64748b", margin:"0 0 1.5rem" }}>or click to select file</p>
-          <input type="file" accept=".pdf" onChange={e=>setFile(e.target.files?.[0]||null)} style={{ display:"none" }} id="file-input" />
-          <label htmlFor="file-input" style={{
-            display:"inline-block", padding:"10px 24px", borderRadius:10,
-            background:`linear-gradient(135deg,${C.purple},${C.blue})`,
-            color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit",
-          }}>Choose File</label>
-        </div>
-
-        {/* File Selected */}
-        {file && (
-          <div style={{ background:"rgba(0,245,196,0.1)", border:"1px solid rgba(0,245,196,0.3)", borderRadius:12, padding:"1.5rem", marginBottom:"2rem" }}>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:"1rem" }}>
-              <div style={{ flex:1, minWidth:0 }}>
-                <p style={{ fontSize:14, fontWeight:700, color:"#fff", margin:"0 0 4px" }}>📄 {file.name}</p>
-                <p style={{ fontSize:11, color:"#64748b", margin:0 }}>{(file.size/1024/1024).toFixed(2)} MB</p>
-              </div>
-              <button onClick={()=>setFile(null)} style={{
-                padding:"8px 14px", borderRadius:8, cursor:"pointer",
-                background:"rgba(244,114,182,0.1)", border:"1px solid rgba(244,114,182,0.3)",
-                color:C.pink, fontWeight:600, fontSize:12, fontFamily:"inherit", whiteSpace:"nowrap",
-              }}>Remove</button>
-            </div>
+        {error ? (
+          <div
+            style={{
+              marginBottom: 16,
+              padding: 12,
+              borderRadius: 10,
+              border: "1px solid rgba(244,63,94,0.35)",
+              background: "rgba(244,63,94,0.08)",
+              color: "#fda4af",
+            }}
+          >
+            {error}
           </div>
-        )}
+        ) : null}
 
-        <button onClick={handleUpload} disabled={!file || uploading} style={{
-          width:"100%", padding:"12px", borderRadius:10,
-          cursor: !file || uploading ? "not-allowed" : "pointer",
-          background:`linear-gradient(135deg,${C.green},${C.blue})`,
-          border:"none", color:"#fff", fontWeight:700, fontSize:14,
-          fontFamily:"inherit", opacity: !file || uploading ? 0.6 : 1,
-        }}>{uploading ? "⏳ Uploading..." : "📤 Upload Certificate"}</button>
+        {success ? (
+          <div
+            style={{
+              marginBottom: 16,
+              padding: 12,
+              borderRadius: 10,
+              border: "1px solid rgba(34,197,94,0.35)",
+              background: "rgba(34,197,94,0.08)",
+              color: "#86efac",
+            }}
+          >
+            {success}
+          </div>
+        ) : null}
+
+        <div style={boxStyle}>
+          <p style={{ color: "#cbd5e1", marginTop: 0 }}>
+            Paste JSON array of certificate records here.
+          </p>
+
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={`[
+  {
+    "asset_id": "uuid-here",
+    "certificate_type": "Pressure Test Certificate",
+    "company": "Acme Industrial Corp",
+    "equipment_description": "Pressure Vessel",
+    "equipment_location": "Plant Area A",
+    "equipment_id": "CERT-00001",
+    "mawp": "1000 kPa",
+    "equipment_status": "PASS",
+    "issued_at": "2026-03-10T10:00:00.000Z",
+    "valid_to": "2027-03-10",
+    "status": "issued"
+  }
+]`}
+            style={{
+              width: "100%",
+              minHeight: 420,
+              padding: 14,
+              borderRadius: 12,
+              background: "#0f172a",
+              color: "#e5e7eb",
+              border: "1px solid rgba(255,255,255,0.1)",
+              fontFamily: "monospace",
+              fontSize: 13,
+              boxSizing: "border-box",
+            }}
+          />
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 16 }}>
+            <button
+              type="button"
+              onClick={() => router.push("/certificates")}
+              style={{
+                padding: "10px 18px",
+                borderRadius: 8,
+                border: "1px solid rgba(255,255,255,0.15)",
+                background: "transparent",
+                color: "#cbd5e1",
+                cursor: "pointer",
+              }}
+            >
+              Back
+            </button>
+
+            <button
+              type="button"
+              onClick={handleImport}
+              disabled={loading}
+              style={{
+                padding: "10px 18px",
+                borderRadius: 8,
+                border: "none",
+                background: "#2563eb",
+                color: "#fff",
+                fontWeight: 700,
+                cursor: "pointer",
+                opacity: loading ? 0.7 : 1,
+              }}
+            >
+              {loading ? "Importing..." : "Import Certificates"}
+            </button>
+          </div>
+        </div>
       </div>
     </AppLayout>
   );
