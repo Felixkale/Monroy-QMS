@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
-import { supabase } from "@/lib/supabaseClient";
+import { getEquipment } from "@/services/equipment";
 
 const C = {
   green: "#00f5c4",
@@ -12,497 +12,489 @@ const C = {
   pink: "#f472b6",
 };
 
+const boxStyle = {
+  background: "linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))",
+  border: "1px solid rgba(102,126,234,0.18)",
+  borderRadius: 16,
+  padding: 18,
+};
+
+function getLicenseLabel(status) {
+  if (status === "expiring") return "Expiring Soon";
+  if (status === "expired") return "Expired";
+  return "Active";
+}
+
+function getLicenseStyle(status) {
+  if (status === "expired") {
+    return {
+      background: "rgba(244,114,182,0.14)",
+      color: "#f472b6",
+      border: "1px solid rgba(244,114,182,0.28)",
+    };
+  }
+
+  if (status === "expiring") {
+    return {
+      background: "rgba(250,204,21,0.14)",
+      color: "#facc15",
+      border: "1px solid rgba(250,204,21,0.28)",
+    };
+  }
+
+  return {
+    background: "rgba(0,245,196,0.12)",
+    color: "#00f5c4",
+    border: "1px solid rgba(0,245,196,0.24)",
+  };
+}
+
 export default function EquipmentPage() {
+  const router = useRouter();
+
   const [equipment, setEquipment] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
   const [viewMode, setViewMode] = useState("grid");
 
   useEffect(() => {
-    fetchEquipment();
-  }, []);
-
-  async function fetchEquipment() {
-    try {
+    async function loadEquipment() {
       setLoading(true);
+      setError("");
 
-      const { data, error } = await supabase
-        .from("equipment")
-        .select(`
-          id,
-          asset_tag,
-          asset_name,
-          equipment_type,
-          serial_number,
-          manufacturer,
-          model,
-          location,
-          inspection_status,
-          certificate_status,
-          next_inspection_date,
-          client_id,
-          created_at
-        `)
-        .order("created_at", { ascending: false });
+      const { data, error } = await getEquipment();
 
-      if (error) throw error;
+      if (error) {
+        setEquipment([]);
+        setError(error.message || "Failed to load equipment.");
+      } else {
+        setEquipment(Array.isArray(data) ? data : []);
+      }
 
-      const rows = data || [];
-
-      const enriched = await Promise.all(
-        rows.map(async (item) => {
-          const [certificateRes, ncrRes, reportRes] = await Promise.all([
-            supabase
-              .from("certificates")
-              .select("id, certificate_no, status")
-              .eq("equipment_id", item.id)
-              .order("created_at", { ascending: false })
-              .limit(1)
-              .maybeSingle(),
-
-            supabase
-              .from("ncr")
-              .select("id, ncr_no, status")
-              .eq("equipment_id", item.id)
-              .order("created_at", { ascending: false })
-              .limit(1)
-              .maybeSingle(),
-
-            supabase
-              .from("reports")
-              .select("id, report_no, status")
-              .eq("equipment_id", item.id)
-              .order("created_at", { ascending: false })
-              .limit(1)
-              .maybeSingle(),
-          ]);
-
-          return {
-            ...item,
-            latest_certificate: certificateRes.data || null,
-            latest_ncr: ncrRes.data || null,
-            latest_report: reportRes.data || null,
-          };
-        })
-      );
-
-      setEquipment(enriched);
-    } catch (err) {
-      console.error("Error fetching equipment:", err);
-    } finally {
       setLoading(false);
     }
-  }
+
+    loadEquipment();
+  }, []);
+
+  const counts = useMemo(() => {
+    const rows = Array.isArray(equipment) ? equipment : [];
+
+    return {
+      all: rows.length,
+      active: rows.filter((item) => (item.license_status || "valid") === "valid").length,
+      expiring: rows.filter((item) => item.license_status === "expiring").length,
+      expired: rows.filter((item) => item.license_status === "expired").length,
+    };
+  }, [equipment]);
 
   const filteredEquipment = useMemo(() => {
-    let rows = [...equipment];
+    let rows = Array.isArray(equipment) ? [...equipment] : [];
+
+    if (filter === "active") {
+      rows = rows.filter((item) => (item.license_status || "valid") === "valid");
+    } else if (filter === "expiring") {
+      rows = rows.filter((item) => item.license_status === "expiring");
+    } else if (filter === "expired") {
+      rows = rows.filter((item) => item.license_status === "expired");
+    }
 
     if (search.trim()) {
-      const q = search.toLowerCase();
-      rows = rows.filter((item) =>
-        [
+      const q = search.trim().toLowerCase();
+
+      rows = rows.filter((item) => {
+        const values = [
           item.asset_tag,
           item.asset_name,
+          item.asset_type,
           item.serial_number,
           item.manufacturer,
           item.model,
           item.location,
-          item.equipment_type,
-        ]
+          item.department,
+          item.clients?.company_name,
+          item.clients?.company_code,
+        ];
+
+        return values
           .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(q)
-      );
-    }
-
-    if (statusFilter === "active") {
-      rows = rows.filter(
-        (item) =>
-          (item.certificate_status || item.inspection_status || "")
-            .toLowerCase()
-            .includes("active") ||
-          (item.certificate_status || item.inspection_status || "")
-            .toLowerCase()
-            .includes("valid")
-      );
-    }
-
-    if (statusFilter === "expiring") {
-      rows = rows.filter((item) =>
-        (item.certificate_status || item.inspection_status || "")
-          .toLowerCase()
-          .includes("expiring")
-      );
-    }
-
-    if (statusFilter === "expired") {
-      rows = rows.filter((item) =>
-        (item.certificate_status || item.inspection_status || "")
-          .toLowerCase()
-          .includes("expired")
-      );
+          .some((value) => String(value).toLowerCase().includes(q));
+      });
     }
 
     return rows;
-  }, [equipment, search, statusFilter]);
-
-  const counts = useMemo(() => {
-    const all = equipment.length;
-    const active = equipment.filter((item) => {
-      const s = (item.certificate_status || item.inspection_status || "").toLowerCase();
-      return s.includes("active") || s.includes("valid");
-    }).length;
-
-    const expiring = equipment.filter((item) => {
-      const s = (item.certificate_status || item.inspection_status || "").toLowerCase();
-      return s.includes("expiring");
-    }).length;
-
-    const expired = equipment.filter((item) => {
-      const s = (item.certificate_status || item.inspection_status || "").toLowerCase();
-      return s.includes("expired");
-    }).length;
-
-    return { all, active, expiring, expired };
-  }, [equipment]);
-
-  function getStatusBadge(status) {
-    const s = (status || "").toLowerCase();
-
-    if (s.includes("expired")) {
-      return (
-        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-red-500/20 text-red-300 border border-red-500/30">
-          expired
-        </span>
-      );
-    }
-
-    if (s.includes("expiring")) {
-      return (
-        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
-          expiring soon
-        </span>
-      );
-    }
-
-    return (
-      <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-        valid
-      </span>
-    );
-  }
-
-  function ActionButton({ href, label, disabled = false, variant = "default" }) {
-    const base =
-      "px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold transition border";
-    const styles =
-      variant === "primary"
-        ? "bg-[#7c5cfc] hover:bg-[#6d4ef2] text-white border-[#7c5cfc]"
-        : "bg-white/5 hover:bg-white/10 text-white border-white/10";
-
-    if (disabled) {
-      return (
-        <button
-          disabled
-          className={`${base} bg-white/5 text-white/40 border-white/10 cursor-not-allowed`}
-        >
-          {label}
-        </button>
-      );
-    }
-
-    return (
-      <Link href={href} className={`${base} ${styles}`}>
-        {label}
-      </Link>
-    );
-  }
-
-  function EquipmentCard({ item }) {
-    const displayStatus = item.certificate_status || item.inspection_status || "valid";
-
-    return (
-      <div className="rounded-2xl border border-white/10 bg-[#0b1220] hover:border-[#7c5cfc]/40 transition shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-        <div className="p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="text-lg font-extrabold text-white leading-snug truncate">
-                {item.asset_name || "Unnamed Equipment"}{" "}
-                <span className="text-white/70">
-                  - {item.serial_number || item.asset_tag || "N/A"}
-                </span>
-              </h3>
-
-              <p className="mt-2 text-sm text-white/70">
-                {(item.asset_tag || "No Tag")} • {(item.equipment_type || "No Type")} •{" "}
-                {(item.manufacturer || "Unknown Manufacturer")}
-              </p>
-
-              <p className="mt-1 text-sm text-white/60">
-                Serial: {item.serial_number || "N/A"} | Location: {item.location || "N/A"}
-              </p>
-
-              {item.model && (
-                <p className="mt-1 text-sm text-white/60">
-                  Model: {item.model}
-                </p>
-              )}
-
-              {item.next_inspection_date && (
-                <p className="mt-1 text-sm text-white/60">
-                  Next Inspection: {item.next_inspection_date}
-                </p>
-              )}
-            </div>
-
-            <div className="shrink-0">
-              {getStatusBadge(displayStatus)}
-            </div>
-          </div>
-
-          <div className="mt-4 grid grid-cols-3 gap-3 text-center">
-            <div className="rounded-xl bg-white/5 border border-white/10 px-3 py-3">
-              <p className="text-xs text-white/50">Certificate</p>
-              <p className="mt-1 text-sm font-bold text-white">
-                {item.latest_certificate?.certificate_no || "N/A"}
-              </p>
-            </div>
-
-            <div className="rounded-xl bg-white/5 border border-white/10 px-3 py-3">
-              <p className="text-xs text-white/50">NCR</p>
-              <p className="mt-1 text-sm font-bold text-white">
-                {item.latest_ncr?.ncr_no || "N/A"}
-              </p>
-            </div>
-
-            <div className="rounded-xl bg-white/5 border border-white/10 px-3 py-3">
-              <p className="text-xs text-white/50">Report</p>
-              <p className="mt-1 text-sm font-bold text-white">
-                {item.latest_report?.report_no || "N/A"}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-2">
-            <ActionButton
-              href={`/equipment/${item.id}`}
-              label="View Equipment"
-              variant="primary"
-            />
-
-            <ActionButton
-              href={
-                item.latest_certificate
-                  ? `/certificates/${item.latest_certificate.id}`
-                  : "#"
-              }
-              label="Certificate"
-              disabled={!item.latest_certificate}
-            />
-
-            <ActionButton
-              href={item.latest_ncr ? `/ncr/${item.latest_ncr.id}` : "#"}
-              label="NCR"
-              disabled={!item.latest_ncr}
-            />
-
-            <ActionButton
-              href={item.latest_report ? `/reports/${item.latest_report.id}` : "#"}
-              label="Report"
-              disabled={!item.latest_report}
-            />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  function EquipmentRow({ item }) {
-    const displayStatus = item.certificate_status || item.inspection_status || "valid";
-
-    return (
-      <div className="rounded-2xl border border-white/10 bg-[#0b1220] hover:border-[#7c5cfc]/40 transition p-4">
-        <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
-          <div className="min-w-0">
-            <h3 className="text-xl font-extrabold text-white truncate">
-              {item.asset_name || "Unnamed Equipment"} - {item.serial_number || "N/A"}
-            </h3>
-
-            <p className="mt-2 text-sm text-white/70">
-              {(item.asset_tag || "No Tag")} • {(item.equipment_type || "No Type")} •{" "}
-              {(item.manufacturer || "Unknown Manufacturer")}
-            </p>
-
-            <p className="mt-1 text-sm text-white/60">
-              Serial: {item.serial_number || "N/A"} | Location: {item.location || "N/A"}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {getStatusBadge(displayStatus)}
-
-            <ActionButton href={`/equipment/${item.id}`} label="View Equipment" variant="primary" />
-
-            <ActionButton
-              href={
-                item.latest_certificate
-                  ? `/certificates/${item.latest_certificate.id}`
-                  : "#"
-              }
-              label="Certificate"
-              disabled={!item.latest_certificate}
-            />
-
-            <ActionButton
-              href={item.latest_ncr ? `/ncr/${item.latest_ncr.id}` : "#"}
-              label="NCR"
-              disabled={!item.latest_ncr}
-            />
-
-            <ActionButton
-              href={item.latest_report ? `/reports/${item.latest_report.id}` : "#"}
-              label="Report"
-              disabled={!item.latest_report}
-            />
-          </div>
-        </div>
-      </div>
-    );
-  }
+  }, [equipment, filter, search]);
 
   return (
-    <AppLayout>
-      <div className="min-h-screen bg-[#060b16] text-white px-4 md:px-8 py-8">
-        <div className="max-w-7xl mx-auto">
-          <h1 className="text-4xl font-black tracking-tight">Equipment</h1>
-          <div
-            className="mt-3 h-1.5 w-20 rounded-full"
+    <AppLayout title="Equipment">
+      <div style={{ marginBottom: 24 }}>
+        <h1
+          style={{
+            margin: 0,
+            fontSize: "clamp(22px,4vw,32px)",
+            fontWeight: 900,
+            color: "#fff",
+          }}
+        >
+          Equipment Register
+        </h1>
+        <div
+          style={{
+            marginTop: 8,
+            width: 72,
+            height: 4,
+            borderRadius: 999,
+            background: `linear-gradient(90deg,${C.green},${C.purple},${C.blue})`,
+          }}
+        />
+      </div>
+
+      {error && (
+        <div
+          style={{
+            background: "rgba(244,114,182,0.1)",
+            border: "1px solid rgba(244,114,182,0.3)",
+            borderRadius: 12,
+            padding: "12px 16px",
+            marginBottom: 20,
+            color: C.pink,
+            fontSize: 13,
+          }}
+        >
+          ⚠️ {error}
+        </div>
+      )}
+
+      <div style={{ ...boxStyle, marginBottom: 18 }}>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            type="text"
+            placeholder="Search by tag, asset name, serial, client..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
             style={{
-              background: `linear-gradient(90deg, ${C.green}, ${C.purple})`,
+              flex: "1 1 280px",
+              minWidth: 220,
+              padding: "11px 14px",
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(102,126,234,0.25)",
+              borderRadius: 8,
+              color: "#fff",
+              fontSize: 13,
+              outline: "none",
             }}
           />
 
-          <h2 className="mt-8 text-3xl font-black">Equipment Register</h2>
-          <div
-            className="mt-3 h-1.5 w-20 rounded-full"
+          <button
+            onClick={() => setFilter("all")}
             style={{
-              background: `linear-gradient(90deg, ${C.green}, ${C.purple})`,
+              padding: "10px 14px",
+              borderRadius: 8,
+              border: "none",
+              cursor: "pointer",
+              fontWeight: 800,
+              background: filter === "all" ? "linear-gradient(135deg,#667eea,#764ba2)" : "rgba(255,255,255,0.06)",
+              color: "#fff",
             }}
-          />
+          >
+            All ({counts.all})
+          </button>
 
-          <div className="mt-8 rounded-2xl border border-white/10 bg-[#0b1220] p-5">
-            <div className="flex flex-col xl:flex-row gap-4 xl:items-center xl:justify-between">
-              <input
-                type="text"
-                placeholder="Search by tag, asset name, serial, client..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full xl:flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/40 outline-none focus:border-[#7c5cfc]"
-              />
+          <button
+            onClick={() => setFilter("active")}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 8,
+              border: "none",
+              cursor: "pointer",
+              fontWeight: 800,
+              background: filter === "active" ? "linear-gradient(135deg,#00f5c4,#4fc3f7)" : "rgba(255,255,255,0.06)",
+              color: filter === "active" ? "#0f172a" : "#fff",
+            }}
+          >
+            Active ({counts.active})
+          </button>
 
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => setStatusFilter("all")}
-                  className={`px-4 py-3 rounded-xl font-semibold border transition ${
-                    statusFilter === "all"
-                      ? "bg-[#7c5cfc] text-white border-[#7c5cfc]"
-                      : "bg-white/5 text-white border-white/10 hover:bg-white/10"
-                  }`}
-                >
-                  All ({counts.all})
-                </button>
+          <button
+            onClick={() => setFilter("expiring")}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 8,
+              border: "none",
+              cursor: "pointer",
+              fontWeight: 800,
+              background: filter === "expiring" ? "linear-gradient(135deg,#facc15,#fb923c)" : "rgba(255,255,255,0.06)",
+              color: filter === "expiring" ? "#111827" : "#fff",
+            }}
+          >
+            Expiring Soon ({counts.expiring})
+          </button>
 
-                <button
-                  onClick={() => setStatusFilter("active")}
-                  className={`px-4 py-3 rounded-xl font-semibold border transition ${
-                    statusFilter === "active"
-                      ? "bg-[#7c5cfc] text-white border-[#7c5cfc]"
-                      : "bg-white/5 text-white border-white/10 hover:bg-white/10"
-                  }`}
-                >
-                  Active ({counts.active})
-                </button>
+          <button
+            onClick={() => setFilter("expired")}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 8,
+              border: "none",
+              cursor: "pointer",
+              fontWeight: 800,
+              background: filter === "expired" ? "linear-gradient(135deg,#fb7185,#ef4444)" : "rgba(255,255,255,0.06)",
+              color: "#fff",
+            }}
+          >
+            Expired ({counts.expired})
+          </button>
+        </div>
 
-                <button
-                  onClick={() => setStatusFilter("expiring")}
-                  className={`px-4 py-3 rounded-xl font-semibold border transition ${
-                    statusFilter === "expiring"
-                      ? "bg-[#7c5cfc] text-white border-[#7c5cfc]"
-                      : "bg-white/5 text-white border-white/10 hover:bg-white/10"
-                  }`}
-                >
-                  Expiring Soon ({counts.expiring})
-                </button>
-
-                <button
-                  onClick={() => setStatusFilter("expired")}
-                  className={`px-4 py-3 rounded-xl font-semibold border transition ${
-                    statusFilter === "expired"
-                      ? "bg-[#7c5cfc] text-white border-[#7c5cfc]"
-                      : "bg-white/5 text-white border-white/10 hover:bg-white/10"
-                  }`}
-                >
-                  Expired ({counts.expired})
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
-              <p className="text-sm text-white/60">
-                Showing {filteredEquipment.length} equipment item(s)
-              </p>
-
-              <div className="flex rounded-xl border border-white/10 overflow-hidden">
-                <button
-                  onClick={() => setViewMode("grid")}
-                  className={`px-4 py-2 text-sm font-semibold transition ${
-                    viewMode === "grid"
-                      ? "bg-[#7c5cfc] text-white"
-                      : "bg-white/5 text-white/80 hover:bg-white/10"
-                  }`}
-                >
-                  Grid View
-                </button>
-
-                <button
-                  onClick={() => setViewMode("list")}
-                  className={`px-4 py-2 text-sm font-semibold transition ${
-                    viewMode === "list"
-                      ? "bg-[#7c5cfc] text-white"
-                      : "bg-white/5 text-white/80 hover:bg-white/10"
-                  }`}
-                >
-                  List View
-                </button>
-              </div>
-            </div>
+        <div
+          style={{
+            marginTop: 14,
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <div style={{ color: "rgba(255,255,255,0.55)", fontSize: 13 }}>
+            Showing {filteredEquipment.length} equipment item(s)
           </div>
 
-          {loading ? (
-            <div className="mt-8 rounded-2xl border border-white/10 bg-[#0b1220] p-8 text-white/70">
-              Loading equipment...
-            </div>
-          ) : filteredEquipment.length === 0 ? (
-            <div className="mt-8 rounded-2xl border border-white/10 bg-[#0b1220] p-8 text-white/70">
-              No equipment found.
-            </div>
-          ) : viewMode === "grid" ? (
-            <div className="mt-8 grid gap-5 sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {filteredEquipment.map((item) => (
-                <EquipmentCard key={item.id} item={item} />
-              ))}
-            </div>
-          ) : (
-            <div className="mt-8 space-y-4">
-              {filteredEquipment.map((item) => (
-                <EquipmentRow key={item.id} item={item} />
-              ))}
-            </div>
-          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => setViewMode("grid")}
+              style={{
+                padding: "9px 14px",
+                borderRadius: 8,
+                border: "1px solid rgba(255,255,255,0.08)",
+                cursor: "pointer",
+                fontWeight: 700,
+                background: viewMode === "grid" ? "rgba(102,126,234,0.18)" : "rgba(255,255,255,0.04)",
+                color: "#fff",
+              }}
+            >
+              Grid View
+            </button>
+            <button
+              onClick={() => setViewMode("list")}
+              style={{
+                padding: "9px 14px",
+                borderRadius: 8,
+                border: "1px solid rgba(255,255,255,0.08)",
+                cursor: "pointer",
+                fontWeight: 700,
+                background: viewMode === "list" ? "rgba(102,126,234,0.18)" : "rgba(255,255,255,0.04)",
+                color: "#fff",
+              }}
+            >
+              List View
+            </button>
+          </div>
         </div>
       </div>
+
+      {loading ? (
+        <div style={{ ...boxStyle, color: "#fff" }}>Loading equipment...</div>
+      ) : filteredEquipment.length === 0 ? (
+        <div style={{ ...boxStyle, color: "#fff" }}>
+          No equipment found.
+        </div>
+      ) : viewMode === "grid" ? (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))",
+            gap: 16,
+          }}
+        >
+          {filteredEquipment.map((item) => {
+            const status = item.license_status || "valid";
+            const badgeStyle = getLicenseStyle(status);
+
+            return (
+              <div key={item.id} style={boxStyle}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                  <div>
+                    <div style={{ color: "#fff", fontSize: 17, fontWeight: 800 }}>
+                      {item.asset_name || "Unnamed Equipment"}
+                    </div>
+                    <div style={{ color: "rgba(255,255,255,0.55)", fontSize: 12, marginTop: 6 }}>
+                      {item.asset_tag || "No Tag"}
+                    </div>
+                  </div>
+
+                  <span
+                    style={{
+                      ...badgeStyle,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      padding: "7px 10px",
+                      borderRadius: 999,
+                      fontSize: 11,
+                      fontWeight: 800,
+                      whiteSpace: "nowrap",
+                      height: "fit-content",
+                    }}
+                  >
+                    {getLicenseLabel(status)}
+                  </span>
+                </div>
+
+                <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
+                  <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 13 }}>
+                    <strong style={{ color: "#fff" }}>Type:</strong> {item.asset_type || "—"}
+                  </div>
+                  <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 13 }}>
+                    <strong style={{ color: "#fff" }}>Client:</strong> {item.clients?.company_name || "—"}
+                  </div>
+                  <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 13 }}>
+                    <strong style={{ color: "#fff" }}>Serial:</strong> {item.serial_number || "—"}
+                  </div>
+                  <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 13 }}>
+                    <strong style={{ color: "#fff" }}>Location:</strong> {item.location || "—"}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
+                  <button
+                    onClick={() => router.push(`/equipment/${item.asset_tag}`)}
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: 8,
+                      border: "none",
+                      cursor: "pointer",
+                      fontWeight: 700,
+                      background: "linear-gradient(135deg,#667eea,#764ba2)",
+                      color: "#fff",
+                    }}
+                  >
+                    View Equipment
+                  </button>
+
+                  <button
+                    onClick={() => router.push(`/equipment/${item.asset_tag}/edit`)}
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: 8,
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      cursor: "pointer",
+                      fontWeight: 700,
+                      background: "rgba(255,255,255,0.04)",
+                      color: "#fff",
+                    }}
+                  >
+                    Edit
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{ ...boxStyle, padding: 0, overflow: "hidden" }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "rgba(255,255,255,0.03)" }}>
+                  <th style={thStyle}>Tag</th>
+                  <th style={thStyle}>Asset Name</th>
+                  <th style={thStyle}>Type</th>
+                  <th style={thStyle}>Client</th>
+                  <th style={thStyle}>Location</th>
+                  <th style={thStyle}>Status</th>
+                  <th style={thStyle}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredEquipment.map((item) => {
+                  const status = item.license_status || "valid";
+                  const badgeStyle = getLicenseStyle(status);
+
+                  return (
+                    <tr key={item.id} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                      <td style={tdStyle}>{item.asset_tag || "—"}</td>
+                      <td style={tdStyle}>{item.asset_name || "Unnamed Equipment"}</td>
+                      <td style={tdStyle}>{item.asset_type || "—"}</td>
+                      <td style={tdStyle}>{item.clients?.company_name || "—"}</td>
+                      <td style={tdStyle}>{item.location || "—"}</td>
+                      <td style={tdStyle}>
+                        <span
+                          style={{
+                            ...badgeStyle,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            padding: "6px 10px",
+                            borderRadius: 999,
+                            fontSize: 11,
+                            fontWeight: 800,
+                          }}
+                        >
+                          {getLicenseLabel(status)}
+                        </span>
+                      </td>
+                      <td style={tdStyle}>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button
+                            onClick={() => router.push(`/equipment/${item.asset_tag}`)}
+                            style={actionBtnPrimary}
+                          >
+                            View
+                          </button>
+                          <button
+                            onClick={() => router.push(`/equipment/${item.asset_tag}/edit`)}
+                            style={actionBtnSecondary}
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }
+
+const thStyle = {
+  textAlign: "left",
+  padding: "14px 16px",
+  fontSize: 12,
+  color: "rgba(255,255,255,0.6)",
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
+  whiteSpace: "nowrap",
+};
+
+const tdStyle = {
+  padding: "14px 16px",
+  fontSize: 13,
+  color: "#fff",
+  verticalAlign: "middle",
+};
+
+const actionBtnPrimary = {
+  padding: "8px 12px",
+  borderRadius: 8,
+  border: "none",
+  cursor: "pointer",
+  fontWeight: 700,
+  background: "linear-gradient(135deg,#667eea,#764ba2)",
+  color: "#fff",
+};
+
+const actionBtnSecondary = {
+  padding: "8px 12px",
+  borderRadius: 8,
+  border: "1px solid rgba(255,255,255,0.1)",
+  cursor: "pointer",
+  fontWeight: 700,
+  background: "rgba(255,255,255,0.04)",
+  color: "#fff",
+};
