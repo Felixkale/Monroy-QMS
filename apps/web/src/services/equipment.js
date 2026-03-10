@@ -19,7 +19,7 @@ function normalizeNumber(value, fallback = null) {
 function normalizeEquipmentPayload(equipmentData = {}) {
   return {
     client_id: normalizeText(equipmentData.client_id),
-    asset_type: normalizeText(equipmentData.asset_type, ""),
+    asset_type: normalizeText(equipmentData.asset_type || equipmentData.equipment_type, ""),
     description: normalizeText(equipmentData.description),
     manufacturer: normalizeText(equipmentData.manufacturer),
     model: normalizeText(equipmentData.model),
@@ -43,8 +43,11 @@ function normalizeEquipmentPayload(equipmentData = {}) {
     design_temperature: normalizeNumber(equipmentData.design_temperature),
     capacity_volume: normalizeNumber(equipmentData.capacity_volume),
     safe_working_load: normalizeNumber(equipmentData.safe_working_load),
-    national_reg_no: normalizeText(equipmentData.national_reg_no),
-    notified_body: normalizeText(equipmentData.notified_body),
+    proof_load: normalizeNumber(equipmentData.proof_load),
+    lifting_height: normalizeNumber(equipmentData.lifting_height),
+    sling_length: normalizeNumber(equipmentData.sling_length),
+    chain_size: normalizeText(equipmentData.chain_size),
+    rope_diameter: normalizeText(equipmentData.rope_diameter),
     installation_date: normalizeText(equipmentData.installation_date),
     last_inspection_date: normalizeText(equipmentData.last_inspection_date),
     next_inspection_date: normalizeText(equipmentData.next_inspection_date),
@@ -52,51 +55,63 @@ function normalizeEquipmentPayload(equipmentData = {}) {
   };
 }
 
+const EQUIPMENT_SELECT = `
+  id,
+  asset_tag,
+  asset_type,
+  description,
+  manufacturer,
+  model,
+  serial_number,
+  license_status,
+  license_expiry,
+  location,
+  condition,
+  status,
+  year_built,
+  department,
+  cert_type,
+  design_standard,
+  inspection_freq,
+  shell_material,
+  fluid_type,
+  design_pressure,
+  working_pressure,
+  test_pressure,
+  design_temperature,
+  capacity_volume,
+  safe_working_load,
+  proof_load,
+  lifting_height,
+  sling_length,
+  chain_size,
+  rope_diameter,
+  installation_date,
+  last_inspection_date,
+  next_inspection_date,
+  notes,
+  created_at,
+  updated_at,
+  client_id,
+  clients (
+    id,
+    company_name,
+    company_code,
+    contact_person,
+    contact_email,
+    contact_phone
+  ),
+  asset_nameplate (
+    *
+  )
+`;
+
 export async function getEquipment(clientId = null) {
   if (!supabase) return notConfigured([]);
 
   let query = supabase
     .from("assets")
-    .select(`
-      id,
-      asset_tag,
-      asset_type,
-      description,
-      manufacturer,
-      model,
-      serial_number,
-      license_status,
-      license_expiry,
-      location,
-      condition,
-      status,
-      year_built,
-      department,
-      cert_type,
-      design_standard,
-      inspection_freq,
-      shell_material,
-      fluid_type,
-      design_pressure,
-      working_pressure,
-      test_pressure,
-      design_temperature,
-      capacity_volume,
-      safe_working_load,
-      national_reg_no,
-      notified_body,
-      installation_date,
-      last_inspection_date,
-      next_inspection_date,
-      notes,
-      created_at,
-      updated_at,
-      client_id,
-      clients (
-        company_name,
-        company_code
-      )
-    `)
+    .select(EQUIPMENT_SELECT)
     .order("created_at", { ascending: false });
 
   if (clientId) {
@@ -113,20 +128,7 @@ export async function getEquipmentById(id) {
 
   const { data, error } = await supabase
     .from("assets")
-    .select(`
-      *,
-      clients (
-        id,
-        company_name,
-        company_code,
-        contact_person,
-        contact_email,
-        contact_phone
-      ),
-      asset_nameplate (
-        *
-      )
-    `)
+    .select(EQUIPMENT_SELECT)
     .eq("id", id)
     .single();
 
@@ -139,20 +141,7 @@ export async function getEquipmentByTag(tag) {
 
   const { data, error } = await supabase
     .from("assets")
-    .select(`
-      *,
-      clients (
-        id,
-        company_name,
-        company_code,
-        contact_person,
-        contact_email,
-        contact_phone
-      ),
-      asset_nameplate (
-        *
-      )
-    `)
+    .select(EQUIPMENT_SELECT)
     .eq("asset_tag", tag)
     .single();
 
@@ -183,13 +172,7 @@ export async function registerEquipment(equipmentData) {
   const { data, error } = await supabase
     .from("assets")
     .insert([payload])
-    .select(`
-      *,
-      clients (
-        company_name,
-        company_code
-      )
-    `)
+    .select(EQUIPMENT_SELECT)
     .single();
 
   return { data, error };
@@ -200,20 +183,13 @@ export async function updateEquipmentById(id, updates) {
   if (!id) return { data: null, error: "Equipment ID is required" };
 
   const payload = normalizeEquipmentPayload(updates);
-
   delete payload.asset_tag;
 
   const { data, error } = await supabase
     .from("assets")
     .update(payload)
     .eq("id", id)
-    .select(`
-      *,
-      clients (
-        company_name,
-        company_code
-      )
-    `)
+    .select(EQUIPMENT_SELECT)
     .single();
 
   return { data, error };
@@ -224,20 +200,13 @@ export async function updateEquipmentByTag(tag, updates) {
   if (!tag) return { data: null, error: "Equipment tag is required" };
 
   const payload = normalizeEquipmentPayload(updates);
-
   delete payload.asset_tag;
 
   const { data, error } = await supabase
     .from("assets")
     .update(payload)
     .eq("asset_tag", tag)
-    .select(`
-      *,
-      clients (
-        company_name,
-        company_code
-      )
-    `)
+    .select(EQUIPMENT_SELECT)
     .single();
 
   return { data, error };
