@@ -41,9 +41,11 @@ export const BOTSWANA_LOCATIONS = [
 ];
 
 const EQUIPMENT_TYPES = [
-  "Pressure Vessel","Boiler","Air Receiver","Lifting Equipment","Compressor",
-  "Storage Tank","Heat Exchanger","Autoclave","Fired Heater","Separator",
-  "Column / Tower","Gas Cylinder","Hydraulic System","Other",
+  "Pressure Vessel","Boiler","Air Receiver","Trestle Jack","Air Compressor",
+  "Lever Hoist","Bottle Jack","Safety Harness","Jack Stand","Oil Separator",
+  "Chain Block","Bow Shackle","Mobile Crane","Trolley Jack", "Step Ladders",
+  "Tifor", "Crawl Beam", "Beam Crawl", "Beam Clamp", "Webbing Sling", "Nylon Sling",
+  "Wire Sling", "Fall Arrest", "Man Cage","Shutter Clamp", " Drum  Clamp",
 ];
 const STANDARDS = [
   "ASME Section VIII Div 1","ASME Section VIII Div 2","BS PD 5500","EN 13445",
@@ -58,10 +60,10 @@ const FLUID_TYPES = [
   "Hydrogen","Nitrogen","Oxygen","Ammonia","Hydrocarbons","Chemicals / Corrosive","Other",
 ];
 const CERT_TYPES = [
-  "Inspection Certificate","Pressure Test Certificate","NDT Certificate",
-  "Calibration Certificate","Fitness-for-Service Certificate","Lifting Equipment Certificate",
+  "Compliance Certificate","Pressure Test Certificate","NDT Certificate",
+  "Compliance and Test Certificate",
 ];
-const INSPECTION_FREQS = ["6 Months","12 Months","18 Months","24 Months","36 Months","60 Months"];
+const INSPECTION_FREQS = ["3 Months","6 Months","12 Months","24 Months",];
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 const inputStyle = {
