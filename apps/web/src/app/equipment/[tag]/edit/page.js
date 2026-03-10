@@ -1,4 +1,3 @@
-// src/app/equipment/[tag]/edit/page.js
 "use client";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -209,7 +208,7 @@ function BotswanaLocationPicker({ name, value, onChange, required }) {
         onChange={handleSelect}
         required={required && !manual}
       >
-        <option value="">— Select location —</option>
+        <option value="">Select location</option>
         {BOTSWANA_LOCATIONS.map((loc) => (
           <option key={loc} value={loc}>{loc}</option>
         ))}
@@ -321,7 +320,7 @@ export default function EditEquipmentPage() {
         asset_type: data.asset_type || "Pressure Vessel",
         manufacturer: data.manufacturer || "",
         model: data.model || "",
-        year_built: data.year_built || "",
+        year_built: data.year_built ?? "",
         client_id: data.client_id || "",
         location: data.location || "",
         department: data.department || "",
@@ -335,10 +334,10 @@ export default function EditEquipmentPage() {
         test_pressure: data.test_pressure ?? "",
         design_temperature: data.design_temperature ?? "",
         capacity_volume: data.capacity_volume ?? "",
-        safe_working_load: data.safe_working_load || "",
-        proof_load: data.proof_load || "",
-        lifting_height: data.lifting_height || "",
-        sling_length: data.sling_length || "",
+        safe_working_load: data.safe_working_load ?? "",
+        proof_load: data.proof_load ?? "",
+        lifting_height: data.lifting_height ?? "",
+        sling_length: data.sling_length ?? "",
         chain_size: data.chain_size || "",
         rope_diameter: data.rope_diameter || "",
         last_inspection_date: data.last_inspection_date || "",
@@ -560,7 +559,7 @@ export default function EditEquipmentPage() {
             <label style={labelStyle}>Year Built</label>
             <input
               style={inputStyle}
-              type="text"
+              type="number"
               name="year_built"
               value={formData.year_built}
               onChange={handleChange}
@@ -576,7 +575,7 @@ export default function EditEquipmentPage() {
           <div>
             <label style={labelStyle}>Client *</label>
             <SelectField name="client_id" value={formData.client_id} onChange={handleChange} required disabled={clientsLoading}>
-              <option value="">{clientsLoading ? "Loading clients..." : "— Select registered client —"}</option>
+              <option value="">{clientsLoading ? "Loading clients..." : "Select registered client"}</option>
               {clients.map((client) => (
                 <option key={client.id} value={client.id}>
                   {client.company_name} {client.company_code ? `(${client.company_code})` : ""}
@@ -690,7 +689,8 @@ export default function EditEquipmentPage() {
                 <label style={labelStyle}>SWL (Tons)</label>
                 <input
                   style={inputStyle}
-                  type="text"
+                  type="number"
+                  step="0.01"
                   name="safe_working_load"
                   value={formData.safe_working_load}
                   onChange={handleChange}
@@ -704,7 +704,8 @@ export default function EditEquipmentPage() {
                 <label style={labelStyle}>Proof Load (Tons)</label>
                 <input
                   style={inputStyle}
-                  type="text"
+                  type="number"
+                  step="0.01"
                   name="proof_load"
                   value={formData.proof_load}
                   onChange={handleChange}
@@ -718,11 +719,12 @@ export default function EditEquipmentPage() {
                 <label style={labelStyle}>Lift Height</label>
                 <input
                   style={inputStyle}
-                  type="text"
+                  type="number"
+                  step="0.01"
                   name="lifting_height"
                   value={formData.lifting_height}
                   onChange={handleChange}
-                  placeholder="e.g. 3 m"
+                  placeholder="e.g. 3"
                   onFocus={focus}
                   onBlur={blur}
                 />
@@ -732,11 +734,12 @@ export default function EditEquipmentPage() {
                 <label style={labelStyle}>Sling Length</label>
                 <input
                   style={inputStyle}
-                  type="text"
+                  type="number"
+                  step="0.01"
                   name="sling_length"
                   value={formData.sling_length}
                   onChange={handleChange}
-                  placeholder="e.g. 2 m"
+                  placeholder="e.g. 2"
                   onFocus={focus}
                   onBlur={blur}
                 />
