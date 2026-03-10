@@ -19,8 +19,26 @@ const labelStyle = {
 };
 
 const BOTSWANA_CITIES = [
-  "Gaborone","Francistown","Maun","Kasane","Palapye",
-  "Serowe","Lobatse","Selebi-Phikwe","Kanye","Mochudi","Jwaneng","Orapa",
+  "Gaborone","Francistown","Maun","Lobatse","Selebi-Phikwe","Jwaneng","Orapa",
+  "Sowa Town","Kasane","Ghanzi","Tsabong","Shakawe","Serowe","Molepolole","Kanye",
+  "Mahalapye","Palapye","Mochudi","Ramotswa","Mogoditshane","Tlokweng","Gabane",
+  "Letlhakane","Bobonong","Tutume","Tonota","Tati Siding","Mmadinare","Sefhare",
+  "Mmashoro","Machaneng","Lerala","Maunatlala","Artesia","Dibete","Palla Road",
+  "Moshupa","Thamaga","Kopong","Otse","Mogobane","Ramatlabama","Pitsane","Goodhope",
+  "Mabule","Moshaneng","Phitshane Molopo","Metlojane","Barolong","Mmathethe",
+  "Molapowabojang","Sekoma","Werda","Khakhea","Pilane","Bokaa","Mmathubudukwane",
+  "Sikwane","Oodi","Modipane","Boatlaname","Rasesa","Malolwane","Khumaga",
+  "Letlhakeng","Takatokwane","Dutlwe","Shoshong","Paje","Mookane","Mosolotshane",
+  "Ramokgonami","Tamasane","Gweta","Nata","Dukwi","Nkange","Tobane","Tsetsebjwe",
+  "Sefophe","Mathangwane","Chadibe","Mosetse","Matshelagabedi","Tsamaya","Goshwe",
+  "Masunga","Gulumani","Matsinde","Zwenshambe","Mapoka","Siviya","Ramokgwebana",
+  "Kazungula","Kavimba","Pandamatenga","Kachikau","Satau","Muchenje","Sehithwa",
+  "Nokaneng","Gumare","Etsha 6","Etsha 13","Seronga","Beetsha","Tsau","Kareng",
+  "Toteng","Bodibeng","Shorobe","Khwai","Sankoyo","Hukuntsi","Tshane","Lehututu",
+  "Kang","Charleshill","Bere","Ncojane","Hunhukwe","Kokotsha","Zutshwa","Struizendam",
+  "Morupule Colliery","Sua Pan (Botash)","Damtshaa Mine","Letlhakane Mine",
+  "Jwaneng Mine Complex","BCL Smelter (Selebi-Phikwe)","Morupule Power Station",
+  "Gaborone Industrial","Francistown Industrial","Lobatse Industrial",
 ];
 
 const INDUSTRIES = [
@@ -28,6 +46,51 @@ const INDUSTRIES = [
   "Logistics & Transport","Agriculture","Food & Beverage","Retail","Healthcare",
   "Finance & Banking","Government","Education","Telecommunications","Other",
 ];
+
+// ── City Picker (dropdown + manual entry) ────────────────────────────────────
+function CityPicker({ value, onChange }) {
+  const [manual, setManual] = useState(
+    value && !BOTSWANA_CITIES.includes(value)
+  );
+
+  const handleSelect = (e) => {
+    if (e.target.value === "__manual__") {
+      setManual(true);
+      onChange("");
+    } else {
+      setManual(false);
+      onChange(e.target.value);
+    }
+  };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+      <div style={{ position:"relative" }}>
+        <select
+          style={inputStyle}
+          value={manual ? "__manual__" : (value || "Gaborone")}
+          onChange={handleSelect}
+        >
+          {BOTSWANA_CITIES.map(c => <option key={c} value={c}>{c}</option>)}
+          <option value="__manual__">✏️  Type manually…</option>
+        </select>
+        <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", color:"#64748b", pointerEvents:"none" }}>▾</span>
+      </div>
+      {manual && (
+        <input
+          style={{ ...inputStyle, appearance:"auto", WebkitAppearance:"auto", borderColor:"rgba(0,245,196,0.4)" }}
+          type="text"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder="Enter city / town name"
+          autoFocus
+          onFocus={e => (e.target.style.borderColor = "#00f5c4")}
+          onBlur={e => (e.target.style.borderColor = "rgba(0,245,196,0.4)")}
+        />
+      )}
+    </div>
+  );
+}
 
 export default function RegisterClientPage() {
   const router = useRouter();
@@ -146,12 +209,7 @@ export default function RegisterClientPage() {
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
               <div>
                 <label style={labelStyle}>City / Town</label>
-                <div style={{ position:"relative" }}>
-                  <select style={inputStyle} value={form.city} onChange={e => set("city", e.target.value)}>
-                    {BOTSWANA_CITIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                  <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", color:"#64748b", pointerEvents:"none" }}>▾</span>
-                </div>
+                <CityPicker value={form.city} onChange={v => set("city", v)} />
               </div>
               <div>
                 <label style={labelStyle}>Country</label>
