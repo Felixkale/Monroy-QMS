@@ -1,522 +1,264 @@
 "use client";
-import { useState, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
-import { getEquipment, getEquipmentStats } from "@/services/equipment";
-import { getClientById } from "@/services/clients";
+import { getEquipment } from "@/services/equipment";
 
 const C = {
   green: "#00f5c4",
   purple: "#7c5cfc",
   blue: "#4fc3f7",
   pink: "#f472b6",
-  yellow: "#fbbf24",
 };
 
-const rgbaMap = {
-  [C.green]: "0,245,196",
-  [C.blue]: "79,195,247",
-  [C.purple]: "124,92,252",
-  [C.pink]: "244,114,182",
-  [C.yellow]: "251,191,36",
+const cardStyle = {
+  background: "linear-gradient(135deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))",
+  border: "1px solid rgba(102,126,234,0.2)",
+  borderRadius: 16,
+  padding: 20,
 };
 
-const typeColors = {
-  "Pressure Vessel": C.green,
-  "Boiler": C.purple,
-  "Air Receiver": C.blue,
-  "Air Compressor": C.blue,
-  "Oil Separator": C.pink,
-  "Lever Hoist": C.yellow,
-  "Bottle Jack": C.yellow,
-  "Safety Harness": C.yellow,
-  "Jack Stand": C.yellow,
-  "Chain Block": C.yellow,
-  "Bow Shackle": C.yellow,
-  "Mobile Crane": C.yellow,
-  "Trolley Jack": C.yellow,
-  "Step Ladders": C.yellow,
-  "Tifor": C.yellow,
-  "Crawl Beam": C.yellow,
-  "Beam Crawl": C.yellow,
-  "Beam Clamp": C.yellow,
-  "Webbing Sling": C.yellow,
-  "Nylon Sling": C.yellow,
-  "Wire Sling": C.yellow,
-  "Fall Arrest": C.yellow,
-  "Man Cage": C.yellow,
-  "Shutter Clamp": C.yellow,
-  "Drum Clamp": C.yellow,
-};
-
-const licenseColor = {
-  valid: C.green,
-  expiring: C.yellow,
-  expired: C.pink,
-};
-
-function EquipmentPageInner() {
-  const searchParams = useSearchParams();
-  const clientId = searchParams.get("client");
-
+export default function EquipmentPage() {
+  const router = useRouter();
   const [equipment, setEquipment] = useState([]);
-  const [stats, setStats] = useState({ total: 0, active: 0, expiring: 0, expired: 0 });
-  const [client, setClient] = useState(null);
-  const [search, setSearch] = useState("");
-  const [filterType, setFilterType] = useState("All");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
-    async function load() {
+    async function loadEquipment() {
       setLoading(true);
-      setError(null);
+      setError("");
 
-      try {
-        const [equipRes, statsRes] = await Promise.all([
-          getEquipment(clientId),
-          getEquipmentStats(clientId),
-        ]);
+      const { data, error } = await getEquipment();
 
-        if (equipRes?.error) {
-          setError(
-            typeof equipRes.error === "string"
-              ? equipRes.error
-              : equipRes.error.message || "Failed to load equipment."
-          );
-          setEquipment([]);
-        } else {
-          setEquipment(equipRes?.data || []);
-        }
-
-        setStats(statsRes || { total: 0, active: 0, expiring: 0, expired: 0 });
-
-        if (clientId) {
-          const { data, error: clientError } = await getClientById(clientId);
-          if (!clientError) {
-            setClient(data || null);
-          } else {
-            setClient(null);
-          }
-        } else {
-          setClient(null);
-        }
-      } catch (err) {
-        setError(err?.message || "Failed to load equipment.");
+      if (error) {
+        setError(error.message || "Failed to load equipment.");
         setEquipment([]);
-      } finally {
-        setLoading(false);
+      } else {
+        setEquipment(data || []);
       }
+
+      setLoading(false);
     }
 
-    load();
-  }, [clientId]);
+    loadEquipment();
+  }, []);
 
-  const types = [
-    "All",
-    ...Array.from(new Set(equipment.map((e) => e.asset_type).filter(Boolean))),
-  ];
+  const filteredEquipment = useMemo(() => {
+    let rows = [...equipment];
 
-  const filtered = equipment.filter((item) => {
-    const matchType = filterType === "All" || item.asset_type === filterType;
+    if (filter === "active") {
+      rows = rows.filter((item) => item.license_status === "valid");
+    }
 
-    const q = search.trim().toLowerCase();
+    if (filter === "expiring") {
+      rows = rows.filter((item) => item.license_status === "expiring");
+    }
 
-    const matchSearch =
-      q === "" ||
-      (item.asset_tag || "").toLowerCase().includes(q) ||
-      (item.serial_number || "").toLowerCase().includes(q) ||
-      (item.clients?.company_name || "").toLowerCase().includes(q) ||
-      (item.description || "").toLowerCase().includes(q) ||
-      (item.manufacturer || "").toLowerCase().includes(q) ||
-      (item.model || "").toLowerCase().includes(q) ||
-      (item.location || "").toLowerCase().includes(q);
+    if (filter === "expired") {
+      rows = rows.filter((item) => item.license_status === "expired");
+    }
 
-    return matchType && matchSearch;
-  });
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      rows = rows.filter((item) =>
+        [
+          item.asset_tag,
+          item.asset_name,
+          item.asset_type,
+          item.serial_number,
+          item.manufacturer,
+          item.model,
+          item.location,
+          item.clients?.company_name,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(q))
+      );
+    }
 
-  const title = client ? `Equipment — ${client.company_name}` : "Equipment Register";
+    return rows;
+  }, [equipment, filter, search]);
+
+  const counts = useMemo(() => {
+    return {
+      all: equipment.length,
+      active: equipment.filter((i) => i.license_status === "valid").length,
+      expiring: equipment.filter((i) => i.license_status === "expiring").length,
+      expired: equipment.filter((i) => i.license_status === "expired").length,
+    };
+  }, [equipment]);
 
   return (
-    <AppLayout title={title}>
-      {client && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, fontSize: 13 }}>
-          <a href="/clients" style={{ color: "#64748b", textDecoration: "none" }}>Clients</a>
-          <span style={{ color: "#64748b" }}>→</span>
-          <a href={`/clients/${clientId}`} style={{ color: "#64748b", textDecoration: "none" }}>
-            {client.company_name}
-          </a>
-          <span style={{ color: "#64748b" }}>→</span>
-          <span style={{ color: "#e2e8f0" }}>Equipment</span>
-        </div>
-      )}
+    <AppLayout title="Equipment">
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ margin: 0, color: "#fff", fontSize: "clamp(22px,4vw,32px)", fontWeight: 900 }}>
+          Equipment Register
+        </h1>
+        <div style={{ marginTop: 8, width: 72, height: 4, borderRadius: 999, background: `linear-gradient(90deg,${C.green},${C.purple},${C.blue})` }} />
+      </div>
 
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 12,
-          marginBottom: 24,
-        }}
-      >
-        <p style={{ color: "#64748b", fontSize: 13, margin: 0 }}>
-          {client
-            ? `All equipment registered under ${client.company_name}`
-            : "Full asset register with linked client data"}
-        </p>
-
-        <div style={{ display: "flex", gap: 10 }}>
-          {clientId && (
-            <a
-              href={`/clients/${clientId}`}
-              style={{
-                padding: "9px 16px",
-                borderRadius: 10,
-                textDecoration: "none",
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.1)",
-                color: "#94a3b8",
-                fontSize: 13,
-                fontWeight: 600,
-              }}
-            >
-              ← Back to Client
-            </a>
-          )}
-
-          <a
-            href="/equipment/register"
+      <div style={{ ...cardStyle, marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            type="text"
+            placeholder="Search by tag, asset name, serial, client..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
             style={{
-              padding: "10px 18px",
-              borderRadius: 12,
-              textDecoration: "none",
-              background: `linear-gradient(135deg,${C.purple},${C.blue})`,
+              flex: "1 1 280px",
+              padding: "11px 14px",
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(102,126,234,0.25)",
+              borderRadius: 8,
               color: "#fff",
-              fontWeight: 700,
               fontSize: 13,
-              boxShadow: `0 0 20px rgba(124,92,252,0.4)`,
             }}
-          >
-            + Register Equipment
-          </a>
-        </div>
-      </div>
+          />
 
-      {error && (
-        <div
-          style={{
-            background: "rgba(244,114,182,0.1)",
-            border: "1px solid rgba(244,114,182,0.3)",
-            borderRadius: 12,
-            padding: "12px 16px",
-            marginBottom: 20,
-            color: C.pink,
-            fontSize: 13,
-          }}
-        >
-          ⚠️ {error}
-        </div>
-      )}
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))",
-          gap: 14,
-          marginBottom: 22,
-        }}
-      >
-        {[
-          { label: "Total Assets", value: loading ? "…" : stats.total, color: C.blue },
-          { label: "Active", value: loading ? "…" : stats.active, color: C.green },
-          { label: "Lic. Expiring", value: loading ? "…" : stats.expiring, color: C.yellow },
-          { label: "Lic. Expired", value: loading ? "…" : stats.expired, color: C.pink },
-        ].map((s) => (
-          <div
-            key={s.label}
+          <button
+            onClick={() => setFilter("all")}
             style={{
-              background: `rgba(${rgbaMap[s.color]},0.07)`,
-              border: `1px solid rgba(${rgbaMap[s.color]},0.25)`,
-              borderRadius: 14,
-              padding: "16px 18px",
+              padding: "10px 16px",
+              borderRadius: 8,
+              border: "none",
+              cursor: "pointer",
+              fontWeight: 700,
+              background: filter === "all" ? "linear-gradient(135deg,#667eea,#764ba2)" : "rgba(255,255,255,0.06)",
+              color: "#fff",
             }}
           >
-            <div
-              style={{
-                fontSize: 10,
-                color: "#64748b",
-                textTransform: "uppercase",
-                letterSpacing: "0.1em",
-                marginBottom: 6,
-              }}
-            >
-              {s.label}
-            </div>
-            <div style={{ fontSize: 26, fontWeight: 900, color: s.color }}>{s.value}</div>
-          </div>
-        ))}
-      </div>
+            All ({counts.all})
+          </button>
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by tag, client, serial, model or description…"
-          style={{
-            flex: "1 1 220px",
-            padding: "10px 16px",
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(124,92,252,0.3)",
-            borderRadius: 10,
-            color: "#e2e8f0",
-            fontSize: 13,
-            fontFamily: "inherit",
-            outline: "none",
-          }}
-        />
+          <button
+            onClick={() => setFilter("active")}
+            style={{
+              padding: "10px 16px",
+              borderRadius: 8,
+              border: "none",
+              cursor: "pointer",
+              fontWeight: 700,
+              background: filter === "active" ? "linear-gradient(135deg,#00f5c4,#4fc3f7)" : "rgba(255,255,255,0.06)",
+              color: filter === "active" ? "#111827" : "#fff",
+            }}
+          >
+            Active ({counts.active})
+          </button>
 
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {types.map((t) => (
-            <button
-              key={t}
-              onClick={() => setFilterType(t)}
-              style={{
-                padding: "8px 14px",
-                borderRadius: 20,
-                fontSize: 12,
-                cursor: "pointer",
-                fontFamily: "inherit",
-                fontWeight: 600,
-                background: filterType === t ? "rgba(124,92,252,0.25)" : "rgba(255,255,255,0.04)",
-                border: filterType === t ? `1px solid ${C.purple}` : "1px solid rgba(255,255,255,0.08)",
-                color: filterType === t ? C.purple : "#94a3b8",
-              }}
-            >
-              {t}
-            </button>
-          ))}
+          <button
+            onClick={() => setFilter("expiring")}
+            style={{
+              padding: "10px 16px",
+              borderRadius: 8,
+              border: "none",
+              cursor: "pointer",
+              fontWeight: 700,
+              background: filter === "expiring" ? "linear-gradient(135deg,#facc15,#fb7185)" : "rgba(255,255,255,0.06)",
+              color: filter === "expiring" ? "#111827" : "#fff",
+            }}
+          >
+            Expiring Soon ({counts.expiring})
+          </button>
+
+          <button
+            onClick={() => setFilter("expired")}
+            style={{
+              padding: "10px 16px",
+              borderRadius: 8,
+              border: "none",
+              cursor: "pointer",
+              fontWeight: 700,
+              background: filter === "expired" ? "linear-gradient(135deg,#fb7185,#ef4444)" : "rgba(255,255,255,0.06)",
+              color: "#fff",
+            }}
+          >
+            Expired ({counts.expired})
+          </button>
         </div>
       </div>
 
       {loading && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 14 }}>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div
-              key={i}
-              style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                borderRadius: 14,
-                padding: "18px 20px",
-                height: 160,
-              }}
-            />
-          ))}
+        <div style={{ color: "#fff", padding: 20 }}>Loading equipment...</div>
+      )}
+
+      {error && (
+        <div style={{ background: "rgba(244,114,182,0.1)", border: "1px solid rgba(244,114,182,0.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 20, color: C.pink, fontSize: 13 }}>
+          ⚠️ {error}
         </div>
       )}
 
-      {!loading && filtered.length === 0 && (
-        <div
-          style={{
-            textAlign: "center",
-            padding: "60px 20px",
-            background: "rgba(255,255,255,0.02)",
-            border: "1px solid rgba(124,92,252,0.15)",
-            borderRadius: 16,
-          }}
-        >
-          <div style={{ fontSize: 40, marginBottom: 12 }}>⚙️</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0", marginBottom: 6 }}>
-            {search || filterType !== "All" ? "No equipment matches your search" : "No equipment registered yet"}
-          </div>
-          <div style={{ fontSize: 13, color: "#64748b", marginBottom: 20 }}>
-            {client ? `No equipment found for ${client.company_name}` : "Register your first piece of equipment to get started"}
-          </div>
-          <a
-            href="/equipment/register"
-            style={{
-              padding: "10px 24px",
-              borderRadius: 10,
-              textDecoration: "none",
-              background: `linear-gradient(135deg,${C.purple},${C.blue})`,
-              color: "#fff",
-              fontWeight: 700,
-              fontSize: 13,
-            }}
-          >
-            + Register Equipment
-          </a>
-        </div>
-      )}
-
-      {!loading && filtered.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 14 }}>
-          {filtered.map((item) => {
-            const tColor = typeColors[item.asset_type] || C.purple;
-            const tRgba = rgbaMap[tColor] || "124,92,252";
-            const lColor = licenseColor[item.license_status] || C.green;
-            const lRgba = rgbaMap[lColor] || "0,245,196";
-
-            return (
-              <a key={item.id} href={`/equipment/${item.id}`} style={{ textDecoration: "none" }}>
-                <div
-                  style={{
-                    background: "linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
-                    border: `1px solid rgba(${tRgba},0.25)`,
-                    borderRadius: 14,
-                    padding: "18px 20px",
-                    position: "relative",
-                    overflow: "hidden",
-                    cursor: "pointer",
-                    transition: "all 0.25s",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = `rgba(${tRgba},0.5)`;
-                    e.currentTarget.style.transform = "translateY(-3px)";
-                    e.currentTarget.style.background = `rgba(${tRgba},0.06)`;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = `rgba(${tRgba},0.25)`;
-                    e.currentTarget.style.transform = "translateY(0)";
-                    e.currentTarget.style.background = "linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))";
-                  }}
-                >
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      height: 3,
-                      background: `linear-gradient(90deg,${tColor},transparent)`,
-                    }}
-                  />
-
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-                    <div>
-                      <div style={{ fontSize: 16, fontWeight: 800, color: "#fff" }}>
-                        {item.asset_tag || "—"}
-                      </div>
-                      <div style={{ fontSize: 11, color: "#64748b" }}>
-                        {item.serial_number || "No serial"}
-                      </div>
+      {!loading && !error && (
+        <div style={{ display: "grid", gap: 14 }}>
+          {filteredEquipment.length === 0 ? (
+            <div style={cardStyle}>
+              <div style={{ color: "#fff", fontWeight: 700 }}>No equipment found.</div>
+            </div>
+          ) : (
+            filteredEquipment.map((item) => (
+              <div key={item.id} style={cardStyle}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ color: "#fff", fontSize: 18, fontWeight: 800 }}>
+                      {item.asset_name || "Unnamed Equipment"}
                     </div>
-
-                    <span
-                      style={{
-                        padding: "3px 10px",
-                        borderRadius: 20,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        background: `rgba(${tRgba},0.15)`,
-                        color: tColor,
-                        border: `1px solid rgba(${tRgba},0.3)`,
-                      }}
-                    >
-                      {item.asset_type || "Equipment"}
-                    </span>
-                  </div>
-
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: 8,
-                      fontSize: 12,
-                      marginBottom: 12,
-                    }}
-                  >
-                    <div>
-                      <span style={{ color: "#64748b" }}>Client: </span>
-                      <span style={{ color: "#cbd5e1" }}>{item.clients?.company_name || "—"}</span>
+                    <div style={{ color: "rgba(255,255,255,0.6)", marginTop: 6, fontSize: 13 }}>
+                      {item.asset_tag} • {item.asset_type} • {item.clients?.company_name || "No Client"}
                     </div>
-
-                    <div>
-                      <span style={{ color: "#64748b" }}>Mfr: </span>
-                      <span style={{ color: "#cbd5e1" }}>{item.manufacturer || "—"}</span>
-                    </div>
-
-                    <div>
-                      <span style={{ color: "#64748b" }}>Model: </span>
-                      <span style={{ color: "#cbd5e1" }}>{item.model || "—"}</span>
-                    </div>
-
-                    <div>
-                      <span style={{ color: "#64748b" }}>Status: </span>
-                      <span
-                        style={{
-                          color: item.status === "active" ? C.green : "#64748b",
-                          textTransform: "capitalize",
-                        }}
-                      >
-                        {item.status || "—"}
-                      </span>
-                    </div>
-
-                    <div>
-                      <span style={{ color: "#64748b" }}>Location: </span>
-                      <span style={{ color: "#cbd5e1" }}>{item.location || "—"}</span>
-                    </div>
-
-                    <div>
-                      <span style={{ color: "#64748b" }}>Year: </span>
-                      <span style={{ color: "#cbd5e1" }}>{item.year_built || "—"}</span>
+                    <div style={{ color: "rgba(255,255,255,0.5)", marginTop: 6, fontSize: 13 }}>
+                      Serial: {item.serial_number || "—"} | Location: {item.location || "—"}
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                     <span
                       style={{
-                        padding: "3px 10px",
-                        borderRadius: 20,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        background: `rgba(${lRgba},0.12)`,
-                        color: lColor,
-                        border: `1px solid rgba(${lRgba},0.3)`,
-                        textTransform: "capitalize",
+                        padding: "8px 12px",
+                        borderRadius: 999,
+                        fontSize: 12,
+                        fontWeight: 800,
+                        background:
+                          item.license_status === "expired"
+                            ? "rgba(239,68,68,0.15)"
+                            : item.license_status === "expiring"
+                            ? "rgba(250,204,21,0.18)"
+                            : "rgba(0,245,196,0.12)",
+                        color:
+                          item.license_status === "expired"
+                            ? "#f87171"
+                            : item.license_status === "expiring"
+                            ? "#facc15"
+                            : "#00f5c4",
+                        border: "1px solid rgba(255,255,255,0.08)",
                       }}
                     >
-                      🔐 {item.license_status || "valid"}
+                      {item.license_status || "valid"}
                     </span>
 
-                    {item.license_expiry && (
-                      <span style={{ fontSize: 11, color: "#64748b" }}>
-                        Expires: {new Date(item.license_expiry).toLocaleDateString()}
-                      </span>
-                    )}
+                    <button
+                      onClick={() => router.push(`/equipment/${item.asset_tag}`)}
+                      style={{
+                        padding: "10px 16px",
+                        borderRadius: 8,
+                        border: "none",
+                        cursor: "pointer",
+                        fontWeight: 700,
+                        background: "linear-gradient(135deg,#667eea,#764ba2)",
+                        color: "#fff",
+                      }}
+                    >
+                      View Equipment
+                    </button>
                   </div>
                 </div>
-              </a>
-            );
-          })}
+              </div>
+            ))
+          )}
         </div>
       )}
     </AppLayout>
-  );
-}
-
-export default function EquipmentPage() {
-  return (
-    <Suspense
-      fallback={
-        <div
-          style={{
-            minHeight: "100vh",
-            background: "#0f1419",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "#64748b",
-          }}
-        >
-          Loading…
-        </div>
-      }
-    >
-      <EquipmentPageInner />
-    </Suspense>
   );
 }
