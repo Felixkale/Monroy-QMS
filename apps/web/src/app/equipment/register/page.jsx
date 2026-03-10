@@ -1,4 +1,3 @@
-// src/app/equipment/register/page.js
 "use client";
 import { useEffect, useState } from "react";
 import AppLayout from "@/components/AppLayout";
@@ -208,7 +207,7 @@ function BotswanaLocationPicker({ name, value, onChange, required }) {
         onChange={handleSelect}
         required={required && !manual}
       >
-        <option value="">— Select location —</option>
+        <option value="">Select location</option>
         {BOTSWANA_LOCATIONS.map((loc) => (
           <option key={loc} value={loc}>{loc}</option>
         ))}
@@ -274,8 +273,8 @@ function printCertificate(data, certNo, today) {
     return `<tr><td class="label">${label}</td><td class="value">${value}</td></tr>`;
   };
 
-  const withKpa = (value) => (value ? `${value} kPa` : "");
-  const withTons = (value) => (value ? `${value} Tons` : "");
+  const withKpa = (value) => (value || value === 0 ? `${value} kPa` : "");
+  const withTons = (value) => (value || value === 0 ? `${value} Tons` : "");
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -350,8 +349,8 @@ function printCertificate(data, certNo, today) {
     ${isPressureEquipment ? row("Design Pressure", withKpa(data.design_pressure)) : ""}
     ${isPressureEquipment ? row("Working Pressure", withKpa(data.working_pressure)) : ""}
     ${isPressureEquipment ? row("Test Pressure", withKpa(data.test_pressure)) : ""}
-    ${isPressureEquipment ? row("Design Temperature", data.design_temperature ? `${data.design_temperature} °C` : "") : ""}
-    ${isPressureEquipment ? row("Volume / Capacity", data.capacity_volume ? `${data.capacity_volume} L` : "") : ""}
+    ${isPressureEquipment ? row("Design Temperature", data.design_temperature || data.design_temperature === 0 ? `${data.design_temperature} °C` : "") : ""}
+    ${isPressureEquipment ? row("Volume / Capacity", data.capacity_volume || data.capacity_volume === 0 ? `${data.capacity_volume} L` : "") : ""}
     ${isLiftingEquipment ? row("SWL", withTons(data.safe_working_load)) : ""}
     ${isLiftingEquipment ? row("Proof Load", withTons(data.proof_load)) : ""}
     ${isLiftingEquipment ? row("Lifting Height / Travel", data.lifting_height) : ""}
@@ -688,7 +687,7 @@ export default function RegisterEquipmentPage() {
             <label style={labelStyle}>Year Built</label>
             <input
               style={inputStyle}
-              type="text"
+              type="number"
               name="year_built"
               value={formData.year_built}
               onChange={handleChange}
@@ -704,7 +703,7 @@ export default function RegisterEquipmentPage() {
           <div>
             <label style={labelStyle}>Client *</label>
             <SelectField name="client_id" value={formData.client_id} onChange={handleChange} required disabled={clientsLoading}>
-              <option value="">{clientsLoading ? "Loading clients..." : "— Select registered client —"}</option>
+              <option value="">{clientsLoading ? "Loading clients..." : "Select registered client"}</option>
               {clients.map((client) => (
                 <option key={client.id} value={client.id}>
                   {client.company_name} {client.company_code ? `(${client.company_code})` : ""}
@@ -818,7 +817,8 @@ export default function RegisterEquipmentPage() {
                 <label style={labelStyle}>SWL (Tons)</label>
                 <input
                   style={inputStyle}
-                  type="text"
+                  type="number"
+                  step="0.01"
                   name="safe_working_load"
                   value={formData.safe_working_load}
                   onChange={handleChange}
@@ -832,7 +832,8 @@ export default function RegisterEquipmentPage() {
                 <label style={labelStyle}>Proof Load (Tons)</label>
                 <input
                   style={inputStyle}
-                  type="text"
+                  type="number"
+                  step="0.01"
                   name="proof_load"
                   value={formData.proof_load}
                   onChange={handleChange}
@@ -846,11 +847,12 @@ export default function RegisterEquipmentPage() {
                 <label style={labelStyle}>Lift Height</label>
                 <input
                   style={inputStyle}
-                  type="text"
+                  type="number"
+                  step="0.01"
                   name="lifting_height"
                   value={formData.lifting_height}
                   onChange={handleChange}
-                  placeholder="e.g. 3 m"
+                  placeholder="e.g. 3"
                   onFocus={focus}
                   onBlur={blur}
                 />
@@ -860,11 +862,12 @@ export default function RegisterEquipmentPage() {
                 <label style={labelStyle}>Sling Length</label>
                 <input
                   style={inputStyle}
-                  type="text"
+                  type="number"
+                  step="0.01"
                   name="sling_length"
                   value={formData.sling_length}
                   onChange={handleChange}
-                  placeholder="e.g. 2 m"
+                  placeholder="e.g. 2"
                   onFocus={focus}
                   onBlur={blur}
                 />
