@@ -1,14 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
-import {
-  getEquipmentByTag,
-  updateEquipmentByTag,
-  getCertificateByAssetId,
-} from "@/services/equipment";
 
 const C = {
   green: "#00f5c4",
@@ -17,1204 +13,565 @@ const C = {
   pink: "#f472b6",
 };
 
-const BOTSWANA_LOCATIONS = [
-  "Gaborone","Francistown","Maun","Lobatse","Selebi-Phikwe","Jwaneng","Orapa",
-  "Sowa Town","Kasane","Ghanzi","Tsabong","Shakawe","Serowe","Molepolole","Kanye",
-  "Mahalapye","Palapye","Mochudi","Ramotswa","Mogoditshane","Tlokweng","Gabane",
-  "Letlhakane","Bobonong","Tutume","Tonota","Tati Siding","Mmadinare","Sefhare",
-  "Mmashoro","Machaneng","Lerala","Maunatlala","Artesia","Dibete","Palla Road",
-  "Moshupa","Thamaga","Kopong","Otse","Mogobane","Ramatlabama","Pitsane","Goodhope",
-  "Mabule","Moshaneng","Phitshane Molopo","Metlojane","Barolong","Mmathethe",
-  "Molapowabojang","Sekoma","Werda","Khakhea","Pilane","Bokaa","Mmathubudukwane",
-  "Sikwane","Oodi","Modipane","Boatlaname","Rasesa","Malolwane","Khumaga",
-  "Letlhakeng","Takatokwane","Dutlwe","Shoshong","Paje","Mookane","Mosolotshane",
-  "Ramokgonami","Tamasane","Gweta","Nata","Dukwi","Nkange","Tobane","Tsetsebjwe",
-  "Sefophe","Mathangwane","Chadibe","Mosetse","Matshelagabedi","Tsamaya","Goshwe",
-  "Masunga","Gulumani","Matsinde","Zwenshambe","Mapoka","Siviya","Ramokgwebana",
-  "Kazungula","Kavimba","Pandamatenga","Kachikau","Satau","Muchenje","Sehithwa",
-  "Nokaneng","Gumare","Etsha 6","Etsha 13","Seronga","Beetsha","Tsau","Kareng",
-  "Toteng","Bodibeng","Shorobe","Khwai","Sankoyo","Hukuntsi","Tshane","Lehututu",
-  "Kang","Charleshill","Bere","Ncojane","Hunhukwe","Kokotsha","Zutshwa","Struizendam",
-  "Morupule Colliery","Sua Pan (Botash)","Damtshaa Mine","Letlhakane Mine",
-  "Jwaneng Mine Complex","BCL Smelter (Selebi-Phikwe)","Morupule Power Station",
-  "Gaborone Industrial","Francistown Industrial","Lobatse Industrial",
-];
-
-const EQUIPMENT_TYPES = [
-  "Pressure Vessel","Boiler","Air Receiver","Trestle Jack","Air Compressor",
-  "Lever Hoist","Bottle Jack","Safety Harness","Jack Stand","Oil Separator",
-  "Chain Block","Bow Shackle","Mobile Crane","Trolley Jack","Step Ladders",
-  "Tifor","Crawl Beam","Beam Crawl","Beam Clamp","Webbing Sling","Nylon Sling",
-  "Wire Sling","Fall Arrest","Man Cage","Shutter Clamp","Drum Clamp",
-];
-
-const PRESSURE_EQUIPMENT_TYPES = [
-  "Pressure Vessel",
-  "Boiler",
-  "Air Receiver",
-  "Air Compressor",
-  "Oil Separator",
-];
-
-const LIFTING_EQUIPMENT_TYPES = [
-  "Trestle Jack",
-  "Lever Hoist",
-  "Bottle Jack",
-  "Safety Harness",
-  "Jack Stand",
-  "Chain Block",
-  "Bow Shackle",
-  "Mobile Crane",
-  "Trolley Jack",
-  "Step Ladders",
-  "Tifor",
-  "Crawl Beam",
-  "Beam Crawl",
-  "Beam Clamp",
-  "Webbing Sling",
-  "Nylon Sling",
-  "Wire Sling",
-  "Fall Arrest",
-  "Man Cage",
-  "Shutter Clamp",
-  "Drum Clamp",
-];
-
-const STANDARDS = [
-  "ASME Section VIII Div 1","ASME Section VIII Div 2","BS PD 5500","EN 13445",
-  "AD 2000 (Germany)","AS 1210 (Australia)","SANS 347 (South Africa)","Local / In-house","Other",
-];
-
-const MATERIALS = [
-  "Carbon Steel","Stainless Steel 304","Stainless Steel 316","Duplex Stainless",
-  "Low Alloy Steel","Hastelloy","Inconel","Aluminium","Copper","Fibreglass (GRP)","Other",
-];
-
-const FLUID_TYPES = [
-  "Air / Compressed Air","Steam","Water","Hot Oil","Natural Gas","LPG / Propane",
-  "Hydrogen","Nitrogen","Oxygen","Ammonia","Hydrocarbons","Chemicals / Corrosive","Other",
-];
-
-const CERT_TYPES = [
-  "Compliance Certificate",
-  "Pressure Test Certificate",
-  "NDT Certificate",
-  "Compliance and Test Certificate",
-];
-
-const INSPECTION_FREQS = ["3 Months", "6 Months", "12 Months", "24 Months"];
-
-const inputStyle = {
-  width: "100%",
-  padding: "11px 14px",
-  background: "rgba(255,255,255,0.04)",
-  border: "1px solid rgba(102,126,234,0.25)",
-  borderRadius: 8,
-  color: "#e2e8f0",
-  fontSize: 13,
-  fontFamily: "inherit",
-  outline: "none",
-  boxSizing: "border-box",
-  transition: "border-color .2s",
-};
-
-const labelStyle = {
-  fontSize: 11,
-  fontWeight: 700,
-  color: "rgba(255,255,255,0.5)",
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  marginBottom: 6,
-  display: "block",
-};
-
-const sectionHeadStyle = {
-  fontSize: 11,
-  fontWeight: 800,
-  color: "#667eea",
-  textTransform: "uppercase",
-  letterSpacing: "0.12em",
-  borderBottom: "1px solid rgba(102,126,234,0.2)",
-  paddingBottom: 8,
-  marginBottom: 16,
-  marginTop: 8,
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-};
-
-function SelectField({
-  name,
-  value,
-  onChange,
-  required = false,
-  disabled = false,
-  children,
-}) {
-  return (
-    <div style={{ position: "relative" }}>
-      <select
-        name={name}
-        value={value}
-        onChange={onChange}
-        required={required}
-        disabled={disabled}
-        style={{
-          ...inputStyle,
-          cursor: disabled ? "not-allowed" : "pointer",
-          appearance: "none",
-          WebkitAppearance: "none",
-          MozAppearance: "none",
-          paddingRight: 40,
-          background: "#1a1f2e",
-          color: "#e2e8f0",
-        }}
-      >
-        {children}
-      </select>
-      <span
-        style={{
-          position: "absolute",
-          right: 12,
-          top: "50%",
-          transform: "translateY(-50%)",
-          color: "#94a3b8",
-          pointerEvents: "none",
-          fontSize: 12,
-        }}
-      >
-        ▾
-      </span>
-    </div>
-  );
-}
-
-function BotswanaLocationPicker({ name, value, onChange, required }) {
-  const [manual, setManual] = useState(
-    !!value && !BOTSWANA_LOCATIONS.includes(value)
-  );
-
-  useEffect(() => {
-    setManual(!!value && !BOTSWANA_LOCATIONS.includes(value));
-  }, [value]);
-
-  const handleSelect = (e) => {
-    if (e.target.value === "__manual__") {
-      setManual(true);
-      onChange({ target: { name, value: "" } });
-      return;
-    }
-
-    setManual(false);
-    onChange(e);
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <SelectField
-        name={name}
-        value={manual ? "__manual__" : (value || "")}
-        onChange={handleSelect}
-        required={required && !manual}
-      >
-        <option value="">Select location</option>
-        {BOTSWANA_LOCATIONS.map((loc) => (
-          <option key={loc} value={loc}>
-            {loc}
-          </option>
-        ))}
-        <option value="__manual__">Type manually...</option>
-      </SelectField>
-
-      {manual && (
-        <input
-          style={{ ...inputStyle, borderColor: "rgba(0,245,196,0.4)" }}
-          type="text"
-          name={name}
-          placeholder="Enter location / site name"
-          value={value}
-          onChange={onChange}
-          required={required}
-          autoFocus
-        />
-      )}
-    </div>
-  );
-}
-
-function buildAssetName(formData) {
-  const assetType = (formData.asset_type || "").trim();
-  const model = (formData.model || "").trim();
-  const serial = (formData.serial_number || "").trim();
-
-  if (model) return `${assetType} - ${model}`;
-  if (serial) return `${assetType} - ${serial}`;
-  return assetType || "Equipment";
-}
-
-function normalizeDateForInput(value) {
-  if (!value) return "";
-  return String(value).slice(0, 10);
-}
-
-function statusPillStyle(status) {
-  let background = "rgba(0,245,196,0.12)";
-  let color = "#00f5c4";
-
-  if (status === "expiring") {
-    background = "rgba(250,204,21,0.12)";
-    color = "#facc15";
-  }
-
-  if (status === "expired") {
-    background = "rgba(244,114,182,0.12)";
-    color = "#f472b6";
-  }
-
-  return {
-    display: "inline-flex",
-    alignItems: "center",
-    padding: "8px 12px",
-    borderRadius: 999,
-    background,
-    color,
-    fontSize: 12,
-    fontWeight: 800,
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
-    border: "1px solid rgba(255,255,255,0.08)",
-  };
-}
-
-export default function EditEquipmentPage() {
+export default function EquipmentDetailsPage() {
   const params = useParams();
   const router = useRouter();
-  const tag = Array.isArray(params?.tag) ? params.tag[0] : params?.tag;
+  const id = params?.id;
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
-  const [clients, setClients] = useState([]);
-  const [clientsLoading, setClientsLoading] = useState(true);
-  const [certificate, setCertificate] = useState(null);
-
-  const [formData, setFormData] = useState({
-    asset_tag: "",
-    serial_number: "",
-    asset_type: "Pressure Vessel",
-    manufacturer: "",
-    model: "",
-    year_built: "",
-    client_id: "",
-    location: "",
-    department: "",
-    cert_type: "Compliance Certificate",
-    design_standard: "ASME Section VIII Div 1",
-    inspection_freq: "12 Months",
-    shell_material: "Carbon Steel",
-    fluid_type: "Air / Compressed Air",
-    design_pressure: "",
-    working_pressure: "",
-    test_pressure: "",
-    design_temperature: "",
-    capacity_volume: "",
-    safe_working_load: "",
-    proof_load: "",
-    lifting_height: "",
-    sling_length: "",
-    chain_size: "",
-    rope_diameter: "",
-    last_inspection_date: "",
-    next_inspection_date: "",
-    license_status: "valid",
-    license_expiry: "",
-    condition: "Good",
-    status: "active",
-    notes: "",
-  });
+  const [equipment, setEquipment] = useState(null);
+  const [certificates, setCertificates] = useState([]);
+  const [ncrs, setNcrs] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [inspections, setInspections] = useState([]);
+  const [documents, setDocuments] = useState([]);
+  const [activeTab, setActiveTab] = useState("overview");
 
   useEffect(() => {
-    async function loadClients() {
-      setClientsLoading(true);
+    if (id) fetchAll();
+  }, [id]);
 
-      const { data, error } = await supabase
-        .from("clients")
-        .select("id, company_name, company_code, status")
-        .eq("status", "active")
-        .order("company_name", { ascending: true });
-
-      if (error) {
-        setClients([]);
-      } else {
-        setClients(data || []);
-      }
-
-      setClientsLoading(false);
-    }
-
-    loadClients();
-  }, []);
-
-  useEffect(() => {
-    async function loadEquipment() {
-      if (!tag) return;
-
+  async function fetchAll() {
+    try {
       setLoading(true);
-      setError(null);
-      setCertificate(null);
 
-      const equipmentResult = await getEquipmentByTag(tag);
+      const equipmentRes = await supabase
+        .from("equipment")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
 
-      if (equipmentResult.error) {
-        setError(equipmentResult.error?.message || "Failed to load equipment.");
-        setLoading(false);
-        return;
-      }
+      if (equipmentRes.error) throw equipmentRes.error;
+      setEquipment(equipmentRes.data || null);
 
-      if (!equipmentResult.data) {
-        setError("Equipment not found.");
-        setLoading(false);
-        return;
-      }
+      const [
+        certificatesRes,
+        ncrRes,
+        reportsRes,
+        inspectionsRes,
+        documentsRes,
+      ] = await Promise.all([
+        supabase
+          .from("certificates")
+          .select("*")
+          .eq("equipment_id", id)
+          .order("created_at", { ascending: false }),
 
-      const data = equipmentResult.data;
+        supabase
+          .from("ncr")
+          .select("*")
+          .eq("equipment_id", id)
+          .order("created_at", { ascending: false }),
 
-      setFormData({
-        asset_tag: data.asset_tag || "",
-        serial_number: data.serial_number || "",
-        asset_type: data.asset_type || "Pressure Vessel",
-        manufacturer: data.manufacturer || "",
-        model: data.model || "",
-        year_built: data.year_built || "",
-        client_id: data.client_id || "",
-        location: data.location || "",
-        department: data.department || "",
-        cert_type: data.cert_type || "Compliance Certificate",
-        design_standard: data.design_standard || "ASME Section VIII Div 1",
-        inspection_freq: data.inspection_freq || "12 Months",
-        shell_material: data.shell_material || "Carbon Steel",
-        fluid_type: data.fluid_type || "Air / Compressed Air",
-        design_pressure: data.design_pressure || "",
-        working_pressure: data.working_pressure || "",
-        test_pressure: data.test_pressure || "",
-        design_temperature: data.design_temperature || "",
-        capacity_volume: data.capacity_volume || "",
-        safe_working_load: data.safe_working_load || "",
-        proof_load: data.proof_load || "",
-        lifting_height: data.lifting_height || "",
-        sling_length: data.sling_length || "",
-        chain_size: data.chain_size || "",
-        rope_diameter: data.rope_diameter || "",
-        last_inspection_date: normalizeDateForInput(data.last_inspection_date),
-        next_inspection_date: normalizeDateForInput(data.next_inspection_date),
-        license_status: data.license_status || "valid",
-        license_expiry: normalizeDateForInput(data.license_expiry),
-        condition: data.condition || "Good",
-        status: data.status || "active",
-        notes: data.notes || "",
-      });
+        supabase
+          .from("reports")
+          .select("*")
+          .eq("equipment_id", id)
+          .order("created_at", { ascending: false }),
 
-      const certResult = await getCertificateByAssetId(data.id);
-      if (certResult?.data) {
-        setCertificate(certResult.data);
-      }
+        supabase
+          .from("inspections")
+          .select("*")
+          .eq("equipment_id", id)
+          .order("created_at", { ascending: false }),
 
+        supabase
+          .from("documents")
+          .select("*")
+          .eq("equipment_id", id)
+          .order("created_at", { ascending: false }),
+      ]);
+
+      if (certificatesRes.error) console.error(certificatesRes.error);
+      if (ncrRes.error) console.error(ncrRes.error);
+      if (reportsRes.error) console.error(reportsRes.error);
+      if (inspectionsRes.error) console.error(inspectionsRes.error);
+      if (documentsRes.error) console.error(documentsRes.error);
+
+      setCertificates(certificatesRes.data || []);
+      setNcrs(ncrRes.data || []);
+      setReports(reportsRes.data || []);
+      setInspections(inspectionsRes.data || []);
+      setDocuments(documentsRes.data || []);
+    } catch (err) {
+      console.error("Failed to load equipment details:", err);
+    } finally {
       setLoading(false);
     }
+  }
 
-    loadEquipment();
-  }, [tag]);
+  const stats = useMemo(() => {
+    return {
+      certificates: certificates.length,
+      ncrs: ncrs.length,
+      reports: reports.length,
+      inspections: inspections.length,
+      documents: documents.length,
+    };
+  }, [certificates, ncrs, reports, inspections, documents]);
 
-  const isPressureEquipment = useMemo(
-    () => PRESSURE_EQUIPMENT_TYPES.includes(formData.asset_type),
-    [formData.asset_type]
-  );
+  function badge(status) {
+    const s = (status || "").toLowerCase();
 
-  const isLiftingEquipment = useMemo(
-    () => LIFTING_EQUIPMENT_TYPES.includes(formData.asset_type),
-    [formData.asset_type]
-  );
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-
-    setFormData((prev) => {
-      const next = { ...prev, [name]: value };
-
-      if (name === "asset_type") {
-        const pressure = PRESSURE_EQUIPMENT_TYPES.includes(value);
-        const lifting = LIFTING_EQUIPMENT_TYPES.includes(value);
-
-        if (pressure) {
-          next.safe_working_load = "";
-          next.proof_load = "";
-          next.lifting_height = "";
-          next.sling_length = "";
-          next.chain_size = "";
-          next.rope_diameter = "";
-        }
-
-        if (lifting) {
-          next.design_pressure = "";
-          next.working_pressure = "";
-          next.test_pressure = "";
-          next.design_temperature = "";
-          next.capacity_volume = "";
-          next.fluid_type = "";
-        }
-
-        if (!pressure && !lifting) {
-          next.design_pressure = "";
-          next.working_pressure = "";
-          next.test_pressure = "";
-          next.design_temperature = "";
-          next.capacity_volume = "";
-          next.fluid_type = "";
-          next.safe_working_load = "";
-          next.proof_load = "";
-          next.lifting_height = "";
-          next.sling_length = "";
-          next.chain_size = "";
-          next.rope_diameter = "";
-        }
-      }
-
-      return next;
-    });
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-
-    try {
-      if (!formData.client_id) {
-        throw new Error("Please select a registered client.");
-      }
-
-      if (!formData.serial_number?.trim()) {
-        throw new Error("Serial number is required.");
-      }
-
-      if (!formData.manufacturer?.trim()) {
-        throw new Error("Manufacturer is required.");
-      }
-
-      if (!formData.asset_type?.trim()) {
-        throw new Error("Equipment type is required.");
-      }
-
-      const payload = {
-        asset_name: buildAssetName(formData),
-        client_id: formData.client_id,
-        asset_type: formData.asset_type,
-        serial_number: formData.serial_number,
-        manufacturer: formData.manufacturer,
-        model: formData.model,
-        year_built: formData.year_built,
-        location: formData.location,
-        department: formData.department,
-        cert_type: formData.cert_type,
-        design_standard: formData.design_standard,
-        inspection_freq: formData.inspection_freq,
-        shell_material: formData.shell_material,
-        fluid_type: isPressureEquipment ? formData.fluid_type : "",
-        design_pressure: isPressureEquipment ? formData.design_pressure : "",
-        working_pressure: isPressureEquipment ? formData.working_pressure : "",
-        test_pressure: isPressureEquipment ? formData.test_pressure : "",
-        design_temperature: isPressureEquipment ? formData.design_temperature : "",
-        capacity_volume: isPressureEquipment ? formData.capacity_volume : "",
-        safe_working_load: isLiftingEquipment ? formData.safe_working_load : "",
-        proof_load: isLiftingEquipment ? formData.proof_load : "",
-        lifting_height: isLiftingEquipment ? formData.lifting_height : "",
-        sling_length: isLiftingEquipment ? formData.sling_length : "",
-        chain_size: isLiftingEquipment ? formData.chain_size : "",
-        rope_diameter: isLiftingEquipment ? formData.rope_diameter : "",
-        last_inspection_date: formData.last_inspection_date || null,
-        next_inspection_date: formData.next_inspection_date || null,
-        license_status: formData.license_status,
-        license_expiry: formData.license_expiry || null,
-        condition: formData.condition,
-        status: formData.status,
-        notes: formData.notes,
-        description: formData.notes
-          ? `${formData.asset_type} | ${formData.notes}`
-          : formData.asset_type,
-      };
-
-      const { error: updateError } = await updateEquipmentByTag(tag, payload);
-      if (updateError) {
-        throw new Error(updateError.message || "Failed to update equipment.");
-      }
-
-      router.push(`/equipment/${tag}`);
-    } catch (err) {
-      setError(err?.message || "Failed to update equipment.");
-    } finally {
-      setSaving(false);
+    if (s.includes("expired") || s.includes("closed overdue")) {
+      return (
+        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-red-500/20 text-red-300 border border-red-500/30">
+          {status}
+        </span>
+      );
     }
-  };
+
+    if (s.includes("expiring") || s.includes("pending")) {
+      return (
+        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
+          {status}
+        </span>
+      );
+    }
+
+    return (
+      <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+        {status || "valid"}
+      </span>
+    );
+  }
+
+  function InfoCard({ label, value }) {
+    return (
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+        <p className="text-xs uppercase tracking-wide text-white/50">{label}</p>
+        <p className="mt-2 text-sm md:text-base font-semibold text-white break-words">
+          {value || "N/A"}
+        </p>
+      </div>
+    );
+  }
+
+  function TabButton({ id, label, count }) {
+    const active = activeTab === id;
+
+    return (
+      <button
+        onClick={() => setActiveTab(id)}
+        className={`px-4 py-2 rounded-xl border text-sm font-semibold transition ${
+          active
+            ? "bg-[#7c5cfc] border-[#7c5cfc] text-white"
+            : "bg-white/5 border-white/10 text-white/80 hover:bg-white/10"
+        }`}
+      >
+        {label} {typeof count === "number" ? `(${count})` : ""}
+      </button>
+    );
+  }
+
+  function EmptyState({ text }) {
+    return (
+      <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-8 text-white/60">
+        {text}
+      </div>
+    );
+  }
 
   if (loading) {
     return (
-      <AppLayout title="Edit Equipment">
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "80px 0",
-            color: "#fff",
-          }}
-        >
-          Loading equipment...
+      <AppLayout>
+        <div className="min-h-screen bg-[#060b16] text-white px-4 md:px-8 py-8">
+          <div className="max-w-7xl mx-auto">
+            <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-8 text-white/70">
+              Loading equipment details...
+            </div>
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!equipment) {
+    return (
+      <AppLayout>
+        <div className="min-h-screen bg-[#060b16] text-white px-4 md:px-8 py-8">
+          <div className="max-w-7xl mx-auto">
+            <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-8">
+              <p className="text-white/80">Equipment not found.</p>
+              <button
+                onClick={() => router.push("/equipment")}
+                className="mt-4 px-4 py-2 rounded-xl bg-[#7c5cfc] text-white font-semibold"
+              >
+                Back to Equipment
+              </button>
+            </div>
+          </div>
         </div>
       </AppLayout>
     );
   }
 
   return (
-    <AppLayout title={`Edit ${formData.asset_tag || "Equipment"}`}>
-      <style>{`
-        select {
-          background: #1a1f2e !important;
-          color: #e2e8f0 !important;
-        }
-        select option {
-          background: #111827 !important;
-          color: #f8fafc !important;
-        }
-        input[type="date"]::-webkit-calendar-picker-indicator {
-          filter: invert(0.8);
-          cursor: pointer;
-        }
-      `}</style>
+    <AppLayout>
+      <div className="min-h-screen bg-[#060b16] text-white px-4 md:px-8 py-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+            <div>
+              <button
+                onClick={() => router.push("/equipment")}
+                className="mb-4 px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white text-sm font-semibold"
+              >
+                ← Back to Equipment
+              </button>
 
-      <div style={{ marginBottom: 24 }}>
-        <button
-          onClick={() => router.push(`/equipment/${tag}`)}
-          style={{
-            background: "none",
-            border: "none",
-            color: "#64748b",
-            fontSize: 13,
-            cursor: "pointer",
-            fontFamily: "inherit",
-            padding: 0,
-            marginBottom: 10,
-            display: "block",
-          }}
-        >
-          ← Back to Equipment
-        </button>
+              <h1 className="text-3xl md:text-4xl font-black tracking-tight">
+                {equipment.asset_name || "Equipment"}
+              </h1>
 
-        <h1
-          style={{
-            margin: 0,
-            fontSize: "clamp(22px,4vw,32px)",
-            fontWeight: 900,
-            color: "#fff",
-          }}
-        >
-          Edit Equipment
-        </h1>
+              <div
+                className="mt-3 h-1.5 w-20 rounded-full"
+                style={{
+                  background: `linear-gradient(90deg, ${C.green}, ${C.purple})`,
+                }}
+              />
 
-        <div
-          style={{
-            marginTop: 8,
-            width: 72,
-            height: 4,
-            borderRadius: 999,
-            background: `linear-gradient(90deg,${C.green},${C.purple},${C.blue})`,
-          }}
-        />
+              <p className="mt-4 text-white/70 text-sm md:text-base">
+                {(equipment.asset_tag || "No Tag")} •{" "}
+                {(equipment.equipment_type || "No Type")} •{" "}
+                {(equipment.manufacturer || "Unknown Manufacturer")}
+              </p>
 
-        <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <span style={statusPillStyle(formData.license_status)}>
-            {formData.license_status === "expiring" ? "Expiring Soon" : formData.license_status}
-          </span>
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              padding: "8px 12px",
-              borderRadius: 999,
-              background: "rgba(255,255,255,0.06)",
-              color: "#e2e8f0",
-              fontSize: 12,
-              fontWeight: 800,
-              textTransform: "uppercase",
-              letterSpacing: "0.06em",
-              border: "1px solid rgba(255,255,255,0.08)",
-            }}
-          >
-            {formData.asset_tag || "No Tag"}
-          </span>
+              <p className="mt-1 text-white/60 text-sm md:text-base">
+                Serial: {equipment.serial_number || "N/A"} | Location:{" "}
+                {equipment.location || "N/A"}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {badge(
+                equipment.certificate_status ||
+                  equipment.inspection_status ||
+                  "valid"
+              )}
+
+              <Link
+                href={`/equipment/edit/${equipment.id}`}
+                className="px-4 py-2 rounded-xl bg-[#7c5cfc] hover:bg-[#6d4ef2] text-white text-sm font-semibold"
+              >
+                Edit Equipment
+              </Link>
+            </div>
+          </div>
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-5">
+              <p className="text-sm text-white/50">Certificates</p>
+              <p className="mt-2 text-2xl font-black">{stats.certificates}</p>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-5">
+              <p className="text-sm text-white/50">NCRs</p>
+              <p className="mt-2 text-2xl font-black">{stats.ncrs}</p>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-5">
+              <p className="text-sm text-white/50">Reports</p>
+              <p className="mt-2 text-2xl font-black">{stats.reports}</p>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-5">
+              <p className="text-sm text-white/50">Inspections</p>
+              <p className="mt-2 text-2xl font-black">{stats.inspections}</p>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-5">
+              <p className="text-sm text-white/50">Documents</p>
+              <p className="mt-2 text-2xl font-black">{stats.documents}</p>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-5">
+              <p className="text-sm text-white/50">Next Inspection</p>
+              <p className="mt-2 text-sm font-bold break-words">
+                {equipment.next_inspection_date || "N/A"}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-8 flex flex-wrap gap-2">
+            <TabButton id="overview" label="Overview" />
+            <TabButton
+              id="certificates"
+              label="Certificates"
+              count={certificates.length}
+            />
+            <TabButton id="ncrs" label="NCRs" count={ncrs.length} />
+            <TabButton id="reports" label="Reports" count={reports.length} />
+            <TabButton
+              id="inspections"
+              label="Inspection History"
+              count={inspections.length}
+            />
+            <TabButton
+              id="documents"
+              label="Documents"
+              count={documents.length}
+            />
+          </div>
+
+          <div className="mt-6">
+            {activeTab === "overview" && (
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <InfoCard label="Asset Name" value={equipment.asset_name} />
+                <InfoCard label="Asset Tag" value={equipment.asset_tag} />
+                <InfoCard
+                  label="Equipment Type"
+                  value={equipment.equipment_type}
+                />
+                <InfoCard label="Serial Number" value={equipment.serial_number} />
+                <InfoCard label="Manufacturer" value={equipment.manufacturer} />
+                <InfoCard label="Model" value={equipment.model} />
+                <InfoCard label="Client" value={equipment.client_name} />
+                <InfoCard label="Location" value={equipment.location} />
+                <InfoCard
+                  label="Year Built"
+                  value={equipment.year_built}
+                />
+                <InfoCard label="SWL" value={equipment.swl} />
+                <InfoCard label="Lift Height" value={equipment.lift_height} />
+                <InfoCard label="Proof Load" value={equipment.proof_load} />
+                <InfoCard
+                  label="Sling Length"
+                  value={equipment.sling_length}
+                />
+                <InfoCard
+                  label="Working Pressure"
+                  value={equipment.working_pressure}
+                />
+                <InfoCard
+                  label="Test Pressure"
+                  value={equipment.test_pressure}
+                />
+                <InfoCard
+                  label="Country of Origin"
+                  value={equipment.country_of_origin}
+                />
+                <InfoCard
+                  label="Inspection Status"
+                  value={equipment.inspection_status}
+                />
+                <InfoCard
+                  label="Certificate Status"
+                  value={equipment.certificate_status}
+                />
+                <InfoCard
+                  label="Last Inspection Date"
+                  value={equipment.last_inspection_date}
+                />
+                <InfoCard
+                  label="Next Inspection Date"
+                  value={equipment.next_inspection_date}
+                />
+              </div>
+            )}
+
+            {activeTab === "certificates" && (
+              <div className="space-y-4">
+                {certificates.length === 0 ? (
+                  <EmptyState text="No certificates found for this equipment." />
+                ) : (
+                  certificates.map((item) => (
+                    <div
+                      key={item.id}
+                      className="rounded-2xl border border-white/10 bg-[#0b1220] p-5"
+                    >
+                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                        <div>
+                          <h3 className="text-lg font-bold text-white">
+                            {item.certificate_no || "Certificate"}
+                          </h3>
+                          <p className="mt-1 text-sm text-white/60">
+                            Issue Date: {item.issue_date || "N/A"} | Expiry Date:{" "}
+                            {item.expiry_date || "N/A"}
+                          </p>
+                          <p className="mt-1 text-sm text-white/60">
+                            Inspector: {item.inspector_name || "N/A"}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          {badge(item.status || "valid")}
+                          <Link
+                            href={`/certificates/${item.id}`}
+                            className="px-4 py-2 rounded-xl bg-[#7c5cfc] hover:bg-[#6d4ef2] text-white text-sm font-semibold"
+                          >
+                            View Certificate
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {activeTab === "ncrs" && (
+              <div className="space-y-4">
+                {ncrs.length === 0 ? (
+                  <EmptyState text="No NCRs found for this equipment." />
+                ) : (
+                  ncrs.map((item) => (
+                    <div
+                      key={item.id}
+                      className="rounded-2xl border border-white/10 bg-[#0b1220] p-5"
+                    >
+                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                        <div>
+                          <h3 className="text-lg font-bold text-white">
+                            {item.ncr_no || "NCR"}
+                          </h3>
+                          <p className="mt-1 text-sm text-white/60">
+                            Date: {item.created_at?.slice(0, 10) || "N/A"}
+                          </p>
+                          <p className="mt-1 text-sm text-white/60">
+                            Description: {item.description || "N/A"}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          {badge(item.status || "pending")}
+                          <Link
+                            href={`/ncr/${item.id}`}
+                            className="px-4 py-2 rounded-xl bg-[#7c5cfc] hover:bg-[#6d4ef2] text-white text-sm font-semibold"
+                          >
+                            View NCR
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {activeTab === "reports" && (
+              <div className="space-y-4">
+                {reports.length === 0 ? (
+                  <EmptyState text="No reports found for this equipment." />
+                ) : (
+                  reports.map((item) => (
+                    <div
+                      key={item.id}
+                      className="rounded-2xl border border-white/10 bg-[#0b1220] p-5"
+                    >
+                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                        <div>
+                          <h3 className="text-lg font-bold text-white">
+                            {item.report_no || "Report"}
+                          </h3>
+                          <p className="mt-1 text-sm text-white/60">
+                            Date: {item.created_at?.slice(0, 10) || "N/A"}
+                          </p>
+                          <p className="mt-1 text-sm text-white/60">
+                            Report Type: {item.report_type || "N/A"}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          {badge(item.status || "active")}
+                          <Link
+                            href={`/reports/${item.id}`}
+                            className="px-4 py-2 rounded-xl bg-[#7c5cfc] hover:bg-[#6d4ef2] text-white text-sm font-semibold"
+                          >
+                            View Report
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {activeTab === "inspections" && (
+              <div className="space-y-4">
+                {inspections.length === 0 ? (
+                  <EmptyState text="No inspection history found for this equipment." />
+                ) : (
+                  inspections.map((item) => (
+                    <div
+                      key={item.id}
+                      className="rounded-2xl border border-white/10 bg-[#0b1220] p-5"
+                    >
+                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                        <div>
+                          <h3 className="text-lg font-bold text-white">
+                            {item.inspection_type || "Inspection"}
+                          </h3>
+                          <p className="mt-1 text-sm text-white/60">
+                            Date: {item.inspection_date || "N/A"}
+                          </p>
+                          <p className="mt-1 text-sm text-white/60">
+                            Inspector: {item.inspector_name || "N/A"}
+                          </p>
+                          <p className="mt-1 text-sm text-white/60">
+                            Remarks: {item.remarks || "N/A"}
+                          </p>
+                        </div>
+
+                        <div>{badge(item.status || "completed")}</div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {activeTab === "documents" && (
+              <div className="space-y-4">
+                {documents.length === 0 ? (
+                  <EmptyState text="No documents uploaded for this equipment." />
+                ) : (
+                  documents.map((item) => (
+                    <div
+                      key={item.id}
+                      className="rounded-2xl border border-white/10 bg-[#0b1220] p-5"
+                    >
+                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                        <div>
+                          <h3 className="text-lg font-bold text-white">
+                            {item.title || item.file_name || "Document"}
+                          </h3>
+                          <p className="mt-1 text-sm text-white/60">
+                            Type: {item.document_type || "N/A"}
+                          </p>
+                          <p className="mt-1 text-sm text-white/60">
+                            Uploaded: {item.created_at?.slice(0, 10) || "N/A"}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          {item.file_url ? (
+                            <a
+                              href={item.file_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-4 py-2 rounded-xl bg-[#7c5cfc] hover:bg-[#6d4ef2] text-white text-sm font-semibold"
+                            >
+                              Open Document
+                            </a>
+                          ) : (
+                            <button
+                              disabled
+                              className="px-4 py-2 rounded-xl bg-white/5 text-white/40 border border-white/10 text-sm font-semibold cursor-not-allowed"
+                            >
+                              No File
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-
-      {error && (
-        <div
-          style={{
-            background: "rgba(244,114,182,0.1)",
-            border: "1px solid rgba(244,114,182,0.3)",
-            borderRadius: 12,
-            padding: "12px 16px",
-            marginBottom: 20,
-            color: C.pink,
-            fontSize: 13,
-          }}
-        >
-          ⚠️ {error}
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-        <button
-          type="button"
-          onClick={() => router.push(`/equipment/${tag}`)}
-          style={{
-            padding: "11px 20px",
-            borderRadius: 8,
-            cursor: "pointer",
-            fontWeight: 700,
-            background: "rgba(102,126,234,0.1)",
-            border: "1px solid rgba(102,126,234,0.25)",
-            color: "#667eea",
-          }}
-        >
-          View Equipment
-        </button>
-
-        {certificate?.id && (
-          <button
-            type="button"
-            onClick={() => router.push(`/certificates/${certificate.id}`)}
-            style={{
-              padding: "11px 20px",
-              borderRadius: 8,
-              cursor: "pointer",
-              fontWeight: 700,
-              background: "linear-gradient(135deg,#00f5c4,#4fc3f7)",
-              border: "none",
-              color: "#111827",
-            }}
-          >
-            View Equipment Certificate
-          </button>
-        )}
-      </div>
-
-      <form
-        onSubmit={handleSubmit}
-        style={{
-          background: "linear-gradient(135deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))",
-          border: "1px solid rgba(102,126,234,0.2)",
-          borderRadius: 16,
-          padding: 28,
-          maxWidth: 900,
-          overflow: "visible",
-        }}
-      >
-        <div style={sectionHeadStyle}>⚙️ Equipment Identity</div>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))",
-            gap: 16,
-            marginBottom: 24,
-          }}
-        >
-          <div>
-            <label style={labelStyle}>Equipment Tag</label>
-            <input
-              style={{ ...inputStyle, opacity: 0.7, cursor: "not-allowed" }}
-              type="text"
-              value={formData.asset_tag}
-              readOnly
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>Serial Number *</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="serial_number"
-              value={formData.serial_number}
-              onChange={handleChange}
-              required
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>Equipment Type *</label>
-            <SelectField name="asset_type" value={formData.asset_type} onChange={handleChange}>
-              {EQUIPMENT_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </SelectField>
-          </div>
-
-          <div>
-            <label style={labelStyle}>Manufacturer *</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="manufacturer"
-              value={formData.manufacturer}
-              onChange={handleChange}
-              required
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>Model / Drawing No.</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="model"
-              value={formData.model}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>Year Built</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="year_built"
-              value={formData.year_built}
-              onChange={handleChange}
-              placeholder="Fully manual text"
-            />
-          </div>
-        </div>
-
-        <div style={sectionHeadStyle}>🏢 Ownership & Site</div>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))",
-            gap: 16,
-            marginBottom: 24,
-          }}
-        >
-          <div>
-            <label style={labelStyle}>Client *</label>
-            <SelectField
-              name="client_id"
-              value={formData.client_id}
-              onChange={handleChange}
-              required
-              disabled={clientsLoading}
-            >
-              <option value="">
-                {clientsLoading ? "Loading clients..." : "Select registered client"}
-              </option>
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.company_name} {client.company_code ? `(${client.company_code})` : ""}
-                </option>
-              ))}
-            </SelectField>
-          </div>
-
-          <div>
-            <label style={labelStyle}>Location / Town *</label>
-            <BotswanaLocationPicker
-              name="location"
-              value={formData.location}
-              onChange={handleChange}
-              required
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>Department / Plant</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="department"
-              value={formData.department}
-              onChange={handleChange}
-            />
-          </div>
-        </div>
-
-        <div style={sectionHeadStyle}>📜 Certificate Information</div>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))",
-            gap: 16,
-            marginBottom: 24,
-          }}
-        >
-          <div>
-            <label style={labelStyle}>Certificate Type *</label>
-            <SelectField name="cert_type" value={formData.cert_type} onChange={handleChange}>
-              {CERT_TYPES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </SelectField>
-          </div>
-
-          <div>
-            <label style={labelStyle}>Inspection Frequency</label>
-            <SelectField
-              name="inspection_freq"
-              value={formData.inspection_freq}
-              onChange={handleChange}
-            >
-              {INSPECTION_FREQS.map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </SelectField>
-          </div>
-
-          <div>
-            <label style={labelStyle}>License Status</label>
-            <SelectField
-              name="license_status"
-              value={formData.license_status}
-              onChange={handleChange}
-            >
-              <option value="valid">valid</option>
-              <option value="expiring">expiring</option>
-              <option value="expired">expired</option>
-            </SelectField>
-          </div>
-        </div>
-
-        <div style={sectionHeadStyle}>📐 Design & Technical Parameters</div>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))",
-            gap: 16,
-            marginBottom: 24,
-          }}
-        >
-          <div>
-            <label style={labelStyle}>Shell / Body Material</label>
-            <SelectField
-              name="shell_material"
-              value={formData.shell_material}
-              onChange={handleChange}
-            >
-              {MATERIALS.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </SelectField>
-          </div>
-
-          <div>
-            <label style={labelStyle}>Design Standard</label>
-            <SelectField
-              name="design_standard"
-              value={formData.design_standard}
-              onChange={handleChange}
-            >
-              {STANDARDS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </SelectField>
-          </div>
-
-          {isPressureEquipment && (
-            <>
-              <div>
-                <label style={labelStyle}>Fluid / Contents Type</label>
-                <SelectField
-                  name="fluid_type"
-                  value={formData.fluid_type}
-                  onChange={handleChange}
-                >
-                  {FLUID_TYPES.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </SelectField>
-              </div>
-
-              <div>
-                <label style={labelStyle}>Design Pressure (kPa)</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="design_pressure"
-                  value={formData.design_pressure}
-                  onChange={handleChange}
-                  placeholder="Manual text, unit is kPa"
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Working Pressure (kPa)</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="working_pressure"
-                  value={formData.working_pressure}
-                  onChange={handleChange}
-                  placeholder="Manual text, unit is kPa"
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Test Pressure (kPa)</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="test_pressure"
-                  value={formData.test_pressure}
-                  onChange={handleChange}
-                  placeholder="Manual text, unit is kPa"
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Design Temperature</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="design_temperature"
-                  value={formData.design_temperature}
-                  onChange={handleChange}
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Volume / Capacity</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="capacity_volume"
-                  value={formData.capacity_volume}
-                  onChange={handleChange}
-                />
-              </div>
-            </>
-          )}
-
-          {isLiftingEquipment && (
-            <>
-              <div>
-                <label style={labelStyle}>SWL (Tons)</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="safe_working_load"
-                  value={formData.safe_working_load}
-                  onChange={handleChange}
-                  placeholder="Manual text, unit is Tons"
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Proof Load (Tons)</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="proof_load"
-                  value={formData.proof_load}
-                  onChange={handleChange}
-                  placeholder="Manual text, unit is Tons"
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Lift Height</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="lifting_height"
-                  value={formData.lifting_height}
-                  onChange={handleChange}
-                  placeholder="Fully manual text"
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Sling Length</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="sling_length"
-                  value={formData.sling_length}
-                  onChange={handleChange}
-                  placeholder="Fully manual text"
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Chain Size</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="chain_size"
-                  value={formData.chain_size}
-                  onChange={handleChange}
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Rope / Wire Diameter</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="rope_diameter"
-                  value={formData.rope_diameter}
-                  onChange={handleChange}
-                />
-              </div>
-            </>
-          )}
-        </div>
-
-        <div style={sectionHeadStyle}>📅 Inspection & Service Dates</div>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))",
-            gap: 16,
-            marginBottom: 24,
-          }}
-        >
-          <div>
-            <label style={labelStyle}>Last Inspection Date</label>
-            <input
-              style={inputStyle}
-              type="date"
-              name="last_inspection_date"
-              value={formData.last_inspection_date}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>Next Inspection Due</label>
-            <input
-              style={inputStyle}
-              type="date"
-              name="next_inspection_date"
-              value={formData.next_inspection_date}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>License Expiry</label>
-            <input
-              style={inputStyle}
-              type="date"
-              name="license_expiry"
-              value={formData.license_expiry}
-              onChange={handleChange}
-            />
-          </div>
-        </div>
-
-        <div style={sectionHeadStyle}>📘 Operational Status</div>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))",
-            gap: 16,
-            marginBottom: 24,
-          }}
-        >
-          <div>
-            <label style={labelStyle}>Condition</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="condition"
-              value={formData.condition}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>Status</label>
-            <SelectField name="status" value={formData.status} onChange={handleChange}>
-              <option value="active">active</option>
-              <option value="inactive">inactive</option>
-              <option value="suspended">suspended</option>
-            </SelectField>
-          </div>
-        </div>
-
-        <div style={sectionHeadStyle}>📝 Notes</div>
-        <div style={{ marginBottom: 24 }}>
-          <textarea
-            style={{ ...inputStyle, minHeight: 100, resize: "vertical" }}
-            name="notes"
-            value={formData.notes}
-            onChange={handleChange}
-          />
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            gap: 12,
-            justifyContent: "flex-end",
-            paddingTop: 16,
-            borderTop: "1px solid rgba(102,126,234,0.12)",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => router.push(`/equipment/${tag}`)}
-            style={{
-              padding: "11px 24px",
-              borderRadius: 8,
-              cursor: "pointer",
-              fontFamily: "inherit",
-              fontWeight: 700,
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid rgba(255,255,255,0.1)",
-              color: "#94a3b8",
-            }}
-          >
-            Cancel
-          </button>
-
-          <button
-            type="submit"
-            disabled={saving}
-            style={{
-              padding: "11px 28px",
-              borderRadius: 8,
-              cursor: saving ? "wait" : "pointer",
-              fontFamily: "inherit",
-              fontWeight: 700,
-              background: "linear-gradient(135deg,#667eea,#764ba2)",
-              border: "none",
-              color: "#fff",
-              boxShadow: "0 0 20px rgba(102,126,234,0.4)",
-              opacity: saving ? 0.7 : 1,
-            }}
-          >
-            {saving ? "Saving..." : "Save Changes"}
-          </button>
-        </div>
-      </form>
     </AppLayout>
   );
 }
