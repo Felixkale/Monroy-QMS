@@ -48,7 +48,6 @@ function normalizeEquipmentPayload(equipmentData = {}) {
     location: normalizeText(equipmentData.location),
     condition: normalizeText(equipmentData.condition, "Good"),
     status: normalizeText(equipmentData.status, "active"),
-
     year_built: normalizeText(equipmentData.year_built),
     department: normalizeText(equipmentData.department),
     cert_type: normalizeText(equipmentData.cert_type),
@@ -56,25 +55,17 @@ function normalizeEquipmentPayload(equipmentData = {}) {
     inspection_freq: normalizeText(equipmentData.inspection_freq),
     shell_material: normalizeText(equipmentData.shell_material),
     fluid_type: normalizeText(equipmentData.fluid_type),
-
     design_pressure: normalizeText(equipmentData.design_pressure),
     working_pressure: normalizeText(equipmentData.working_pressure),
     test_pressure: normalizeText(equipmentData.test_pressure),
     design_temperature: normalizeText(equipmentData.design_temperature),
     capacity_volume: normalizeText(equipmentData.capacity_volume),
-
-    safe_working_load: normalizeText(
-      equipmentData.safe_working_load ?? equipmentData.swl
-    ),
+    safe_working_load: normalizeText(equipmentData.safe_working_load),
     proof_load: normalizeText(equipmentData.proof_load),
-    lifting_height: normalizeText(
-      equipmentData.lifting_height ?? equipmentData.lift_height
-    ),
+    lifting_height: normalizeText(equipmentData.lifting_height),
     sling_length: normalizeText(equipmentData.sling_length),
-
     chain_size: normalizeText(equipmentData.chain_size),
     rope_diameter: normalizeText(equipmentData.rope_diameter),
-    installation_date: normalizeText(equipmentData.installation_date),
     last_inspection_date: normalizeText(equipmentData.last_inspection_date),
     next_inspection_date: normalizeText(equipmentData.next_inspection_date),
     notes: normalizeText(equipmentData.notes),
@@ -115,7 +106,6 @@ const EQUIPMENT_SELECT = `
   sling_length,
   chain_size,
   rope_diameter,
-  installation_date,
   last_inspection_date,
   next_inspection_date,
   notes,
@@ -124,10 +114,7 @@ const EQUIPMENT_SELECT = `
   clients (
     id,
     company_name,
-    company_code,
-    contact_person,
-    contact_email,
-    contact_phone
+    company_code
   )
 `;
 
@@ -245,22 +232,6 @@ export async function registerEquipment(equipmentData) {
   return { data, error };
 }
 
-export async function updateEquipmentById(id, updates) {
-  if (!supabase) return notConfigured(null);
-  if (!id) return { data: null, error: { message: "Equipment ID is required" } };
-
-  const payload = normalizeEquipmentPayload(updates);
-
-  const { data, error } = await supabase
-    .from("assets")
-    .update(payload)
-    .eq("id", id)
-    .select(EQUIPMENT_SELECT)
-    .single();
-
-  return { data, error };
-}
-
 export async function updateEquipmentByTag(tag, updates) {
   if (!supabase) return notConfigured(null);
   if (!tag) return { data: null, error: { message: "Equipment tag is required" } };
@@ -294,9 +265,7 @@ export async function getEquipmentStats(clientId = null) {
     return { total: 0, active: 0, expiring: 0, expired: 0 };
   }
 
-  let query = supabase
-    .from("assets")
-    .select("status, license_status, client_id");
+  let query = supabase.from("assets").select("status, license_status, client_id");
 
   if (clientId) {
     query = query.eq("client_id", clientId);
