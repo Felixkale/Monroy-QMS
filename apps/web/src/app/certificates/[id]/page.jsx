@@ -1,454 +1,1278 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { supabase } from "../../../lib/supabaseClient";
-import AppLayout from "../../../components/AppLayout";
+import AppLayout from "@/components/AppLayout";
+import { supabase } from "@/lib/supabaseClient";
 
-const C = { green: "#00f5c4", purple: "#7c5cfc", blue: "#4fc3f7", pink: "#f472b6", yellow: "#fbbf24" };
-
-const LOGO_B64 = ""; // Replace with your base64 logo string
-
-/* ─── QR Code Canvas ─────────────────────────────────────────── */
-function QRCanvas({ text, size = 90 }) {
-  const canvasRef = useRef(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const cells = 25;
-    const cell = size / cells;
-
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, size, size);
-
-    function hash(str) {
-      let h = 0;
-      for (let i = 0; i < str.length; i++) h = ((h << 5) - h + str.charCodeAt(i)) | 0;
-      return Math.abs(h);
-    }
-
-    function drawFinder(x, y) {
-      ctx.fillStyle = "#000";
-      ctx.fillRect(x * cell, y * cell, 7 * cell, 7 * cell);
-      ctx.fillStyle = "#fff";
-      ctx.fillRect((x + 1) * cell, (y + 1) * cell, 5 * cell, 5 * cell);
-      ctx.fillStyle = "#000";
-      ctx.fillRect((x + 2) * cell, (y + 2) * cell, 3 * cell, 3 * cell);
-    }
-
-    drawFinder(0, 0);
-    drawFinder(cells - 7, 0);
-    drawFinder(0, cells - 7);
-
-    // Timing patterns
-    ctx.fillStyle = "#000";
-    for (let i = 8; i < cells - 8; i++) {
-      if (i % 2 === 0) {
-        ctx.fillRect(i * cell, 6 * cell, cell, cell);
-        ctx.fillRect(6 * cell, i * cell, cell, cell);
-      }
-    }
-
-    // Data modules
-    const seed = hash(text);
-    for (let row = 0; row < cells; row++) {
-      for (let col = 0; col < cells; col++) {
-        const inFinder =
-          (row < 8 && col < 8) ||
-          (row < 8 && col >= cells - 8) ||
-          (row >= cells - 8 && col < 8);
-        const inTiming = row === 6 || col === 6;
-        if (!inFinder && !inTiming) {
-          const bit = (hash(text + row * cells + col + seed) % 2) === 0;
-          if (bit) {
-            ctx.fillStyle = "#000";
-            ctx.fillRect(col * cell, row * cell, cell - 0.5, cell - 0.5);
-          }
-        }
-      }
-    }
-  }, [text, size]);
-
-  return <canvas ref={canvasRef} width={size} height={size} style={{ display: "block" }} />;
+function formatDate(value) {
+  if (!value) return "N/A";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
 }
 
-/* ─── Certificate Document (print-ready layout) ──────────────── */
-function CertificateDocument({ cert }) {
-  const statusColors = {
-    Pass: { bg: "#1a4731", border: "#00c851", text: "#00e676" },
-    Fail: { bg: "#4a1020", border: "#d81b60", text: "#f48fb1" },
-    Conditional: { bg: "#4a3500", border: "#ff6f00", text: "#ffcc02" },
-  };
-  const sc = statusColors[cert.testStatus] || statusColors.Pass;
-
-  const qrText = `CERT:${cert.certNo}|EQ:${cert.equipmentTag}|ISS:${cert.issued}|EXP:${cert.expiry}|ST:${cert.testStatus}`;
-
-  return (
-    <div style={{
-      background: "#fff",
-      color: "#1a1a2e",
-      fontFamily: "'Arial', sans-serif",
-      padding: "clamp(20px,4vw,40px)",
-      borderRadius: 12,
-      border: "2px solid #8f96a3",
-      position: "relative",
-      overflow: "hidden",
-    }}>
-
-      {/* Watermark */}
-      {LOGO_B64 && (
-        <div style={{
-          position: "absolute", top: "50%", left: "50%",
-          transform: "translate(-50%,-50%)",
-          opacity: 0.055, pointerEvents: "none", zIndex: 0,
-          width: 320, height: 320,
-          backgroundImage: `url(data:image/png;base64,${LOGO_B64})`,
-          backgroundSize: "contain", backgroundRepeat: "no-repeat", backgroundPosition: "center",
-        }} />
-      )}
-
-      <div style={{ position: "relative", zIndex: 1 }}>
-
-        {/* Header */}
-        <div style={{ textAlign: "center", marginBottom: 24, borderBottom: "3px solid #667eea", paddingBottom: 20 }}>
-          {LOGO_B64 && (
-            <img src={`data:image/png;base64,${LOGO_B64}`} alt="Logo"
-              style={{ height: 60, marginBottom: 12, objectFit: "contain" }} />
-          )}
-          <div style={{ fontSize: "clamp(18px,4vw,26px)", fontWeight: 900, color: "#1a1a2e", letterSpacing: 2 }}>
-            MONROY PTY LTD
-          </div>
-          <div style={{ fontSize: 11, color: "#555", margin: "4px 0" }}>Process Control Solutions</div>
-          <div style={{ fontSize: 10, color: "#777" }}>
-            +267 7790646 / 71450610 · salesmonroy2@gmail.com · Mophane Avenue Plot 5180
-          </div>
-          <div style={{ fontSize: "clamp(14px,3vw,20px)", fontWeight: 800, color: "#667eea", marginTop: 12, letterSpacing: 1 }}>
-            CERTIFICATE OF COMPLIANCE
-          </div>
-        </div>
-
-        {/* Status Banner */}
-        <div style={{
-          background: sc.bg, border: `1px solid ${sc.border}`,
-          borderRadius: 8, padding: "10px 20px", textAlign: "center",
-          marginBottom: 20,
-        }}>
-          <span style={{ color: sc.text, fontWeight: 900, fontSize: "clamp(14px,3vw,18px)", letterSpacing: 2 }}>
-            {cert.testStatus?.toUpperCase() === "PASS" ? "✓ PASSED" :
-             cert.testStatus?.toUpperCase() === "FAIL" ? "✗ FAILED" :
-             "⚠ CONDITIONAL PASS"}
-          </span>
-        </div>
-
-        {/* Section helper */}
-        {[
-          {
-            title: "CERTIFICATE DETAILS",
-            color: "#667eea",
-            rows: [
-              ["Certificate Number", cert.certNo],
-              ["Certificate Type",   cert.type],
-              ["Issuing Company",    cert.client],
-              ["Date Issued",        cert.issued],
-              ["Expiry Date",        cert.expiry],
-              cert.gracePeriod ? ["Grace Period",  cert.gracePeriod] : null,
-            ].filter(Boolean),
-          },
-          {
-            title: "EQUIPMENT IDENTIFICATION",
-            color: "#4fc3f7",
-            rows: [
-              ["Equipment Tag No.",  cert.equipmentTag],
-              ["Equipment Type",     cert.equipmentType],
-              ["Description",        cert.description || "—"],
-              ["Location",           cert.location || "—"],
-              ["Manufacturer",       cert.manufacturer],
-              ["Serial Number",      cert.serialNo],
-              ["Year of Manufacture",cert.yearOfManufacture],
-              ["Country of Origin",  cert.countryOfOrigin],
-            ],
-          },
-          {
-            title: "NAMEPLATE DATA",
-            color: "#f472b6",
-            rows: [
-              ["Design Code",        cert.designCode || "—"],
-              ["Safe Working Load",  cert.swl],
-              ["MAWP",               cert.mawp],
-              ["Design Temperature", cert.designTemp || "—"],
-              ["Capacity",           cert.capacity || "—"],
-              ["Shell Thickness",    cert.shellThickness || "—"],
-              ["Head Type",          cert.headType || "—"],
-            ],
-          },
-          {
-            title: "INSPECTION RECORD",
-            color: "#00f5c4",
-            rows: [
-              ["Inspection Method",  cert.inspectionMethod || "Visual & NDT"],
-              ["Inspection Date",    cert.inspectionDate],
-              ["Next Inspection",    cert.nextInspectionDate],
-              ["Test Status",        cert.testStatus],
-            ],
-          },
-        ].map(section => (
-          <div key={section.title} style={{ marginBottom: 18 }}>
-            <div style={{
-              fontSize: 11, fontWeight: 800, color: "#fff",
-              background: section.color,
-              padding: "8px 14px", borderLeft: "4px solid rgba(0,0,0,0.2)",
-              letterSpacing: 1,
-            }}>
-              {section.title}
-            </div>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <tbody>
-                {section.rows.map(([label, value], i) => (
-                  <tr key={i} style={{ borderBottom: "1px solid #e0e0e0" }}>
-                    <td style={{ padding: "8px 12px", background: i % 2 === 0 ? "#f7f8fc" : "#fff", fontWeight: 600, width: "42%", color: "#333", fontSize: 11 }}>{label}</td>
-                    <td style={{ padding: "8px 12px", background: i % 2 === 0 ? "#f7f8fc" : "#fff", color: "#444", fontSize: 11 }}>{value ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-
-        {/* Legal Framework */}
-        <div style={{ marginBottom: 18 }}>
-          <div style={{ fontSize: 11, fontWeight: 800, color: "#fff", background: "#7c5cfc", padding: "8px 14px", borderLeft: "4px solid rgba(0,0,0,0.2)", letterSpacing: 1 }}>
-            LEGAL FRAMEWORK & COMPLIANCE
-          </div>
-          <div style={{ padding: "12px 14px", background: "#f7f8fc", borderLeft: "4px solid #7c5cfc", fontSize: 11, lineHeight: 1.8, color: "#444" }}>
-            <p style={{ margin: "0 0 6px", fontWeight: 700 }}>This certificate confirms compliance with:</p>
-            <p style={{ margin: 0 }}>{cert.legalFramework}</p>
-          </div>
-        </div>
-
-        {/* Authorized Body + QR */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 20, marginTop: 20, paddingTop: 16, borderTop: "2px solid #667eea" }}>
-          <div style={{ flex: 1, minWidth: 200 }}>
-            <div style={{ fontSize: 11, fontWeight: 800, color: "#667eea", marginBottom: 8, letterSpacing: 1 }}>AUTHORIZED BY</div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#1a1a2e" }}>{cert.inspectorName || "Inspector"}</div>
-            {cert.inspectorSignature && (
-              <img src={cert.inspectorSignature} alt="Signature"
-                style={{ height: 48, marginTop: 6, objectFit: "contain" }} />
-            )}
-            <div style={{ borderTop: "1px solid #999", width: 180, marginTop: cert.inspectorSignature ? 4 : 28, paddingTop: 4, fontSize: 10, color: "#666" }}>
-              Signature · {cert.inspectionDate}
-            </div>
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <QRCanvas text={qrText} size={90} />
-            <div style={{ fontSize: 9, color: "#888", marginTop: 4 }}>Scan to verify</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+function toInputDate(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
 }
 
-/* ─── Main Page ───────────────────────────────────────────────── */
-export default function CertificateDetailPage() {
+function detectEquipmentType(asset = {}) {
+  const type = String(asset.asset_type || "").toLowerCase();
+
+  const pressureTypes = [
+    "pressure vessel",
+    "boiler",
+    "air receiver",
+    "air compressor",
+    "oil separator",
+  ];
+
+  const liftingTypes = [
+    "trestle jack",
+    "lever hoist",
+    "bottle jack",
+    "safety harness",
+    "jack stand",
+    "chain block",
+    "bow shackle",
+    "mobile crane",
+    "trolley jack",
+    "step ladders",
+    "tifor",
+    "crawl beam",
+    "beam crawl",
+    "beam clamp",
+    "webbing sling",
+    "nylon sling",
+    "wire sling",
+    "fall arrest",
+    "man cage",
+    "shutter clamp",
+    "drum clamp",
+    "overhead crane",
+  ];
+
+  if (pressureTypes.includes(type)) return "pv";
+  if (liftingTypes.includes(type)) return "lift";
+
+  if (asset.design_pressure || asset.working_pressure || asset.test_pressure) {
+    return "pv";
+  }
+
+  return "lift";
+}
+
+function getCertificateTitle(equipType, certificateType) {
+  if (certificateType) return certificateType;
+  return equipType === "pv" ? "Pressure Test Certificate" : "Load Test Certificate";
+}
+
+function getStatusLabel(status) {
+  const s = String(status || "").toLowerCase();
+  if (s.includes("fail")) return "FAIL";
+  if (s.includes("conditional")) return "CONDITIONAL";
+  return "PASS";
+}
+
+function buildEquipmentIdFields(asset, equipType) {
+  return [
+    ["Equipment Tag No :", asset.asset_tag || "N/A"],
+    ["Equipment Type:", asset.asset_type || (equipType === "pv" ? "Pressure Vessel" : "Lifting Equipment")],
+    ["Location:", asset.location || "N/A"],
+    ["Manufacturer:", asset.manufacturer || "N/A"],
+    ["Serial Number:", asset.serial_number || "N/A"],
+    ["Year Manufactured:", asset.year_built || "N/A"],
+  ];
+}
+
+function buildNameplateFields(asset, equipType) {
+  if (equipType === "pv") {
+    return [
+      ["Design Code:", asset.design_standard || "N/A"],
+      ["Design Pressure:", asset.design_pressure ? `${asset.design_pressure} kPa` : "N/A"],
+      ["Working Pressure:", asset.working_pressure ? `${asset.working_pressure} kPa` : "N/A"],
+      ["Test Pressure:", asset.test_pressure ? `${asset.test_pressure} kPa` : "N/A"],
+      ["Design Temperature:", asset.design_temperature || "N/A"],
+      ["Capacity / Volume:", asset.capacity_volume || "N/A"],
+      ["Shell / Body Material:", asset.shell_material || "N/A"],
+      ["Fluid Type:", asset.fluid_type || "N/A"],
+    ];
+  }
+
+  return [
+    ["Design Code:", asset.design_standard || "N/A"],
+    ["Safe Working Load:", asset.safe_working_load ? `${asset.safe_working_load} Tons` : "N/A"],
+    ["Proof Load:", asset.proof_load ? `${asset.proof_load} Tons` : "N/A"],
+    ["Lift Height:", asset.lifting_height || "N/A"],
+    ["Sling Length:", asset.sling_length || "N/A"],
+    ["Chain Size:", asset.chain_size || "N/A"],
+    ["Wire / Rope Diameter:", asset.rope_diameter || "N/A"],
+    ["Inspection Frequency:", asset.inspection_freq || "N/A"],
+  ];
+}
+
+function getComplianceText(equipType) {
+  if (equipType === "pv") {
+    return [
+      "This pressure vessel has been inspected by a competent inspection authority. The inspection status reflects the condition observed during examination including visual, dimensional and pressure testing.",
+      "Operation must comply with the safe operating limits specified on the equipment nameplate. Maximum allowable working pressure must not be exceeded.",
+    ];
+  }
+
+  return [
+    "This lifting equipment has been inspected in accordance with applicable lifting machinery regulations. The inspection reflects the condition observed during visual, functional and load testing.",
+    "Operation must not exceed the Safe Working Load shown on the equipment identification and nameplate data. Periodic re-inspection remains mandatory.",
+  ];
+}
+
+function getInspectionMethod(equipType) {
+  if (equipType === "pv") {
+    return "Inspection Method: Visual Examination\nUltrasonic Thickness Testing / Hydrostatic Pressure Test";
+  }
+
+  return "Inspection Method: Visual Examination\nNon-Destructive Testing (NDT) / Proof Load Test";
+}
+
+function buildVerifyUrl(certificateNumber) {
+  const number = encodeURIComponent(certificateNumber || "UNKNOWN");
+  return `${typeof window !== "undefined" ? window.location.origin : ""}/verify?certificate=${number}`;
+}
+
+export default function CertificatePage() {
   const params = useParams();
   const router = useRouter();
-  const [certificate, setCertificate] = useState(null);
+  const printRef = useRef(null);
+  const id = params?.id;
+
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(null);
-  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState("");
+  const [certificate, setCertificate] = useState(null);
+  const [asset, setAsset] = useState(null);
+  const [clientName, setClientName] = useState("N/A");
+  const [equipType, setEquipType] = useState("pv");
+  const [status, setStatus] = useState("PASS");
 
-  useEffect(() => { checkAuth(); }, []);
+  const [sigPreview, setSigPreview] = useState("");
+  const [waiverStart, setWaiverStart] = useState("");
+  const [waiverEnd, setWaiverEnd] = useState("");
+  const [waiverRef, setWaiverRef] = useState("");
+  const [waiverConditions, setWaiverConditions] = useState("");
+  const [waiverRestrictions, setWaiverRestrictions] = useState("");
 
-  async function checkAuth() {
-    const { data } = await supabase.auth.getUser();
-    if (!data?.user) { router.push("/login"); return; }
-    setUser(data.user);
-    await loadCertificate();
+  useEffect(() => {
+    async function loadCertificate() {
+      if (!id) return;
+
+      setLoading(true);
+      setError("");
+
+      try {
+        const { data, error } = await supabase
+          .from("certificates")
+          .select(`
+            id,
+            certificate_number,
+            certificate_type,
+            asset_id,
+            company,
+            equipment_description,
+            equipment_location,
+            equipment_id,
+            swl,
+            mawp,
+            equipment_status,
+            issued_at,
+            valid_to,
+            status,
+            legal_framework,
+            inspector_name,
+            inspector_id,
+            signature_url,
+            logo_url,
+            pdf_url,
+            created_at,
+            updated_at,
+            assets (
+              id,
+              client_id,
+              asset_name,
+              asset_tag,
+              asset_type,
+              description,
+              manufacturer,
+              model,
+              serial_number,
+              location,
+              year_built,
+              cert_type,
+              design_standard,
+              inspection_freq,
+              shell_material,
+              fluid_type,
+              design_pressure,
+              working_pressure,
+              test_pressure,
+              design_temperature,
+              capacity_volume,
+              safe_working_load,
+              proof_load,
+              lifting_height,
+              sling_length,
+              chain_size,
+              rope_diameter,
+              license_status,
+              license_expiry,
+              last_inspection_date,
+              next_inspection_date,
+              notes
+            )
+          `)
+          .eq("id", id)
+          .single();
+
+        if (error) throw error;
+
+        const cert = data || null;
+        const linkedAsset = cert?.assets || null;
+
+        setCertificate(cert);
+        setAsset(linkedAsset);
+
+        const detectedType = detectEquipmentType(linkedAsset || {});
+        setEquipType(detectedType);
+        setStatus(getStatusLabel(cert?.status || cert?.equipment_status || "PASS"));
+
+        if (cert?.signature_url) {
+          setSigPreview(cert.signature_url);
+        }
+
+        if (cert?.company) {
+          setClientName(cert.company);
+        } else if (linkedAsset?.client_id) {
+          const { data: clientData } = await supabase
+            .from("clients")
+            .select("company_name")
+            .eq("id", linkedAsset.client_id)
+            .maybeSingle();
+
+          setClientName(clientData?.company_name || "N/A");
+        }
+      } catch (err) {
+        setError(err?.message || "Failed to load certificate.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadCertificate();
+  }, [id]);
+
+  const equipmentIdFields = useMemo(() => buildEquipmentIdFields(asset || {}, equipType), [asset, equipType]);
+  const nameplateFields = useMemo(() => buildNameplateFields(asset || {}, equipType), [asset, equipType]);
+  const complianceText = useMemo(() => getComplianceText(equipType), [equipType]);
+  const inspectionMethod = useMemo(() => getInspectionMethod(equipType), [equipType]);
+
+  const certificateTitle = getCertificateTitle(equipType, certificate?.certificate_type || asset?.cert_type);
+  const equipmentCategory = equipType === "pv" ? "Pressure Vessel" : "Lifting Equipment";
+  const issueDate = formatDate(certificate?.issued_at || certificate?.created_at);
+  const expiryDate = formatDate(certificate?.valid_to || asset?.next_inspection_date || asset?.license_expiry);
+  const inspectionDate = formatDate(asset?.last_inspection_date || certificate?.issued_at || certificate?.created_at);
+  const dateIssued = formatDate(certificate?.issued_at || certificate?.created_at);
+  const verifyUrl = buildVerifyUrl(certificate?.certificate_number);
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(verifyUrl)}`;
+
+  function handlePrint() {
+    window.print();
   }
 
-  async function loadCertificate() {
-    const { data, error } = await supabase
-      .from("certificates")
-      .select("*")
-      .eq("id", params.id)
-      .single();
-    if (!error && data) setCertificate(data);
-    setLoading(false);
+  function handleSignatureUpload(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setSigPreview(e.target?.result || "");
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
   }
 
-  function getStatusInfo(cert) {
-    if (!cert?.expiry) return { label: "Unknown", color: "#64748b" };
-    const daysLeft = Math.ceil((new Date(cert.expiry) - new Date()) / 86400000);
-    if (daysLeft < 0)  return { label: "Expired",  color: "#d81b60", daysLeft };
-    if (daysLeft <= 30) return { label: "Expiring", color: "#ff6f00", daysLeft };
-    return { label: "Valid", color: "#00c851", daysLeft };
+  function clearSignature() {
+    setSigPreview("");
   }
 
-  function downloadPDF() {
-    if (!certificate) return;
-    setExporting(true);
-    const status = getStatusInfo(certificate);
-    const printWindow = window.open("", "_blank");
-    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${certificate.certNo}</title>
-    <style>
-      * { margin:0; padding:0; box-sizing:border-box; }
-      body { font-family:Arial,sans-serif; background:#fff; color:#333; }
-      .wrap { max-width:900px; margin:0 auto; padding:40px 20px; }
-      h1 { color:#667eea; font-size:26px; margin-bottom:4px; }
-      .sub { font-size:11px; color:#888; margin-bottom:6px; }
-      .company { font-size:13px; font-weight:700; }
-      .contact { font-size:10px; color:#666; margin-bottom:16px; }
-      .divider { border-bottom:3px solid #667eea; margin-bottom:24px; }
-      .badge { display:inline-block; padding:6px 18px; border-radius:4px; font-weight:800; font-size:13px; letter-spacing:1px; margin-bottom:20px; }
-      .pass { background:#d4edda; color:#155724; }
-      .fail { background:#f8d7da; color:#721c24; }
-      .conditional { background:#fff3cd; color:#856404; }
-      .sec-hdr { font-size:11px; font-weight:800; color:#fff; background:#667eea; padding:8px 14px; border-left:4px solid #4a5cc4; letter-spacing:1px; margin-bottom:0; }
-      table { width:100%; border-collapse:collapse; margin-bottom:18px; }
-      td { padding:8px 12px; font-size:11px; border-bottom:1px solid #e0e0e0; }
-      .lbl { font-weight:600; width:42%; background:#f7f8fc; color:#333; }
-      .val { color:#444; background:#fff; }
-      tr:nth-child(even) td { background:#f7f8fc; }
-      .legal { padding:12px 14px; background:#f7f8fc; border-left:4px solid #7c5cfc; font-size:11px; line-height:1.8; color:#444; margin-bottom:18px; }
-      .footer { margin-top:30px; text-align:center; font-size:10px; color:#aaa; border-top:1px solid #ddd; padding-top:16px; }
-      @media print { .wrap { padding:20px; } }
-    </style></head>
-    <body><div class="wrap">
-      <div class="divider">
-        <div class="company">MONROY PTY LTD</div>
-        <div class="sub">Process Control Solutions</div>
-        <div class="contact">+267 7790646 / 71450610 · salesmonroy2@gmail.com · Mophane Avenue Plot 5180</div>
-        <h1>CERTIFICATE OF COMPLIANCE</h1>
-      </div>
-      <div class="badge ${certificate.testStatus?.toLowerCase() === 'pass' ? 'pass' : certificate.testStatus?.toLowerCase() === 'fail' ? 'fail' : 'conditional'}">
-        ${certificate.testStatus?.toUpperCase() === 'PASS' ? '✓ PASSED' : certificate.testStatus?.toUpperCase() === 'FAIL' ? '✗ FAILED' : '⚠ CONDITIONAL PASS'}
-      </div>
-      <div class="sec-hdr">CERTIFICATE DETAILS</div>
-      <table><tbody>
-        <tr><td class="lbl">Certificate Number</td><td class="val">${certificate.certNo}</td></tr>
-        <tr><td class="lbl">Certificate Type</td><td class="val">${certificate.type}</td></tr>
-        <tr><td class="lbl">Client</td><td class="val">${certificate.client}</td></tr>
-        <tr><td class="lbl">Status</td><td class="val">${status.label}</td></tr>
-        <tr><td class="lbl">Date Issued</td><td class="val">${certificate.issued}</td></tr>
-        <tr><td class="lbl">Expiry Date</td><td class="val">${certificate.expiry}</td></tr>
-      </tbody></table>
-      <div class="sec-hdr">EQUIPMENT INFORMATION</div>
-      <table><tbody>
-        <tr><td class="lbl">Equipment Tag</td><td class="val">${certificate.equipmentTag}</td></tr>
-        <tr><td class="lbl">Equipment Type</td><td class="val">${certificate.equipmentType}</td></tr>
-        <tr><td class="lbl">Serial Number</td><td class="val">${certificate.serialNo}</td></tr>
-        <tr><td class="lbl">Manufacturer</td><td class="val">${certificate.manufacturer}</td></tr>
-        <tr><td class="lbl">Year of Manufacture</td><td class="val">${certificate.yearOfManufacture}</td></tr>
-        <tr><td class="lbl">Country of Origin</td><td class="val">${certificate.countryOfOrigin}</td></tr>
-      </tbody></table>
-      <div class="sec-hdr">TECHNICAL SPECIFICATIONS</div>
-      <table><tbody>
-        <tr><td class="lbl">Safe Working Load</td><td class="val">${certificate.swl}</td></tr>
-        <tr><td class="lbl">MAWP</td><td class="val">${certificate.mawp}</td></tr>
-        <tr><td class="lbl">Inspection Date</td><td class="val">${certificate.inspectionDate}</td></tr>
-        <tr><td class="lbl">Next Inspection</td><td class="val">${certificate.nextInspectionDate}</td></tr>
-        <tr><td class="lbl">Test Status</td><td class="val">${certificate.testStatus}</td></tr>
-      </tbody></table>
-      <div class="sec-hdr" style="background:#7c5cfc">LEGAL FRAMEWORK & COMPLIANCE</div>
-      <div class="legal"><strong>This certificate confirms compliance with:</strong><br/>${certificate.legalFramework}</div>
-      <div class="footer">Generated: ${new Date().toLocaleDateString()} · Monroy QMS Platform · ${certificate.certNo}</div>
-    </div>
-    <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},500);});</script>
-    </body></html>`;
-    printWindow.document.write(html);
-    printWindow.document.close();
-    setExporting(false);
+  function renderFieldList(fields) {
+    return fields.map(([label, value]) => (
+      <li key={`${label}-${value}`}>
+        <span className="fl-label">{label}</span>
+        <span className="fl-value">{value || "N/A"}</span>
+      </li>
+    ));
   }
-
-  function downloadWord() {
-    if (!certificate) return;
-    setExporting(true);
-    const status = getStatusInfo(certificate);
-    const content = `MONROY PTY LTD - CERTIFICATE OF COMPLIANCE\nProcess Control Solutions\n${"=".repeat(60)}\n\nCERTIFICATE DETAILS\n${"-".repeat(40)}\nCertificate Number: ${certificate.certNo}\nType: ${certificate.type}\nStatus: ${status.label}\nClient: ${certificate.client}\nIssued: ${certificate.issued}\nExpiry: ${certificate.expiry}\n\nEQUIPMENT INFORMATION\n${"-".repeat(40)}\nTag: ${certificate.equipmentTag}\nType: ${certificate.equipmentType}\nSerial: ${certificate.serialNo}\nModel: ${certificate.model || "—"}\nManufacturer: ${certificate.manufacturer}\nYear: ${certificate.yearOfManufacture}\nCountry: ${certificate.countryOfOrigin}\n\nTECHNICAL SPECIFICATIONS\n${"-".repeat(40)}\nSWL: ${certificate.swl}\nMAWP: ${certificate.mawp}\nInspection Date: ${certificate.inspectionDate}\nNext Inspection: ${certificate.nextInspectionDate}\nTest Status: ${certificate.testStatus}\n\nLEGAL FRAMEWORK\n${"-".repeat(40)}\n${certificate.legalFramework}\n\n${"=".repeat(60)}\nGenerated: ${new Date().toLocaleDateString()} | Monroy QMS Platform`;
-    const el = document.createElement("a");
-    el.href = URL.createObjectURL(new Blob([content], { type: "application/msword" }));
-    el.download = `${certificate.certNo}.doc`;
-    document.body.appendChild(el);
-    el.click();
-    document.body.removeChild(el);
-    setExporting(false);
-  }
-
-  /* ── Render ── */
-  if (loading) return <AppLayout><div style={{ padding: "40px", color: "#fff" }}>Loading…</div></AppLayout>;
-
-  if (!certificate) return (
-    <AppLayout>
-      <div style={{ padding: "40px", textAlign: "center" }}>
-        <h2 style={{ color: "#fff" }}>Certificate Not Found</h2>
-        <button onClick={() => router.push("/certificates")}
-          style={{ marginTop: 20, padding: "10px 20px", background: "#667eea", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>
-          ← Back to Certificates
-        </button>
-      </div>
-    </AppLayout>
-  );
-
-  const status = getStatusInfo(certificate);
 
   return (
-    <AppLayout>
+    <AppLayout title={certificateTitle}>
+      <style jsx global>{`
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          .print-area, .print-area * {
+            visibility: visible;
+          }
+          .print-area {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            background: white;
+          }
+          .no-print {
+            display: none !important;
+          }
+        }
 
-      {/* Top bar */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem", marginBottom: "2rem" }}>
-        <div style={{ minWidth: 0 }}>
-          <a href="/certificates" style={{ color: "#64748b", fontSize: 13, textDecoration: "none", marginBottom: 10, display: "block" }}>← Back to Certificates</a>
-          <h1 style={{ fontSize: "clamp(20px,5vw,28px)", fontWeight: 900, margin: "0 0 8px", color: "#fff" }}>{certificate.certNo}</h1>
-          <p style={{ color: "#64748b", margin: 0, fontSize: 13 }}>{certificate.type} · {certificate.client}</p>
-        </div>
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-          <button onClick={downloadPDF} disabled={exporting}
-            style={{ padding: "8px 14px", borderRadius: 10, background: "rgba(0,245,196,0.1)", border: "1px solid rgba(0,245,196,0.3)", color: C.green, fontWeight: 700, fontSize: 12, cursor: exporting ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: exporting ? 0.6 : 1 }}>
-            📄 PDF
-          </button>
-          <button onClick={downloadWord} disabled={exporting}
-            style={{ padding: "8px 14px", borderRadius: 10, background: "rgba(79,195,247,0.15)", border: "1px solid rgba(79,195,247,0.3)", color: C.blue, fontWeight: 700, fontSize: 12, cursor: exporting ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: exporting ? 0.6 : 1 }}>
-            📋 Word
-          </button>
-          <button onClick={() => router.push(`/certificates/${params.id}/edit`)}
-            style={{ padding: "8px 14px", borderRadius: 10, background: "rgba(124,92,252,0.15)", border: "1px solid rgba(124,92,252,0.3)", color: C.purple, fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
-            ✏️ Edit
-          </button>
-        </div>
-      </div>
+        .cert-page-wrap {
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+          align-items: center;
+          padding-bottom: 32px;
+        }
 
-      {/* Status pills */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: "0.75rem", marginBottom: "1.5rem" }}>
-        {[
-          { label: "Cert Status",  value: status.label,              color: status.color },
-          { label: "Inspection",   value: certificate.testStatus,    color: "#00c851" },
-          { label: "Issued",       value: certificate.issued,        color: C.blue },
-          { label: "Expiry",       value: certificate.expiry,        color: status.color },
-          { label: "Inspector",    value: certificate.inspectorName || "—", color: C.purple },
-        ].map(s => (
-          <div key={s.label} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: 12 }}>
-            <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>{s.label}</div>
-            <div style={{ fontSize: "clamp(11px,3vw,15px)", fontWeight: 700, color: s.color }}>{s.value}</div>
+        .cert-toolbar {
+          width: 100%;
+          max-width: 1100px;
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .cert-toolbar button,
+        .cert-toolbar label.btn-like {
+          padding: 9px 18px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-family: inherit;
+          font-weight: 700;
+          font-size: 12px;
+          border: none;
+        }
+
+        .btn-print {
+          background: #8b1a1a;
+          color: #fff;
+        }
+
+        .btn-back {
+          background: #1f2937;
+          color: #fff;
+        }
+
+        .btn-like {
+          background: #f0f0f0;
+          color: #222;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .control-group {
+          display: flex;
+          gap: 6px;
+          align-items: center;
+          background: #fff;
+          padding: 6px 10px;
+          border-radius: 8px;
+          border: 1px solid #ddd;
+        }
+
+        .control-group label {
+          font-size: 11px;
+          font-weight: 700;
+          color: #555;
+          margin-right: 4px;
+          white-space: nowrap;
+        }
+
+        .toggle-btn {
+          padding: 6px 12px;
+          border-radius: 6px;
+          cursor: pointer;
+          font-weight: 700;
+          font-size: 11px;
+          border: 2px solid transparent;
+          transition: all .15s;
+        }
+
+        .status-btn.pass {
+          background: #e8f5ea;
+          color: #2d7a3a;
+          border-color: #2d7a3a;
+        }
+
+        .status-btn.fail {
+          background: #fdecea;
+          color: #8b1a1a;
+          border-color: #8b1a1a;
+        }
+
+        .status-btn.cond {
+          background: #fff8e6;
+          color: #b06000;
+          border-color: #b06000;
+        }
+
+        .status-btn.active.pass {
+          background: #2d7a3a;
+          color: #fff;
+        }
+
+        .status-btn.active.fail {
+          background: #8b1a1a;
+          color: #fff;
+        }
+
+        .status-btn.active.cond {
+          background: #b06000;
+          color: #fff;
+        }
+
+        .equip-btn.pv {
+          background: #e8f0fe;
+          color: #1a56a8;
+          border-color: #1a56a8;
+        }
+
+        .equip-btn.lift {
+          background: #fef3e8;
+          color: #8b4a00;
+          border-color: #8b4a00;
+        }
+
+        .equip-btn.active.pv {
+          background: #1a56a8;
+          color: #fff;
+        }
+
+        .equip-btn.active.lift {
+          background: #8b4a00;
+          color: #fff;
+        }
+
+        .cert {
+          width: 740px;
+          max-width: 100%;
+          background: #fff;
+          box-shadow: 0 8px 40px rgba(0,0,0,0.35);
+          border: 1px solid #bbb;
+          color: #1a1a1a;
+          font-family: Arial, Helvetica, sans-serif;
+          font-size: 12px;
+        }
+
+        .top-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 16px 22px 12px;
+          border-bottom: 3px solid #8b1a1a;
+          background: #fff;
+        }
+
+        .company-name {
+          font-size: 21px;
+          font-weight: 900;
+          color: #1a1a1a;
+          line-height: 1.1;
+        }
+
+        .company-tagline {
+          font-size: 10px;
+          color: #555;
+          font-style: italic;
+          margin-bottom: 7px;
+        }
+
+        .contact-row {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          font-size: 10.5px;
+          color: #333;
+          margin-bottom: 1px;
+        }
+
+        .contact-icon {
+          color: #8b1a1a;
+          font-size: 10px;
+          min-width: 14px;
+        }
+
+        .logo-right img {
+          height: 90px;
+          width: auto;
+          object-fit: contain;
+        }
+
+        .title-banner {
+          background: linear-gradient(180deg, #808080 0%, #b0b0b0 45%, #808080 100%);
+          text-align: center;
+          padding: 9px 0;
+          border-top: 1px solid #aaa;
+          border-bottom: 1px solid #555;
+        }
+
+        .title-banner h1 {
+          font-size: 18px;
+          font-weight: 900;
+          color: #fff;
+          letter-spacing: 0.14em;
+          text-shadow: 0 1px 4px rgba(0,0,0,0.45);
+          text-transform: uppercase;
+        }
+
+        .body {
+          padding: 12px 18px 16px;
+        }
+
+        .section {
+          border: 1px solid #bbb;
+          margin-bottom: 9px;
+        }
+
+        .section-header {
+          background: linear-gradient(180deg, #a8a8a8 0%, #c5c5c5 50%, #a8a8a8 100%);
+          padding: 5px 10px;
+          font-size: 11px;
+          font-weight: 900;
+          color: #1a1a1a;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          border-bottom: 1px solid #999;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .section-body {
+          padding: 9px 12px;
+        }
+
+        .equip-type-badge {
+          font-size: 9px;
+          font-weight: 700;
+          padding: 2px 8px;
+          border-radius: 3px;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+        }
+
+        .equip-type-badge.pv {
+          background: #1a56a8;
+          color: #fff;
+        }
+
+        .equip-type-badge.lift {
+          background: #8b4a00;
+          color: #fff;
+        }
+
+        .cert-details-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 3px 16px;
+          padding: 9px 12px;
+        }
+
+        .detail-row {
+          display: flex;
+          gap: 3px;
+          align-items: baseline;
+          line-height: 1.75;
+          font-size: 11.5px;
+        }
+
+        .detail-label {
+          color: #333;
+          white-space: nowrap;
+        }
+
+        .detail-value {
+          font-weight: 700;
+          color: #1a1a1a;
+        }
+
+        .side-by-side {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 9px;
+          margin-bottom: 9px;
+        }
+
+        .side-by-side .section {
+          margin-bottom: 0;
+        }
+
+        .field-list {
+          list-style: none;
+          padding: 0;
+          margin: 0;
+        }
+
+        .field-list li {
+          display: flex;
+          gap: 5px;
+          align-items: baseline;
+          padding: 2.5px 0;
+          border-bottom: 1px solid #f0f0f0;
+          font-size: 11.5px;
+          line-height: 1.5;
+        }
+
+        .field-list li:last-child {
+          border-bottom: none;
+        }
+
+        .fl-label {
+          color: #444;
+          white-space: nowrap;
+          min-width: 130px;
+          flex-shrink: 0;
+        }
+
+        .fl-value {
+          font-weight: 700;
+          color: #1a1a1a;
+        }
+
+        .compliance-text {
+          font-size: 11px;
+          color: #333;
+          line-height: 1.65;
+        }
+
+        .compliance-text p {
+          margin-bottom: 7px;
+        }
+
+        .compliance-text p:last-child {
+          margin-bottom: 0;
+        }
+
+        .insp-method {
+          font-size: 11px;
+          color: #333;
+          line-height: 1.6;
+          margin-bottom: 8px;
+          white-space: pre-line;
+        }
+
+        .insp-date {
+          font-size: 11.5px;
+          margin-bottom: 10px;
+        }
+
+        .pass-row {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          margin-top: 4px;
+          flex-wrap: wrap;
+        }
+
+        .status-badge {
+          font-size: 15px;
+          font-weight: 900;
+          letter-spacing: 0.12em;
+          padding: 6px 18px;
+          min-width: 120px;
+          text-align: center;
+        }
+
+        .status-badge.PASS {
+          background: #2d7a3a;
+          color: #fff;
+        }
+
+        .status-badge.FAIL {
+          background: #8b1a1a;
+          color: #fff;
+        }
+
+        .status-badge.CONDITIONAL {
+          background: #b06000;
+          color: #fff;
+          font-size: 12px;
+          letter-spacing: 0.06em;
+        }
+
+        .pass-expiry {
+          font-size: 12px;
+          font-weight: 700;
+          color: #1a1a1a;
+        }
+
+        .waiver-section {
+          border: 2px solid #b06000;
+          margin-bottom: 9px;
+          background: #fffaf2;
+        }
+
+        .waiver-header {
+          background: linear-gradient(180deg, #b06000 0%, #d07820 50%, #b06000 100%);
+          padding: 5px 10px;
+          font-size: 11px;
+          font-weight: 900;
+          color: #fff;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .waiver-tag {
+          font-size: 9px;
+          background: #fff;
+          color: #b06000;
+          padding: 2px 8px;
+          border-radius: 3px;
+          font-weight: 900;
+          letter-spacing: 0.1em;
+        }
+
+        .waiver-body {
+          padding: 10px 12px;
+        }
+
+        .waiver-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr 1fr;
+          gap: 8px 12px;
+          margin-bottom: 10px;
+        }
+
+        .waiver-field label,
+        .waiver-conditions label {
+          display: block;
+          font-size: 9px;
+          font-weight: 700;
+          color: #b06000;
+          text-transform: uppercase;
+          letter-spacing: 0.1em;
+          margin-bottom: 3px;
+        }
+
+        .waiver-field input,
+        .waiver-conditions textarea {
+          width: 100%;
+          padding: 6px 8px;
+          border: 1px solid #d0a060;
+          border-radius: 3px;
+          font-size: 11px;
+          font-family: Arial, sans-serif;
+          background: #fff;
+          color: #1a1a1a;
+          outline: none;
+        }
+
+        .waiver-conditions textarea {
+          resize: vertical;
+          min-height: 52px;
+        }
+
+        .waiver-notice {
+          margin-top: 8px;
+          padding: 6px 10px;
+          background: #fff3e0;
+          border-left: 3px solid #b06000;
+          font-size: 10px;
+          color: #7a4400;
+          line-height: 1.5;
+        }
+
+        .auth-body {
+          display: flex;
+          gap: 14px;
+          align-items: flex-start;
+        }
+
+        .auth-info {
+          flex: 1;
+        }
+
+        .auth-company {
+          font-size: 13px;
+          font-weight: 900;
+          color: #1a1a1a;
+        }
+
+        .auth-tagline {
+          font-size: 10px;
+          color: #555;
+          font-style: italic;
+          margin-bottom: 8px;
+        }
+
+        .auth-row {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          font-size: 11px;
+          color: #333;
+          margin-bottom: 6px;
+        }
+
+        .auth-row span:first-child {
+          min-width: 90px;
+          flex-shrink: 0;
+        }
+
+        .auth-date {
+          font-size: 11px;
+          color: #333;
+          margin-top: 4px;
+        }
+
+        .sig-area {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .sig-preview {
+          width: 140px;
+          height: 44px;
+          border-bottom: 1px solid #333;
+          display: flex;
+          align-items: flex-end;
+          overflow: hidden;
+        }
+
+        .sig-preview img {
+          max-width: 100%;
+          max-height: 100%;
+          object-fit: contain;
+          object-position: bottom left;
+        }
+
+        .sig-placeholder {
+          font-family: "Brush Script MT", cursive;
+          font-size: 18px;
+          color: #bbb;
+          padding-bottom: 2px;
+        }
+
+        .sig-clear-btn {
+          background: none;
+          border: none;
+          color: #8b1a1a;
+          font-size: 10px;
+          cursor: pointer;
+          font-weight: 700;
+          padding: 0;
+        }
+
+        .qr-block {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 4px;
+          flex-shrink: 0;
+        }
+
+        .qr-label {
+          font-size: 8px;
+          color: #555;
+          text-align: center;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+
+        .cert-footer {
+          background: #f0f0f0;
+          border-top: 2px solid #bbb;
+          padding: 8px 20px;
+          text-align: center;
+          font-size: 9.5px;
+          color: #555;
+          line-height: 1.6;
+        }
+
+        .error-box {
+          max-width: 900px;
+          width: 100%;
+          background: rgba(220, 38, 38, 0.1);
+          border: 1px solid rgba(220, 38, 38, 0.3);
+          color: #fecaca;
+          padding: 14px 16px;
+          border-radius: 10px;
+        }
+
+        .loading-box {
+          color: white;
+          padding: 40px 0;
+          text-align: center;
+          font-weight: 700;
+        }
+
+        @media screen and (max-width: 820px) {
+          .side-by-side,
+          .cert-details-grid,
+          .waiver-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .auth-body,
+          .top-header {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+
+          .cert {
+            width: 100%;
+          }
+        }
+      `}</style>
+
+      <div className="cert-page-wrap">
+        <div className="cert-toolbar no-print">
+          <button className="btn-back" onClick={() => router.back()}>
+            ← Back
+          </button>
+
+          <div className="control-group">
+            <label>Equipment Type:</label>
+            <button
+              className={`toggle-btn equip-btn pv ${equipType === "pv" ? "active" : ""}`}
+              onClick={() => setEquipType("pv")}
+              type="button"
+            >
+              ⚙ Pressure Vessel
+            </button>
+            <button
+              className={`toggle-btn equip-btn lift ${equipType === "lift" ? "active" : ""}`}
+              onClick={() => setEquipType("lift")}
+              type="button"
+            >
+              🏗 Lifting Equipment
+            </button>
           </div>
-        ))}
+
+          <div className="control-group">
+            <label>Result:</label>
+            <button
+              className={`toggle-btn status-btn pass ${status === "PASS" ? "active" : ""}`}
+              onClick={() => setStatus("PASS")}
+              type="button"
+            >
+              ✔ PASS
+            </button>
+            <button
+              className={`toggle-btn status-btn fail ${status === "FAIL" ? "active" : ""}`}
+              onClick={() => setStatus("FAIL")}
+              type="button"
+            >
+              ✘ FAIL
+            </button>
+            <button
+              className={`toggle-btn status-btn cond ${status === "CONDITIONAL" ? "active" : ""}`}
+              onClick={() => setStatus("CONDITIONAL")}
+              type="button"
+            >
+              ⚠ CONDITIONAL
+            </button>
+          </div>
+
+          <label className="btn-like">
+            📎 Upload Signature
+            <input type="file" accept="image/*" onChange={handleSignatureUpload} hidden />
+          </label>
+
+          {sigPreview ? (
+            <button className="btn-like" onClick={clearSignature} type="button">
+              ✕ Clear Signature
+            </button>
+          ) : null}
+
+          <button className="btn-print" onClick={handlePrint} type="button">
+            🖨 Print / Save PDF
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="loading-box">Loading certificate...</div>
+        ) : error ? (
+          <div className="error-box">{error}</div>
+        ) : (
+          <div className="print-area" ref={printRef}>
+            <div className="cert">
+              <div className="top-header">
+                <div>
+                  <div className="company-name">MONROY (PTY) LTD</div>
+                  <div className="company-tagline">Process Control Solutions</div>
+                  <div className="contact-row">
+                    <span className="contact-icon">📞</span>
+                    <span>+267 7790646 / 71450610</span>
+                  </div>
+                  <div className="contact-row">
+                    <span className="contact-icon">✉</span>
+                    <span>info@monroy.com</span>
+                  </div>
+                  <div className="contact-row">
+                    <span className="contact-icon">📍</span>
+                    <span>Mophane Avenue, Plot No 5180, Mathiba Street</span>
+                  </div>
+                </div>
+
+                <div className="logo-right">
+                  <img
+                    src={certificate?.logo_url || "/monroy-logo.png"}
+                    alt="Monroy Logo"
+                    onError={(e) => {
+                      e.currentTarget.src = "/monroy-logo.png";
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="title-banner">
+                <h1>{certificateTitle}</h1>
+              </div>
+
+              <div className="body">
+                <div className="section">
+                  <div className="section-header">Certificate Details</div>
+                  <div className="cert-details-grid">
+                    <div className="detail-row">
+                      <span className="detail-label">Certificate Number:&nbsp;</span>
+                      <span className="detail-value">{certificate?.certificate_number || "N/A"}</span>
+                    </div>
+                    <div className="detail-row">
+                      <span className="detail-label">Client / Company:&nbsp;</span>
+                      <span className="detail-value">{clientName}</span>
+                    </div>
+                    <div className="detail-row">
+                      <span className="detail-label">Equipment Category:&nbsp;</span>
+                      <span className="detail-value">{equipmentCategory}</span>
+                    </div>
+                    <div className="detail-row">
+                      <span className="detail-label">Inspection Authority:&nbsp;</span>
+                      <span className="detail-value">Monroy (PTY) LTD</span>
+                    </div>
+                    <div className="detail-row">
+                      <span className="detail-label">Issue Date:&nbsp;</span>
+                      <span className="detail-value">{issueDate}</span>
+                    </div>
+                    <div className="detail-row">
+                      <span className="detail-label">Expiry Date:&nbsp;</span>
+                      <span className="detail-value">{status === "CONDITIONAL" ? (waiverEnd ? formatDate(waiverEnd) : "Waiver - See Conditions Below") : expiryDate}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="side-by-side">
+                  <div className="section">
+                    <div className="section-header">Equipment Identification</div>
+                    <div className="section-body">
+                      <ul className="field-list">{renderFieldList(equipmentIdFields)}</ul>
+                    </div>
+                  </div>
+
+                  <div className="section">
+                    <div className="section-header">
+                      Nameplate Data
+                      <span className={`equip-type-badge ${equipType}`}>
+                        {equipmentCategory}
+                      </span>
+                    </div>
+                    <div className="section-body">
+                      <ul className="field-list">{renderFieldList(nameplateFields)}</ul>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="side-by-side">
+                  <div className="section">
+                    <div className="section-header">Compliance</div>
+                    <div className="section-body">
+                      <div className="compliance-text">
+                        {complianceText.map((paragraph, index) => (
+                          <p key={index}>{paragraph}</p>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="section">
+                    <div className="section-header">Inspection Record</div>
+                    <div className="section-body">
+                      <div className="insp-method">{inspectionMethod}</div>
+                      <div className="insp-date">
+                        Inspection Date: <strong>{inspectionDate}</strong>
+                      </div>
+                      <div className="pass-row">
+                        <div className={`status-badge ${status}`}>{status}</div>
+                        <div className="pass-expiry">
+                          {status === "PASS" && expiryDate}
+                          {status === "FAIL" && "Requires Re-inspection"}
+                          {status === "CONDITIONAL" && (waiverEnd ? `Waiver Expires: ${formatDate(waiverEnd)}` : "Waiver - See Conditions Below")}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {status === "CONDITIONAL" ? (
+                  <div className="waiver-section">
+                    <div className="waiver-header">
+                      <span>⚠ Conditional Approval - Waiver Notice</span>
+                      <span className="waiver-tag">TEMPORARY WAIVER</span>
+                    </div>
+
+                    <div className="waiver-body">
+                      <div className="waiver-grid no-print">
+                        <div className="waiver-field">
+                          <label>Waiver Issue Date</label>
+                          <input
+                            type="date"
+                            value={waiverStart}
+                            onChange={(e) => setWaiverStart(e.target.value)}
+                          />
+                        </div>
+
+                        <div className="waiver-field">
+                          <label>Waiver Expiry Date</label>
+                          <input
+                            type="date"
+                            value={waiverEnd}
+                            onChange={(e) => setWaiverEnd(e.target.value)}
+                          />
+                        </div>
+
+                        <div className="waiver-field">
+                          <label>Waiver Reference No.</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. WAV-2026-001"
+                            value={waiverRef}
+                            onChange={(e) => setWaiverRef(e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="waiver-grid" style={{ display: "none" }} />
+
+                      <div className="waiver-conditions">
+                        <label>Non-Conformance / Items Requiring Rectification</label>
+                        <textarea
+                          className="no-print"
+                          placeholder="Describe the deficiency or non-conformance found during inspection, and specify what must be rectified before full compliance can be issued..."
+                          value={waiverConditions}
+                          onChange={(e) => setWaiverConditions(e.target.value)}
+                        />
+                        <div style={{ whiteSpace: "pre-line", fontSize: "11px", color: "#333" }}>
+                          {waiverConditions || "N/A"}
+                        </div>
+                      </div>
+
+                      <div className="waiver-conditions" style={{ marginTop: 8 }}>
+                        <label>Operating Restrictions During Waiver Period</label>
+                        <textarea
+                          className="no-print"
+                          placeholder="e.g. Reduce maximum working pressure to 800 kPa. Visual inspection to be performed every 30 days. Equipment must not be operated unattended..."
+                          style={{ minHeight: 44 }}
+                          value={waiverRestrictions}
+                          onChange={(e) => setWaiverRestrictions(e.target.value)}
+                        />
+                        <div style={{ whiteSpace: "pre-line", fontSize: "11px", color: "#333" }}>
+                          {waiverRestrictions || "N/A"}
+                        </div>
+                      </div>
+
+                      <div style={{ marginTop: 10, fontSize: "11px", color: "#333", lineHeight: 1.6 }}>
+                        <strong>Waiver Issue Date:</strong> {waiverStart ? formatDate(waiverStart) : "N/A"}<br />
+                        <strong>Waiver Expiry Date:</strong> {waiverEnd ? formatDate(waiverEnd) : "N/A"}<br />
+                        <strong>Waiver Reference No.:</strong> {waiverRef || "N/A"}
+                      </div>
+
+                      <div className="waiver-notice">
+                        ⚠ This equipment is granted a <strong>temporary conditional approval</strong>. Full compliance must be achieved before the waiver expiry date.
+                        Continued operation beyond this date without re-inspection and a new certificate is a statutory violation.
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="section">
+                  <div className="section-header">Authorized Inspection Body</div>
+                  <div className="section-body">
+                    <div className="auth-body">
+                      <div className="auth-info">
+                        <div className="auth-company">MONROY (PTY) LTD</div>
+                        <div className="auth-tagline">Process Control Solutions</div>
+
+                        <div className="auth-row">
+                          <span>Inspector Name:</span>
+                          <span style={{ borderBottom: "1px solid #333", minWidth: 180, display: "inline-block" }}>
+                            {certificate?.inspector_name || " "}
+                          </span>
+                        </div>
+
+                        <div className="auth-row" style={{ alignItems: "flex-end" }}>
+                          <span>Signature:</span>
+                          <div className="sig-area">
+                            <div className="sig-preview">
+                              {sigPreview ? (
+                                <img src={sigPreview} alt="Inspector Signature" />
+                              ) : (
+                                <span className="sig-placeholder">Sign here</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="auth-date">
+                          Date Issued: <strong>{dateIssued}</strong>
+                        </div>
+                      </div>
+
+                      <div className="qr-block">
+                        <img
+                          src={qrUrl}
+                          alt="Scan to verify certificate"
+                          width="80"
+                          height="80"
+                          style={{ border: "1px solid #ccc", padding: 4, background: "#fff" }}
+                        />
+                        <div className="qr-label">Scan to Verify</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="cert-footer">
+                This certificate was generated electronically by the Monroy QMS Inspection System.<br />
+                Verification can be performed using the certificate number or QR code.
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-
-      {/* Expiry warnings */}
-      {status.label === "Expiring" && (
-        <div style={{ background: "rgba(255,111,0,0.1)", border: "1px solid rgba(255,111,0,0.4)", borderRadius: 10, padding: "12px 16px", marginBottom: "1.5rem", color: "#ff6f00", fontSize: 13 }}>
-          ⚠️ This certificate expires in <strong>{status.daysLeft} days</strong>.
-        </div>
-      )}
-      {status.label === "Expired" && (
-        <div style={{ background: "rgba(216,27,96,0.1)", border: "1px solid rgba(216,27,96,0.4)", borderRadius: 10, padding: "12px 16px", marginBottom: "1.5rem", color: "#f48fb1", fontSize: 13 }}>
-          ❌ This certificate <strong>expired {Math.abs(status.daysLeft)} days ago</strong>. Equipment must be taken out of service.
-        </div>
-      )}
-
-      {/* Professional Certificate */}
-      <CertificateDocument cert={certificate} />
-
     </AppLayout>
   );
 }
