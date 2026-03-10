@@ -1,6 +1,6 @@
+// src/app/equipment/register/page.js
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 import { registerEquipment } from "@/services/equipment";
@@ -146,6 +146,45 @@ const blur = (e) => {
   e.target.style.borderColor = "rgba(102,126,234,0.25)";
 };
 
+function SelectField({ name, value, onChange, required = false, disabled = false, children }) {
+  return (
+    <div style={{ position: "relative" }}>
+      <select
+        name={name}
+        value={value}
+        onChange={onChange}
+        required={required}
+        disabled={disabled}
+        style={{
+          ...inputStyle,
+          cursor: disabled ? "not-allowed" : "pointer",
+          appearance: "none",
+          WebkitAppearance: "none",
+          MozAppearance: "none",
+          paddingRight: 40,
+          background: "#1a1f2e",
+          color: "#e2e8f0",
+        }}
+      >
+        {children}
+      </select>
+      <span
+        style={{
+          position: "absolute",
+          right: 12,
+          top: "50%",
+          transform: "translateY(-50%)",
+          color: "#94a3b8",
+          pointerEvents: "none",
+          fontSize: 12,
+        }}
+      >
+        ▾
+      </span>
+    </div>
+  );
+}
+
 function BotswanaLocationPicker({ name, value, onChange, required }) {
   const [manual, setManual] = useState(
     value && !BOTSWANA_LOCATIONS.includes(value) && value !== ""
@@ -163,8 +202,7 @@ function BotswanaLocationPicker({ name, value, onChange, required }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <select
-        style={{ ...inputStyle, cursor: "pointer" }}
+      <SelectField
         name={name}
         value={manual ? "__manual__" : (value || "")}
         onChange={handleSelect}
@@ -174,8 +212,8 @@ function BotswanaLocationPicker({ name, value, onChange, required }) {
         {BOTSWANA_LOCATIONS.map((loc) => (
           <option key={loc} value={loc}>{loc}</option>
         ))}
-        <option value="__manual__">✏️ Type manually…</option>
-      </select>
+        <option value="__manual__">Type manually…</option>
+      </SelectField>
 
       {manual && (
         <input
@@ -198,7 +236,7 @@ const emptyForm = {
   equipment_type: "Pressure Vessel",
   manufacturer: "",
   model: "",
-  year_built: String(new Date().getFullYear()),
+  year_built: "",
   client_id: "",
   location: "",
   department: "",
@@ -218,7 +256,6 @@ const emptyForm = {
   sling_length: "",
   chain_size: "",
   rope_diameter: "",
-  installation_date: "",
   last_inspection_date: "",
   next_inspection_date: "",
   license_status: "valid",
@@ -236,6 +273,9 @@ function printCertificate(data, certNo, today) {
     if (!value && value !== 0) return "";
     return `<tr><td class="label">${label}</td><td class="value">${value}</td></tr>`;
   };
+
+  const withKpa = (value) => (value ? `${value} kPa` : "");
+  const withTons = (value) => (value ? `${value} Tons` : "");
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -287,6 +327,7 @@ function printCertificate(data, certNo, today) {
   <div class="section-title">Equipment Identity</div>
   <table>
     ${row("Equipment Tag", data.asset_tag)}
+    ${row("Asset Name", data.asset_name)}
     ${row("Serial Number", data.serial_number)}
     ${row("Equipment Type", data.asset_type)}
     ${row("Manufacturer", data.manufacturer)}
@@ -294,12 +335,11 @@ function printCertificate(data, certNo, today) {
     ${row("Year Built", data.year_built)}
   </table>
 
-  <div class="section-title">Owner & Installation</div>
+  <div class="section-title">Owner & Location</div>
   <table>
     ${row("Owner / Client", data.client_name)}
-    ${row("Installation Location", data.location)}
+    ${row("Location", data.location)}
     ${row("Department / Plant", data.department)}
-    ${row("Installation Date", data.installation_date)}
   </table>
 
   <div class="section-title">Technical Data</div>
@@ -307,13 +347,13 @@ function printCertificate(data, certNo, today) {
     ${row("Design Standard", data.design_standard)}
     ${row("Shell / Body Material", data.shell_material)}
     ${isPressureEquipment ? row("Fluid / Contents", data.fluid_type) : ""}
-    ${isPressureEquipment ? row("Design Pressure", data.design_pressure ? `${data.design_pressure} bar` : "") : ""}
-    ${isPressureEquipment ? row("Working Pressure", data.working_pressure ? `${data.working_pressure} kPa` : "") : ""}
-    ${isPressureEquipment ? row("Test Pressure", data.test_pressure ? `${data.test_pressure} kPa` : "") : ""}
+    ${isPressureEquipment ? row("Design Pressure", withKpa(data.design_pressure)) : ""}
+    ${isPressureEquipment ? row("Working Pressure", withKpa(data.working_pressure)) : ""}
+    ${isPressureEquipment ? row("Test Pressure", withKpa(data.test_pressure)) : ""}
     ${isPressureEquipment ? row("Design Temperature", data.design_temperature ? `${data.design_temperature} °C` : "") : ""}
     ${isPressureEquipment ? row("Volume / Capacity", data.capacity_volume ? `${data.capacity_volume} L` : "") : ""}
-    ${isLiftingEquipment ? row("Safe Working Load", data.safe_working_load) : ""}
-    ${isLiftingEquipment ? row("Proof Load", data.proof_load) : ""}
+    ${isLiftingEquipment ? row("SWL", withTons(data.safe_working_load)) : ""}
+    ${isLiftingEquipment ? row("Proof Load", withTons(data.proof_load)) : ""}
     ${isLiftingEquipment ? row("Lifting Height / Travel", data.lifting_height) : ""}
     ${isLiftingEquipment ? row("Sling Length", data.sling_length) : ""}
     ${isLiftingEquipment ? row("Chain Size", data.chain_size) : ""}
@@ -369,6 +409,7 @@ function CertificateModal({ data, certNo, onClose }) {
 
           <div style={{ color: "#e2e8f0", lineHeight: 1.8, fontSize: 13 }}>
             <div><strong>Equipment Tag:</strong> {data.asset_tag}</div>
+            <div><strong>Asset Name:</strong> {data.asset_name}</div>
             <div><strong>Client:</strong> {data.client_name}</div>
             <div><strong>Equipment Type:</strong> {data.asset_type}</div>
             <div><strong>Location:</strong> {data.location}</div>
@@ -389,7 +430,6 @@ function CertificateModal({ data, certNo, onClose }) {
 }
 
 export default function RegisterEquipmentPage() {
-  const router = useRouter();
   const [formData, setFormData] = useState(emptyForm);
   const [clients, setClients] = useState([]);
   const [clientsLoading, setClientsLoading] = useState(true);
@@ -454,7 +494,6 @@ export default function RegisterEquipmentPage() {
           next.design_temperature = "";
           next.capacity_volume = "";
           next.fluid_type = "";
-
           next.safe_working_load = "";
           next.proof_load = "";
           next.lifting_height = "";
@@ -491,7 +530,12 @@ export default function RegisterEquipmentPage() {
         throw new Error("Please select a registered client.");
       }
 
+      const assetName = formData.model
+        ? `${formData.equipment_type} - ${formData.model}`
+        : `${formData.equipment_type} - ${formData.serial_number}`;
+
       const payload = {
+        asset_name: assetName,
         client_id: formData.client_id,
         asset_type: formData.equipment_type,
         serial_number: formData.serial_number,
@@ -516,7 +560,6 @@ export default function RegisterEquipmentPage() {
         sling_length: formData.sling_length,
         chain_size: formData.chain_size,
         rope_diameter: formData.rope_diameter,
-        installation_date: formData.installation_date,
         last_inspection_date: formData.last_inspection_date,
         next_inspection_date: formData.next_inspection_date,
         license_status: formData.license_status,
@@ -530,7 +573,6 @@ export default function RegisterEquipmentPage() {
       };
 
       const { data: asset, error: assetError } = await registerEquipment(payload);
-
       if (assetError) throw assetError;
 
       const { data: certificate, error: certError } = await supabase
@@ -543,8 +585,8 @@ export default function RegisterEquipmentPage() {
             equipment_description: formData.equipment_type,
             equipment_location: formData.location || null,
             equipment_id: asset.asset_tag,
-            swl: formData.safe_working_load ? String(formData.safe_working_load) : null,
-            mawp: formData.working_pressure ? String(formData.working_pressure) : null,
+            swl: formData.safe_working_load ? `${formData.safe_working_load} Tons` : null,
+            mawp: formData.working_pressure ? `${formData.working_pressure} kPa` : null,
             equipment_status: "active",
             issued_at: new Date().toISOString(),
             valid_to: formData.next_inspection_date || null,
@@ -559,6 +601,7 @@ export default function RegisterEquipmentPage() {
 
       setCertData({
         ...asset,
+        asset_name: asset.asset_name || assetName,
         client_name: selectedClient.company_name,
         certNo: certificate.certificate_number,
       });
@@ -574,6 +617,25 @@ export default function RegisterEquipmentPage() {
 
   return (
     <AppLayout title="Register Equipment">
+      <style>{`
+        select {
+          background: #1a1f2e !important;
+          color: #e2e8f0 !important;
+        }
+        select option {
+          background: #111827 !important;
+          color: #f8fafc !important;
+        }
+        select optgroup {
+          background: #111827 !important;
+          color: #f8fafc !important;
+        }
+        input[type="date"]::-webkit-calendar-picker-indicator {
+          filter: invert(0.8);
+          cursor: pointer;
+        }
+      `}</style>
+
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ margin: 0, fontSize: "clamp(22px,4vw,32px)", fontWeight: 900, color: "#fff" }}>
           Register Equipment
@@ -590,7 +652,7 @@ export default function RegisterEquipmentPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))", border: "1px solid rgba(102,126,234,0.2)", borderRadius: 16, padding: 28, maxWidth: 900 }}>
+      <form onSubmit={handleSubmit} style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))", border: "1px solid rgba(102,126,234,0.2)", borderRadius: 16, padding: 28, maxWidth: 900, overflow: "visible" }}>
         <div style={sectionHeadStyle}>⚙️ Equipment Identity</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 24 }}>
           <div>
@@ -605,11 +667,11 @@ export default function RegisterEquipmentPage() {
 
           <div>
             <label style={labelStyle}>Equipment Type *</label>
-            <select style={{ ...inputStyle, cursor: "pointer" }} name="equipment_type" value={formData.equipment_type} onChange={handleChange}>
+            <SelectField name="equipment_type" value={formData.equipment_type} onChange={handleChange}>
               {EQUIPMENT_TYPES.map((t) => (
                 <option key={t} value={t}>{t}</option>
               ))}
-            </select>
+            </SelectField>
           </div>
 
           <div>
@@ -624,7 +686,16 @@ export default function RegisterEquipmentPage() {
 
           <div>
             <label style={labelStyle}>Year Built</label>
-            <input style={inputStyle} type="number" name="year_built" value={formData.year_built} onChange={handleChange} onFocus={focus} onBlur={blur} />
+            <input
+              style={inputStyle}
+              type="text"
+              name="year_built"
+              value={formData.year_built}
+              onChange={handleChange}
+              placeholder="e.g. 2020"
+              onFocus={focus}
+              onBlur={blur}
+            />
           </div>
         </div>
 
@@ -632,14 +703,14 @@ export default function RegisterEquipmentPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 24 }}>
           <div>
             <label style={labelStyle}>Client *</label>
-            <select style={{ ...inputStyle, cursor: "pointer" }} name="client_id" value={formData.client_id} onChange={handleChange} required disabled={clientsLoading}>
+            <SelectField name="client_id" value={formData.client_id} onChange={handleChange} required disabled={clientsLoading}>
               <option value="">{clientsLoading ? "Loading clients..." : "— Select registered client —"}</option>
               {clients.map((client) => (
                 <option key={client.id} value={client.id}>
                   {client.company_name} {client.company_code ? `(${client.company_code})` : ""}
                 </option>
               ))}
-            </select>
+            </SelectField>
           </div>
 
           <div>
@@ -657,29 +728,29 @@ export default function RegisterEquipmentPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 24 }}>
           <div>
             <label style={labelStyle}>Certificate Type *</label>
-            <select style={{ ...inputStyle, cursor: "pointer" }} name="cert_type" value={formData.cert_type} onChange={handleChange}>
+            <SelectField name="cert_type" value={formData.cert_type} onChange={handleChange}>
               {CERT_TYPES.map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
-            </select>
+            </SelectField>
           </div>
 
           <div>
             <label style={labelStyle}>Inspection Frequency</label>
-            <select style={{ ...inputStyle, cursor: "pointer" }} name="inspection_freq" value={formData.inspection_freq} onChange={handleChange}>
+            <SelectField name="inspection_freq" value={formData.inspection_freq} onChange={handleChange}>
               {INSPECTION_FREQS.map((f) => (
                 <option key={f} value={f}>{f}</option>
               ))}
-            </select>
+            </SelectField>
           </div>
 
           <div>
             <label style={labelStyle}>License Status</label>
-            <select style={{ ...inputStyle, cursor: "pointer" }} name="license_status" value={formData.license_status} onChange={handleChange}>
+            <SelectField name="license_status" value={formData.license_status} onChange={handleChange}>
               <option value="valid">valid</option>
               <option value="expiring">expiring</option>
               <option value="expired">expired</option>
-            </select>
+            </SelectField>
           </div>
         </div>
 
@@ -687,35 +758,35 @@ export default function RegisterEquipmentPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 24 }}>
           <div>
             <label style={labelStyle}>Shell / Body Material</label>
-            <select style={{ ...inputStyle, cursor: "pointer" }} name="shell_material" value={formData.shell_material} onChange={handleChange}>
+            <SelectField name="shell_material" value={formData.shell_material} onChange={handleChange}>
               {MATERIALS.map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
-            </select>
+            </SelectField>
           </div>
 
           <div>
             <label style={labelStyle}>Design Standard</label>
-            <select style={{ ...inputStyle, cursor: "pointer" }} name="design_standard" value={formData.design_standard} onChange={handleChange}>
+            <SelectField name="design_standard" value={formData.design_standard} onChange={handleChange}>
               {STANDARDS.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
-            </select>
+            </SelectField>
           </div>
 
           {isPressureEquipment && (
             <>
               <div>
                 <label style={labelStyle}>Fluid / Contents Type</label>
-                <select style={{ ...inputStyle, cursor: "pointer" }} name="fluid_type" value={formData.fluid_type} onChange={handleChange}>
+                <SelectField name="fluid_type" value={formData.fluid_type} onChange={handleChange}>
                   {FLUID_TYPES.map((f) => (
                     <option key={f} value={f}>{f}</option>
                   ))}
-                </select>
+                </SelectField>
               </div>
 
               <div>
-                <label style={labelStyle}>Design Pressure (bar)</label>
+                <label style={labelStyle}>Design Pressure (kPa)</label>
                 <input style={inputStyle} type="number" step="0.01" name="design_pressure" value={formData.design_pressure} onChange={handleChange} onFocus={focus} onBlur={blur} />
               </div>
 
@@ -744,23 +815,59 @@ export default function RegisterEquipmentPage() {
           {isLiftingEquipment && (
             <>
               <div>
-                <label style={labelStyle}>Safe Working Load (SWL)</label>
-                <input style={inputStyle} type="number" step="0.01" name="safe_working_load" value={formData.safe_working_load} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <label style={labelStyle}>SWL (Tons)</label>
+                <input
+                  style={inputStyle}
+                  type="text"
+                  name="safe_working_load"
+                  value={formData.safe_working_load}
+                  onChange={handleChange}
+                  placeholder="e.g. 5"
+                  onFocus={focus}
+                  onBlur={blur}
+                />
               </div>
 
               <div>
-                <label style={labelStyle}>Proof Load</label>
-                <input style={inputStyle} type="number" step="0.01" name="proof_load" value={formData.proof_load} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <label style={labelStyle}>Proof Load (Tons)</label>
+                <input
+                  style={inputStyle}
+                  type="text"
+                  name="proof_load"
+                  value={formData.proof_load}
+                  onChange={handleChange}
+                  placeholder="e.g. 7.5"
+                  onFocus={focus}
+                  onBlur={blur}
+                />
               </div>
 
               <div>
-                <label style={labelStyle}>Lifting Height / Travel</label>
-                <input style={inputStyle} type="number" step="0.01" name="lifting_height" value={formData.lifting_height} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <label style={labelStyle}>Lift Height</label>
+                <input
+                  style={inputStyle}
+                  type="text"
+                  name="lifting_height"
+                  value={formData.lifting_height}
+                  onChange={handleChange}
+                  placeholder="e.g. 3 m"
+                  onFocus={focus}
+                  onBlur={blur}
+                />
               </div>
 
               <div>
                 <label style={labelStyle}>Sling Length</label>
-                <input style={inputStyle} type="number" step="0.01" name="sling_length" value={formData.sling_length} onChange={handleChange} onFocus={focus} onBlur={blur} />
+                <input
+                  style={inputStyle}
+                  type="text"
+                  name="sling_length"
+                  value={formData.sling_length}
+                  onChange={handleChange}
+                  placeholder="e.g. 2 m"
+                  onFocus={focus}
+                  onBlur={blur}
+                />
               </div>
 
               <div>
@@ -778,11 +885,6 @@ export default function RegisterEquipmentPage() {
 
         <div style={sectionHeadStyle}>📅 Inspection & Service Dates</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 24 }}>
-          <div>
-            <label style={labelStyle}>Installation Date</label>
-            <input style={inputStyle} type="date" name="installation_date" value={formData.installation_date} onChange={handleChange} />
-          </div>
-
           <div>
             <label style={labelStyle}>Last Inspection Date</label>
             <input style={inputStyle} type="date" name="last_inspection_date" value={formData.last_inspection_date} onChange={handleChange} />
@@ -808,11 +910,11 @@ export default function RegisterEquipmentPage() {
 
           <div>
             <label style={labelStyle}>Status</label>
-            <select style={{ ...inputStyle, cursor: "pointer" }} name="status" value={formData.status} onChange={handleChange}>
+            <SelectField name="status" value={formData.status} onChange={handleChange}>
               <option value="active">active</option>
               <option value="inactive">inactive</option>
               <option value="suspended">suspended</option>
-            </select>
+            </SelectField>
           </div>
         </div>
 
