@@ -1,3 +1,6 @@
+"use client";
+import { useState } from "react";
+// ... rest of the file unchanged
 import { useState } from "react";
 
 const C = { green: "#00f5c4", purple: "#7c5cfc", blue: "#4fc3f7", pink: "#f472b6", yellow: "#fbbf24" };
