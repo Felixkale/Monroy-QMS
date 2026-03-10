@@ -1,7 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getClientById, updateClient } from "@/lib/clientService";
 import { supabase } from "@/lib/supabaseClient";
 import AppLayout from "@/components/AppLayout";
 
@@ -36,7 +35,6 @@ const sectionStyle = {
 const focus = (e) => (e.target.style.borderColor = "#667eea");
 const blur  = (e) => (e.target.style.borderColor = "rgba(102,126,234,0.25)");
 
-// ── Delete Confirmation Modal ─────────────────────────────────────────────────
 function DeleteModal({ clientName, onConfirm, onCancel, deleting }) {
   return (
     <div style={{
@@ -48,66 +46,47 @@ function DeleteModal({ clientName, onConfirm, onCancel, deleting }) {
       <div style={{
         background:"linear-gradient(160deg,#1a1f2e,#0f1419)",
         border:"1px solid rgba(244,114,182,0.35)",
-        borderRadius:20, width:"100%", maxWidth:440,
-        padding:"32px 28px",
+        borderRadius:20, width:"100%", maxWidth:440, padding:"32px 28px",
         boxShadow:"0 0 60px rgba(244,114,182,0.15)",
       }}>
         <div style={{ textAlign:"center", marginBottom:24 }}>
           <div style={{ fontSize:44, marginBottom:12 }}>🗑️</div>
           <h2 style={{ margin:"0 0 8px", fontSize:20, fontWeight:900, color:"#fff" }}>Delete Client</h2>
           <p style={{ margin:0, fontSize:13, color:"#64748b", lineHeight:1.6 }}>
-            Are you sure you want to permanently delete <strong style={{ color:"#e2e8f0" }}>{clientName}</strong>?
-            <br/>This action <strong style={{ color:C.pink }}>cannot be undone</strong>.
+            Are you sure you want to permanently delete{" "}
+            <strong style={{ color:"#e2e8f0" }}>{clientName}</strong>?
+            <br />This action <strong style={{ color:C.pink }}>cannot be undone</strong>.
           </p>
         </div>
         <div style={{ display:"flex", gap:12 }}>
-          <button
-            onClick={onCancel}
-            disabled={deleting}
-            style={{
-              flex:1, padding:"11px", borderRadius:10, cursor:"pointer",
-              fontFamily:"inherit", fontWeight:700, fontSize:13,
-              background:"rgba(255,255,255,0.05)",
-              border:"1px solid rgba(255,255,255,0.1)", color:"#94a3b8",
-            }}
-          >Cancel</button>
-          <button
-            onClick={onConfirm}
-            disabled={deleting}
-            style={{
-              flex:1, padding:"11px", borderRadius:10,
-              cursor: deleting ? "not-allowed" : "pointer",
-              fontFamily:"inherit", fontWeight:700, fontSize:13,
-              background:"linear-gradient(135deg,#f472b6,#ef4444)",
-              border:"none", color:"#fff", opacity: deleting ? 0.7 : 1,
-            }}
-          >{deleting ? "Deleting…" : "🗑️ Yes, Delete"}</button>
+          <button onClick={onCancel} disabled={deleting} style={{ flex:1, padding:"11px", borderRadius:10, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", color:"#94a3b8" }}>Cancel</button>
+          <button onClick={onConfirm} disabled={deleting} style={{ flex:1, padding:"11px", borderRadius:10, cursor:deleting?"not-allowed":"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13, background:"linear-gradient(135deg,#f472b6,#ef4444)", border:"none", color:"#fff", opacity:deleting?0.7:1 }}>
+            {deleting ? "Deleting…" : "🗑️ Yes, Delete"}
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
 export default function EditClientPage() {
   const params = useParams();
   const router = useRouter();
 
-  const [loading,       setLoading]      = useState(true);
-  const [saving,        setSaving]       = useState(false);
-  const [deleting,      setDeleting]     = useState(false);
-  const [showDelete,    setShowDelete]   = useState(false);
-  const [saveError,     setSaveError]    = useState(null);
-  const [saveSuccess,   setSaveSuccess]  = useState(false);
-  const [isAdmin,       setIsAdmin]      = useState(false);
+  const [loading,     setLoading]     = useState(true);
+  const [saving,      setSaving]      = useState(false);
+  const [deleting,    setDeleting]    = useState(false);
+  const [showDelete,  setShowDelete]  = useState(false);
+  const [saveError,   setSaveError]   = useState(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [isAdmin,     setIsAdmin]     = useState(false);
 
   const [form, setForm] = useState({
-    company_name:"", company_code:"", industry:"", contact_person:"",
-    contact_email:"", contact_phone:"", address:"", city:"",
-    country:"Botswana", status:"active",
+    company_name:"", company_code:"", industry:"",
+    contact_person:"", contact_email:"", contact_phone:"",
+    address:"", city:"", country:"Botswana", status:"active",
   });
 
-  // ── Auth + load ─────────────────────────────────────────────────────────────
   useEffect(() => {
     async function init() {
       const { data } = await supabase.auth.getUser();
@@ -120,37 +99,54 @@ export default function EditClientPage() {
 
   async function loadClient() {
     setLoading(true);
-    const { data, error } = await getClientById(params.id);
-    if (error || !data) {
-      setLoading(false);
-      return;
+    const { data, error } = await supabase
+      .from("clients")
+      .select("id,company_name,company_code,industry,contact_person,contact_email,contact_phone,address,city,country,status")
+      .eq("id", params.id)
+      .single();
+
+    if (!error && data) {
+      setForm({
+        company_name:   data.company_name   || "",
+        company_code:   data.company_code   || "",
+        industry:       data.industry       || "",
+        contact_person: data.contact_person || "",
+        contact_email:  data.contact_email  || "",
+        contact_phone:  data.contact_phone  || "",
+        address:        data.address        || "",
+        city:           data.city           || "",
+        country:        data.country        || "Botswana",
+        status:         data.status         || "active",
+      });
     }
-    // Map Supabase columns directly into form — no field mismatch
-    setForm({
-      company_name:    data.company_name    || "",
-      company_code:    data.company_code    || "",
-      industry:        data.industry        || "",
-      contact_person:  data.contact_person  || "",
-      contact_email:   data.contact_email   || "",
-      contact_phone:   data.contact_phone   || "",
-      address:         data.address         || "",
-      city:            data.city            || "",
-      country:         data.country         || "Botswana",
-      status:          data.status          || "active",
-    });
     setLoading(false);
   }
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  // ── Save ────────────────────────────────────────────────────────────────────
   async function handleSave() {
     setSaving(true);
     setSaveError(null);
     setSaveSuccess(false);
-    const { error } = await updateClient(params.id, form);
+    const { error } = await supabase
+      .from("clients")
+      .update({
+        company_name:   form.company_name.trim(),
+        company_code:   form.company_code.trim(),
+        industry:       form.industry.trim(),
+        contact_person: form.contact_person.trim(),
+        contact_email:  form.contact_email.trim(),
+        contact_phone:  form.contact_phone.trim(),
+        address:        form.address.trim(),
+        city:           form.city.trim(),
+        country:        form.country.trim(),
+        status:         form.status,
+        updated_at:     new Date().toISOString(),
+      })
+      .eq("id", params.id);
+
     if (error) {
-      setSaveError(typeof error === "string" ? error : error.message);
+      setSaveError(error.message);
     } else {
       setSaveSuccess(true);
       setTimeout(() => router.push(`/clients/${params.id}`), 1200);
@@ -158,21 +154,18 @@ export default function EditClientPage() {
     setSaving(false);
   }
 
-  // ── Delete ──────────────────────────────────────────────────────────────────
   async function handleDelete() {
     setDeleting(true);
-    try {
-      const { error } = await supabase.from("clients").delete().eq("id", params.id);
-      if (error) throw error;
-      router.push("/clients");
-    } catch (err) {
-      alert("Delete failed: " + err.message);
+    const { error } = await supabase.from("clients").delete().eq("id", params.id);
+    if (error) {
+      alert("Delete failed: " + error.message);
       setDeleting(false);
       setShowDelete(false);
+    } else {
+      router.push("/clients");
     }
   }
 
-  // ── Loading ─────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <AppLayout title="Edit Client">
@@ -196,31 +189,21 @@ export default function EditClientPage() {
         input::placeholder { color: rgba(255,255,255,0.18); }
       `}</style>
 
-      {/* ── Header ── */}
+      {/* Header */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:16, marginBottom:28 }}>
         <div>
-          <button
-            onClick={() => router.push(`/clients/${params.id}`)}
-            style={{ background:"none", border:"none", color:"#64748b", fontSize:13, cursor:"pointer", fontFamily:"inherit", padding:0, marginBottom:10, display:"block" }}
-          >← Back to Client</button>
-          <p style={{ color:"#64748b", margin:0, fontSize:13 }}>
-            Update client details · Changes are saved to the database
-          </p>
+          <button onClick={() => router.push(`/clients/${params.id}`)} style={{ background:"none", border:"none", color:"#64748b", fontSize:13, cursor:"pointer", fontFamily:"inherit", padding:0, marginBottom:10, display:"block" }}>
+            ← Back to Client
+          </button>
+          <p style={{ color:"#64748b", margin:0, fontSize:13 }}>Update client details · Changes saved to database</p>
         </div>
-
         {isAdmin && (
-          <button
-            onClick={() => setShowDelete(true)}
-            style={{
-              padding:"9px 18px", borderRadius:10, cursor:"pointer", fontFamily:"inherit",
-              fontWeight:700, fontSize:12,
-              background:"rgba(244,114,182,0.1)", border:"1px solid rgba(244,114,182,0.3)", color:C.pink,
-            }}
-          >🗑️ Delete Client</button>
+          <button onClick={() => setShowDelete(true)} style={{ padding:"9px 18px", borderRadius:10, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:12, background:"rgba(244,114,182,0.1)", border:"1px solid rgba(244,114,182,0.3)", color:C.pink }}>
+            🗑️ Delete Client
+          </button>
         )}
       </div>
 
-      {/* ── Success / Error banners ── */}
       {saveSuccess && (
         <div style={{ marginBottom:20, padding:"12px 16px", borderRadius:10, background:"rgba(0,245,196,0.08)", border:"1px solid rgba(0,245,196,0.25)", color:C.green, fontSize:13, fontWeight:600 }}>
           ✅ Client updated successfully! Redirecting…
@@ -232,19 +215,14 @@ export default function EditClientPage() {
         </div>
       )}
 
-      {/* ── Form card ── */}
-      <div style={{
-        background:"rgba(255,255,255,0.02)",
-        border:"1px solid rgba(102,126,234,0.18)",
-        borderRadius:18, padding:"28px",
-      }}>
+      <div style={{ background:"rgba(255,255,255,0.02)", border:"1px solid rgba(102,126,234,0.18)", borderRadius:18, padding:"28px" }}>
 
         {/* 1. Company Information */}
         <div style={sectionStyle}>🏢 Company Information</div>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))", gap:16, marginBottom:28 }}>
           <div>
             <label style={labelStyle}>Company Name *</label>
-            <input style={inputStyle} value={form.company_name} onChange={e => set("company_name", e.target.value)} placeholder="e.g. Acme Industrial Corp" onFocus={focus} onBlur={blur} required />
+            <input style={inputStyle} value={form.company_name} onChange={e => set("company_name", e.target.value)} placeholder="e.g. Acme Industrial Corp" onFocus={focus} onBlur={blur} />
           </div>
           <div>
             <label style={labelStyle}>Company Code</label>
@@ -303,38 +281,17 @@ export default function EditClientPage() {
           </div>
         </div>
 
-        {/* ── Action buttons ── */}
-        <div style={{
-          display:"flex", gap:12, flexWrap:"wrap",
-          paddingTop:20, borderTop:"1px solid rgba(102,126,234,0.12)",
-        }}>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            style={{
-              padding:"11px 28px", borderRadius:10,
-              cursor: saving ? "not-allowed" : "pointer",
-              fontFamily:"inherit", fontWeight:700, fontSize:13,
-              background:"linear-gradient(135deg,#667eea,#764ba2)",
-              border:"none", color:"#fff",
-              boxShadow:"0 0 20px rgba(102,126,234,0.35)",
-              opacity: saving ? 0.7 : 1,
-            }}
-          >{saving ? "⏳ Saving…" : "💾 Save Changes"}</button>
-
-          <button
-            onClick={() => router.push(`/clients/${params.id}`)}
-            style={{
-              padding:"11px 24px", borderRadius:10, cursor:"pointer",
-              fontFamily:"inherit", fontWeight:700, fontSize:13,
-              background:"rgba(255,255,255,0.05)",
-              border:"1px solid rgba(255,255,255,0.1)", color:"#94a3b8",
-            }}
-          >Cancel</button>
+        {/* Actions */}
+        <div style={{ display:"flex", gap:12, flexWrap:"wrap", paddingTop:20, borderTop:"1px solid rgba(102,126,234,0.12)" }}>
+          <button onClick={handleSave} disabled={saving} style={{ padding:"11px 28px", borderRadius:10, cursor:saving?"not-allowed":"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13, background:"linear-gradient(135deg,#667eea,#764ba2)", border:"none", color:"#fff", boxShadow:"0 0 20px rgba(102,126,234,0.35)", opacity:saving?0.7:1 }}>
+            {saving ? "⏳ Saving…" : "💾 Save Changes"}
+          </button>
+          <button onClick={() => router.push(`/clients/${params.id}`)} style={{ padding:"11px 24px", borderRadius:10, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", color:"#94a3b8" }}>
+            Cancel
+          </button>
         </div>
       </div>
 
-      {/* ── Delete Modal ── */}
       {showDelete && (
         <DeleteModal
           clientName={form.company_name}
