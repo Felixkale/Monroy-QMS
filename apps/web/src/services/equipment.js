@@ -10,29 +10,34 @@ function normalizeText(value, fallback = null) {
   return trimmed === "" ? fallback : trimmed;
 }
 
-function normalizeNumber(value, fallback = null) {
-  if (value === undefined || value === null || value === "") return fallback;
-  const parsed = Number(value);
-  return Number.isNaN(parsed) ? fallback : parsed;
+function buildAssetName(data) {
+  const explicitName = normalizeText(data.asset_name);
+  if (explicitName) return explicitName;
+
+  const assetType = normalizeText(data.asset_type || data.equipment_type, "Equipment");
+  const model = normalizeText(data.model);
+  const serial = normalizeText(data.serial_number);
+
+  if (model) return `${assetType} - ${model}`;
+  if (serial) return `${assetType} - ${serial}`;
+  return assetType;
 }
 
 function normalizeEquipmentPayload(equipmentData = {}) {
+  const assetType = normalizeText(
+    equipmentData.asset_type || equipmentData.equipment_type,
+    ""
+  );
+
   return {
     client_id: normalizeText(equipmentData.client_id),
-    site_id: normalizeText(equipmentData.site_id),
-
-    asset_name: normalizeText(
-      equipmentData.asset_name ||
-        equipmentData.equipment_name ||
-        equipmentData.name,
-      ""
-    ),
-
-    asset_type: normalizeText(
-      equipmentData.asset_type || equipmentData.equipment_type,
-      ""
-    ),
-
+    asset_name: buildAssetName({
+      asset_name: equipmentData.asset_name,
+      asset_type: assetType,
+      model: equipmentData.model,
+      serial_number: equipmentData.serial_number,
+    }),
+    asset_type: assetType,
     description: normalizeText(equipmentData.description),
     manufacturer: normalizeText(equipmentData.manufacturer),
     model: normalizeText(equipmentData.model),
@@ -43,30 +48,33 @@ function normalizeEquipmentPayload(equipmentData = {}) {
     location: normalizeText(equipmentData.location),
     condition: normalizeText(equipmentData.condition, "Good"),
     status: normalizeText(equipmentData.status, "active"),
-    year_built: normalizeNumber(equipmentData.year_built),
+
+    year_built: normalizeText(equipmentData.year_built),
     department: normalizeText(equipmentData.department),
     cert_type: normalizeText(equipmentData.cert_type),
     design_standard: normalizeText(equipmentData.design_standard),
     inspection_freq: normalizeText(equipmentData.inspection_freq),
     shell_material: normalizeText(equipmentData.shell_material),
     fluid_type: normalizeText(equipmentData.fluid_type),
-    design_pressure: normalizeNumber(equipmentData.design_pressure),
-    working_pressure: normalizeNumber(equipmentData.working_pressure),
-    test_pressure: normalizeNumber(equipmentData.test_pressure),
-    design_temperature: normalizeNumber(equipmentData.design_temperature),
-    capacity_volume: normalizeNumber(equipmentData.capacity_volume),
-    safe_working_load: normalizeNumber(
+
+    design_pressure: normalizeText(equipmentData.design_pressure),
+    working_pressure: normalizeText(equipmentData.working_pressure),
+    test_pressure: normalizeText(equipmentData.test_pressure),
+    design_temperature: normalizeText(equipmentData.design_temperature),
+    capacity_volume: normalizeText(equipmentData.capacity_volume),
+
+    safe_working_load: normalizeText(
       equipmentData.safe_working_load ?? equipmentData.swl
     ),
-    proof_load: normalizeNumber(equipmentData.proof_load),
-    lifting_height: normalizeNumber(
+    proof_load: normalizeText(equipmentData.proof_load),
+    lifting_height: normalizeText(
       equipmentData.lifting_height ?? equipmentData.lift_height
     ),
-    sling_length: normalizeNumber(equipmentData.sling_length),
+    sling_length: normalizeText(equipmentData.sling_length),
+
     chain_size: normalizeText(equipmentData.chain_size),
     rope_diameter: normalizeText(equipmentData.rope_diameter),
-    national_reg_no: normalizeText(equipmentData.national_reg_no),
-    notified_body: normalizeText(equipmentData.notified_body),
+    installation_date: normalizeText(equipmentData.installation_date),
     last_inspection_date: normalizeText(equipmentData.last_inspection_date),
     next_inspection_date: normalizeText(equipmentData.next_inspection_date),
     notes: normalizeText(equipmentData.notes),
@@ -76,7 +84,6 @@ function normalizeEquipmentPayload(equipmentData = {}) {
 const EQUIPMENT_SELECT = `
   id,
   client_id,
-  site_id,
   asset_name,
   asset_tag,
   asset_type,
@@ -108,8 +115,7 @@ const EQUIPMENT_SELECT = `
   sling_length,
   chain_size,
   rope_diameter,
-  national_reg_no,
-  notified_body,
+  installation_date,
   last_inspection_date,
   next_inspection_date,
   notes,
@@ -122,15 +128,6 @@ const EQUIPMENT_SELECT = `
     contact_person,
     contact_email,
     contact_phone
-  ),
-  sites (
-    id,
-    site_name,
-    site_code,
-    location
-  ),
-  asset_nameplate (
-    *
   )
 `;
 
@@ -152,26 +149,64 @@ export async function getEquipment(clientId = null) {
 
 export async function getEquipmentById(id) {
   if (!supabase) return notConfigured(null);
-  if (!id) return { data: null, error: "Equipment ID is required" };
+  if (!id) return { data: null, error: { message: "Equipment ID is required" } };
 
   const { data, error } = await supabase
     .from("assets")
     .select(EQUIPMENT_SELECT)
     .eq("id", id)
-    .single();
+    .maybeSingle();
 
   return { data, error };
 }
 
 export async function getEquipmentByTag(tag) {
   if (!supabase) return notConfigured(null);
-  if (!tag) return { data: null, error: "Equipment tag is required" };
+  if (!tag) return { data: null, error: { message: "Equipment tag is required" } };
 
   const { data, error } = await supabase
     .from("assets")
     .select(EQUIPMENT_SELECT)
     .eq("asset_tag", tag)
-    .single();
+    .maybeSingle();
+
+  return { data, error };
+}
+
+export async function getCertificateByAssetId(assetId) {
+  if (!supabase) return notConfigured(null);
+  if (!assetId) return { data: null, error: { message: "Asset ID is required" } };
+
+  const { data, error } = await supabase
+    .from("certificates")
+    .select(`
+      id,
+      certificate_number,
+      certificate_type,
+      asset_id,
+      company,
+      equipment_description,
+      equipment_location,
+      equipment_id,
+      swl,
+      mawp,
+      equipment_status,
+      issued_at,
+      valid_to,
+      status,
+      legal_framework,
+      inspector_name,
+      inspector_id,
+      signature_url,
+      logo_url,
+      pdf_url,
+      created_at,
+      updated_at
+    `)
+    .eq("asset_id", assetId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   return { data, error };
 }
@@ -183,10 +218,6 @@ export async function registerEquipment(equipmentData) {
 
   if (!payload.client_id) {
     return { data: null, error: { message: "Client is required" } };
-  }
-
-  if (!payload.asset_name) {
-    return { data: null, error: { message: "Equipment name is required" } };
   }
 
   if (!payload.asset_type) {
@@ -201,6 +232,10 @@ export async function registerEquipment(equipmentData) {
     return { data: null, error: { message: "Manufacturer is required" } };
   }
 
+  if (!payload.asset_name) {
+    return { data: null, error: { message: "Asset name is required" } };
+  }
+
   const { data, error } = await supabase
     .from("assets")
     .insert([payload])
@@ -212,14 +247,9 @@ export async function registerEquipment(equipmentData) {
 
 export async function updateEquipmentById(id, updates) {
   if (!supabase) return notConfigured(null);
-  if (!id) return { data: null, error: "Equipment ID is required" };
+  if (!id) return { data: null, error: { message: "Equipment ID is required" } };
 
   const payload = normalizeEquipmentPayload(updates);
-  delete payload.asset_tag;
-
-  if (!payload.asset_name) {
-    return { data: null, error: { message: "Equipment name is required" } };
-  }
 
   const { data, error } = await supabase
     .from("assets")
@@ -233,14 +263,9 @@ export async function updateEquipmentById(id, updates) {
 
 export async function updateEquipmentByTag(tag, updates) {
   if (!supabase) return notConfigured(null);
-  if (!tag) return { data: null, error: "Equipment tag is required" };
+  if (!tag) return { data: null, error: { message: "Equipment tag is required" } };
 
   const payload = normalizeEquipmentPayload(updates);
-  delete payload.asset_tag;
-
-  if (!payload.asset_name) {
-    return { data: null, error: { message: "Equipment name is required" } };
-  }
 
   const { data, error } = await supabase
     .from("assets")
@@ -254,7 +279,7 @@ export async function updateEquipmentByTag(tag, updates) {
 
 export async function deleteEquipmentById(id) {
   if (!supabase) return notConfigured(null);
-  if (!id) return { data: null, error: "Equipment ID is required" };
+  if (!id) return { data: null, error: { message: "Equipment ID is required" } };
 
   const { error } = await supabase
     .from("assets")
