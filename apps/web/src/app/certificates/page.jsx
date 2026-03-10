@@ -1,325 +1,314 @@
 "use client";
 
-import { useState, useEffect, useMemo, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
-import { getClientById } from "@/services/clients";
 
-const C = {
-  green:"#00f5c4",
-  purple:"#7c5cfc",
-  blue:"#4fc3f7",
-  yellow:"#fbbf24",
-  red:"#ef4444"
-};
-
-function normalizeStatus(cert){
-
-  const raw = cert?.equipment_status || cert?.status || "";
-  const v = String(raw).toLowerCase();
-
-  if(v.includes("fail")) return "fail";
-  if(v.includes("conditional")) return "conditional";
-  if(v.includes("pass")) return "pass";
-
-  return "unknown";
+function formatDate(value) {
+  if (!value) return "N/A";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-GB");
 }
 
-function getStatusMeta(cert){
-
-  const st = normalizeStatus(cert);
-
-  if(st==="pass"){
-    return {label:"PASS",color:C.green,bg:"rgba(0,245,196,0.1)",border:"rgba(0,245,196,0.25)"};
+function statusColor(status) {
+  const s = String(status || "").toLowerCase();
+  if (s.includes("fail") || s.includes("expired")) {
+    return {
+      bg: "rgba(239,68,68,0.15)",
+      border: "rgba(239,68,68,0.35)",
+      text: "#fca5a5",
+    };
   }
-
-  if(st==="fail"){
-    return {label:"FAIL",color:C.red,bg:"rgba(239,68,68,0.1)",border:"rgba(239,68,68,0.25)"};
+  if (s.includes("conditional") || s.includes("expiring")) {
+    return {
+      bg: "rgba(245,158,11,0.15)",
+      border: "rgba(245,158,11,0.35)",
+      text: "#fcd34d",
+    };
   }
-
-  if(st==="conditional"){
-    return {label:"CONDITIONAL",color:C.yellow,bg:"rgba(251,191,36,0.1)",border:"rgba(251,191,36,0.25)"};
-  }
-
-  return {label:"UNKNOWN",color:"#cbd5e1",bg:"rgba(255,255,255,0.05)",border:"rgba(255,255,255,0.1)"};
-
+  return {
+    bg: "rgba(34,197,94,0.15)",
+    border: "rgba(34,197,94,0.35)",
+    text: "#86efac",
+  };
 }
 
-function formatDate(v){
+export default function CertificatesPage() {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
 
-  if(!v) return "—";
-
-  const d = new Date(v);
-
-  if(isNaN(d.getTime())) return v;
-
-  return d.toLocaleDateString("en-GB",{
-    day:"2-digit",
-    month:"short",
-    year:"numeric"
-  });
-
-}
-
-function Th({children}){
-  return (
-    <th style={{
-      textAlign:"left",
-      padding:"14px",
-      color:"#94a3b8",
-      fontSize:11,
-      fontWeight:800,
-      textTransform:"uppercase"
-    }}>
-      {children}
-    </th>
-  );
-}
-
-function Td({children,strong}){
-  return (
-    <td style={{
-      padding:"14px",
-      color: strong ? "#fff" : "#cbd5e1",
-      fontWeight: strong ? 800 : 500
-    }}>
-      {children}
-    </td>
-  );
-}
-
-function CertificatesPageInner(){
-
-  const searchParams = useSearchParams();
-  const clientId = searchParams.get("client");
-
-  const [certificates,setCertificates] = useState([]);
-  const [client,setClient] = useState(null);
-  const [loading,setLoading] = useState(true);
-
-  const [search,setSearch] = useState("");
-  const [statusFilter,setStatusFilter] = useState("all");
-
-  useEffect(()=>{
-
-    async function load(){
-
+  useEffect(() => {
+    async function loadCertificates() {
       setLoading(true);
 
-      let certs=[];
-
-      if(clientId){
-
-        const {data:clientData}=await getClientById(clientId);
-        setClient(clientData);
-
-        const {data:assets}=await supabase
-        .from("assets")
-        .select("id")
-        .eq("client_id",clientId);
-
-        const assetIds=(assets||[]).map(a=>a.id);
-
-        if(assetIds.length>0){
-
-          const {data}=await supabase
-          .from("certificates")
-          .select("*")
-          .in("asset_id",assetIds)
-          .order("created_at",{ascending:false});
-
-          certs=data||[];
-        }
-
-      }else{
-
-        const {data}=await supabase
+      const { data } = await supabase
         .from("certificates")
-        .select("*")
-        .order("created_at",{ascending:false});
+        .select(`
+          id,
+          certificate_number,
+          certificate_type,
+          company,
+          equipment_description,
+          equipment_location,
+          equipment_id,
+          equipment_status,
+          issued_at,
+          valid_to,
+          status,
+          created_at,
+          assets (
+            id,
+            asset_tag,
+            asset_name,
+            asset_type
+          )
+        `)
+        .order("created_at", { ascending: false });
 
-        certs=data||[];
-
-      }
-
-      setCertificates(certs);
+      setRows(data || []);
       setLoading(false);
-
     }
 
-    load();
+    loadCertificates();
+  }, []);
 
-  },[clientId]);
+  const filtered = useMemo(() => {
+    let data = [...rows];
 
-  const filtered=useMemo(()=>{
+    if (filter !== "all") {
+      data = data.filter((row) =>
+        String(row.status || row.equipment_status || "")
+          .toLowerCase()
+          .includes(filter)
+      );
+    }
 
-    return certificates.filter(cert=>{
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      data = data.filter((row) =>
+        [
+          row.certificate_number,
+          row.certificate_type,
+          row.company,
+          row.equipment_description,
+          row.equipment_location,
+          row.equipment_id,
+          row.assets?.asset_tag,
+          row.assets?.asset_name,
+          row.assets?.asset_type,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(q))
+      );
+    }
 
-      const q=search.toLowerCase();
-
-      const matchSearch=
-        !q ||
-        (cert.certificate_number||"").toLowerCase().includes(q) ||
-        (cert.company||"").toLowerCase().includes(q) ||
-        (cert.equipment_id||"").toLowerCase().includes(q);
-
-      const matchStatus=
-        statusFilter==="all" || normalizeStatus(cert)===statusFilter;
-
-      return matchSearch && matchStatus;
-
-    });
-
-  },[certificates,search,statusFilter]);
+    return data;
+  }, [rows, search, filter]);
 
   return (
-
     <AppLayout title="Certificates">
-
-      <div style={{display:"flex",gap:10,marginBottom:20}}>
-
-        <input
-        placeholder="Search certificate..."
-        value={search}
-        onChange={e=>setSearch(e.target.value)}
-        style={{
-          padding:"10px",
-          borderRadius:8,
-          border:"1px solid #333",
-          background:"#111",
-          color:"#fff"
-        }}
-        />
-
-        <select
-        value={statusFilter}
-        onChange={e=>setStatusFilter(e.target.value)}
-        style={{
-          padding:"10px",
-          borderRadius:8,
-          background:"#111",
-          color:"#fff"
-        }}
+      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 16,
+            flexWrap: "wrap",
+            alignItems: "center",
+            marginBottom: 20,
+          }}
         >
-          <option value="all">All</option>
-          <option value="pass">Pass</option>
-          <option value="conditional">Conditional</option>
-          <option value="fail">Fail</option>
-        </select>
-
-      </div>
-
-      <div style={{
-        background:"#111",
-        borderRadius:14,
-        overflow:"hidden"
-      }}>
-
-        {loading ? (
-
-          <div style={{padding:40,textAlign:"center"}}>
-            Loading certificates...
+          <div>
+            <h1 style={{ color: "#fff", margin: 0 }}>Certificates</h1>
+            <p style={{ color: "#94a3b8", marginTop: 8 }}>
+              View, create and manage equipment certificates.
+            </p>
           </div>
 
-        ) : (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <Link
+              href="/certificates/import"
+              style={{
+                padding: "10px 16px",
+                borderRadius: 8,
+                background: "rgba(255,255,255,0.06)",
+                color: "#e5e7eb",
+                textDecoration: "none",
+                border: "1px solid rgba(255,255,255,0.1)",
+                fontWeight: 700,
+              }}
+            >
+              Import
+            </Link>
 
-          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <Link
+              href="/certificates/create"
+              style={{
+                padding: "10px 16px",
+                borderRadius: 8,
+                background: "#2563eb",
+                color: "#fff",
+                textDecoration: "none",
+                fontWeight: 700,
+              }}
+            >
+              Create Certificate
+            </Link>
+          </div>
+        </div>
 
-            <thead>
+        <div
+          style={{
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 16,
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              flexWrap: "wrap",
+              marginBottom: 18,
+            }}
+          >
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search certificate number, company, equipment, tag..."
+              style={{
+                flex: 1,
+                minWidth: 260,
+                padding: "11px 14px",
+                borderRadius: 10,
+                background: "#0f172a",
+                color: "#e5e7eb",
+                border: "1px solid rgba(255,255,255,0.12)",
+              }}
+            />
 
-              <tr>
+            <select
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              style={{
+                padding: "11px 14px",
+                borderRadius: 10,
+                background: "#0f172a",
+                color: "#e5e7eb",
+                border: "1px solid rgba(255,255,255,0.12)",
+                minWidth: 180,
+              }}
+            >
+              <option value="all">All Status</option>
+              <option value="issued">Issued</option>
+              <option value="draft">Draft</option>
+              <option value="expired">Expired</option>
+              <option value="pass">PASS</option>
+              <option value="fail">FAIL</option>
+              <option value="conditional">CONDITIONAL</option>
+            </select>
+          </div>
 
-                <Th>Certificate</Th>
-                <Th>Client</Th>
-                <Th>Equipment</Th>
-                <Th>Issued</Th>
-                <Th>Valid</Th>
-                <Th>Status</Th>
-                <Th>Action</Th>
-
-              </tr>
-
-            </thead>
-
-            <tbody>
-
-              {filtered.map(cert=>{
-
-                const status=getStatusMeta(cert);
-
-                return (
-
-                  <tr key={cert.id} style={{borderTop:"1px solid #222"}}>
-
-                    <Td strong>{cert.certificate_number}</Td>
-
-                    <Td>{cert.company}</Td>
-
-                    <Td>{cert.equipment_description}</Td>
-
-                    <Td>{formatDate(cert.issued_at)}</Td>
-
-                    <Td>{formatDate(cert.valid_to)}</Td>
-
-                    <Td>
-
-                      <span style={{
-                        padding:"5px 10px",
-                        borderRadius:999,
-                        color:status.color,
-                        border:`1px solid ${status.border}`,
-                        background:status.bg
-                      }}>
-                        {status.label}
-                      </span>
-
-                    </Td>
-
-                    <Td>
-
-                      <a
-                      href={`/certificates/${cert.id}`}
-                      style={{
-                        padding:"6px 12px",
-                        borderRadius:8,
-                        background:"rgba(79,195,247,0.1)",
-                        color:C.blue,
-                        textDecoration:"none"
-                      }}>
-                        Open
-                      </a>
-
-                    </Td>
-
+          {loading ? (
+            <div style={{ color: "#cbd5e1", padding: "30px 0" }}>Loading certificates...</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ color: "#94a3b8", padding: "30px 0" }}>No certificates found.</div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  minWidth: 980,
+                }}
+              >
+                <thead>
+                  <tr style={{ textAlign: "left", color: "#94a3b8", fontSize: 12 }}>
+                    <th style={{ padding: "12px 10px" }}>Certificate No</th>
+                    <th style={{ padding: "12px 10px" }}>Type</th>
+                    <th style={{ padding: "12px 10px" }}>Company</th>
+                    <th style={{ padding: "12px 10px" }}>Equipment</th>
+                    <th style={{ padding: "12px 10px" }}>Tag</th>
+                    <th style={{ padding: "12px 10px" }}>Issued</th>
+                    <th style={{ padding: "12px 10px" }}>Expiry</th>
+                    <th style={{ padding: "12px 10px" }}>Status</th>
+                    <th style={{ padding: "12px 10px" }}>Action</th>
                   </tr>
-
-                );
-
-              })}
-
-            </tbody>
-
-          </table>
-
-        )}
-
+                </thead>
+                <tbody>
+                  {filtered.map((row) => {
+                    const color = statusColor(row.status || row.equipment_status);
+                    return (
+                      <tr
+                        key={row.id}
+                        style={{
+                          borderTop: "1px solid rgba(255,255,255,0.08)",
+                          color: "#e5e7eb",
+                        }}
+                      >
+                        <td style={{ padding: "14px 10px", fontWeight: 700 }}>
+                          {row.certificate_number || "Auto"}
+                        </td>
+                        <td style={{ padding: "14px 10px" }}>
+                          {row.certificate_type || "N/A"}
+                        </td>
+                        <td style={{ padding: "14px 10px" }}>
+                          {row.company || "N/A"}
+                        </td>
+                        <td style={{ padding: "14px 10px" }}>
+                          {row.equipment_description || row.assets?.asset_type || "N/A"}
+                        </td>
+                        <td style={{ padding: "14px 10px" }}>
+                          {row.equipment_id || row.assets?.asset_tag || "N/A"}
+                        </td>
+                        <td style={{ padding: "14px 10px" }}>
+                          {formatDate(row.issued_at)}
+                        </td>
+                        <td style={{ padding: "14px 10px" }}>
+                          {formatDate(row.valid_to)}
+                        </td>
+                        <td style={{ padding: "14px 10px" }}>
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "6px 10px",
+                              borderRadius: 999,
+                              background: color.bg,
+                              border: `1px solid ${color.border}`,
+                              color: color.text,
+                              fontSize: 12,
+                              fontWeight: 700,
+                            }}
+                          >
+                            {row.equipment_status || row.status || "issued"}
+                          </span>
+                        </td>
+                        <td style={{ padding: "14px 10px" }}>
+                          <Link
+                            href={`/certificates/${row.id}`}
+                            style={{
+                              color: "#60a5fa",
+                              textDecoration: "none",
+                              fontWeight: 700,
+                            }}
+                          >
+                            View
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
-
     </AppLayout>
-
   );
-
-}
-
-export default function CertificatesPage(){
-
-  return(
-
-    <Suspense fallback={<div>Loading...</div>}>
-      <CertificatesPageInner/>
-    </Suspense>
-
-  );
-
 }
