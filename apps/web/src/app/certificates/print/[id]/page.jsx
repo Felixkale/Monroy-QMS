@@ -63,11 +63,7 @@ function withUnit(value, unit) {
   if (value === null || value === undefined) return null;
   const str = String(value).trim();
   if (!str) return null;
-
-  const lower = str.toLowerCase();
-  const unitLower = unit.toLowerCase();
-
-  if (lower.includes(unitLower)) return str;
+  if (str.toLowerCase().includes(unit.toLowerCase())) return str;
   return `${str} ${unit}`;
 }
 
@@ -100,9 +96,14 @@ export default function PrintCertificatePage() {
   const id = params?.id;
 
   const [loading, setLoading] = useState(true);
+  const [savingMeta, setSavingMeta] = useState(false);
+  const [uploadingSignature, setUploadingSignature] = useState(false);
   const [certificate, setCertificate] = useState(null);
   const [asset, setAsset] = useState(null);
   const [nameplate, setNameplate] = useState(null);
+
+  const [inspectorNameInput, setInspectorNameInput] = useState("");
+  const [signatureUrlInput, setSignatureUrlInput] = useState("");
 
   useEffect(() => {
     async function loadData() {
@@ -118,7 +119,10 @@ export default function PrintCertificatePage() {
           .single();
 
         if (certError) throw certError;
+
         setCertificate(cert);
+        setInspectorNameInput(cert?.inspector_name || "");
+        setSignatureUrlInput(cert?.signature_url || "");
 
         if (cert?.asset_id) {
           const [{ data: assetData }, { data: nameplateData }] = await Promise.all([
@@ -153,6 +157,72 @@ export default function PrintCertificatePage() {
     loadData();
   }, [id]);
 
+  async function saveCertificateMeta(nextInspectorName, nextSignatureUrl) {
+    if (!certificate?.id) return;
+
+    try {
+      setSavingMeta(true);
+
+      const payload = {
+        inspector_name: nextInspectorName || null,
+        signature_url: nextSignatureUrl || null,
+      };
+
+      const { data, error } = await supabase
+        .from("certificates")
+        .update(payload)
+        .eq("id", certificate.id)
+        .select("*")
+        .single();
+
+      if (error) throw error;
+
+      setCertificate(data);
+      setInspectorNameInput(data?.inspector_name || "");
+      setSignatureUrlInput(data?.signature_url || "");
+    } catch (err) {
+      alert(err?.message || "Failed to save certificate details.");
+    } finally {
+      setSavingMeta(false);
+    }
+  }
+
+  async function handleSignatureUpload(e) {
+    try {
+      const file = e.target.files?.[0];
+      if (!file || !certificate?.id) return;
+
+      setUploadingSignature(true);
+
+      const ext = file.name.split(".").pop() || "png";
+      const fileName = `${certificate.id}-${Date.now()}.${ext}`;
+      const filePath = `certificate-signatures/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("documents")
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from("documents")
+        .getPublicUrl(filePath);
+
+      const publicUrl = publicUrlData?.publicUrl;
+      if (!publicUrl) throw new Error("Failed to get uploaded signature URL.");
+
+      setSignatureUrlInput(publicUrl);
+      await saveCertificateMeta(inspectorNameInput, publicUrl);
+    } catch (err) {
+      alert(err?.message || "Failed to upload signature.");
+    } finally {
+      setUploadingSignature(false);
+    }
+  }
+
   const equipmentType = asset?.asset_type || certificate?.equipment_description || "";
   const isPressure = PRESSURE_TYPES.includes(equipmentType);
   const isLifting = LIFTING_TYPES.includes(equipmentType);
@@ -182,10 +252,7 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
       ? cleanField("Design Pressure:", withUnit(asset?.design_pressure, "kPa"))
       : null,
     isPressure
-      ? cleanField(
-          "MAWP:",
-          withUnit(certificate?.mawp || asset?.working_pressure, "kPa")
-        )
+      ? cleanField("MAWP:", withUnit(certificate?.mawp || asset?.working_pressure, "kPa"))
       : null,
     isPressure
       ? cleanField("Test Pressure:", withUnit(asset?.test_pressure, "kPa"))
@@ -259,7 +326,7 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
         className="print-toolbar"
         style={{
           padding: 16,
-          display: "flex",
+          display: "grid",
           gap: 12,
           justifyContent: "center",
           background: "#e5e7eb",
@@ -268,26 +335,90 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
           zIndex: 10,
         }}
       >
-        <button
-          onClick={() => window.print()}
+        <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+          <button
+            onClick={() => window.print()}
+            style={{
+              padding: "10px 18px",
+              border: "none",
+              borderRadius: 8,
+              background: "#0ea5e9",
+              color: "#fff",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Print / Save PDF
+          </button>
+
+          <button
+            onClick={() => saveCertificateMeta(inspectorNameInput, signatureUrlInput)}
+            disabled={savingMeta || uploadingSignature}
+            style={{
+              padding: "10px 18px",
+              border: "none",
+              borderRadius: 8,
+              background: "#0284c7",
+              color: "#fff",
+              fontWeight: 700,
+              cursor: "pointer",
+              opacity: savingMeta || uploadingSignature ? 0.7 : 1,
+            }}
+          >
+            {savingMeta ? "Saving..." : "Save Inspector & Signature"}
+          </button>
+        </div>
+
+        <div
           style={{
-            padding: "10px 18px",
-            border: "none",
-            borderRadius: 8,
-            background: "#8b1a1a",
-            color: "#fff",
-            fontWeight: 700,
-            cursor: "pointer",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))",
+            gap: 12,
+            maxWidth: 900,
+            margin: "0 auto",
+            width: "100%",
           }}
         >
-          Print / Save PDF
-        </button>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 6 }}>
+              Inspector Name
+            </div>
+            <input
+              value={inspectorNameInput}
+              onChange={(e) => setInspectorNameInput(e.target.value)}
+              placeholder="Type inspector name"
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: 8,
+                border: "1px solid #cbd5e1",
+                fontSize: 13,
+              }}
+            />
+          </div>
+
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 6 }}>
+              Upload Signature
+            </div>
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/webp"
+              onChange={handleSignatureUpload}
+              style={{
+                width: "100%",
+                padding: "8px",
+                borderRadius: 8,
+                border: "1px solid #cbd5e1",
+                background: "#fff",
+                fontSize: 13,
+              }}
+            />
+          </div>
+        </div>
       </div>
 
-      <div
-        className="cert-wrap"
-        style={{ padding: 24, display: "flex", justifyContent: "center" }}
-      >
+      <div className="cert-wrap" style={{ padding: 24, display: "flex", justifyContent: "center" }}>
         <div
           className="cert-sheet"
           style={{
@@ -303,7 +434,7 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
               justifyContent: "space-between",
               alignItems: "center",
               padding: "16px 22px 12px",
-              borderBottom: "3px solid #8b1a1a",
+              borderBottom: "3px solid #0ea5e9",
             }}
           >
             <div>
@@ -339,7 +470,7 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
             </div>
 
             <img
-              src={certificate.logo_url || "/monroy-logo.png"}
+              src={certificate.logo_url || "/logo.png"}
               alt="Monroy Logo"
               style={{ height: 90, width: "auto", objectFit: "contain" }}
             />
@@ -348,11 +479,11 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
           <div
             style={{
               background:
-                "linear-gradient(180deg, #6b6b6b 0%, #a7a7a7 50%, #6b6b6b 100%)",
+                "linear-gradient(180deg, #38bdf8 0%, #7dd3fc 50%, #0ea5e9 100%)",
               textAlign: "center",
               padding: "10px 0",
-              borderTop: "1px solid #999",
-              borderBottom: "1px solid #666",
+              borderTop: "1px solid #7dd3fc",
+              borderBottom: "1px solid #0284c7",
             }}
           >
             <h1
@@ -374,14 +505,14 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
               <div
                 style={{
                   background:
-                    "linear-gradient(180deg, #9a9a9a 0%, #d1d1d1 50%, #9a9a9a 100%)",
+                    "linear-gradient(180deg, #38bdf8 0%, #7dd3fc 50%, #0ea5e9 100%)",
                   padding: "6px 10px",
                   fontSize: 11,
                   fontWeight: 900,
-                  color: "#111",
+                  color: "#fff",
                   letterSpacing: "0.06em",
                   textTransform: "uppercase",
-                  borderBottom: "1px solid #999",
+                  borderBottom: "1px solid #0284c7",
                 }}
               >
                 Certificate Details
@@ -431,12 +562,12 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
                 <div
                   style={{
                     background:
-                      "linear-gradient(180deg, #9a9a9a 0%, #d1d1d1 50%, #9a9a9a 100%)",
+                      "linear-gradient(180deg, #38bdf8 0%, #7dd3fc 50%, #0ea5e9 100%)",
                     padding: "6px 10px",
                     fontSize: 11,
                     fontWeight: 900,
                     textTransform: "uppercase",
-                    borderBottom: "1px solid #999",
+                    borderBottom: "1px solid #0284c7",
                     color: "#fff",
                   }}
                 >
@@ -453,12 +584,12 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
                 <div
                   style={{
                     background:
-                      "linear-gradient(180deg, #9a9a9a 0%, #d1d1d1 50%, #9a9a9a 100%)",
+                      "linear-gradient(180deg, #38bdf8 0%, #7dd3fc 50%, #0ea5e9 100%)",
                     padding: "6px 10px",
                     fontSize: 11,
                     fontWeight: 900,
                     textTransform: "uppercase",
-                    borderBottom: "1px solid #999",
+                    borderBottom: "1px solid #0284c7",
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
@@ -472,7 +603,7 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
                       fontWeight: 700,
                       padding: "2px 8px",
                       borderRadius: 3,
-                      background: isPressure ? "#1a56a8" : "#8b4a00",
+                      background: isPressure ? "#075985" : "#0369a1",
                       color: "#fff",
                     }}
                   >
@@ -499,12 +630,12 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
                 <div
                   style={{
                     background:
-                      "linear-gradient(180deg, #9a9a9a 0%, #d1d1d1 50%, #9a9a9a 100%)",
+                      "linear-gradient(180deg, #38bdf8 0%, #7dd3fc 50%, #0ea5e9 100%)",
                     padding: "6px 10px",
                     fontSize: 11,
                     fontWeight: 900,
                     textTransform: "uppercase",
-                    borderBottom: "1px solid #999",
+                    borderBottom: "1px solid #0284c7",
                     color: "#fff",
                   }}
                 >
@@ -533,12 +664,12 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
                 <div
                   style={{
                     background:
-                      "linear-gradient(180deg, #9a9a9a 0%, #d1d1d1 50%, #9a9a9a 100%)",
+                      "linear-gradient(180deg, #38bdf8 0%, #7dd3fc 50%, #0ea5e9 100%)",
                     padding: "6px 10px",
                     fontSize: 11,
                     fontWeight: 900,
                     textTransform: "uppercase",
-                    borderBottom: "1px solid #999",
+                    borderBottom: "1px solid #0284c7",
                     color: "#fff",
                   }}
                 >
@@ -625,12 +756,12 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
               <div
                 style={{
                   background:
-                    "linear-gradient(180deg, #9a9a9a 0%, #d1d1d1 50%, #9a9a9a 100%)",
+                    "linear-gradient(180deg, #38bdf8 0%, #7dd3fc 50%, #0ea5e9 100%)",
                   padding: "6px 10px",
                   fontSize: 11,
                   fontWeight: 900,
                   textTransform: "uppercase",
-                  borderBottom: "1px solid #999",
+                  borderBottom: "1px solid #0284c7",
                   color: "#fff",
                 }}
               >
@@ -756,12 +887,12 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
 
           <div
             style={{
-              background: "#f0f0f0",
-              borderTop: "2px solid #bbb",
+              background: "#f0f9ff",
+              borderTop: "2px solid #7dd3fc",
               padding: "8px 20px",
               textAlign: "center",
               fontSize: 9.5,
-              color: "#555",
+              color: "#475569",
               lineHeight: 1.6,
             }}
           >
