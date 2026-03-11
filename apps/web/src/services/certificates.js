@@ -1,86 +1,5 @@
 import { supabase } from "@/lib/supabaseClient";
 
-function notConfigured(defaultData = null) {
-  return { data: defaultData, error: "Supabase not configured" };
-}
-
-function normalizeText(value, fallback = null) {
-  if (value === undefined || value === null) return fallback;
-  const trimmed = String(value).trim();
-  return trimmed === "" ? fallback : trimmed;
-}
-
-function normalizeDate(value, fallback = null) {
-  if (!value) return fallback;
-  const str = String(value).trim();
-  return str || fallback;
-}
-
-function normalizeCertificatePayload(data = {}) {
-  const inspectionResult = normalizeText(
-    data.inspection_result || data.equipment_status,
-    "PASS"
-  );
-
-  return {
-    certificate_type: normalizeText(
-      data.certificate_type,
-      "Certificate of Statutory Inspection"
-    ),
-    asset_id: normalizeText(data.asset_id),
-    company: normalizeText(data.company),
-    equipment_description: normalizeText(data.equipment_description),
-    equipment_location: normalizeText(data.equipment_location),
-    equipment_id: normalizeText(data.equipment_id),
-    swl: normalizeText(data.swl),
-    mawp: normalizeText(data.mawp),
-    equipment_status: inspectionResult,
-    legal_framework: normalizeText(
-      data.legal_framework,
-      "Mines, Quarries, Works and Machinery Act Cap 44:02"
-    ),
-    inspector_name: normalizeText(data.inspector_name),
-    inspector_id: normalizeText(data.inspector_id),
-    signature_url: normalizeText(data.signature_url),
-    logo_url: normalizeText(data.logo_url, "/monroy-logo.png"),
-    pdf_url: normalizeText(data.pdf_url),
-    issued_at: data.issued_at
-      ? new Date(data.issued_at).toISOString()
-      : new Date().toISOString(),
-    valid_to: normalizeDate(data.valid_to),
-    status: normalizeText(data.status, "issued"),
-  };
-}
-
-function getExpiryState(validTo) {
-  if (!validTo) return "unknown";
-
-  const today = new Date();
-  const expiry = new Date(validTo);
-
-  if (Number.isNaN(expiry.getTime())) return "unknown";
-
-  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const expiryDate = new Date(expiry.getFullYear(), expiry.getMonth(), expiry.getDate());
-
-  const diffMs = expiryDate.getTime() - startOfToday.getTime();
-  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays < 0) return "expired";
-  if (diffDays <= 30) return "expiring";
-  return "valid";
-}
-
-function mapCertificateRow(row) {
-  if (!row) return null;
-
-  return {
-    ...row,
-    inspection_result: row.equipment_status || "PASS",
-    expiry_state: getExpiryState(row.valid_to),
-  };
-}
-
 const CERTIFICATE_SELECT = `
   id,
   certificate_number,
@@ -104,17 +23,23 @@ const CERTIFICATE_SELECT = `
   pdf_url,
   created_at,
   updated_at,
-  asset:assets (
+  assets (
     id,
+    client_id,
     asset_tag,
     asset_name,
     asset_type,
-    serial_number,
-    location,
     manufacturer,
     model,
+    serial_number,
     year_built,
+    location,
+    department,
+    cert_type,
     design_standard,
+    inspection_freq,
+    shell_material,
+    fluid_type,
     design_pressure,
     working_pressure,
     test_pressure,
@@ -126,16 +51,79 @@ const CERTIFICATE_SELECT = `
     sling_length,
     chain_size,
     rope_diameter,
-    shell_material,
-    fluid_type,
-    notes,
+    last_inspection_date,
     next_inspection_date,
-    client_id,
+    license_status,
+    license_expiry,
+    condition,
+    status,
+    notes,
     clients (
-      company_name
+      id,
+      company_name,
+      company_code
     )
   )
 `;
+
+function notConfigured(defaultData = null) {
+  return { data: defaultData, error: { message: "Supabase not configured" } };
+}
+
+function normalizeText(value, fallback = null) {
+  if (value === undefined || value === null) return fallback;
+  const text = String(value).trim();
+  return text === "" ? fallback : text;
+}
+
+function normalizeDate(value) {
+  if (!value) return null;
+  return String(value).slice(0, 10);
+}
+
+function mapCertificateRow(row) {
+  if (!row) return null;
+
+  return {
+    ...row,
+    certificate_no: row.certificate_number || null,
+    issue_date: row.issued_at ? String(row.issued_at).slice(0, 10) : null,
+    expiry_date: row.valid_to || null,
+    asset: row.assets || null,
+  };
+}
+
+export function buildCertificateQrValue(certificate = {}) {
+  const certificateNumber =
+    certificate.certificate_number ||
+    certificate.certificate_no ||
+    "PENDING-CERTIFICATE";
+
+  const equipmentId =
+    certificate.equipment_id ||
+    certificate.asset?.asset_tag ||
+    "NO-EQUIPMENT";
+
+  const company =
+    certificate.company ||
+    certificate.asset?.clients?.company_name ||
+    "";
+
+  const inspector = certificate.inspector_name || "";
+  const legal =
+    certificate.legal_framework ||
+    "Mines, Quarries, Works and Machinery Act Cap 44:02";
+
+  return [
+    `Certificate: ${certificateNumber}`,
+    `Equipment: ${equipmentId}`,
+    company ? `Company: ${company}` : null,
+    inspector ? `Inspector: ${inspector}` : null,
+    `Legal: ${legal}`,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
 
 export async function getCertificates() {
   if (!supabase) return notConfigured([]);
@@ -145,39 +133,35 @@ export async function getCertificates() {
     .select(CERTIFICATE_SELECT)
     .order("created_at", { ascending: false });
 
-  if (error) {
-    return { data: [], error };
-  }
-
   return {
     data: (data || []).map(mapCertificateRow),
-    error: null,
+    error,
   };
 }
 
 export async function getCertificateById(id) {
   if (!supabase) return notConfigured(null);
-  if (!id) return { data: null, error: { message: "Certificate ID is required" } };
+  if (!id) {
+    return { data: null, error: { message: "Certificate ID is required" } };
+  }
 
   const { data, error } = await supabase
     .from("certificates")
     .select(CERTIFICATE_SELECT)
     .eq("id", id)
-    .single();
-
-  if (error || !data) {
-    return { data: null, error };
-  }
+    .maybeSingle();
 
   return {
     data: mapCertificateRow(data),
-    error: null,
+    error,
   };
 }
 
 export async function getCertificatesByAssetId(assetId) {
   if (!supabase) return notConfigured([]);
-  if (!assetId) return { data: [], error: { message: "Asset ID is required" } };
+  if (!assetId) {
+    return { data: [], error: { message: "Asset ID is required" } };
+  }
 
   const { data, error } = await supabase
     .from("certificates")
@@ -191,65 +175,11 @@ export async function getCertificatesByAssetId(assetId) {
   };
 }
 
-export async function createCertificate(certificateData) {
-  if (!supabase) return notConfigured(null);
-
-  const payload = normalizeCertificatePayload(certificateData);
-
-  const { data, error } = await supabase
-    .from("certificates")
-    .insert([payload])
-    .select(CERTIFICATE_SELECT)
-    .single();
-
-  if (error || !data) {
-    return { data: null, error };
-  }
-
-  return {
-    data: mapCertificateRow(data),
-    error: null,
-  };
-}
-
-export async function updateCertificateById(id, updates) {
-  if (!supabase) return notConfigured(null);
-  if (!id) return { data: null, error: { message: "Certificate ID is required" } };
-
-  const payload = normalizeCertificatePayload(updates);
-
-  const { data, error } = await supabase
-    .from("certificates")
-    .update(payload)
-    .eq("id", id)
-    .select(CERTIFICATE_SELECT)
-    .single();
-
-  if (error || !data) {
-    return { data: null, error };
-  }
-
-  return {
-    data: mapCertificateRow(data),
-    error: null,
-  };
-}
-
-export async function deleteCertificateById(id) {
-  if (!supabase) return notConfigured(null);
-  if (!id) return { data: null, error: { message: "Certificate ID is required" } };
-
-  const { error } = await supabase
-    .from("certificates")
-    .delete()
-    .eq("id", id);
-
-  return { data: !error, error };
-}
-
 export async function getLatestCertificateByAssetId(assetId) {
   if (!supabase) return notConfigured(null);
-  if (!assetId) return { data: null, error: { message: "Asset ID is required" } };
+  if (!assetId) {
+    return { data: null, error: { message: "Asset ID is required" } };
+  }
 
   const { data, error } = await supabase
     .from("certificates")
@@ -265,80 +195,132 @@ export async function getLatestCertificateByAssetId(assetId) {
   };
 }
 
-export async function getCertificateStats() {
-  if (!supabase) {
-    return {
-      total: 0,
-      pass: 0,
-      conditional: 0,
-      fail: 0,
-      expired: 0,
-    };
+export async function createCertificate(certificateData = {}) {
+  if (!supabase) return notConfigured(null);
+
+  const payload = {
+    asset_id: normalizeText(certificateData.asset_id),
+    certificate_type: normalizeText(
+      certificateData.certificate_type,
+      "Certificate of Statutory Inspection"
+    ),
+    company: normalizeText(certificateData.company),
+    equipment_description: normalizeText(certificateData.equipment_description),
+    equipment_location: normalizeText(certificateData.equipment_location),
+    equipment_id: normalizeText(certificateData.equipment_id),
+    swl: normalizeText(certificateData.swl),
+    mawp: normalizeText(certificateData.mawp),
+    equipment_status: normalizeText(certificateData.equipment_status, "PASS"),
+    issued_at: certificateData.issued_at || new Date().toISOString(),
+    valid_to: normalizeDate(certificateData.valid_to),
+    status: normalizeText(certificateData.status, "issued"),
+    legal_framework: normalizeText(
+      certificateData.legal_framework,
+      "Mines, Quarries, Works and Machinery Act Cap 44:02"
+    ),
+    inspector_name: normalizeText(certificateData.inspector_name),
+    inspector_id: normalizeText(certificateData.inspector_id),
+    signature_url: normalizeText(certificateData.signature_url),
+    logo_url: normalizeText(certificateData.logo_url, "/monroy-logo.png"),
+    pdf_url: normalizeText(certificateData.pdf_url),
+  };
+
+  if (!payload.asset_id) {
+    return { data: null, error: { message: "Asset is required" } };
+  }
+
+  if (!payload.inspector_name) {
+    return { data: null, error: { message: "Inspector name is required" } };
   }
 
   const { data, error } = await supabase
     .from("certificates")
-    .select("id, equipment_status, valid_to");
-
-  if (error || !data) {
-    return {
-      total: 0,
-      pass: 0,
-      conditional: 0,
-      fail: 0,
-      expired: 0,
-    };
-  }
-
-  const mapped = (data || []).map((item) => ({
-    ...item,
-    expiry_state: getExpiryState(item.valid_to),
-  }));
+    .insert([payload])
+    .select(CERTIFICATE_SELECT)
+    .single();
 
   return {
-    total: mapped.length,
-    pass: mapped.filter((item) => String(item.equipment_status || "").toUpperCase() === "PASS").length,
-    conditional: mapped.filter((item) => String(item.equipment_status || "").toUpperCase() === "CONDITIONAL").length,
-    fail: mapped.filter((item) => String(item.equipment_status || "").toUpperCase() === "FAIL").length,
-    expired: mapped.filter((item) => item.expiry_state === "expired").length,
+    data: mapCertificateRow(data),
+    error,
   };
 }
 
-export async function uploadCertificateSignature(file) {
+export async function updateCertificate(id, updates = {}) {
   if (!supabase) return notConfigured(null);
-  if (!file) return { data: null, error: { message: "Signature file is required" } };
-
-  const ext = file.name?.split(".").pop() || "png";
-  const fileName = `signature-${Date.now()}.${ext}`;
-  const path = `certificate-signatures/${fileName}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from("documents")
-    .upload(path, file, { upsert: true });
-
-  if (uploadError) {
-    return { data: null, error: uploadError };
+  if (!id) {
+    return { data: null, error: { message: "Certificate ID is required" } };
   }
 
-  const { data } = supabase.storage.from("documents").getPublicUrl(path);
+  const payload = {};
+
+  if ("asset_id" in updates) payload.asset_id = normalizeText(updates.asset_id);
+  if ("certificate_type" in updates) {
+    payload.certificate_type = normalizeText(updates.certificate_type);
+  }
+  if ("company" in updates) payload.company = normalizeText(updates.company);
+  if ("equipment_description" in updates) {
+    payload.equipment_description = normalizeText(updates.equipment_description);
+  }
+  if ("equipment_location" in updates) {
+    payload.equipment_location = normalizeText(updates.equipment_location);
+  }
+  if ("equipment_id" in updates) {
+    payload.equipment_id = normalizeText(updates.equipment_id);
+  }
+  if ("swl" in updates) payload.swl = normalizeText(updates.swl);
+  if ("mawp" in updates) payload.mawp = normalizeText(updates.mawp);
+  if ("equipment_status" in updates) {
+    payload.equipment_status = normalizeText(updates.equipment_status);
+  }
+  if ("issued_at" in updates) {
+    payload.issued_at = updates.issued_at || null;
+  }
+  if ("valid_to" in updates) {
+    payload.valid_to = normalizeDate(updates.valid_to);
+  }
+  if ("status" in updates) payload.status = normalizeText(updates.status);
+  if ("legal_framework" in updates) {
+    payload.legal_framework = normalizeText(updates.legal_framework);
+  }
+  if ("inspector_name" in updates) {
+    payload.inspector_name = normalizeText(updates.inspector_name);
+  }
+  if ("inspector_id" in updates) {
+    payload.inspector_id = normalizeText(updates.inspector_id);
+  }
+  if ("signature_url" in updates) {
+    payload.signature_url = normalizeText(updates.signature_url);
+  }
+  if ("logo_url" in updates) {
+    payload.logo_url = normalizeText(updates.logo_url);
+  }
+  if ("pdf_url" in updates) {
+    payload.pdf_url = normalizeText(updates.pdf_url);
+  }
+
+  const { data, error } = await supabase
+    .from("certificates")
+    .update(payload)
+    .eq("id", id)
+    .select(CERTIFICATE_SELECT)
+    .single();
 
   return {
-    data: {
-      path,
-      publicUrl: data?.publicUrl || null,
-    },
-    error: null,
+    data: mapCertificateRow(data),
+    error,
   };
 }
 
-export function buildCertificateQrValue(certificate) {
-  if (!certificate) return "";
+export async function deleteCertificate(id) {
+  if (!supabase) return notConfigured(null);
+  if (!id) {
+    return { data: null, error: { message: "Certificate ID is required" } };
+  }
 
-  return [
-    `Certificate Number: ${certificate.certificate_number || ""}`,
-    `Equipment Tag: ${certificate.equipment_id || certificate.asset?.asset_tag || ""}`,
-    `Company: ${certificate.company || certificate.asset?.clients?.company_name || ""}`,
-    `Inspector: ${certificate.inspector_name || ""}`,
-    `Legal Compliance: ${certificate.legal_framework || "Mines, Quarries, Works and Machinery Act Cap 44:02"}`,
-  ].join("\n");
+  const { error } = await supabase
+    .from("certificates")
+    .delete()
+    .eq("id", id);
+
+  return { data: !error, error };
 }
