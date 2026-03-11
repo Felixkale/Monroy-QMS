@@ -106,13 +106,15 @@ export default function CertificatesPage() {
       if (certError) throw certError;
 
       setCertificates(certData || []);
-      setStats(statData || {
-        total: 0,
-        pass: 0,
-        conditional: 0,
-        fail: 0,
-        expired: 0,
-      });
+      setStats(
+        statData || {
+          total: 0,
+          pass: 0,
+          conditional: 0,
+          fail: 0,
+          expired: 0,
+        }
+      );
     } catch (err) {
       setCertificates([]);
       setError(err?.message || "Failed to load certificates.");
@@ -354,8 +356,14 @@ export default function CertificatesPage() {
               borderRadius: 8,
               cursor: "pointer",
               fontWeight: 700,
-              border: viewMode === "grid" ? "1px solid rgba(102,126,234,0.35)" : "1px solid rgba(255,255,255,0.1)",
-              background: viewMode === "grid" ? "rgba(102,126,234,0.16)" : "rgba(255,255,255,0.04)",
+              border:
+                viewMode === "grid"
+                  ? "1px solid rgba(102,126,234,0.35)"
+                  : "1px solid rgba(255,255,255,0.1)",
+              background:
+                viewMode === "grid"
+                  ? "rgba(102,126,234,0.16)"
+                  : "rgba(255,255,255,0.04)",
               color: "#fff",
             }}
           >
@@ -370,8 +378,14 @@ export default function CertificatesPage() {
               borderRadius: 8,
               cursor: "pointer",
               fontWeight: 700,
-              border: viewMode === "list" ? "1px solid rgba(102,126,234,0.35)" : "1px solid rgba(255,255,255,0.1)",
-              background: viewMode === "list" ? "rgba(102,126,234,0.16)" : "rgba(255,255,255,0.04)",
+              border:
+                viewMode === "list"
+                  ? "1px solid rgba(102,126,234,0.35)"
+                  : "1px solid rgba(255,255,255,0.1)",
+              background:
+                viewMode === "list"
+                  ? "rgba(102,126,234,0.16)"
+                  : "rgba(255,255,255,0.04)",
               color: "#fff",
             }}
           >
@@ -385,14 +399,7 @@ export default function CertificatesPage() {
       </div>
 
       {loading ? (
-        <div
-          style={{
-            color: "#fff",
-            padding: "40px 0",
-          }}
-        >
-          Loading certificates...
-        </div>
+        <div style={{ color: "#fff", padding: "40px 0" }}>Loading certificates...</div>
       ) : filteredCertificates.length === 0 ? (
         <div
           style={{
@@ -557,7 +564,10 @@ export default function CertificatesPage() {
                   gap: 12,
                   padding: "14px 16px",
                   alignItems: "center",
-                  borderBottom: index === filteredCertificates.length - 1 ? "none" : "1px solid rgba(255,255,255,0.05)",
+                  borderBottom:
+                    index === filteredCertificates.length - 1
+                      ? "none"
+                      : "1px solid rgba(255,255,255,0.05)",
                   color: "#fff",
                   fontSize: 13,
                 }}
