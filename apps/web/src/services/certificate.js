@@ -58,6 +58,8 @@ const CERTIFICATE_SELECT = `
     condition,
     status,
     notes,
+    inspector_name,
+    inspector_signature_url,
     clients (
       id,
       company_name,
@@ -79,6 +81,14 @@ function normalizeText(value, fallback = null) {
 function normalizeDate(value) {
   if (!value) return null;
   return String(value).slice(0, 10);
+}
+
+function withUnit(value, unit) {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (text.toLowerCase().includes(unit.toLowerCase())) return text;
+  return `${text} ${unit}`;
 }
 
 function mapCertificateRow(row) {
@@ -120,7 +130,11 @@ export function buildCertificateQrValue(certificate = {}) {
     certificate.asset?.clients?.company_name ||
     "";
 
-  const inspector = certificate.inspector_name || "";
+  const inspector =
+    certificate.inspector_name ||
+    certificate.asset?.inspector_name ||
+    "";
+
   const legal =
     certificate.legal_framework ||
     "Mines, Quarries, Works and Machinery Act Cap 44:02";
@@ -219,8 +233,8 @@ export async function createCertificate(certificateData = {}) {
     equipment_description: normalizeText(certificateData.equipment_description),
     equipment_location: normalizeText(certificateData.equipment_location),
     equipment_id: normalizeText(certificateData.equipment_id),
-    swl: normalizeText(certificateData.swl),
-    mawp: normalizeText(certificateData.mawp),
+    swl: withUnit(certificateData.swl, "Tons"),
+    mawp: withUnit(certificateData.mawp, "kPa"),
     equipment_status: normalizeText(certificateData.equipment_status, "PASS"),
     issued_at: certificateData.issued_at || new Date().toISOString(),
     valid_to: normalizeDate(certificateData.valid_to),
@@ -232,7 +246,7 @@ export async function createCertificate(certificateData = {}) {
     inspector_name: normalizeText(certificateData.inspector_name),
     inspector_id: normalizeText(certificateData.inspector_id),
     signature_url: normalizeText(certificateData.signature_url),
-    logo_url: normalizeText(certificateData.logo_url, "/monroy-logo.png"),
+    logo_url: normalizeText(certificateData.logo_url, "/logo.png"),
     pdf_url: normalizeText(certificateData.pdf_url),
   };
 
@@ -270,8 +284,8 @@ export async function updateCertificate(id, updates = {}) {
   if ("equipment_description" in updates) payload.equipment_description = normalizeText(updates.equipment_description);
   if ("equipment_location" in updates) payload.equipment_location = normalizeText(updates.equipment_location);
   if ("equipment_id" in updates) payload.equipment_id = normalizeText(updates.equipment_id);
-  if ("swl" in updates) payload.swl = normalizeText(updates.swl);
-  if ("mawp" in updates) payload.mawp = normalizeText(updates.mawp);
+  if ("swl" in updates) payload.swl = withUnit(updates.swl, "Tons");
+  if ("mawp" in updates) payload.mawp = withUnit(updates.mawp, "kPa");
   if ("equipment_status" in updates) payload.equipment_status = normalizeText(updates.equipment_status);
   if ("issued_at" in updates) payload.issued_at = updates.issued_at || null;
   if ("valid_to" in updates) payload.valid_to = normalizeDate(updates.valid_to);
