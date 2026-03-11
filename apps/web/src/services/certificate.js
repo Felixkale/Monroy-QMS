@@ -324,3 +324,63 @@ export async function deleteCertificate(id) {
 
   return { data: !error, error };
 }
+
+export async function getCertificateStats() {
+  if (!supabase) {
+    return {
+      total: 0,
+      issued: 0,
+      valid: 0,
+      expired: 0,
+      draft: 0,
+      rejected: 0,
+      pass: 0,
+      fail: 0,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("certificates")
+    .select("status, equipment_status, valid_to");
+
+  if (error) {
+    throw error;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const stats = {
+    total: 0,
+    issued: 0,
+    valid: 0,
+    expired: 0,
+    draft: 0,
+    rejected: 0,
+    pass: 0,
+    fail: 0,
+  };
+
+  for (const row of data || []) {
+    stats.total += 1;
+
+    const status = String(row.status || "").trim().toLowerCase();
+    const equipmentStatus = String(row.equipment_status || "").trim().toLowerCase();
+    const validTo = row.valid_to ? String(row.valid_to).slice(0, 10) : null;
+
+    if (status === "issued") stats.issued += 1;
+    if (status === "draft") stats.draft += 1;
+    if (status === "rejected") stats.rejected += 1;
+
+    if (equipmentStatus === "pass") stats.pass += 1;
+    if (equipmentStatus === "fail") stats.fail += 1;
+
+    if (validTo) {
+      if (validTo >= today) stats.valid += 1;
+      if (validTo < today) stats.expired += 1;
+    } else {
+      if (status === "expired") stats.expired += 1;
+    }
+  }
+
+  return stats;
+}
