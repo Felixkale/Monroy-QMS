@@ -81,6 +81,14 @@ function defaultCertificateType(assetType = "") {
     : "Load Test Certificate";
 }
 
+function withUnit(value, unit) {
+  if (value === null || value === undefined) return "";
+  const text = String(value).trim();
+  if (!text) return "";
+  if (text.toLowerCase().includes(unit.toLowerCase())) return text;
+  return `${text} ${unit}`;
+}
+
 export default function EditCertificatePage() {
   const params = useParams();
   const router = useRouter();
@@ -88,6 +96,7 @@ export default function EditCertificatePage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingSignature, setUploadingSignature] = useState(false);
   const [assetsLoading, setAssetsLoading] = useState(true);
   const [assets, setAssets] = useState([]);
   const [error, setError] = useState("");
@@ -115,28 +124,34 @@ export default function EditCertificatePage() {
 
   useEffect(() => {
     async function loadAssets() {
-      setAssetsLoading(true);
+      try {
+        setAssetsLoading(true);
 
-      const { data } = await supabase
-        .from("assets")
-        .select(`
-          id,
-          asset_name,
-          asset_tag,
-          asset_type,
-          location,
-          safe_working_load,
-          working_pressure,
-          next_inspection_date,
-          design_standard,
-          clients (
-            company_name
-          )
-        `)
-        .order("created_at", { ascending: false });
+        const { data, error } = await supabase
+          .from("assets")
+          .select(`
+            id,
+            asset_name,
+            asset_tag,
+            asset_type,
+            location,
+            safe_working_load,
+            working_pressure,
+            next_inspection_date,
+            design_standard,
+            clients (
+              company_name
+            )
+          `)
+          .order("created_at", { ascending: false });
 
-      setAssets(data || []);
-      setAssetsLoading(false);
+        if (error) throw error;
+        setAssets(data || []);
+      } catch (err) {
+        setError(err?.message || "Failed to load equipment.");
+      } finally {
+        setAssetsLoading(false);
+      }
     }
 
     loadAssets();
@@ -146,63 +161,65 @@ export default function EditCertificatePage() {
     async function loadCertificate() {
       if (!id) return;
 
-      setLoading(true);
-      setError("");
+      try {
+        setLoading(true);
+        setError("");
 
-      const { data, error } = await supabase
-        .from("certificates")
-        .select(`
-          id,
-          asset_id,
-          certificate_type,
-          company,
-          equipment_description,
-          equipment_location,
-          equipment_id,
-          swl,
-          mawp,
-          equipment_status,
-          issued_at,
-          valid_to,
-          status,
-          legal_framework,
-          inspector_name,
-          inspector_id,
-          signature_url,
-          logo_url,
-          pdf_url
-        `)
-        .eq("id", id)
-        .single();
+        const { data, error } = await supabase
+          .from("certificates")
+          .select(`
+            id,
+            asset_id,
+            certificate_type,
+            company,
+            equipment_description,
+            equipment_location,
+            equipment_id,
+            swl,
+            mawp,
+            equipment_status,
+            issued_at,
+            valid_to,
+            status,
+            legal_framework,
+            inspector_name,
+            inspector_id,
+            signature_url,
+            logo_url,
+            pdf_url
+          `)
+          .eq("id", id)
+          .single();
 
-      if (error || !data) {
-        setError(error?.message || "Certificate not found.");
+        if (error || !data) {
+          throw new Error(error?.message || "Certificate not found.");
+        }
+
+        setForm({
+          asset_id: data.asset_id || "",
+          certificate_type: data.certificate_type || "",
+          company: data.company || "",
+          equipment_description: data.equipment_description || "",
+          equipment_location: data.equipment_location || "",
+          equipment_id: data.equipment_id || "",
+          swl: data.swl || "",
+          mawp: data.mawp || "",
+          equipment_status: data.equipment_status || "PASS",
+          issued_at: formatDateInput(data.issued_at),
+          valid_to: formatDateInput(data.valid_to),
+          status: data.status || "issued",
+          legal_framework: data.legal_framework || "",
+          inspector_name: data.inspector_name || "",
+          inspector_id: data.inspector_id || "",
+          signature_url: data.signature_url || "",
+          logo_url: data.logo_url || "/monroy-logo.png",
+          pdf_url: data.pdf_url || "",
+        });
+      } catch (err) {
+        setError(err?.message || "Certificate not found.");
+      } finally {
         setLoading(false);
-        return;
       }
-
-      setForm({
-        asset_id: data.asset_id || "",
-        certificate_type: data.certificate_type || "",
-        company: data.company || "",
-        equipment_description: data.equipment_description || "",
-        equipment_location: data.equipment_location || "",
-        equipment_id: data.equipment_id || "",
-        swl: data.swl || "",
-        mawp: data.mawp || "",
-        equipment_status: data.equipment_status || "PASS",
-        issued_at: formatDateInput(data.issued_at),
-        valid_to: formatDateInput(data.valid_to),
-        status: data.status || "issued",
-        legal_framework: data.legal_framework || "",
-        inspector_name: data.inspector_name || "",
-        inspector_id: data.inspector_id || "",
-        signature_url: data.signature_url || "",
-        logo_url: data.logo_url || "",
-        pdf_url: data.pdf_url || "",
-      });
-
-      setLoading(false);
     }
 
     loadCertificate();
@@ -222,23 +239,69 @@ export default function EditCertificatePage() {
     if (!selectedAsset) return;
 
     const companyName = selectedAsset.clients?.company_name || "";
+    const type = detectEquipmentType(selectedAsset.asset_type);
 
     setForm((prev) => ({
       ...prev,
-      certificate_type: prev.certificate_type || defaultCertificateType(selectedAsset.asset_type),
+      certificate_type:
+        prev.certificate_type || defaultCertificateType(selectedAsset.asset_type),
       company: companyName,
       equipment_description: selectedAsset.asset_type || selectedAsset.asset_name || "",
       equipment_location: selectedAsset.location || "",
       equipment_id: selectedAsset.asset_tag || "",
-      swl: selectedAsset.safe_working_load
-        ? `${selectedAsset.safe_working_load} Tons`
-        : prev.swl,
-      mawp: selectedAsset.working_pressure
-        ? `${selectedAsset.working_pressure} kPa`
-        : prev.mawp,
+      swl:
+        type === "lift"
+          ? withUnit(selectedAsset.safe_working_load, "Tons") || prev.swl
+          : prev.swl,
+      mawp:
+        type === "pv"
+          ? withUnit(selectedAsset.working_pressure, "kPa") || prev.mawp
+          : prev.mawp,
       valid_to: prev.valid_to || formatDateInput(selectedAsset.next_inspection_date),
       legal_framework: prev.legal_framework || selectedAsset.design_standard || "",
     }));
+  }
+
+  async function handleSignatureUpload(e) {
+    try {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      setUploadingSignature(true);
+      setError("");
+
+      if (!id) throw new Error("Certificate ID is missing.");
+      if (!supabase) throw new Error("Supabase not configured.");
+
+      const ext = file.name.split(".").pop() || "png";
+      const fileName = `${id}-${Date.now()}.${ext}`;
+      const filePath = `certificate-signatures/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("documents")
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from("documents")
+        .getPublicUrl(filePath);
+
+      const publicUrl = publicUrlData?.publicUrl;
+      if (!publicUrl) throw new Error("Failed to get uploaded signature URL.");
+
+      setForm((prev) => ({
+        ...prev,
+        signature_url: publicUrl,
+      }));
+    } catch (err) {
+      setError(err?.message || "Failed to upload signature.");
+    } finally {
+      setUploadingSignature(false);
+    }
   }
 
   async function handleSubmit(e) {
@@ -258,8 +321,8 @@ export default function EditCertificatePage() {
         equipment_description: form.equipment_description || null,
         equipment_location: form.equipment_location || null,
         equipment_id: form.equipment_id || null,
-        swl: form.swl || null,
-        mawp: form.mawp || null,
+        swl: withUnit(form.swl, "Tons") || null,
+        mawp: withUnit(form.mawp, "kPa") || null,
         equipment_status: form.equipment_status || "PASS",
         issued_at: form.issued_at
           ? new Date(form.issued_at).toISOString()
@@ -456,6 +519,7 @@ export default function EditCertificatePage() {
                 <option value="issued">issued</option>
                 <option value="draft">draft</option>
                 <option value="expired">expired</option>
+                <option value="rejected">rejected</option>
               </SelectField>
             </div>
           </div>
@@ -507,12 +571,12 @@ export default function EditCertificatePage() {
 
             <div>
               <label style={labelStyle}>SWL</label>
-              <input style={inputStyle} name="swl" value={form.swl} onChange={handleChange} />
+              <input style={inputStyle} name="swl" value={form.swl} onChange={handleChange} placeholder="e.g. 12 Tons" />
             </div>
 
             <div>
               <label style={labelStyle}>MAWP</label>
-              <input style={inputStyle} name="mawp" value={form.mawp} onChange={handleChange} />
+              <input style={inputStyle} name="mawp" value={form.mawp} onChange={handleChange} placeholder="e.g. 1600 kPa" />
             </div>
 
             <div>
@@ -546,16 +610,6 @@ export default function EditCertificatePage() {
             </div>
 
             <div>
-              <label style={labelStyle}>Signature URL</label>
-              <input
-                style={inputStyle}
-                name="signature_url"
-                value={form.signature_url}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div>
               <label style={labelStyle}>Logo URL</label>
               <input
                 style={inputStyle}
@@ -573,6 +627,79 @@ export default function EditCertificatePage() {
                 value={form.pdf_url}
                 onChange={handleChange}
               />
+            </div>
+          </div>
+
+          <div style={sectionHeadStyle}>Signature Upload</div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))",
+              gap: 16,
+              marginBottom: 24,
+              alignItems: "start",
+            }}
+          >
+            <div>
+              <label style={labelStyle}>Upload Signature Image</label>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/jpg,image/webp"
+                onChange={handleSignatureUpload}
+                style={{
+                  ...inputStyle,
+                  padding: "10px",
+                  height: "auto",
+                }}
+              />
+              <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 8 }}>
+                {uploadingSignature ? "Uploading signature..." : "Upload a clear signature image."}
+              </div>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Signature URL</label>
+              <input
+                style={inputStyle}
+                name="signature_url"
+                value={form.signature_url}
+                onChange={handleChange}
+                placeholder="Uploaded signature URL will appear here"
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Signature Preview</label>
+              <div
+                style={{
+                  minHeight: 120,
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "#ffffff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  overflow: "hidden",
+                  padding: 12,
+                }}
+              >
+                {form.signature_url ? (
+                  <img
+                    src={form.signature_url}
+                    alt="Signature Preview"
+                    style={{
+                      maxWidth: "100%",
+                      maxHeight: 90,
+                      objectFit: "contain",
+                    }}
+                  />
+                ) : (
+                  <span style={{ color: "#64748b", fontSize: 13 }}>
+                    No signature uploaded
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -594,7 +721,7 @@ export default function EditCertificatePage() {
 
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || uploadingSignature}
               style={{
                 padding: "10px 18px",
                 borderRadius: 8,
@@ -603,7 +730,7 @@ export default function EditCertificatePage() {
                 color: "#fff",
                 fontWeight: 700,
                 cursor: "pointer",
-                opacity: saving ? 0.7 : 1,
+                opacity: saving || uploadingSignature ? 0.7 : 1,
               }}
             >
               {saving ? "Saving..." : "Save Changes"}
