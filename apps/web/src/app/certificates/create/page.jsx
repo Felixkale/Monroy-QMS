@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
@@ -10,7 +10,6 @@ const C = {
   purple: "#7c5cfc",
   blue: "#4fc3f7",
   pink: "#f472b6",
-  bg: "#0b1020",
   panel: "#11182d",
   border: "rgba(255,255,255,0.08)",
   text: "#eaf2ff",
@@ -19,33 +18,24 @@ const C = {
 };
 
 const initialForm = {
-  certificate_no: "",
+  asset_id: "",
   certificate_type: "Load Test Certificate",
-  client_name: "",
-  site_name: "",
-  asset_name: "",
-  asset_tag: "",
-  equipment_type: "",
-  manufacturer: "",
-  model: "",
-  serial_number: "",
-  year_built: "",
+  company: "",
+  equipment_description: "",
+  equipment_location: "",
+  equipment_id: "",
   swl: "",
-  swl_unit: "Tons",
-  proof_load: "",
-  proof_load_unit: "Tons",
-  lift_height: "",
-  lift_height_unit: "m",
-  sling_length: "",
-  sling_length_unit: "m",
-  pressure: "",
-  pressure_unit: "kPa",
-  inspection_date: "",
-  expiry_date: "",
+  mawp: "",
+  equipment_status: "PASS",
+  issued_at: "",
+  valid_to: "",
+  status: "issued",
+  legal_framework: "Mines, Quarries, Works and Machinery Act Cap 44:02",
   inspector_name: "",
-  inspector_position: "Inspector",
-  status: "Valid",
-  notes: "",
+  inspector_id: "",
+  signature_url: "",
+  logo_url: "/monroy-logo.png",
+  pdf_url: "",
 };
 
 function Field({
@@ -73,7 +63,7 @@ function Field({
   );
 }
 
-function SelectField({ label, name, value, onChange, options = [] }) {
+function SelectField({ label, name, value, onChange, options = [], required = false }) {
   return (
     <label style={{ display: "grid", gap: 8 }}>
       <span style={{ color: C.subtext, fontSize: 14 }}>{label}</span>
@@ -81,6 +71,7 @@ function SelectField({ label, name, value, onChange, options = [] }) {
         name={name}
         value={value}
         onChange={onChange}
+        required={required}
         style={styles.input}
       >
         {options.map((option) => {
@@ -99,54 +90,91 @@ function SelectField({ label, name, value, onChange, options = [] }) {
 export default function CreateCertificatePage() {
   const router = useRouter();
   const [form, setForm] = useState(initialForm);
+  const [assets, setAssets] = useState([]);
+  const [assetsLoading, setAssetsLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const previewCertificateNo = useMemo(() => {
-    if (form.certificate_no?.trim()) return form.certificate_no.trim();
-    const d = new Date();
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `CERT-${yyyy}${mm}${dd}-001`;
-  }, [form.certificate_no]);
+  const selectedAsset = useMemo(() => {
+    return assets.find((item) => item.id === form.asset_id) || null;
+  }, [assets, form.asset_id]);
+
+  useEffect(() => {
+    async function loadAssets() {
+      try {
+        setAssetsLoading(true);
+
+        const { data, error } = await supabase
+          .from("assets")
+          .select(`
+            id,
+            asset_name,
+            asset_tag,
+            asset_type,
+            manufacturer,
+            model,
+            serial_number,
+            year_built,
+            location,
+            safe_working_load,
+            working_pressure,
+            next_inspection_date,
+            design_standard,
+            clients (
+              company_name
+            )
+          `)
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        setAssets(data || []);
+      } catch (err) {
+        setAssets([]);
+        setError(err?.message || "Failed to load equipment.");
+      } finally {
+        setAssetsLoading(false);
+      }
+    }
+
+    loadAssets();
+  }, []);
 
   function handleChange(e) {
     const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
-  }
 
-  function normalizePayload(values) {
-    return {
-      certificate_no: values.certificate_no?.trim() || previewCertificateNo,
-      certificate_type: values.certificate_type?.trim() || null,
-      client_name: values.client_name?.trim() || null,
-      site_name: values.site_name?.trim() || null,
-      asset_name: values.asset_name?.trim() || null,
-      asset_tag: values.asset_tag?.trim() || null,
-      equipment_type: values.equipment_type?.trim() || null,
-      manufacturer: values.manufacturer?.trim() || null,
-      model: values.model?.trim() || null,
-      serial_number: values.serial_number?.trim() || null,
-      year_built: values.year_built?.trim() || null,
-      swl: values.swl?.trim() || null,
-      swl_unit: values.swl_unit?.trim() || "Tons",
-      proof_load: values.proof_load?.trim() || null,
-      proof_load_unit: values.proof_load_unit?.trim() || "Tons",
-      lift_height: values.lift_height?.trim() || null,
-      lift_height_unit: values.lift_height_unit?.trim() || "m",
-      sling_length: values.sling_length?.trim() || null,
-      sling_length_unit: values.sling_length_unit?.trim() || "m",
-      pressure: values.pressure?.trim() || null,
-      pressure_unit: values.pressure_unit?.trim() || "kPa",
-      inspection_date: values.inspection_date || null,
-      expiry_date: values.expiry_date || null,
-      inspector_name: values.inspector_name?.trim() || null,
-      inspector_position: values.inspector_position?.trim() || null,
-      status: values.status?.trim() || "Valid",
-      notes: values.notes?.trim() || null,
-    };
+    setForm((prev) => {
+      const next = { ...prev, [name]: value };
+
+      if (name === "asset_id") {
+        const asset = assets.find((item) => item.id === value);
+
+        if (asset) {
+          const isPressure = [
+            "Pressure Vessel",
+            "Boiler",
+            "Air Receiver",
+            "Air Compressor",
+            "Oil Separator",
+          ].includes(asset.asset_type);
+
+          next.company = asset.clients?.company_name || "";
+          next.equipment_description = asset.asset_type || asset.asset_name || "";
+          next.equipment_location = asset.location || "";
+          next.equipment_id = asset.asset_tag || "";
+          next.swl = !isPressure ? asset.safe_working_load || "" : "";
+          next.mawp = isPressure ? asset.working_pressure || "" : "";
+          next.valid_to = asset.next_inspection_date || "";
+          next.legal_framework =
+            asset.design_standard || "Mines, Quarries, Works and Machinery Act Cap 44:02";
+          next.certificate_type = isPressure
+            ? "Pressure Test Certificate"
+            : "Load Test Certificate";
+        }
+      }
+
+      return next;
+    });
   }
 
   async function handleSubmit(e) {
@@ -156,11 +184,40 @@ export default function CreateCertificatePage() {
     setError("");
 
     try {
-      const payload = normalizePayload(form);
-
       if (!supabase) {
         throw new Error("Supabase not configured");
       }
+
+      if (!form.asset_id) {
+        throw new Error("Please select equipment.");
+      }
+
+      if (!form.inspector_name.trim()) {
+        throw new Error("Inspector name is required.");
+      }
+
+      const payload = {
+        asset_id: form.asset_id || null,
+        certificate_type: form.certificate_type || null,
+        company: form.company.trim() || null,
+        equipment_description: form.equipment_description.trim() || null,
+        equipment_location: form.equipment_location.trim() || null,
+        equipment_id: form.equipment_id.trim() || null,
+        swl: form.swl.trim() || null,
+        mawp: form.mawp.trim() || null,
+        equipment_status: form.equipment_status || "PASS",
+        issued_at: form.issued_at
+          ? new Date(form.issued_at).toISOString()
+          : new Date().toISOString(),
+        valid_to: form.valid_to || null,
+        status: form.status || "issued",
+        legal_framework: form.legal_framework.trim() || null,
+        inspector_name: form.inspector_name.trim() || null,
+        inspector_id: form.inspector_id.trim() || null,
+        signature_url: form.signature_url.trim() || null,
+        logo_url: form.logo_url.trim() || "/monroy-logo.png",
+        pdf_url: form.pdf_url.trim() || null,
+      };
 
       const { error: insertError } = await supabase
         .from("certificates")
@@ -191,15 +248,14 @@ export default function CreateCertificatePage() {
             <div style={styles.kicker}>Certificates</div>
             <h1 style={styles.title}>Create Certificate</h1>
             <p style={styles.subtitle}>
-              Enter the certificate details below. This version is fully closed and
-              compile-safe, so it fixes the EOF build error.
+              Create a certificate using the real database fields from the certificates table.
             </p>
           </div>
 
           <div style={styles.previewBox}>
-            <div style={{ color: C.subtext, fontSize: 13 }}>Preview Number</div>
-            <div style={{ color: C.green, fontWeight: 800, fontSize: 20 }}>
-              {previewCertificateNo}
+            <div style={{ color: C.subtext, fontSize: 13 }}>Selected Equipment</div>
+            <div style={{ color: C.green, fontWeight: 800, fontSize: 18 }}>
+              {selectedAsset?.asset_tag || "Not selected"}
             </div>
           </div>
         </div>
@@ -209,194 +265,115 @@ export default function CreateCertificatePage() {
 
         <form onSubmit={handleSubmit} style={styles.form}>
           <div style={styles.section}>
-            <div style={styles.sectionTitle}>Certificate Details</div>
+            <div style={styles.sectionTitle}>Certificate Setup</div>
             <div style={styles.grid3}>
-              <Field
-                label="Certificate Number"
-                name="certificate_no"
-                value={form.certificate_no}
-                onChange={handleChange}
-                placeholder="Auto or manually type"
-              />
               <SelectField
+                label="Equipment"
+                name="asset_id"
+                value={form.asset_id}
+                onChange={handleChange}
+                required
+                options={[
+                  {
+                    value: "",
+                    label: assetsLoading ? "Loading equipment..." : "Select equipment",
+                  },
+                  ...assets.map((asset) => ({
+                    value: asset.id,
+                    label: `${asset.asset_tag || "NO-TAG"} - ${asset.asset_type || asset.asset_name || "Equipment"}`,
+                  })),
+                ]}
+              />
+
+              <Field
                 label="Certificate Type"
                 name="certificate_type"
                 value={form.certificate_type}
                 onChange={handleChange}
-                options={[
-                  "Load Test Certificate",
-                  "Inspection Certificate",
-                  "Pressure Vessel Certificate",
-                  "Lifting Equipment Certificate",
-                  "Calibration Certificate",
-                ]}
+                required
               />
+
               <SelectField
-                label="Status"
+                label="Equipment Status"
+                name="equipment_status"
+                value={form.equipment_status}
+                onChange={handleChange}
+                options={["PASS", "FAIL", "CONDITIONAL"]}
+              />
+
+              <Field
+                label="Issue Date"
+                name="issued_at"
+                value={form.issued_at}
+                onChange={handleChange}
+                type="date"
+                required
+              />
+
+              <Field
+                label="Expiry Date"
+                name="valid_to"
+                value={form.valid_to}
+                onChange={handleChange}
+                type="date"
+              />
+
+              <SelectField
+                label="Record Status"
                 name="status"
                 value={form.status}
                 onChange={handleChange}
-                options={["Valid", "Expired", "Rejected", "Pending"]}
+                options={["issued", "draft", "expired", "rejected"]}
               />
             </div>
           </div>
 
           <div style={styles.section}>
-            <div style={styles.sectionTitle}>Client and Asset</div>
+            <div style={styles.sectionTitle}>Certificate Data</div>
             <div style={styles.grid3}>
               <Field
-                label="Client Name"
-                name="client_name"
-                value={form.client_name}
-                onChange={handleChange}
-                required
-              />
-              <Field
-                label="Site Name"
-                name="site_name"
-                value={form.site_name}
+                label="Client / Company"
+                name="company"
+                value={form.company}
                 onChange={handleChange}
               />
               <Field
-                label="Asset Name"
-                name="asset_name"
-                value={form.asset_name}
-                onChange={handleChange}
-                required
-              />
-              <Field
-                label="Asset Tag"
-                name="asset_tag"
-                value={form.asset_tag}
+                label="Equipment Description"
+                name="equipment_description"
+                value={form.equipment_description}
                 onChange={handleChange}
               />
               <Field
-                label="Equipment Type"
-                name="equipment_type"
-                value={form.equipment_type}
+                label="Equipment Location"
+                name="equipment_location"
+                value={form.equipment_location}
                 onChange={handleChange}
               />
               <Field
-                label="Serial Number"
-                name="serial_number"
-                value={form.serial_number}
+                label="Equipment ID / Tag"
+                name="equipment_id"
+                value={form.equipment_id}
                 onChange={handleChange}
               />
-              <Field
-                label="Manufacturer"
-                name="manufacturer"
-                value={form.manufacturer}
-                onChange={handleChange}
-              />
-              <Field
-                label="Model"
-                name="model"
-                value={form.model}
-                onChange={handleChange}
-              />
-              <Field
-                label="Year Built"
-                name="year_built"
-                value={form.year_built}
-                onChange={handleChange}
-                placeholder="Manually type"
-              />
-            </div>
-          </div>
-
-          <div style={styles.section}>
-            <div style={styles.sectionTitle}>Technical Data</div>
-            <div style={styles.grid4}>
               <Field
                 label="SWL"
                 name="swl"
                 value={form.swl}
                 onChange={handleChange}
-                placeholder="Manually type"
-              />
-              <SelectField
-                label="SWL Unit"
-                name="swl_unit"
-                value={form.swl_unit}
-                onChange={handleChange}
-                options={["Tons"]}
+                placeholder="Manual text, e.g. 5 Tons"
               />
               <Field
-                label="Proof Load"
-                name="proof_load"
-                value={form.proof_load}
+                label="MAWP / Pressure"
+                name="mawp"
+                value={form.mawp}
                 onChange={handleChange}
-                placeholder="Manually type"
-              />
-              <SelectField
-                label="Proof Load Unit"
-                name="proof_load_unit"
-                value={form.proof_load_unit}
-                onChange={handleChange}
-                options={["Tons"]}
+                placeholder="Manual text, e.g. 1600 kPa"
               />
               <Field
-                label="Lift Height"
-                name="lift_height"
-                value={form.lift_height}
+                label="Legal Framework / Design Standard"
+                name="legal_framework"
+                value={form.legal_framework}
                 onChange={handleChange}
-                placeholder="Manually type"
-              />
-              <SelectField
-                label="Lift Height Unit"
-                name="lift_height_unit"
-                value={form.lift_height_unit}
-                onChange={handleChange}
-                options={["m", "mm"]}
-              />
-              <Field
-                label="Sling Length"
-                name="sling_length"
-                value={form.sling_length}
-                onChange={handleChange}
-                placeholder="Manually type"
-              />
-              <SelectField
-                label="Sling Length Unit"
-                name="sling_length_unit"
-                value={form.sling_length_unit}
-                onChange={handleChange}
-                options={["m", "mm"]}
-              />
-              <Field
-                label="Pressure"
-                name="pressure"
-                value={form.pressure}
-                onChange={handleChange}
-                placeholder="Manually type"
-              />
-              <SelectField
-                label="Pressure Unit"
-                name="pressure_unit"
-                value={form.pressure_unit}
-                onChange={handleChange}
-                options={["kPa"]}
-              />
-            </div>
-          </div>
-
-          <div style={styles.section}>
-            <div style={styles.sectionTitle}>Inspection Details</div>
-            <div style={styles.grid3}>
-              <Field
-                label="Inspection Date"
-                name="inspection_date"
-                value={form.inspection_date}
-                onChange={handleChange}
-                type="date"
-                required
-              />
-              <Field
-                label="Expiry Date"
-                name="expiry_date"
-                value={form.expiry_date}
-                onChange={handleChange}
-                type="date"
               />
               <Field
                 label="Inspector Name"
@@ -406,24 +383,30 @@ export default function CreateCertificatePage() {
                 required
               />
               <Field
-                label="Inspector Position"
-                name="inspector_position"
-                value={form.inspector_position}
+                label="Inspector ID"
+                name="inspector_id"
+                value={form.inspector_id}
+                onChange={handleChange}
+              />
+              <Field
+                label="Signature URL"
+                name="signature_url"
+                value={form.signature_url}
+                onChange={handleChange}
+              />
+              <Field
+                label="Logo URL"
+                name="logo_url"
+                value={form.logo_url}
+                onChange={handleChange}
+              />
+              <Field
+                label="PDF URL"
+                name="pdf_url"
+                value={form.pdf_url}
                 onChange={handleChange}
               />
             </div>
-
-            <label style={{ display: "grid", gap: 8, marginTop: 18 }}>
-              <span style={{ color: C.subtext, fontSize: 14 }}>Notes</span>
-              <textarea
-                name="notes"
-                value={form.notes}
-                onChange={handleChange}
-                rows={5}
-                placeholder="Extra certificate remarks"
-                style={styles.textarea}
-              />
-            </label>
           </div>
 
           <div style={styles.actions}>
@@ -526,11 +509,6 @@ const styles = {
     gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
     gap: 16,
   },
-  grid4: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: 16,
-  },
   input: {
     width: "100%",
     height: 46,
@@ -540,16 +518,6 @@ const styles = {
     color: C.text,
     padding: "0 14px",
     outline: "none",
-  },
-  textarea: {
-    width: "100%",
-    borderRadius: 12,
-    border: `1px solid ${C.border}`,
-    background: "#0f1730",
-    color: C.text,
-    padding: 14,
-    outline: "none",
-    resize: "vertical",
   },
   actions: {
     display: "flex",
