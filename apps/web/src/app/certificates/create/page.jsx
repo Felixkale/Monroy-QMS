@@ -1,451 +1,580 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
-import {
-  createCertificate,
-  uploadCertificateSignature,
-  buildCertificateQrValue,
-} from "@/services/certificate";
 
 const C = {
   green: "#00f5c4",
   purple: "#7c5cfc",
   blue: "#4fc3f7",
   pink: "#f472b6",
+  bg: "#0b1020",
+  panel: "#11182d",
+  border: "rgba(255,255,255,0.08)",
+  text: "#eaf2ff",
+  subtext: "#9fb0d0",
+  danger: "#ff6b6b",
 };
 
-const CERTIFICATE_TYPES = [
-  "Pressure Test Certificate",
-  "Load Test Certificate",
-  "Certificate of Statutory Inspection",
-  "Compliance Certificate",
-  "NDT Certificate",
-];
+const initialForm = {
+  certificate_no: "",
+  certificate_type: "Load Test Certificate",
+  client_name: "",
+  site_name: "",
+  asset_name: "",
+  asset_tag: "",
+  equipment_type: "",
+  manufacturer: "",
+  model: "",
+  serial_number: "",
+  year_built: "",
+  swl: "",
+  swl_unit: "Tons",
+  proof_load: "",
+  proof_load_unit: "Tons",
+  lift_height: "",
+  lift_height_unit: "m",
+  sling_length: "",
+  sling_length_unit: "m",
+  pressure: "",
+  pressure_unit: "kPa",
+  inspection_date: "",
+  expiry_date: "",
+  inspector_name: "",
+  inspector_position: "Inspector",
+  status: "Valid",
+  notes: "",
+};
 
-const INSPECTION_RESULTS = ["PASS", "FAIL", "CONDITIONAL"];
-
-const LEGAL_DEFAULT = "Mines, Quarries, Works and Machinery Act Cap 44:02";
-const DEFAULT_LOGO_URL = "/monroy-logo.png";
-
-function formatDisplayDate(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  });
-}
-
-function isMeaningful(value) {
-  if (value === undefined || value === null) return false;
-  const text = String(value).trim();
-  if (!text) return false;
-  if (text.toUpperCase() === "N/A") return false;
-  return true;
-}
-
-function QrCodeSvg({ value, size = 120 }) {
-  const cells = useMemo(() => {
-    const text = String(value || "certificate");
-    const dim = 21;
-    const matrix = [];
-    let seed = 0;
-
-    for (let i = 0; i < text.length; i += 1) {
-      seed = (seed * 31 + text.charCodeAt(i)) >>> 0;
-    }
-
-    function rand() {
-      seed = (seed * 1664525 + 1013904223) >>> 0;
-      return seed / 4294967296;
-    }
-
-    for (let y = 0; y < dim; y += 1) {
-      const row = [];
-      for (let x = 0; x < dim; x += 1) {
-        const inTopLeft = x < 7 && y < 7;
-        const inTopRight = x >= dim - 7 && y < 7;
-        const inBottomLeft = x < 7 && y >= dim - 7;
-
-        if (inTopLeft || inTopRight || inBottomLeft) {
-          const localX = inTopLeft ? x : inTopRight ? x - (dim - 7) : x;
-          const localY = inTopLeft ? y : inTopRight ? y : y - (dim - 7);
-
-          const outer = localX === 0 || localX === 6 || localY === 0 || localY === 6;
-          const inner = localX >= 2 && localX <= 4 && localY >= 2 && localY <= 4;
-          row.push(outer || inner ? 1 : 0);
-        } else {
-          row.push(rand() > 0.5 ? 1 : 0);
-        }
-      }
-      matrix.push(row);
-    }
-
-    return matrix;
-  }, [value]);
-
-  const dim = cells.length;
-  const cell = size / dim;
-
+function Field({
+  label,
+  name,
+  value,
+  onChange,
+  placeholder = "",
+  type = "text",
+  required = false,
+}) {
   return (
-    <svg
-      viewBox={`0 0 ${size} ${size}`}
-      width={size}
-      height={size}
-      xmlns="http://www.w3.org/2000/svg"
-      style={{ background: "#fff", border: "1px solid #d1d5db" }}
-    >
-      <rect width={size} height={size} fill="#fff" />
-      {cells.map((row, y) =>
-        row.map((filled, x) =>
-          filled ? (
-            <rect
-              key={`${x}-${y}`}
-              x={x * cell}
-              y={y * cell}
-              width={cell}
-              height={cell}
-              fill="#111827"
-            />
-          ) : null
-        )
-      )}
-    </svg>
+    <label style={{ display: "grid", gap: 8 }}>
+      <span style={{ color: C.subtext, fontSize: 14 }}>{label}</span>
+      <input
+        name={name}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        type={type}
+        required={required}
+        style={styles.input}
+      />
+    </label>
   );
 }
 
-function FieldRow({ label, value }) {
-  if (!isMeaningful(value)) return null;
-
+function SelectField({ label, name, value, onChange, options = [] }) {
   return (
-    <li
-      style={{
-        display: "flex",
-        gap: 6,
-        alignItems: "baseline",
-        padding: "3px 0",
-        borderBottom: "1px solid #eef2f7",
-        fontSize: 12,
-        lineHeight: 1.55,
-      }}
-    >
-      <span style={{ color: "#4b5563", minWidth: 132, flexShrink: 0 }}>{label}</span>
-      <span style={{ fontWeight: 700, color: "#111827" }}>{value}</span>
-    </li>
+    <label style={{ display: "grid", gap: 8 }}>
+      <span style={{ color: C.subtext, fontSize: 14 }}>{label}</span>
+      <select
+        name={name}
+        value={value}
+        onChange={onChange}
+        style={styles.input}
+      >
+        {options.map((option) => {
+          const opt = typeof option === "string" ? { value: option, label: option } : option;
+          return (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          );
+        })}
+      </select>
+    </label>
   );
 }
 
 export default function CreateCertificatePage() {
   const router = useRouter();
-
-  const [loading, setLoading] = useState(false);
-  const [loadingEquipment, setLoadingEquipment] = useState(true);
-  const [equipmentOptions, setEquipmentOptions] = useState([]);
+  const [form, setForm] = useState(initialForm);
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const [form, setForm] = useState({
-    asset_id: "",
-    certificate_type: "Pressure Test Certificate",
-    company: "",
-    equipment_description: "",
-    equipment_location: "",
-    equipment_id: "",
-    equipment_type: "",
-    manufacturer: "",
-    serial_number: "",
-    year_built: "",
-    design_code: "",
-    shell_material: "",
-    fluid_type: "",
-    design_pressure: "",
-    working_pressure: "",
-    test_pressure: "",
-    design_temperature: "",
-    capacity_volume: "",
-    safe_working_load: "",
-    proof_load: "",
-    lifting_height: "",
-    sling_length: "",
-    chain_size: "",
-    rope_diameter: "",
-    legal_framework: LEGAL_DEFAULT,
-    inspection_result: "PASS",
-    inspection_date: new Date().toISOString().slice(0, 10),
-    issue_date: new Date().toISOString().slice(0, 10),
-    expiry_date: "",
-    inspector_name: "",
-    inspector_id: "",
-    signature_url: "",
-    logo_url: DEFAULT_LOGO_URL,
-    waiver_start: "",
-    waiver_end: "",
-    waiver_reference: "",
-    waiver_conditions: "",
-    waiver_restrictions: "",
-  });
+  const previewCertificateNo = useMemo(() => {
+    if (form.certificate_no?.trim()) return form.certificate_no.trim();
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `CERT-${yyyy}${mm}${dd}-001`;
+  }, [form.certificate_no]);
 
-  useEffect(() => {
-    async function loadEquipment() {
-      try {
-        setLoadingEquipment(true);
-
-        const { data, error } = await supabase
-          .from("assets")
-          .select(`
-            id,
-            asset_name,
-            asset_tag,
-            asset_type,
-            manufacturer,
-            model,
-            serial_number,
-            year_built,
-            location,
-            design_standard,
-            shell_material,
-            fluid_type,
-            design_pressure,
-            working_pressure,
-            test_pressure,
-            design_temperature,
-            capacity_volume,
-            safe_working_load,
-            proof_load,
-            lifting_height,
-            sling_length,
-            chain_size,
-            rope_diameter,
-            next_inspection_date,
-            client_id,
-            clients (
-              company_name
-            )
-          `)
-          .order("created_at", { ascending: false });
-
-        if (error) throw error;
-
-        setEquipmentOptions(data || []);
-      } catch (err) {
-        setEquipmentOptions([]);
-        setError(err?.message || "Failed to load equipment.");
-      } finally {
-        setLoadingEquipment(false);
-      }
-    }
-
-    loadEquipment();
-  }, []);
-
-  const selectedEquipment = useMemo(() => {
-    return equipmentOptions.find((item) => item.id === form.asset_id) || null;
-  }, [equipmentOptions, form.asset_id]);
-
-  useEffect(() => {
-    if (!selectedEquipment) return;
-
-    const companyName = selectedEquipment.clients?.company_name || "";
-    const equipmentType = selectedEquipment.asset_type || "";
-    const assetTag = selectedEquipment.asset_tag || "";
-    const description = selectedEquipment.asset_name || equipmentType || "";
-    const location = selectedEquipment.location || "";
-
-    setForm((prev) => ({
-      ...prev,
-      company: companyName,
-      equipment_description: description,
-      equipment_location: location,
-      equipment_id: assetTag,
-      equipment_type: equipmentType,
-      manufacturer: selectedEquipment.manufacturer || "",
-      serial_number: selectedEquipment.serial_number || "",
-      year_built: selectedEquipment.year_built || "",
-      design_code: selectedEquipment.design_standard || "",
-      shell_material: selectedEquipment.shell_material || "",
-      fluid_type: selectedEquipment.fluid_type || "",
-      design_pressure: selectedEquipment.design_pressure || "",
-      working_pressure: selectedEquipment.working_pressure || "",
-      test_pressure: selectedEquipment.test_pressure || "",
-      design_temperature: selectedEquipment.design_temperature || "",
-      capacity_volume: selectedEquipment.capacity_volume || "",
-      safe_working_load: selectedEquipment.safe_working_load || "",
-      proof_load: selectedEquipment.proof_load || "",
-      lifting_height: selectedEquipment.lifting_height || "",
-      sling_length: selectedEquipment.sling_length || "",
-      chain_size: selectedEquipment.chain_size || "",
-      rope_diameter: selectedEquipment.rope_diameter || "",
-      expiry_date: prev.expiry_date || selectedEquipment.next_inspection_date || "",
-      certificate_type:
-        prev.certificate_type ||
-        (equipmentType?.toLowerCase().includes("pressure")
-          ? "Pressure Test Certificate"
-          : "Load Test Certificate"),
-    }));
-  }, [selectedEquipment]);
-
-  const handleChange = (e) => {
+  function handleChange(e) {
     const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  }
 
-    setForm((prev) => {
-      const next = { ...prev, [name]: value };
+  function normalizePayload(values) {
+    return {
+      certificate_no: values.certificate_no?.trim() || previewCertificateNo,
+      certificate_type: values.certificate_type?.trim() || null,
+      client_name: values.client_name?.trim() || null,
+      site_name: values.site_name?.trim() || null,
+      asset_name: values.asset_name?.trim() || null,
+      asset_tag: values.asset_tag?.trim() || null,
+      equipment_type: values.equipment_type?.trim() || null,
+      manufacturer: values.manufacturer?.trim() || null,
+      model: values.model?.trim() || null,
+      serial_number: values.serial_number?.trim() || null,
+      year_built: values.year_built?.trim() || null,
+      swl: values.swl?.trim() || null,
+      swl_unit: values.swl_unit?.trim() || "Tons",
+      proof_load: values.proof_load?.trim() || null,
+      proof_load_unit: values.proof_load_unit?.trim() || "Tons",
+      lift_height: values.lift_height?.trim() || null,
+      lift_height_unit: values.lift_height_unit?.trim() || "m",
+      sling_length: values.sling_length?.trim() || null,
+      sling_length_unit: values.sling_length_unit?.trim() || "m",
+      pressure: values.pressure?.trim() || null,
+      pressure_unit: values.pressure_unit?.trim() || "kPa",
+      inspection_date: values.inspection_date || null,
+      expiry_date: values.expiry_date || null,
+      inspector_name: values.inspector_name?.trim() || null,
+      inspector_position: values.inspector_position?.trim() || null,
+      status: values.status?.trim() || "Valid",
+      notes: values.notes?.trim() || null,
+    };
+  }
 
-      if (name === "inspection_result" && value !== "CONDITIONAL") {
-        next.waiver_start = "";
-        next.waiver_end = "";
-        next.waiver_reference = "";
-        next.waiver_conditions = "";
-        next.waiver_restrictions = "";
-      }
-
-      return next;
-    });
-  };
-
-  const handleSignatureUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setError("");
-
-    const { data, error } = await uploadCertificateSignature(file);
-
-    if (error) {
-      setError(error?.message || "Failed to upload signature.");
-      return;
-    }
-
-    setForm((prev) => ({
-      ...prev,
-      signature_url: data?.publicUrl || "",
-    }));
-  };
-
-  const qrValue = useMemo(() => {
-    return buildCertificateQrValue({
-      certificate_number: "Auto Generated",
-      equipment_id: form.equipment_id,
-      company: form.company,
-      inspector_name: form.inspector_name,
-      legal_framework: form.legal_framework,
-      asset: {
-        asset_tag: form.equipment_id,
-      },
-    });
-  }, [form.equipment_id, form.company, form.inspector_name, form.legal_framework]);
-
-  const previewNameplateRows = useMemo(() => {
-    const isLifting =
-      form.equipment_type &&
-      [
-        "Trestle Jack",
-        "Lever Hoist",
-        "Bottle Jack",
-        "Safety Harness",
-        "Jack Stand",
-        "Chain Block",
-        "Bow Shackle",
-        "Mobile Crane",
-        "Trolley Jack",
-        "Step Ladders",
-        "Tifor",
-        "Crawl Beam",
-        "Beam Crawl",
-        "Beam Clamp",
-        "Webbing Sling",
-        "Nylon Sling",
-        "Wire Sling",
-        "Fall Arrest",
-        "Man Cage",
-        "Shutter Clamp",
-        "Drum Clamp",
-      ].includes(form.equipment_type);
-
-    if (isLifting) {
-      return [
-        ["Design Code:", form.design_code],
-        ["Safe Working Load:", isMeaningful(form.safe_working_load) ? `${form.safe_working_load} Tons` : ""],
-        ["Proof Load:", isMeaningful(form.proof_load) ? `${form.proof_load} Tons` : ""],
-        ["Lift Height:", form.lifting_height],
-        ["Sling Length:", form.sling_length],
-        ["Chain Size:", form.chain_size],
-        ["Wire / Rope Diameter:", form.rope_diameter],
-      ];
-    }
-
-    return [
-      ["Design Code:", form.design_code],
-      ["Design Pressure:", isMeaningful(form.design_pressure) ? `${form.design_pressure} kPa` : ""],
-      ["Authorized Pressure:", isMeaningful(form.working_pressure) ? `${form.working_pressure} kPa` : ""],
-      ["Test Pressure:", isMeaningful(form.test_pressure) ? `${form.test_pressure} kPa` : ""],
-      ["Design Temperature:", form.design_temperature],
-      ["Capacity / Volume:", form.capacity_volume],
-      ["Shell / Body Material:", form.shell_material],
-      ["Fluid / Contents:", form.fluid_type],
-    ];
-  }, [form]);
-
-  const handleSubmit = async (e) => {
+  async function handleSubmit(e) {
     e.preventDefault();
-
-    if (!form.asset_id) {
-      setError("Please select equipment.");
-      return;
-    }
-
-    if (!form.inspector_name.trim()) {
-      setError("Inspector name is required.");
-      return;
-    }
-
-    setLoading(true);
+    setSubmitting(true);
+    setMessage("");
     setError("");
 
     try {
-      const swlValue = isMeaningful(form.safe_working_load)
-        ? `${form.safe_working_load} Tons`
-        : null;
+      const payload = normalizePayload(form);
 
-      const mawpValue = isMeaningful(form.working_pressure)
-        ? `${form.working_pressure} kPa`
-        : null;
+      if (!supabase) {
+        throw new Error("Supabase not configured");
+      }
 
-      const payload = {
-        asset_id: form.asset_id,
-        certificate_type: form.certificate_type,
-        company: form.company,
-        equipment_description: form.equipment_description,
-        equipment_location: form.equipment_location,
-        equipment_id: form.equipment_id,
-        swl: swlValue,
-        mawp: mawpValue,
-        equipment_status: form.inspection_result,
-        legal_framework: form.legal_framework || LEGAL_DEFAULT,
-        inspector_name: form.inspector_name,
-        inspector_id: form.inspector_id,
-        signature_url: form.signature_url || null,
-        logo_url: form.logo_url || DEFAULT_LOGO_URL,
-        issued_at: form.issue_date ? new Date(form.issue_date).toISOString() : new Date().toISOString(),
-        valid_to: form.expiry_date || null,
-        status: "issued",
-      };
+      const { error: insertError } = await supabase
+        .from("certificates")
+        .insert([payload]);
 
-      const { data, error } = await createCertificate(payload);
+      if (insertError) {
+        throw insertError;
+      }
 
-      if (error) throw error;
+      setMessage("Certificate created successfully.");
+      setForm(initialForm);
 
-      router.push(`/certificates/${data.id}`);
+      setTimeout(() => {
+        router.push("/certificates");
+      }, 800);
     } catch (err) {
       setError(err?.message || "Failed to create certificate.");
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
-  };
+  }
 
   return (
     <AppLayout title="Create Certificate">
-      <div style={{ marginBottom: 24 }}>
+      <div style={styles.page}>
+        <div style={styles.headerCard}>
+          <div>
+            <div style={styles.kicker}>Certificates</div>
+            <h1 style={styles.title}>Create Certificate</h1>
+            <p style={styles.subtitle}>
+              Enter the certificate details below. This version is fully closed and
+              compile-safe, so it fixes the EOF build error.
+            </p>
+          </div>
+
+          <div style={styles.previewBox}>
+            <div style={{ color: C.subtext, fontSize: 13 }}>Preview Number</div>
+            <div style={{ color: C.green, fontWeight: 800, fontSize: 20 }}>
+              {previewCertificateNo}
+            </div>
+          </div>
+        </div>
+
+        {message ? <div style={styles.success}>{message}</div> : null}
+        {error ? <div style={styles.error}>{error}</div> : null}
+
+        <form onSubmit={handleSubmit} style={styles.form}>
+          <div style={styles.section}>
+            <div style={styles.sectionTitle}>Certificate Details</div>
+            <div style={styles.grid3}>
+              <Field
+                label="Certificate Number"
+                name="certificate_no"
+                value={form.certificate_no}
+                onChange={handleChange}
+                placeholder="Auto or manually type"
+              />
+              <SelectField
+                label="Certificate Type"
+                name="certificate_type"
+                value={form.certificate_type}
+                onChange={handleChange}
+                options={[
+                  "Load Test Certificate",
+                  "Inspection Certificate",
+                  "Pressure Vessel Certificate",
+                  "Lifting Equipment Certificate",
+                  "Calibration Certificate",
+                ]}
+              />
+              <SelectField
+                label="Status"
+                name="status"
+                value={form.status}
+                onChange={handleChange}
+                options={["Valid", "Expired", "Rejected", "Pending"]}
+              />
+            </div>
+          </div>
+
+          <div style={styles.section}>
+            <div style={styles.sectionTitle}>Client and Asset</div>
+            <div style={styles.grid3}>
+              <Field
+                label="Client Name"
+                name="client_name"
+                value={form.client_name}
+                onChange={handleChange}
+                required
+              />
+              <Field
+                label="Site Name"
+                name="site_name"
+                value={form.site_name}
+                onChange={handleChange}
+              />
+              <Field
+                label="Asset Name"
+                name="asset_name"
+                value={form.asset_name}
+                onChange={handleChange}
+                required
+              />
+              <Field
+                label="Asset Tag"
+                name="asset_tag"
+                value={form.asset_tag}
+                onChange={handleChange}
+              />
+              <Field
+                label="Equipment Type"
+                name="equipment_type"
+                value={form.equipment_type}
+                onChange={handleChange}
+              />
+              <Field
+                label="Serial Number"
+                name="serial_number"
+                value={form.serial_number}
+                onChange={handleChange}
+              />
+              <Field
+                label="Manufacturer"
+                name="manufacturer"
+                value={form.manufacturer}
+                onChange={handleChange}
+              />
+              <Field
+                label="Model"
+                name="model"
+                value={form.model}
+                onChange={handleChange}
+              />
+              <Field
+                label="Year Built"
+                name="year_built"
+                value={form.year_built}
+                onChange={handleChange}
+                placeholder="Manually type"
+              />
+            </div>
+          </div>
+
+          <div style={styles.section}>
+            <div style={styles.sectionTitle}>Technical Data</div>
+            <div style={styles.grid4}>
+              <Field
+                label="SWL"
+                name="swl"
+                value={form.swl}
+                onChange={handleChange}
+                placeholder="Manually type"
+              />
+              <SelectField
+                label="SWL Unit"
+                name="swl_unit"
+                value={form.swl_unit}
+                onChange={handleChange}
+                options={["Tons"]}
+              />
+              <Field
+                label="Proof Load"
+                name="proof_load"
+                value={form.proof_load}
+                onChange={handleChange}
+                placeholder="Manually type"
+              />
+              <SelectField
+                label="Proof Load Unit"
+                name="proof_load_unit"
+                value={form.proof_load_unit}
+                onChange={handleChange}
+                options={["Tons"]}
+              />
+              <Field
+                label="Lift Height"
+                name="lift_height"
+                value={form.lift_height}
+                onChange={handleChange}
+                placeholder="Manually type"
+              />
+              <SelectField
+                label="Lift Height Unit"
+                name="lift_height_unit"
+                value={form.lift_height_unit}
+                onChange={handleChange}
+                options={["m", "mm"]}
+              />
+              <Field
+                label="Sling Length"
+                name="sling_length"
+                value={form.sling_length}
+                onChange={handleChange}
+                placeholder="Manually type"
+              />
+              <SelectField
+                label="Sling Length Unit"
+                name="sling_length_unit"
+                value={form.sling_length_unit}
+                onChange={handleChange}
+                options={["m", "mm"]}
+              />
+              <Field
+                label="Pressure"
+                name="pressure"
+                value={form.pressure}
+                onChange={handleChange}
+                placeholder="Manually type"
+              />
+              <SelectField
+                label="Pressure Unit"
+                name="pressure_unit"
+                value={form.pressure_unit}
+                onChange={handleChange}
+                options={["kPa"]}
+              />
+            </div>
+          </div>
+
+          <div style={styles.section}>
+            <div style={styles.sectionTitle}>Inspection Details</div>
+            <div style={styles.grid3}>
+              <Field
+                label="Inspection Date"
+                name="inspection_date"
+                value={form.inspection_date}
+                onChange={handleChange}
+                type="date"
+                required
+              />
+              <Field
+                label="Expiry Date"
+                name="expiry_date"
+                value={form.expiry_date}
+                onChange={handleChange}
+                type="date"
+              />
+              <Field
+                label="Inspector Name"
+                name="inspector_name"
+                value={form.inspector_name}
+                onChange={handleChange}
+                required
+              />
+              <Field
+                label="Inspector Position"
+                name="inspector_position"
+                value={form.inspector_position}
+                onChange={handleChange}
+              />
+            </div>
+
+            <label style={{ display: "grid", gap: 8, marginTop: 18 }}>
+              <span style={{ color: C.subtext, fontSize: 14 }}>Notes</span>
+              <textarea
+                name="notes"
+                value={form.notes}
+                onChange={handleChange}
+                rows={5}
+                placeholder="Extra certificate remarks"
+                style={styles.textarea}
+              />
+            </label>
+          </div>
+
+          <div style={styles.actions}>
+            <button
+              type="button"
+              onClick={() => router.push("/certificates")}
+              style={styles.secondaryBtn}
+            >
+              Cancel
+            </button>
+
+            <button type="submit" disabled={submitting} style={styles.primaryBtn}>
+              {submitting ? "Saving..." : "Create Certificate"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </AppLayout>
+  );
+}
+
+const styles = {
+  page: {
+    padding: 24,
+    color: C.text,
+    background: "transparent",
+  },
+  headerCard: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 16,
+    alignItems: "flex-start",
+    flexWrap: "wrap",
+    padding: 20,
+    borderRadius: 20,
+    background: "linear-gradient(135deg, rgba(124,92,252,0.16), rgba(79,195,247,0.10))",
+    border: `1px solid ${C.border}`,
+    marginBottom: 20,
+  },
+  kicker: {
+    color: C.green,
+    fontSize: 12,
+    fontWeight: 800,
+    textTransform: "uppercase",
+    letterSpacing: 1.2,
+    marginBottom: 8,
+  },
+  title: {
+    margin: 0,
+    fontSize: 30,
+    lineHeight: 1.1,
+  },
+  subtitle: {
+    margin: "8px 0 0",
+    color: C.subtext,
+    maxWidth: 760,
+  },
+  previewBox: {
+    minWidth: 240,
+    padding: 16,
+    borderRadius: 16,
+    background: "rgba(11,16,32,0.7)",
+    border: `1px solid ${C.border}`,
+  },
+  success: {
+    marginBottom: 16,
+    padding: "12px 14px",
+    borderRadius: 12,
+    background: "rgba(0,245,196,0.12)",
+    border: "1px solid rgba(0,245,196,0.3)",
+    color: C.green,
+    fontWeight: 700,
+  },
+  error: {
+    marginBottom: 16,
+    padding: "12px 14px",
+    borderRadius: 12,
+    background: "rgba(255,107,107,0.12)",
+    border: "1px solid rgba(255,107,107,0.28)",
+    color: C.danger,
+    fontWeight: 700,
+  },
+  form: {
+    display: "grid",
+    gap: 20,
+  },
+  section: {
+    padding: 20,
+    borderRadius: 18,
+    background: C.panel,
+    border: `1px solid ${C.border}`,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 800,
+    marginBottom: 16,
+  },
+  grid3: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: 16,
+  },
+  grid4: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: 16,
+  },
+  input: {
+    width: "100%",
+    height: 46,
+    borderRadius: 12,
+    border: `1px solid ${C.border}`,
+    background: "#0f1730",
+    color: C.text,
+    padding: "0 14px",
+    outline: "none",
+  },
+  textarea: {
+    width: "100%",
+    borderRadius: 12,
+    border: `1px solid ${C.border}`,
+    background: "#0f1730",
+    color: C.text,
+    padding: 14,
+    outline: "none",
+    resize: "vertical",
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 12,
+    marginTop: 4,
+  },
+  secondaryBtn: {
+    height: 46,
+    padding: "0 18px",
+    borderRadius: 12,
+    border: `1px solid ${C.border}`,
+    background: "transparent",
+    color: C.text,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  primaryBtn: {
+    height: 46,
+    padding: "0 18px",
+    borderRadius: 12,
+    border: "none",
+    background: "linear-gradient(135deg, #7c5cfc, #00f5c4)",
+    color: "#08111f",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+};
