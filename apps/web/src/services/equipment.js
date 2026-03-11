@@ -73,6 +73,8 @@ function normalizeEquipmentPayload(equipmentData = {}) {
     last_inspection_date: normalizeText(equipmentData.last_inspection_date),
     next_inspection_date: normalizeText(equipmentData.next_inspection_date),
     notes: normalizeText(equipmentData.notes),
+    inspector_name: normalizeText(equipmentData.inspector_name),
+    inspector_signature_url: normalizeText(equipmentData.inspector_signature_url),
   };
 }
 
@@ -113,6 +115,8 @@ const EQUIPMENT_SELECT = `
   last_inspection_date,
   next_inspection_date,
   notes,
+  inspector_name,
+  inspector_signature_url,
   created_at,
   updated_at,
   clients (
@@ -151,26 +155,10 @@ const NCR_SELECT = `
   id,
   ncr_number,
   asset_id,
-  title,
   description,
   status,
   severity,
   due_date,
-  created_at,
-  updated_at
-`;
-
-const REPORT_SELECT = `
-  id,
-  report_number,
-  asset_id,
-  title,
-  report_type,
-  summary,
-  findings,
-  recommendations,
-  status,
-  pdf_url,
   created_at,
   updated_at
 `;
@@ -218,22 +206,12 @@ function mapNcrRow(row) {
   };
 }
 
-function mapReportRow(row) {
-  if (!row) return null;
-
-  return {
-    ...row,
-    report_no: row.report_number || null,
-  };
-}
-
 function mapInspectionRow(row) {
   if (!row) return null;
 
   return {
     ...row,
     inspection_type: row.inspection_number || "Inspection",
-    inspector_name: null,
     remarks: row.notes || null,
   };
 }
@@ -276,11 +254,6 @@ async function fetchLatestNcr(assetId) {
   return mapNcrRow(data);
 }
 
-async function fetchLatestReport(assetId) {
-  if (!assetId || !supabase) return null;
-  return null;
-}
-
 async function enrichEquipmentRow(asset) {
   if (!asset?.id) {
     return {
@@ -295,10 +268,9 @@ async function enrichEquipmentRow(asset) {
     };
   }
 
-  const [latestCertificate, latestNcr, latestReport] = await Promise.all([
+  const [latestCertificate, latestNcr] = await Promise.all([
     fetchLatestCertificate(asset.id),
     fetchLatestNcr(asset.id),
-    fetchLatestReport(asset.id),
   ]);
 
   return {
@@ -309,7 +281,7 @@ async function enrichEquipmentRow(asset) {
     inspection_status: asset.status || null,
     latest_certificate: latestCertificate,
     latest_ncr: latestNcr,
-    latest_report: latestReport,
+    latest_report: null,
   };
 }
 
@@ -427,16 +399,9 @@ export async function getNcrsByAssetId(assetId) {
   return { data: (data || []).map(mapNcrRow), error };
 }
 
-export async function getLatestReportByAssetId(assetId) {
-  if (!supabase) return notConfigured(null);
-  if (!assetId) return { data: null, error: { message: "Asset ID is required" } };
-  return { data: null, error: null };
-}
-
 export async function getReportsByAssetId(assetId) {
   if (!supabase) return notConfigured([]);
   if (!assetId) return { data: [], error: { message: "Asset ID is required" } };
-
   return { data: [], error: null };
 }
 
@@ -479,47 +444,6 @@ export async function getDocumentsByAssetId(assetId) {
     .order("created_at", { ascending: false });
 
   return { data: (data || []).map(mapDocumentRow), error };
-}
-
-export async function getEquipmentFullById(id) {
-  if (!supabase) return notConfigured(null);
-  if (!id) return { data: null, error: { message: "Equipment ID is required" } };
-
-  const equipmentRes = await getEquipmentById(id);
-
-  if (equipmentRes.error || !equipmentRes.data) {
-    return equipmentRes;
-  }
-
-  const assetId = equipmentRes.data.id;
-
-  const [certificatesRes, ncrsRes, reportsRes, inspectionsRes, documentsRes] =
-    await Promise.all([
-      getCertificatesByAssetId(assetId),
-      getNcrsByAssetId(assetId),
-      getReportsByAssetId(assetId),
-      getInspectionsByAssetId(assetId),
-      getDocumentsByAssetId(assetId),
-    ]);
-
-  return {
-    data: {
-      equipment: equipmentRes.data,
-      certificates: certificatesRes.data || [],
-      ncrs: ncrsRes.data || [],
-      reports: reportsRes.data || [],
-      inspections: inspectionsRes.data || [],
-      documents: documentsRes.data || [],
-    },
-    error:
-      equipmentRes.error ||
-      certificatesRes.error ||
-      ncrsRes.error ||
-      reportsRes.error ||
-      inspectionsRes.error ||
-      documentsRes.error ||
-      null,
-  };
 }
 
 export async function registerEquipment(equipmentData) {
