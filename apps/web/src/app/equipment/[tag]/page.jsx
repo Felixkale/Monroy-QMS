@@ -1,753 +1,464 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
-import {
-  getEquipmentByTag,
-  getCertificatesByAssetId,
-  getNcrsByAssetId,
-  getReportsByAssetId,
-  getInspectionsByAssetId,
-  getDocumentsByAssetId,
-} from "@/services/equipment";
+import { supabase } from "@/lib/supabaseClient";
+import { getEquipmentByTag } from "@/services/equipment";
 
 const C = {
   green: "#00f5c4",
   purple: "#7c5cfc",
   blue: "#4fc3f7",
   pink: "#f472b6",
-  red: "#fb7185",
-  yellow: "#facc15",
+  panel: "#11182d",
+  border: "rgba(255,255,255,0.08)",
+  text: "#eaf2ff",
+  subtext: "#9fb0d0",
+  danger: "#ff6b6b",
 };
 
-const cardStyle = {
-  background: "linear-gradient(135deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))",
-  border: "1px solid rgba(102,126,234,0.18)",
-  borderRadius: 16,
-  padding: 20,
+const initialForm = {
+  asset_name: "",
+  asset_tag: "",
+  asset_type: "",
+  manufacturer: "",
+  model: "",
+  serial_number: "",
+  year_built: "",
+  location: "",
+  department: "",
+  cert_type: "",
+  design_standard: "",
+  inspection_freq: "",
+  shell_material: "",
+  fluid_type: "",
+  design_pressure: "",
+  working_pressure: "",
+  test_pressure: "",
+  design_temperature: "",
+  capacity_volume: "",
+  safe_working_load: "",
+  proof_load: "",
+  lifting_height: "",
+  sling_length: "",
+  chain_size: "",
+  rope_diameter: "",
+  last_inspection_date: "",
+  next_inspection_date: "",
+  license_status: "",
+  license_expiry: "",
+  condition: "",
+  status: "",
+  notes: "",
 };
 
-const sectionTitleStyle = {
-  fontSize: 11,
-  fontWeight: 800,
-  color: "#667eea",
-  textTransform: "uppercase",
-  letterSpacing: "0.12em",
-  borderBottom: "1px solid rgba(102,126,234,0.2)",
-  paddingBottom: 8,
-  marginBottom: 16,
-  marginTop: 8,
-};
-
-function formatValue(value) {
-  if (value === null || value === undefined || value === "") return "N/A";
-  return value;
-}
-
-function statusBadge(status) {
-  const s = String(status || "").toLowerCase();
-
-  if (s.includes("expired") || s.includes("inactive")) {
-    return {
-      label: status || "expired",
-      style: {
-        background: "rgba(251,113,133,0.12)",
-        color: C.red,
-        border: "1px solid rgba(251,113,133,0.25)",
-      },
-    };
-  }
-
-  if (s.includes("expiring") || s.includes("pending") || s.includes("open")) {
-    return {
-      label: status || "pending",
-      style: {
-        background: "rgba(250,204,21,0.12)",
-        color: C.yellow,
-        border: "1px solid rgba(250,204,21,0.25)",
-      },
-    };
-  }
-
-  return {
-    label: status || "valid",
-    style: {
-      background: "rgba(0,245,196,0.12)",
-      color: C.green,
-      border: "1px solid rgba(0,245,196,0.25)",
-    },
-  };
-}
-
-function InfoCard({ label, value }) {
+function Field({
+  label,
+  name,
+  value,
+  onChange,
+  placeholder = "",
+  type = "text",
+}) {
   return (
-    <div
-      style={{
-        background: "rgba(255,255,255,0.04)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        borderRadius: 14,
-        padding: 16,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 700,
-          color: "rgba(255,255,255,0.5)",
-          textTransform: "uppercase",
-          letterSpacing: "0.08em",
-          marginBottom: 8,
-        }}
+    <label style={{ display: "grid", gap: 8 }}>
+      <span style={{ color: C.subtext, fontSize: 14 }}>{label}</span>
+      <input
+        name={name}
+        value={value || ""}
+        onChange={onChange}
+        placeholder={placeholder}
+        type={type}
+        style={styles.input}
+      />
+    </label>
+  );
+}
+
+function SelectField({ label, name, value, onChange, options = [] }) {
+  return (
+    <label style={{ display: "grid", gap: 8 }}>
+      <span style={{ color: C.subtext, fontSize: 14 }}>{label}</span>
+      <select
+        name={name}
+        value={value || ""}
+        onChange={onChange}
+        style={styles.input}
       >
-        {label}
-      </div>
-      <div
-        style={{
-          color: "#fff",
-          fontSize: 15,
-          fontWeight: 700,
-          lineHeight: 1.5,
-          wordBreak: "break-word",
-        }}
-      >
-        {formatValue(value)}
-      </div>
-    </div>
+        <option value="">Select</option>
+        {options.map((option) => {
+          const opt = typeof option === "string" ? { value: option, label: option } : option;
+          return (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          );
+        })}
+      </select>
+    </label>
   );
 }
 
-function TabButton({ active, label, count, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: "10px 14px",
-        borderRadius: 10,
-        border: active
-          ? "1px solid rgba(124,92,252,0.6)"
-          : "1px solid rgba(255,255,255,0.1)",
-        background: active
-          ? "linear-gradient(135deg,#667eea,#764ba2)"
-          : "rgba(255,255,255,0.04)",
-        color: "#fff",
-        fontWeight: 700,
-        fontSize: 13,
-        cursor: "pointer",
-      }}
-    >
-      {label} {typeof count === "number" ? `(${count})` : ""}
-    </button>
-  );
+function formatDateInput(value) {
+  if (!value) return "";
+  return String(value).slice(0, 10);
 }
 
-function EmptyState({ text }) {
-  return (
-    <div style={{ ...cardStyle, color: "rgba(255,255,255,0.6)" }}>
-      {text}
-    </div>
-  );
-}
-
-export default function EquipmentDetailsPage() {
+export default function EditEquipmentPage() {
   const params = useParams();
   const router = useRouter();
   const tag = Array.isArray(params?.tag) ? params.tag[0] : params?.tag;
 
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [equipment, setEquipment] = useState(null);
-  const [certificates, setCertificates] = useState([]);
-  const [ncrs, setNcrs] = useState([]);
-  const [reports, setReports] = useState([]);
-  const [inspections, setInspections] = useState([]);
-  const [documents, setDocuments] = useState([]);
-  const [activeTab, setActiveTab] = useState("overview");
+  const [equipmentId, setEquipmentId] = useState(null);
+  const [form, setForm] = useState(initialForm);
 
   useEffect(() => {
-    if (tag) {
-      fetchAll();
+    async function loadEquipment() {
+      try {
+        setLoading(true);
+        setError("");
+
+        if (!tag) {
+          throw new Error("Equipment tag not found in route.");
+        }
+
+        const { data, error } = await getEquipmentByTag(tag);
+
+        if (error) throw error;
+        if (!data) throw new Error("Equipment not found.");
+
+        setEquipmentId(data.id);
+        setForm({
+          asset_name: data.asset_name || "",
+          asset_tag: data.asset_tag || "",
+          asset_type: data.asset_type || "",
+          manufacturer: data.manufacturer || "",
+          model: data.model || "",
+          serial_number: data.serial_number || "",
+          year_built: data.year_built || "",
+          location: data.location || "",
+          department: data.department || "",
+          cert_type: data.cert_type || "",
+          design_standard: data.design_standard || "",
+          inspection_freq: data.inspection_freq || "",
+          shell_material: data.shell_material || "",
+          fluid_type: data.fluid_type || "",
+          design_pressure: data.design_pressure || "",
+          working_pressure: data.working_pressure || "",
+          test_pressure: data.test_pressure || "",
+          design_temperature: data.design_temperature || "",
+          capacity_volume: data.capacity_volume || "",
+          safe_working_load: data.safe_working_load || "",
+          proof_load: data.proof_load || "",
+          lifting_height: data.lifting_height || "",
+          sling_length: data.sling_length || "",
+          chain_size: data.chain_size || "",
+          rope_diameter: data.rope_diameter || "",
+          last_inspection_date: formatDateInput(data.last_inspection_date),
+          next_inspection_date: formatDateInput(data.next_inspection_date),
+          license_status: data.license_status || "",
+          license_expiry: formatDateInput(data.license_expiry),
+          condition: data.condition || "",
+          status: data.status || "",
+          notes: data.notes || "",
+        });
+      } catch (err) {
+        setError(err?.message || "Failed to load equipment details.");
+      } finally {
+        setLoading(false);
+      }
     }
+
+    loadEquipment();
   }, [tag]);
 
-  async function fetchAll() {
+  function handleChange(e) {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+
     try {
-      setLoading(true);
+      setSaving(true);
       setError("");
 
-      const equipmentRes = await getEquipmentByTag(tag);
-
-      if (equipmentRes.error) {
-        throw equipmentRes.error;
+      if (!supabase) {
+        throw new Error("Supabase not configured");
       }
 
-      if (!equipmentRes.data) {
-        setEquipment(null);
-        return;
+      if (!equipmentId) {
+        throw new Error("Equipment ID is missing.");
       }
 
-      setEquipment(equipmentRes.data);
+      const payload = {
+        asset_name: form.asset_name || null,
+        asset_tag: form.asset_tag || null,
+        asset_type: form.asset_type || null,
+        manufacturer: form.manufacturer || null,
+        model: form.model || null,
+        serial_number: form.serial_number || null,
+        year_built: form.year_built || null,
+        location: form.location || null,
+        department: form.department || null,
+        cert_type: form.cert_type || null,
+        design_standard: form.design_standard || null,
+        inspection_freq: form.inspection_freq || null,
+        shell_material: form.shell_material || null,
+        fluid_type: form.fluid_type || null,
+        design_pressure: form.design_pressure || null,
+        working_pressure: form.working_pressure || null,
+        test_pressure: form.test_pressure || null,
+        design_temperature: form.design_temperature || null,
+        capacity_volume: form.capacity_volume || null,
+        safe_working_load: form.safe_working_load || null,
+        proof_load: form.proof_load || null,
+        lifting_height: form.lifting_height || null,
+        sling_length: form.sling_length || null,
+        chain_size: form.chain_size || null,
+        rope_diameter: form.rope_diameter || null,
+        last_inspection_date: form.last_inspection_date || null,
+        next_inspection_date: form.next_inspection_date || null,
+        license_status: form.license_status || null,
+        license_expiry: form.license_expiry || null,
+        condition: form.condition || null,
+        status: form.status || null,
+        notes: form.notes || null,
+      };
 
-      const assetId = equipmentRes.data.id;
+      const { error: updateError } = await supabase
+        .from("assets")
+        .update(payload)
+        .eq("id", equipmentId);
 
-      const [
-        certificatesRes,
-        ncrRes,
-        reportsRes,
-        inspectionsRes,
-        documentsRes,
-      ] = await Promise.all([
-        getCertificatesByAssetId(assetId),
-        getNcrsByAssetId(assetId),
-        getReportsByAssetId(assetId),
-        getInspectionsByAssetId(assetId),
-        getDocumentsByAssetId(assetId),
-      ]);
+      if (updateError) throw updateError;
 
-      setCertificates(certificatesRes.data || []);
-      setNcrs(ncrRes.data || []);
-      setReports(reportsRes.data || []);
-      setInspections(inspectionsRes.data || []);
-      setDocuments(documentsRes.data || []);
+      router.push(`/equipment/${encodeURIComponent(form.asset_tag || tag)}`);
     } catch (err) {
-      console.error("Failed to load equipment details:", err);
-      setError(err?.message || "Failed to load equipment details.");
+      setError(err?.message || "Failed to update equipment.");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   }
 
-  const stats = useMemo(() => {
-    return {
-      certificates: certificates.length,
-      ncrs: ncrs.length,
-      reports: reports.length,
-      inspections: inspections.length,
-      documents: documents.length,
-    };
-  }, [certificates, ncrs, reports, inspections, documents]);
-
   if (loading) {
     return (
-      <AppLayout title="Equipment Details">
+      <AppLayout title="Edit Equipment">
         <div style={{ color: "#fff", padding: "32px 0" }}>Loading equipment details...</div>
       </AppLayout>
     );
   }
 
-  if (!equipment) {
-    return (
-      <AppLayout title="Equipment Details">
-        <div style={cardStyle}>
-          <div style={{ color: "#fff", fontSize: 15 }}>{error || "Equipment not found."}</div>
-          <button
-            onClick={() => router.push("/equipment")}
-            style={{
-              marginTop: 16,
-              padding: "10px 16px",
-              borderRadius: 8,
-              border: "none",
-              cursor: "pointer",
-              fontWeight: 700,
-              background: "linear-gradient(135deg,#667eea,#764ba2)",
-              color: "#fff",
-            }}
-          >
-            Back to Equipment
-          </button>
-        </div>
-      </AppLayout>
-    );
-  }
-
-  const mainBadge = statusBadge(
-    equipment.license_status || equipment.certificate_status || equipment.inspection_status || "valid"
-  );
-
   return (
-    <AppLayout title={equipment.asset_name || "Equipment"}>
-      <div style={{ marginBottom: 24 }}>
-        <button
-          onClick={() => router.push("/equipment")}
-          style={{
-            background: "none",
-            border: "none",
-            color: "#94a3b8",
-            fontSize: 13,
-            cursor: "pointer",
-            padding: 0,
-            marginBottom: 14,
-            fontFamily: "inherit",
-          }}
-        >
-          ← Back to Equipment
-        </button>
-
-        <h1
-          style={{
-            margin: 0,
-            fontSize: "clamp(22px,4vw,32px)",
-            fontWeight: 900,
-            color: "#fff",
-          }}
-        >
-          {equipment.asset_name || "Equipment"}
-        </h1>
-
-        <div
-          style={{
-            marginTop: 8,
-            width: 72,
-            height: 4,
-            borderRadius: 999,
-            background: `linear-gradient(90deg,${C.green},${C.purple},${C.blue})`,
-          }}
-        />
-
-        <div style={{ marginTop: 14, color: "rgba(255,255,255,0.75)", fontSize: 15 }}>
-          {(equipment.asset_tag || "No Tag")} • {(equipment.asset_type || "No Type")} •{" "}
-          {(equipment.manufacturer || "Unknown Manufacturer")}
-        </div>
-
-        <div style={{ marginTop: 6, color: "rgba(255,255,255,0.6)", fontSize: 14 }}>
-          Serial: {formatValue(equipment.serial_number)} | Location: {formatValue(equipment.location)}
-        </div>
-      </div>
-
-      {error && (
-        <div
-          style={{
-            background: "rgba(244,114,182,0.1)",
-            border: "1px solid rgba(244,114,182,0.3)",
-            borderRadius: 12,
-            padding: "12px 16px",
-            marginBottom: 20,
-            color: C.pink,
-            fontSize: 13,
-          }}
-        >
-          ⚠️ {error}
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
-        <span
-          style={{
-            ...mainBadge.style,
-            display: "inline-flex",
-            alignItems: "center",
-            padding: "10px 14px",
-            borderRadius: 999,
-            fontSize: 12,
-            fontWeight: 800,
-          }}
-        >
-          {mainBadge.label}
-        </span>
-
-        <button
-          onClick={() => router.push(`/equipment/${equipment.asset_tag}/edit`)}
-          style={{
-            padding: "10px 16px",
-            borderRadius: 8,
-            border: "none",
-            cursor: "pointer",
-            fontWeight: 700,
-            background: "linear-gradient(135deg,#667eea,#764ba2)",
-            color: "#fff",
-          }}
-        >
-          Edit Equipment
-        </button>
-
-        {certificates.length > 0 && (
-          <button
-            onClick={() => router.push(`/certificates/${certificates[0].id}`)}
-            style={{
-              padding: "10px 16px",
-              borderRadius: 8,
-              border: "none",
-              cursor: "pointer",
-              fontWeight: 700,
-              background: "linear-gradient(135deg,#00f5c4,#4fc3f7)",
-              color: "#111827",
-            }}
-          >
-            View Certificate
-          </button>
-        )}
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gap: 16,
-          gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
-          marginBottom: 24,
-        }}
-      >
-        <div style={cardStyle}>
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Certificates</div>
-          <div style={{ color: "#fff", fontSize: 28, fontWeight: 900, marginTop: 8 }}>{stats.certificates}</div>
-        </div>
-
-        <div style={cardStyle}>
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>NCRs</div>
-          <div style={{ color: "#fff", fontSize: 28, fontWeight: 900, marginTop: 8 }}>{stats.ncrs}</div>
-        </div>
-
-        <div style={cardStyle}>
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Reports</div>
-          <div style={{ color: "#fff", fontSize: 28, fontWeight: 900, marginTop: 8 }}>{stats.reports}</div>
-        </div>
-
-        <div style={cardStyle}>
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Inspections</div>
-          <div style={{ color: "#fff", fontSize: 28, fontWeight: 900, marginTop: 8 }}>{stats.inspections}</div>
-        </div>
-
-        <div style={cardStyle}>
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Documents</div>
-          <div style={{ color: "#fff", fontSize: 28, fontWeight: 900, marginTop: 8 }}>{stats.documents}</div>
-        </div>
-
-        <div style={cardStyle}>
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Next Inspection</div>
-          <div style={{ color: "#fff", fontSize: 15, fontWeight: 800, marginTop: 8 }}>
-            {formatValue(equipment.next_inspection_date)}
+    <AppLayout title="Edit Equipment">
+      <div style={styles.page}>
+        <div style={styles.headerCard}>
+          <div>
+            <div style={styles.kicker}>Equipment</div>
+            <h1 style={styles.title}>Edit Equipment</h1>
+            <p style={styles.subtitle}>
+              Update equipment details and save changes.
+            </p>
           </div>
         </div>
-      </div>
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <TabButton active={activeTab === "overview"} label="Overview" onClick={() => setActiveTab("overview")} />
-        <TabButton active={activeTab === "certificates"} label="Certificates" count={certificates.length} onClick={() => setActiveTab("certificates")} />
-        <TabButton active={activeTab === "ncrs"} label="NCRs" count={ncrs.length} onClick={() => setActiveTab("ncrs")} />
-        <TabButton active={activeTab === "reports"} label="Reports" count={reports.length} onClick={() => setActiveTab("reports")} />
-        <TabButton active={activeTab === "inspections"} label="Inspection History" count={inspections.length} onClick={() => setActiveTab("inspections")} />
-        <TabButton active={activeTab === "documents"} label="Documents" count={documents.length} onClick={() => setActiveTab("documents")} />
-      </div>
+        {error ? <div style={styles.error}>{error}</div> : null}
 
-      {activeTab === "overview" && (
-        <div>
-          <div style={sectionTitleStyle}>Equipment Overview</div>
-          <div
-            style={{
-              display: "grid",
-              gap: 16,
-              gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
-            }}
-          >
-            <InfoCard label="Asset Name" value={equipment.asset_name} />
-            <InfoCard label="Asset Tag" value={equipment.asset_tag} />
-            <InfoCard label="Equipment Type" value={equipment.asset_type} />
-            <InfoCard label="Serial Number" value={equipment.serial_number} />
-            <InfoCard label="Manufacturer" value={equipment.manufacturer} />
-            <InfoCard label="Model" value={equipment.model} />
-            <InfoCard label="Client" value={equipment.clients?.company_name} />
-            <InfoCard label="Client Code" value={equipment.clients?.company_code} />
-            <InfoCard label="Location" value={equipment.location} />
-            <InfoCard label="Department" value={equipment.department} />
-            <InfoCard label="Year Built" value={equipment.year_built} />
-            <InfoCard label="Certificate Type" value={equipment.cert_type} />
-            <InfoCard label="Design Standard" value={equipment.design_standard} />
-            <InfoCard label="Inspection Frequency" value={equipment.inspection_freq} />
-            <InfoCard label="Shell / Body Material" value={equipment.shell_material} />
-            <InfoCard label="Fluid Type" value={equipment.fluid_type} />
-            <InfoCard label="Design Pressure" value={equipment.design_pressure ? `${equipment.design_pressure} kPa` : null} />
-            <InfoCard label="Working Pressure" value={equipment.working_pressure ? `${equipment.working_pressure} kPa` : null} />
-            <InfoCard label="Test Pressure" value={equipment.test_pressure ? `${equipment.test_pressure} kPa` : null} />
-            <InfoCard label="Design Temperature" value={equipment.design_temperature} />
-            <InfoCard label="Capacity / Volume" value={equipment.capacity_volume} />
-            <InfoCard label="SWL" value={equipment.safe_working_load ? `${equipment.safe_working_load} Tons` : null} />
-            <InfoCard label="Proof Load" value={equipment.proof_load ? `${equipment.proof_load} Tons` : null} />
-            <InfoCard label="Lift Height" value={equipment.lifting_height} />
-            <InfoCard label="Sling Length" value={equipment.sling_length} />
-            <InfoCard label="Chain Size" value={equipment.chain_size} />
-            <InfoCard label="Rope Diameter" value={equipment.rope_diameter} />
-            <InfoCard label="Condition" value={equipment.condition} />
-            <InfoCard label="Status" value={equipment.status} />
-            <InfoCard label="License Status" value={equipment.license_status} />
-            <InfoCard label="License Expiry" value={equipment.license_expiry} />
-            <InfoCard label="Last Inspection Date" value={equipment.last_inspection_date} />
-            <InfoCard label="Next Inspection Date" value={equipment.next_inspection_date} />
-            <InfoCard label="Notes" value={equipment.notes} />
+        <form onSubmit={handleSubmit} style={styles.form}>
+          <div style={styles.section}>
+            <div style={styles.sectionTitle}>Basic Information</div>
+            <div style={styles.grid3}>
+              <Field label="Asset Name" name="asset_name" value={form.asset_name} onChange={handleChange} />
+              <Field label="Asset Tag" name="asset_tag" value={form.asset_tag} onChange={handleChange} />
+              <Field label="Equipment Type" name="asset_type" value={form.asset_type} onChange={handleChange} />
+              <Field label="Manufacturer" name="manufacturer" value={form.manufacturer} onChange={handleChange} />
+              <Field label="Model" name="model" value={form.model} onChange={handleChange} />
+              <Field label="Serial Number" name="serial_number" value={form.serial_number} onChange={handleChange} />
+              <Field label="Year Built" name="year_built" value={form.year_built} onChange={handleChange} />
+              <Field label="Location" name="location" value={form.location} onChange={handleChange} />
+              <Field label="Department" name="department" value={form.department} onChange={handleChange} />
+            </div>
           </div>
-        </div>
-      )}
 
-      {activeTab === "certificates" && (
-        <div>
-          <div style={sectionTitleStyle}>Certificates</div>
-          {certificates.length === 0 ? (
-            <EmptyState text="No certificates found for this equipment." />
-          ) : (
-            <div style={{ display: "grid", gap: 14 }}>
-              {certificates.map((item) => {
-                const badge = statusBadge(item.status || "valid");
-
-                return (
-                  <div key={item.id} style={cardStyle}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-                      <div>
-                        <div style={{ color: "#fff", fontSize: 17, fontWeight: 800 }}>
-                          {item.certificate_no || item.certificate_number || "Certificate"}
-                        </div>
-                        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 8 }}>
-                          Issue Date: {item.issue_date || "N/A"} | Expiry Date: {item.expiry_date || "N/A"}
-                        </div>
-                        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 4 }}>
-                          Inspector: {item.inspector_name || "N/A"}
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                        <span
-                          style={{
-                            ...badge.style,
-                            display: "inline-flex",
-                            alignItems: "center",
-                            padding: "8px 12px",
-                            borderRadius: 999,
-                            fontSize: 11,
-                            fontWeight: 800,
-                          }}
-                        >
-                          {badge.label}
-                        </span>
-
-                        <button
-                          onClick={() => router.push(`/certificates/${item.id}`)}
-                          style={{
-                            padding: "10px 14px",
-                            borderRadius: 8,
-                            border: "none",
-                            cursor: "pointer",
-                            fontWeight: 700,
-                            background: "linear-gradient(135deg,#667eea,#764ba2)",
-                            color: "#fff",
-                          }}
-                        >
-                          View Certificate
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+          <div style={styles.section}>
+            <div style={styles.sectionTitle}>Inspection and Design Data</div>
+            <div style={styles.grid3}>
+              <Field label="Certificate Type" name="cert_type" value={form.cert_type} onChange={handleChange} />
+              <Field label="Design Standard" name="design_standard" value={form.design_standard} onChange={handleChange} />
+              <Field label="Inspection Frequency" name="inspection_freq" value={form.inspection_freq} onChange={handleChange} />
+              <Field label="Shell Material" name="shell_material" value={form.shell_material} onChange={handleChange} />
+              <Field label="Fluid Type" name="fluid_type" value={form.fluid_type} onChange={handleChange} />
+              <Field label="Design Pressure" name="design_pressure" value={form.design_pressure} onChange={handleChange} />
+              <Field label="Working Pressure" name="working_pressure" value={form.working_pressure} onChange={handleChange} />
+              <Field label="Test Pressure" name="test_pressure" value={form.test_pressure} onChange={handleChange} />
+              <Field label="Design Temperature" name="design_temperature" value={form.design_temperature} onChange={handleChange} />
+              <Field label="Capacity / Volume" name="capacity_volume" value={form.capacity_volume} onChange={handleChange} />
+              <Field label="SWL" name="safe_working_load" value={form.safe_working_load} onChange={handleChange} />
+              <Field label="Proof Load" name="proof_load" value={form.proof_load} onChange={handleChange} />
+              <Field label="Lift Height" name="lifting_height" value={form.lifting_height} onChange={handleChange} />
+              <Field label="Sling Length" name="sling_length" value={form.sling_length} onChange={handleChange} />
+              <Field label="Chain Size" name="chain_size" value={form.chain_size} onChange={handleChange} />
+              <Field label="Rope Diameter" name="rope_diameter" value={form.rope_diameter} onChange={handleChange} />
             </div>
-          )}
-        </div>
-      )}
+          </div>
 
-      {activeTab === "ncrs" && (
-        <div>
-          <div style={sectionTitleStyle}>NCRs</div>
-          {ncrs.length === 0 ? (
-            <EmptyState text="No NCRs found for this equipment." />
-          ) : (
-            <div style={{ display: "grid", gap: 14 }}>
-              {ncrs.map((item) => {
-                const badge = statusBadge(item.status || "pending");
-
-                return (
-                  <div key={item.id} style={cardStyle}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-                      <div>
-                        <div style={{ color: "#fff", fontSize: 17, fontWeight: 800 }}>
-                          {item.ncr_no || item.ncr_number || "NCR"}
-                        </div>
-                        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 8 }}>
-                          Date: {item.created_at?.slice(0, 10) || "N/A"}
-                        </div>
-                        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 4 }}>
-                          Description: {item.description || "N/A"}
-                        </div>
-                      </div>
-
-                      <span
-                        style={{
-                          ...badge.style,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          padding: "8px 12px",
-                          borderRadius: 999,
-                          fontSize: 11,
-                          fontWeight: 800,
-                          height: "fit-content",
-                        }}
-                      >
-                        {badge.label}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
+          <div style={styles.section}>
+            <div style={styles.sectionTitle}>Status and Dates</div>
+            <div style={styles.grid3}>
+              <Field label="Last Inspection Date" name="last_inspection_date" type="date" value={form.last_inspection_date} onChange={handleChange} />
+              <Field label="Next Inspection Date" name="next_inspection_date" type="date" value={form.next_inspection_date} onChange={handleChange} />
+              <SelectField label="License Status" name="license_status" value={form.license_status} onChange={handleChange} options={["valid", "expiring", "expired"]} />
+              <Field label="License Expiry" name="license_expiry" type="date" value={form.license_expiry} onChange={handleChange} />
+              <Field label="Condition" name="condition" value={form.condition} onChange={handleChange} />
+              <SelectField label="Status" name="status" value={form.status} onChange={handleChange} options={["active", "inactive", "under_maintenance"]} />
             </div>
-          )}
-        </div>
-      )}
+          </div>
 
-      {activeTab === "reports" && (
-        <div>
-          <div style={sectionTitleStyle}>Reports</div>
-          {reports.length === 0 ? (
-            <EmptyState text="No reports found for this equipment." />
-          ) : (
-            <div style={{ display: "grid", gap: 14 }}>
-              {reports.map((item) => {
-                const badge = statusBadge(item.status || "active");
+          <div style={styles.section}>
+            <div style={styles.sectionTitle}>Notes</div>
+            <textarea
+              name="notes"
+              value={form.notes}
+              onChange={handleChange}
+              rows={5}
+              style={styles.textarea}
+              placeholder="Equipment notes"
+            />
+          </div>
 
-                return (
-                  <div key={item.id} style={cardStyle}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-                      <div>
-                        <div style={{ color: "#fff", fontSize: 17, fontWeight: 800 }}>
-                          {item.report_no || item.report_number || "Report"}
-                        </div>
-                        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 8 }}>
-                          Date: {item.created_at?.slice(0, 10) || "N/A"}
-                        </div>
-                        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 4 }}>
-                          Report Type: {item.report_type || "N/A"}
-                        </div>
-                      </div>
+          <div style={styles.actions}>
+            <button
+              type="button"
+              onClick={() => router.push(`/equipment/${encodeURIComponent(tag)}`)}
+              style={styles.secondaryBtn}
+            >
+              Cancel
+            </button>
 
-                      <span
-                        style={{
-                          ...badge.style,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          padding: "8px 12px",
-                          borderRadius: 999,
-                          fontSize: 11,
-                          fontWeight: 800,
-                          height: "fit-content",
-                        }}
-                      >
-                        {badge.label}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {activeTab === "inspections" && (
-        <div>
-          <div style={sectionTitleStyle}>Inspection History</div>
-          {inspections.length === 0 ? (
-            <EmptyState text="No inspection history found for this equipment." />
-          ) : (
-            <div style={{ display: "grid", gap: 14 }}>
-              {inspections.map((item) => {
-                const badge = statusBadge(item.status || "completed");
-
-                return (
-                  <div key={item.id} style={cardStyle}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-                      <div>
-                        <div style={{ color: "#fff", fontSize: 17, fontWeight: 800 }}>
-                          {item.inspection_type || "Inspection"}
-                        </div>
-                        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 8 }}>
-                          Date: {item.inspection_date || "N/A"}
-                        </div>
-                        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 4 }}>
-                          Remarks: {item.remarks || "N/A"}
-                        </div>
-                      </div>
-
-                      <span
-                        style={{
-                          ...badge.style,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          padding: "8px 12px",
-                          borderRadius: 999,
-                          fontSize: 11,
-                          fontWeight: 800,
-                          height: "fit-content",
-                        }}
-                      >
-                        {badge.label}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {activeTab === "documents" && (
-        <div>
-          <div style={sectionTitleStyle}>Documents</div>
-          {documents.length === 0 ? (
-            <EmptyState text="No documents uploaded for this equipment." />
-          ) : (
-            <div style={{ display: "grid", gap: 14 }}>
-              {documents.map((item) => (
-                <div key={item.id} style={cardStyle}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-                    <div>
-                      <div style={{ color: "#fff", fontSize: 17, fontWeight: 800 }}>
-                        {item.title || item.file_name || "Document"}
-                      </div>
-                      <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 8 }}>
-                        Type: {item.document_type || "N/A"}
-                      </div>
-                      <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 4 }}>
-                        Uploaded: {item.created_at?.slice(0, 10) || "N/A"}
-                      </div>
-                    </div>
-
-                    <div>
-                      {item.file_url ? (
-                        <a
-                          href={item.file_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{
-                            display: "inline-block",
-                            padding: "10px 14px",
-                            borderRadius: 8,
-                            textDecoration: "none",
-                            fontWeight: 700,
-                            background: "linear-gradient(135deg,#667eea,#764ba2)",
-                            color: "#fff",
-                          }}
-                        >
-                          Open Document
-                        </a>
-                      ) : (
-                        <button
-                          disabled
-                          style={{
-                            padding: "10px 14px",
-                            borderRadius: 8,
-                            border: "1px solid rgba(255,255,255,0.1)",
-                            background: "rgba(255,255,255,0.04)",
-                            color: "rgba(255,255,255,0.4)",
-                            fontWeight: 700,
-                            cursor: "not-allowed",
-                          }}
-                        >
-                          No File
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+            <button type="submit" disabled={saving} style={styles.primaryBtn}>
+              {saving ? "Saving..." : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </div>
     </AppLayout>
   );
 }
+
+const styles = {
+  page: {
+    padding: 24,
+    color: C.text,
+    background: "transparent",
+  },
+  headerCard: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 16,
+    alignItems: "flex-start",
+    flexWrap: "wrap",
+    padding: 20,
+    borderRadius: 20,
+    background: "linear-gradient(135deg, rgba(124,92,252,0.16), rgba(79,195,247,0.10))",
+    border: `1px solid ${C.border}`,
+    marginBottom: 20,
+  },
+  kicker: {
+    color: C.green,
+    fontSize: 12,
+    fontWeight: 800,
+    textTransform: "uppercase",
+    letterSpacing: 1.2,
+    marginBottom: 8,
+  },
+  title: {
+    margin: 0,
+    fontSize: 30,
+    lineHeight: 1.1,
+  },
+  subtitle: {
+    margin: "8px 0 0",
+    color: C.subtext,
+    maxWidth: 760,
+  },
+  form: {
+    display: "grid",
+    gap: 20,
+  },
+  section: {
+    padding: 20,
+    borderRadius: 18,
+    background: C.panel,
+    border: `1px solid ${C.border}`,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 800,
+    marginBottom: 16,
+  },
+  grid3: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: 16,
+  },
+  input: {
+    width: "100%",
+    height: 46,
+    borderRadius: 12,
+    border: `1px solid ${C.border}`,
+    background: "#0f1730",
+    color: C.text,
+    padding: "0 14px",
+    outline: "none",
+  },
+  textarea: {
+    width: "100%",
+    borderRadius: 12,
+    border: `1px solid ${C.border}`,
+    background: "#0f1730",
+    color: C.text,
+    padding: 14,
+    outline: "none",
+    resize: "vertical",
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 12,
+    marginTop: 4,
+  },
+  secondaryBtn: {
+    height: 46,
+    padding: "0 18px",
+    borderRadius: 12,
+    border: `1px solid ${C.border}`,
+    background: "transparent",
+    color: C.text,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  primaryBtn: {
+    height: 46,
+    padding: "0 18px",
+    borderRadius: 12,
+    border: "none",
+    background: "linear-gradient(135deg, #7c5cfc, #00f5c4)",
+    color: "#08111f",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  error: {
+    marginBottom: 16,
+    padding: "12px 14px",
+    borderRadius: 12,
+    background: "rgba(255,107,107,0.12)",
+    border: "1px solid rgba(255,107,107,0.28)",
+    color: C.danger,
+    fontWeight: 700,
+  },
+};
