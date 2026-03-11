@@ -94,16 +94,11 @@ function renderFieldList(fields) {
 export default function PrintCertificatePage() {
   const params = useParams();
   const id = params?.id;
-  const signatureInputRef = useRef(null);
+  const hasPrintedRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
-  const [savingMeta, setSavingMeta] = useState(false);
-  const [uploadingSignature, setUploadingSignature] = useState(false);
   const [certificate, setCertificate] = useState(null);
   const [asset, setAsset] = useState(null);
-
-  const [inspectorNameInput, setInspectorNameInput] = useState("");
-  const [signatureUrlInput, setSignatureUrlInput] = useState("");
 
   useEffect(() => {
     async function loadData() {
@@ -121,8 +116,6 @@ export default function PrintCertificatePage() {
         if (certError) throw certError;
 
         setCertificate(cert);
-        setInspectorNameInput(cert?.inspector_name || "");
-        setSignatureUrlInput(cert?.signature_url || "");
 
         if (cert?.asset_id) {
           const { data: assetData } = await supabase
@@ -149,74 +142,27 @@ export default function PrintCertificatePage() {
     loadData();
   }, [id]);
 
-  async function saveCertificateMeta(nextInspectorName, nextSignatureUrl) {
-    if (!certificate?.id) return;
+  useEffect(() => {
+    if (loading || !certificate || hasPrintedRef.current) return;
 
-    try {
-      setSavingMeta(true);
+    const timer = setTimeout(() => {
+      hasPrintedRef.current = true;
+      window.print();
+    }, 500);
 
-      const payload = {
-        inspector_name: nextInspectorName || null,
-        signature_url: nextSignatureUrl || null,
-      };
-
-      const { data, error } = await supabase
-        .from("certificates")
-        .update(payload)
-        .eq("id", certificate.id)
-        .select("*")
-        .single();
-
-      if (error) throw error;
-
-      setCertificate(data);
-      setInspectorNameInput(data?.inspector_name || "");
-      setSignatureUrlInput(data?.signature_url || "");
-    } catch (err) {
-      alert(err?.message || "Failed to save certificate details.");
-    } finally {
-      setSavingMeta(false);
-    }
-  }
-
-  async function handleSignatureUpload(e) {
-    try {
-      const file = e.target.files?.[0];
-      if (!file || !certificate?.id) return;
-
-      setUploadingSignature(true);
-
-      const ext = file.name.split(".").pop() || "png";
-      const fileName = `${certificate.id}-${Date.now()}.${ext}`;
-      const filePath = `certificate-signatures/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("documents")
-        .upload(filePath, file, {
-          cacheControl: "3600",
-          upsert: true,
-        });
-
-      if (uploadError) throw uploadError;
-
-      const { data: publicUrlData } = supabase.storage
-        .from("documents")
-        .getPublicUrl(filePath);
-
-      const publicUrl = publicUrlData?.publicUrl;
-      if (!publicUrl) throw new Error("Failed to get uploaded signature URL.");
-
-      setSignatureUrlInput(publicUrl);
-      await saveCertificateMeta(inspectorNameInput, publicUrl);
-    } catch (err) {
-      alert(err?.message || "Failed to upload signature.");
-    } finally {
-      setUploadingSignature(false);
-      if (signatureInputRef.current) {
-        signatureInputRef.current.value = "";
+    const handleAfterPrint = () => {
+      if (window.opener) {
+        window.close();
       }
-    }
-  }
+    };
+
+    window.addEventListener("afterprint", handleAfterPrint);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("afterprint", handleAfterPrint);
+    };
+  }, [loading, certificate]);
 
   const equipmentType = asset?.asset_type || certificate?.equipment_description || "";
   const isPressure = PRESSURE_TYPES.includes(equipmentType);
@@ -269,7 +215,7 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
   ].filter(Boolean);
 
   const complianceText = isPressure
-    ? "This certificate confirms that the pressure equipment has been examined and assessed for statutory compliance under the Mines, Quarries, Works and Machinery Act Cap 44:02. Operation must remain within the approved safe pressure limits shown on the equipment nameplate."
+    ? "This certificate confirms that the pressure equipment has been examined and assessed for statutory compliance under the Mines, Quarries, Works and Machinery Act Cap 44:02. Operation must remain within the approved safe pressure limits shown on the equipment."
     : "This certificate confirms that the lifting equipment has been examined and assessed for statutory compliance under the Mines, Quarries, Works and Machinery Act Cap 44:02. Operation must not exceed the Safe Working Load shown on the equipment identification data.";
 
   const inspectionMethod = isPressure
@@ -295,8 +241,11 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
           font-family: Arial, Helvetica, sans-serif;
           background: #c8c8c8;
         }
+        @page {
+          size: A4;
+          margin: 10mm;
+        }
         @media print {
-          .print-toolbar { display: none !important; }
           body { background: white; }
           .cert-wrap { padding: 0 !important; }
           .cert-sheet {
@@ -306,103 +255,6 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
           }
         }
       `}</style>
-
-      <div
-        className="print-toolbar"
-        style={{
-          padding: 16,
-          display: "grid",
-          gap: 12,
-          justifyContent: "center",
-          background: "#e5e7eb",
-          position: "sticky",
-          top: 0,
-          zIndex: 10,
-        }}
-      >
-        <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-          <button
-            onClick={() => window.print()}
-            style={{
-              padding: "10px 18px",
-              border: "none",
-              borderRadius: 8,
-              background: "#0ea5e9",
-              color: "#fff",
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
-            Print / Save PDF
-          </button>
-
-          <button
-            onClick={() => saveCertificateMeta(inspectorNameInput, signatureUrlInput)}
-            disabled={savingMeta || uploadingSignature}
-            style={{
-              padding: "10px 18px",
-              border: "none",
-              borderRadius: 8,
-              background: "#0284c7",
-              color: "#fff",
-              fontWeight: 700,
-              cursor: "pointer",
-              opacity: savingMeta || uploadingSignature ? 0.7 : 1,
-            }}
-          >
-            {savingMeta ? "Saving..." : "Save Inspector & Signature"}
-          </button>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))",
-            gap: 12,
-            maxWidth: 900,
-            margin: "0 auto",
-            width: "100%",
-          }}
-        >
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 6 }}>
-              Inspector Name
-            </div>
-            <input
-              value={inspectorNameInput}
-              onChange={(e) => setInspectorNameInput(e.target.value)}
-              placeholder="Type inspector name"
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                borderRadius: 8,
-                border: "1px solid #cbd5e1",
-                fontSize: 13,
-              }}
-            />
-          </div>
-
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 6 }}>
-              Upload Signature
-            </div>
-            <input
-              ref={signatureInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/jpg,image/webp"
-              onChange={handleSignatureUpload}
-              style={{
-                width: "100%",
-                padding: "8px",
-                borderRadius: 8,
-                border: "1px solid #cbd5e1",
-                background: "#fff",
-                fontSize: 13,
-              }}
-            />
-          </div>
-        </div>
-      </div>
 
       <div className="cert-wrap" style={{ padding: 24, display: "flex", justifyContent: "center" }}>
         <div
@@ -791,21 +643,9 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
                             }}
                           />
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => signatureInputRef.current?.click()}
-                            style={{
-                              padding: "8px 12px",
-                              borderRadius: 8,
-                              border: "none",
-                              background: "#0ea5e9",
-                              color: "#fff",
-                              fontWeight: 700,
-                              cursor: "pointer",
-                            }}
-                          >
-                            {uploadingSignature ? "Uploading..." : "Upload Signature"}
-                          </button>
+                          <span style={{ fontSize: 12, color: "#666", fontWeight: 700 }}>
+                            No uploaded signature
+                          </span>
                         )}
                       </div>
                     </div>
@@ -844,14 +684,6 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
                 </div>
               </div>
             </div>
-
-            <input
-              ref={signatureInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/jpg,image/webp"
-              onChange={handleSignatureUpload}
-              style={{ display: "none" }}
-            />
           </div>
 
           <div
