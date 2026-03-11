@@ -84,11 +84,22 @@ function normalizeDate(value) {
 function mapCertificateRow(row) {
   if (!row) return null;
 
+  const validTo = row.valid_to ? String(row.valid_to).slice(0, 10) : null;
+  const today = new Date().toISOString().slice(0, 10);
+
+  let expiryState = "unknown";
+  if (validTo) {
+    if (validTo < today) expiryState = "expired";
+    else expiryState = "valid";
+  }
+
   return {
     ...row,
     certificate_no: row.certificate_number || null,
     issue_date: row.issued_at ? String(row.issued_at).slice(0, 10) : null,
-    expiry_date: row.valid_to || null,
+    expiry_date: validTo,
+    expiry_state: expiryState,
+    inspection_result: row.equipment_status || null,
     asset: row.assets || null,
   };
 }
@@ -254,49 +265,23 @@ export async function updateCertificate(id, updates = {}) {
   const payload = {};
 
   if ("asset_id" in updates) payload.asset_id = normalizeText(updates.asset_id);
-  if ("certificate_type" in updates) {
-    payload.certificate_type = normalizeText(updates.certificate_type);
-  }
+  if ("certificate_type" in updates) payload.certificate_type = normalizeText(updates.certificate_type);
   if ("company" in updates) payload.company = normalizeText(updates.company);
-  if ("equipment_description" in updates) {
-    payload.equipment_description = normalizeText(updates.equipment_description);
-  }
-  if ("equipment_location" in updates) {
-    payload.equipment_location = normalizeText(updates.equipment_location);
-  }
-  if ("equipment_id" in updates) {
-    payload.equipment_id = normalizeText(updates.equipment_id);
-  }
+  if ("equipment_description" in updates) payload.equipment_description = normalizeText(updates.equipment_description);
+  if ("equipment_location" in updates) payload.equipment_location = normalizeText(updates.equipment_location);
+  if ("equipment_id" in updates) payload.equipment_id = normalizeText(updates.equipment_id);
   if ("swl" in updates) payload.swl = normalizeText(updates.swl);
   if ("mawp" in updates) payload.mawp = normalizeText(updates.mawp);
-  if ("equipment_status" in updates) {
-    payload.equipment_status = normalizeText(updates.equipment_status);
-  }
-  if ("issued_at" in updates) {
-    payload.issued_at = updates.issued_at || null;
-  }
-  if ("valid_to" in updates) {
-    payload.valid_to = normalizeDate(updates.valid_to);
-  }
+  if ("equipment_status" in updates) payload.equipment_status = normalizeText(updates.equipment_status);
+  if ("issued_at" in updates) payload.issued_at = updates.issued_at || null;
+  if ("valid_to" in updates) payload.valid_to = normalizeDate(updates.valid_to);
   if ("status" in updates) payload.status = normalizeText(updates.status);
-  if ("legal_framework" in updates) {
-    payload.legal_framework = normalizeText(updates.legal_framework);
-  }
-  if ("inspector_name" in updates) {
-    payload.inspector_name = normalizeText(updates.inspector_name);
-  }
-  if ("inspector_id" in updates) {
-    payload.inspector_id = normalizeText(updates.inspector_id);
-  }
-  if ("signature_url" in updates) {
-    payload.signature_url = normalizeText(updates.signature_url);
-  }
-  if ("logo_url" in updates) {
-    payload.logo_url = normalizeText(updates.logo_url);
-  }
-  if ("pdf_url" in updates) {
-    payload.pdf_url = normalizeText(updates.pdf_url);
-  }
+  if ("legal_framework" in updates) payload.legal_framework = normalizeText(updates.legal_framework);
+  if ("inspector_name" in updates) payload.inspector_name = normalizeText(updates.inspector_name);
+  if ("inspector_id" in updates) payload.inspector_id = normalizeText(updates.inspector_id);
+  if ("signature_url" in updates) payload.signature_url = normalizeText(updates.signature_url);
+  if ("logo_url" in updates) payload.logo_url = normalizeText(updates.logo_url);
+  if ("pdf_url" in updates) payload.pdf_url = normalizeText(updates.pdf_url);
 
   const { data, error } = await supabase
     .from("certificates")
@@ -325,60 +310,49 @@ export async function deleteCertificate(id) {
   return { data: !error, error };
 }
 
+export async function deleteCertificateById(id) {
+  return deleteCertificate(id);
+}
+
 export async function getCertificateStats() {
   if (!supabase) {
     return {
       total: 0,
-      issued: 0,
-      valid: 0,
-      expired: 0,
-      draft: 0,
-      rejected: 0,
       pass: 0,
+      conditional: 0,
       fail: 0,
+      expired: 0,
     };
   }
 
   const { data, error } = await supabase
     .from("certificates")
-    .select("status, equipment_status, valid_to");
+    .select("equipment_status, valid_to");
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 
   const today = new Date().toISOString().slice(0, 10);
 
   const stats = {
     total: 0,
-    issued: 0,
-    valid: 0,
-    expired: 0,
-    draft: 0,
-    rejected: 0,
     pass: 0,
+    conditional: 0,
     fail: 0,
+    expired: 0,
   };
 
   for (const row of data || []) {
     stats.total += 1;
 
-    const status = String(row.status || "").trim().toLowerCase();
-    const equipmentStatus = String(row.equipment_status || "").trim().toLowerCase();
+    const result = String(row.equipment_status || "").trim().toUpperCase();
     const validTo = row.valid_to ? String(row.valid_to).slice(0, 10) : null;
 
-    if (status === "issued") stats.issued += 1;
-    if (status === "draft") stats.draft += 1;
-    if (status === "rejected") stats.rejected += 1;
+    if (result === "PASS") stats.pass += 1;
+    if (result === "CONDITIONAL") stats.conditional += 1;
+    if (result === "FAIL") stats.fail += 1;
 
-    if (equipmentStatus === "pass") stats.pass += 1;
-    if (equipmentStatus === "fail") stats.fail += 1;
-
-    if (validTo) {
-      if (validTo >= today) stats.valid += 1;
-      if (validTo < today) stats.expired += 1;
-    } else {
-      if (status === "expired") stats.expired += 1;
+    if (validTo && validTo < today) {
+      stats.expired += 1;
     }
   }
 
