@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -83,7 +83,7 @@ function renderFieldList(fields) {
           color: "#111",
         }}
       >
-        <span style={{ minWidth: 145, fontWeight: 700, color: "#333" }}>
+        <span style={{ minWidth: 150, fontWeight: 700, color: "#333" }}>
           {item.label}
         </span>
         <span style={{ fontWeight: 700, color: "#111" }}>{item.value}</span>
@@ -94,13 +94,13 @@ function renderFieldList(fields) {
 export default function PrintCertificatePage() {
   const params = useParams();
   const id = params?.id;
+  const signatureInputRef = useRef(null);
 
   const [loading, setLoading] = useState(true);
   const [savingMeta, setSavingMeta] = useState(false);
   const [uploadingSignature, setUploadingSignature] = useState(false);
   const [certificate, setCertificate] = useState(null);
   const [asset, setAsset] = useState(null);
-  const [nameplate, setNameplate] = useState(null);
 
   const [inspectorNameInput, setInspectorNameInput] = useState("");
   const [signatureUrlInput, setSignatureUrlInput] = useState("");
@@ -125,26 +125,18 @@ export default function PrintCertificatePage() {
         setSignatureUrlInput(cert?.signature_url || "");
 
         if (cert?.asset_id) {
-          const [{ data: assetData }, { data: nameplateData }] = await Promise.all([
-            supabase
-              .from("assets")
-              .select(`
-                *,
-                clients (
-                  company_name
-                )
-              `)
-              .eq("id", cert.asset_id)
-              .single(),
-            supabase
-              .from("asset_nameplate")
-              .select("*")
-              .eq("asset_id", cert.asset_id)
-              .maybeSingle(),
-          ]);
+          const { data: assetData } = await supabase
+            .from("assets")
+            .select(`
+              *,
+              clients (
+                company_name
+              )
+            `)
+            .eq("id", cert.asset_id)
+            .single();
 
           setAsset(assetData || null);
-          setNameplate(nameplateData || null);
         }
       } catch (err) {
         console.error(err);
@@ -220,6 +212,9 @@ export default function PrintCertificatePage() {
       alert(err?.message || "Failed to upload signature.");
     } finally {
       setUploadingSignature(false);
+      if (signatureInputRef.current) {
+        signatureInputRef.current.value = "";
+      }
     }
   }
 
@@ -244,10 +239,11 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
     cleanField("Model:", asset?.model),
     cleanField("Serial Number:", asset?.serial_number),
     cleanField("Year Built:", asset?.year_built),
-  ].filter(Boolean);
-
-  const nameplateFields = [
-    cleanField("Design Code:", nameplate?.design_code || asset?.design_standard),
+    cleanField("Design Code:", asset?.design_standard),
+    cleanField("Material:", asset?.shell_material),
+    cleanField("Fluid Type:", asset?.fluid_type),
+    cleanField("Design Temperature:", asset?.design_temperature),
+    cleanField("Capacity / Volume:", asset?.capacity_volume),
     isPressure
       ? cleanField("Design Pressure:", withUnit(asset?.design_pressure, "kPa"))
       : null,
@@ -257,20 +253,9 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
     isPressure
       ? cleanField("Test Pressure:", withUnit(asset?.test_pressure, "kPa"))
       : null,
-    isPressure
-      ? cleanField("Design Temperature:", asset?.design_temperature)
-      : null,
-    isPressure
-      ? cleanField("Capacity / Volume:", asset?.capacity_volume)
-      : null,
-    isPressure
-      ? cleanField("Material:", nameplate?.material || asset?.shell_material)
-      : null,
-    isPressure ? cleanField("Fluid Type:", asset?.fluid_type) : null,
-
     isLifting
       ? cleanField(
-          "Safe Working Load:",
+          "SWL:",
           withUnit(certificate?.swl || asset?.safe_working_load, "Tons")
         )
       : null,
@@ -285,7 +270,7 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
 
   const complianceText = isPressure
     ? "This certificate confirms that the pressure equipment has been examined and assessed for statutory compliance under the Mines, Quarries, Works and Machinery Act Cap 44:02. Operation must remain within the approved safe pressure limits shown on the equipment nameplate."
-    : "This certificate confirms that the lifting equipment has been examined and assessed for statutory compliance under the Mines, Quarries, Works and Machinery Act Cap 44:02. Operation must not exceed the Safe Working Load shown on the equipment nameplate.";
+    : "This certificate confirms that the lifting equipment has been examined and assessed for statutory compliance under the Mines, Quarries, Works and Machinery Act Cap 44:02. Operation must not exceed the Safe Working Load shown on the equipment identification data.";
 
   const inspectionMethod = isPressure
     ? "Inspection Method: Visual Examination / Ultrasonic Thickness Testing / Hydrostatic Pressure Test"
@@ -402,6 +387,7 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
               Upload Signature
             </div>
             <input
+              ref={signatureInputRef}
               type="file"
               accept="image/png,image/jpeg,image/jpg,image/webp"
               onChange={handleSignatureUpload}
@@ -553,7 +539,7 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "1fr 1fr",
+                gridTemplateColumns: "1fr",
                 gap: 10,
                 marginBottom: 10,
               }}
@@ -576,43 +562,6 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
                 <div style={{ padding: "10px 12px" }}>
                   <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
                     {renderFieldList(equipmentFields)}
-                  </ul>
-                </div>
-              </div>
-
-              <div style={{ border: "1px solid #bbb" }}>
-                <div
-                  style={{
-                    background:
-                      "linear-gradient(180deg, #38bdf8 0%, #7dd3fc 50%, #0ea5e9 100%)",
-                    padding: "6px 10px",
-                    fontSize: 11,
-                    fontWeight: 900,
-                    textTransform: "uppercase",
-                    borderBottom: "1px solid #0284c7",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    color: "#fff",
-                  }}
-                >
-                  Nameplate Data
-                  <span
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 700,
-                      padding: "2px 8px",
-                      borderRadius: 3,
-                      background: isPressure ? "#075985" : "#0369a1",
-                      color: "#fff",
-                    }}
-                  >
-                    {equipmentType || "Equipment"}
-                  </span>
-                </div>
-                <div style={{ padding: "10px 12px" }}>
-                  <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                    {renderFieldList(nameplateFields)}
                   </ul>
                 </div>
               </div>
@@ -842,9 +791,21 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
                             }}
                           />
                         ) : (
-                          <span style={{ fontSize: 12, color: "#666", fontWeight: 700 }}>
-                            No uploaded signature
-                          </span>
+                          <button
+                            type="button"
+                            onClick={() => signatureInputRef.current?.click()}
+                            style={{
+                              padding: "8px 12px",
+                              borderRadius: 8,
+                              border: "none",
+                              background: "#0ea5e9",
+                              color: "#fff",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {uploadingSignature ? "Uploading..." : "Upload Signature"}
+                          </button>
                         )}
                       </div>
                     </div>
@@ -883,6 +844,14 @@ Compliance: Mines, Quarries, Works and Machinery Act Cap 44:02`;
                 </div>
               </div>
             </div>
+
+            <input
+              ref={signatureInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/webp"
+              onChange={handleSignatureUpload}
+              style={{ display: "none" }}
+            />
           </div>
 
           <div
