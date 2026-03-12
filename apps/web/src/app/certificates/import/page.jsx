@@ -6,29 +6,7 @@ import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 import { registerEquipment } from "@/services/equipment";
 
-const inputStyle = {
-  width: "100%",
-  padding: "11px 14px",
-  background: "rgba(255,255,255,0.04)",
-  border: "1px solid rgba(102,126,234,0.25)",
-  borderRadius: 8,
-  color: "#e2e8f0",
-  fontSize: 13,
-  fontFamily: "inherit",
-  outline: "none",
-  boxSizing: "border-box",
-};
-
-const labelStyle = {
-  fontSize: 11,
-  fontWeight: 700,
-  color: "rgba(255,255,255,0.5)",
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  marginBottom: 6,
-  display: "block",
-};
-
+// ── Reuse your existing extraction logic ──────────────────
 function normalizeText(value, fallback = "") {
   if (value === undefined || value === null) return fallback;
   const text = String(value).replace(/\s+/g, " ").trim();
@@ -37,86 +15,37 @@ function normalizeText(value, fallback = "") {
 
 function normalizeDate(value) {
   if (!value) return null;
-
-  // ✅ Strip spaces around slashes e.g. "12 /04 /2026" → "12/04/2026"
   let text = String(value).trim().replace(/\s*\/\s*/g, "/").replace(/\s*\-\s*/g, "-");
-
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
-
   const d = new Date(text);
-  if (!Number.isNaN(d.getTime())) {
-    return d.toISOString().slice(0, 10);
-  }
-
-  // dd/mm/yyyy or dd-mm-yyyy
-  const match1 = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-  if (match1) {
-    const [, dd, mm, yyyy] = match1;
-    return `${yyyy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`;
-  }
-
+  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  const m = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (m) return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
   return null;
 }
 
 function firstMatch(text, patterns = []) {
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match?.[1]) return normalizeText(match[1]);
+  for (const p of patterns) {
+    const m = text.match(p);
+    if (m?.[1]) return normalizeText(m[1]);
   }
   return "";
 }
 
 function detectEquipmentType(text) {
   const checks = [
-    "Pressure Vessel",
-    "Boiler",
-    "Air Receiver",
-    "Air Compressor",
-    "Oil Separator",
-    "Trestle Jack",
-    "Trestle Stand",
-    "Lever Hoist",
-    "Bottle Jack",
-    "Safety Harness",
-    "Jack Stand",
-    "Chain Block",
-    "Bow Shackle",
-    "Mobile Crane",
-    "Overhead Crane",
-    "Trolley Jack",
-    "Step Ladders",
-    "Tifor",
-    "Crawl Beam",
-    "Beam Crawl",
-    "Beam Clamp",
-    "Webbing Sling",
-    "Nylon Sling",
-    "Wire Sling",
-    "Wire Rope",
-    "Fall Arrest",
-    "Man Cage",
-    "Shutter Clamp",
-    "Drum Clamp",
-    "Scissor Lift",
-    "Personnel Basket",
-    "Load Cell",
+    "Pressure Vessel","Boiler","Air Receiver","Air Compressor","Oil Separator",
+    "Trestle Jack","Trestle Stand","Lever Hoist","Bottle Jack","Safety Harness",
+    "Jack Stand","Chain Block","Bow Shackle","Mobile Crane","Overhead Crane",
+    "Trolley Jack","Step Ladders","Tifor","Crawl Beam","Beam Crawl","Beam Clamp",
+    "Webbing Sling","Nylon Sling","Wire Sling","Wire Rope","Fall Arrest","Man Cage",
+    "Shutter Clamp","Drum Clamp","Scissor Lift","Axile Jack","Personnel Basket","Load Cell",
   ];
-
   const lower = text.toLowerCase();
-  return checks.find((item) => lower.includes(item.toLowerCase())) || "";
+  return checks.find((i) => lower.includes(i.toLowerCase())) || "";
 }
 
 function extractCertificateData(text) {
-  const certificateType = firstMatch(text, [
-    /certificate type\s*[:\-]\s*(.+)/i,
-    /(load test certificate)/i,
-    /(pressure test certificate)/i,
-    /(certificate of statutory inspection)/i,
-    /(inspection certificate)/i,
-  ]);
-
-  // ✅ FIXED: colon is now optional ([:\-]?) and captures company name
-  // even when PDF has no colon/dash separator e.g. "COMPANY KALCON EQUIPMENT..."
   const company = firstMatch(text, [
     /client\s*\/?\s*company\s*[:\-]\s*(.+)/i,
     /company\s*[:\-]?\s*(.+?)\s+(?:EQUIPMENT|DESCRIPTION|CLIENT|LOCATION|IDENTIFICATION|STATUS)/i,
@@ -124,557 +53,423 @@ function extractCertificateData(text) {
     /client\s*[:\-]\s*(.+)/i,
   ]);
 
-  // ✅ FIXED: captures "EQUIPMENT DESCRIPTION TRESTLE STAND" even with no colon
   const equipmentDescription = firstMatch(text, [
     /equipment\s+description\s*[:\-]\s*(.+)/i,
-    /equipment\s+description\s+([A-Z][A-Za-z\s]+?)(?:\s{2,}|\s+EQUIPMENT|\s+LOCATION|\s+IDENTIFICATION|\s+STATUS|\s+COMPANY|\s+CLIENT|\s+SWL|\s+PASS|\s+FAIL|$)/i,
+    /equipment\s+description\s+(.+?)\s{2,}/i,
+    /equipment\s+description\s+(.+?)\s+(?:EQUIPMENT|LOCATION|IDENTIFICATION|STATUS)/i,
     /equipment\s+type\s*[:\-]\s*(.+)/i,
-    /equipment\s+type\s+([A-Z][A-Za-z\s]+?)(?:\s{2,}|\s+EQUIPMENT|\s+LOCATION|\s+IDENTIFICATION|\s+STATUS|$)/i,
-    /equipment\s+category\s*[:\-]\s*(.+)/i,
     /description\s*[:\-]\s*(.+)/i,
   ]) || detectEquipmentType(text);
 
-  // ✅ FIXED: captures "EQUIPMENT LOCATION KHOEMACAU MINE" without colon
   const equipmentLocation = firstMatch(text, [
     /equipment\s+location\s*[:\-]\s*(.+)/i,
     /equipment\s+location\s+(.+?)\s{2,}/i,
-    /equipment\s+location\s+(.+?)\s+(?:IDENTIFICATION|INSPECTION|STATUS|SWL|PASS|FAIL|DATE|EXPIRY|COMPANY|CLIENT)/i,
+    /equipment\s+location\s+(.+?)\s+(?:IDENTIFICATION|INSPECTION|STATUS|SWL|PASS|FAIL|DATE|EXPIRY)/i,
     /location\s*[:\-]\s*(.+)/i,
   ]);
 
   const equipmentId = firstMatch(text, [
-    /identification number\s*[:\-]?\s*(.+?)\s+(?:INSPECTION|STATUS|PASS|FAIL|EXPIRY|ISSUE)/i,
-    /identification number\s*[:\-]\s*(.+)/i,
-    /equipment id\s*[:\-]\s*(.+)/i,
-    /equipment tag no\.?\s*[:\-]\s*(.+)/i,
-    /equipment tag\s*[:\-]\s*(.+)/i,
-    /asset tag\s*[:\-]\s*(.+)/i,
+    /identification\s+number\s*[:\-]?\s*(.+?)\s+(?:INSPECTION|STATUS|PASS|FAIL|EXPIRY|ISSUE)/i,
+    /identification\s+number\s*[:\-]\s*(.+)/i,
+    /equipment\s+id\s*[:\-]\s*(.+)/i,
+    /equipment\s+tag\s*[:\-]\s*(.+)/i,
   ]);
 
   const inspectionNo = firstMatch(text, [
-    /inspection no\s*[:\-]?\s*(.+?)\s+(?:SWL|STATUS|PASS|FAIL|EXPIRY|ISSUE|EQUIPMENT)/i,
-    /inspection no\.?\s*[:\-]\s*(.+)/i,
-  ]);
-
-  const manufacturer = firstMatch(text, [
-    /manufacturer\s*[:\-]\s*(.+)/i,
-  ]);
-
-  const model = firstMatch(text, [
-    /model\s*[:\-]\s*(.+)/i,
-    /model no\.?\s*[:\-]\s*(.+)/i,
+    /inspection\s+no\.?\s*[:\-]?\s*(.+?)\s+(?:SWL|STATUS|PASS|FAIL|EXPIRY|ISSUE|DATE|EQUIPMENT|$)/i,
+    /inspection\s+no\.?\s*[:\-]\s*(.+)/i,
   ]);
 
   const serialNumber = firstMatch(text, [
     /serial\s+number\s*[:\-]\s*(.+)/i,
     /serial\s+no\.?\s*[:\-]\s*(.+)/i,
     /identification\s+number\s*[:\-]?\s*(.+?)\s+(?:INSPECTION|STATUS|PASS|FAIL|EXPIRY|ISSUE|EQUIPMENT|SWL|$)/i,
-    /id\s+number\s*[:\-]\s*(.+)/i,
   ]);
 
-  const yearBuilt = firstMatch(text, [
-    /year built\s*[:\-]\s*(.+)/i,
-    /year of manufacture\s*[:\-]\s*(.+)/i,
-  ]);
+  const manufacturer = firstMatch(text, [/manufacturer\s*[:\-]\s*(.+)/i]);
+  const model = firstMatch(text, [/model\s*[:\-]\s*(.+)/i, /model\s+no\.?\s*[:\-]\s*(.+)/i]);
+  const yearBuilt = firstMatch(text, [/year\s+built\s*[:\-]\s*(.+)/i, /year\s+of\s+manufacture\s*[:\-]\s*(.+)/i]);
 
-  // ✅ FIXED: SWL captured even without colon e.g. "SWL 25 TON"
   const swl = firstMatch(text, [
-    /safe working load\s*[:\-]\s*(.+)/i,
+    /safe\s+working\s+load\s*[:\-]\s*(.+)/i,
     /\bSWL\s*[:\-]\s*(.+)/i,
     /\bSWL\s+(\d+[\s\w]+?)(?:\s+(?:EQUIPMENT|STATUS|PASS|FAIL|EXPIRY|ISSUE|DATE)|$)/i,
   ]);
 
   const mawp = firstMatch(text, [
     /\bMAWP\s*[:\-]\s*(.+)/i,
-    /authorized pressure\s*[:\-]\s*(.+)/i,
-    /working pressure\s*[:\-]\s*(.+)/i,
+    /working\s+pressure\s*[:\-]\s*(.+)/i,
   ]);
 
-  const designPressure = firstMatch(text, [
-    /design pressure\s*[:\-]\s*(.+)/i,
-  ]);
-
-  const testPressure = firstMatch(text, [
-    /test pressure\s*[:\-]\s*(.+)/i,
-  ]);
-
-  const designTemperature = firstMatch(text, [
-    /design temperature\s*[:\-]\s*(.+)/i,
-  ]);
-
-  const capacityVolume = firstMatch(text, [
-    /capacity\s*\/?\s*volume\s*[:\-]\s*(.+)/i,
-    /capacity\s*[:\-]\s*(.+)/i,
-    /volume\s*[:\-]\s*(.+)/i,
-  ]);
-
-  const shellMaterial = firstMatch(text, [
-    /material\s*[:\-]\s*(.+)/i,
-    /shell material\s*[:\-]\s*(.+)/i,
-  ]);
-
-  const fluidType = firstMatch(text, [
-    /fluid type\s*[:\-]\s*(.+)/i,
-    /contents\s*[:\-]\s*(.+)/i,
-  ]);
-
-  const proofLoad = firstMatch(text, [
-    /proof load\s*[:\-]\s*(.+)/i,
-  ]);
-
-  const liftingHeight = firstMatch(text, [
-    /lift height\s*[:\-]\s*(.+)/i,
-  ]);
-
-  const slingLength = firstMatch(text, [
-    /sling length\s*[:\-]\s*(.+)/i,
-  ]);
-
-  const chainSize = firstMatch(text, [
-    /chain size\s*[:\-]\s*(.+)/i,
-  ]);
-
-  const ropeDiameter = firstMatch(text, [
-    /wire rope diameter\s*[:\-]\s*(.+)/i,
-    /rope diameter\s*[:\-]\s*(.+)/i,
-  ]);
-
-  // ✅ FIXED: captures dates in format "12 /01/2026" or "12/01/2026"
   const issueDate = normalizeDate(firstMatch(text, [
-    /issue date\s*[:\-]\s*(.+)/i,
-    /date issued\s*[:\-]\s*(.+)/i,
-    /pass date\s*[:\-]?\s*(.+?)\s+(?:EXPIRY|INSPECTOR|VALID|$)/i,
+    /pass\s+date\s+(.+?)\s+(?:EXPIRY|INSPECTOR|VALID|CUSTOMER|SIGNATURE|OUR|$)/i,
+    /issue\s+date\s*[:\-]\s*(.+)/i,
+    /date\s+issued\s*[:\-]\s*(.+)/i,
   ]));
 
   const expiryDate = normalizeDate(firstMatch(text, [
-    /expiry date\s*[:\-]?\s*(.+?)\s+(?:INSPECTOR|VALID|PASS|ISSUE|$)/i,
-    /expiry date\s*[:\-]\s*(.+)/i,
-    /valid to\s*[:\-]\s*(.+)/i,
+    /expiry\s+date\s+(.+?)\s+(?:INSPECTOR|VALID|PASS|ISSUE|CUSTOMER|SIGNATURE|OUR|$)/i,
+    /expiry\s+date\s*[:\-]\s*(.+)/i,
+    /valid\s+to\s*[:\-]\s*(.+)/i,
   ]));
 
-  // ✅ FIXED: captures "Inspector's Name: Moemedi Masupe"
   const inspectorName = firstMatch(text, [
     /inspector'?s?\s*name\s*[:\-]\s*(.+)/i,
-    /inspector name\s*[:\-]\s*(.+)/i,
+    /inspector\s+name\s*[:\-]\s*(.+)/i,
     /inspector\s*[:\-]\s*(.+)/i,
   ]);
 
-  // ✅ FIXED: captures "INSPECTOR ID NO: 700117910"
   const inspectorId = firstMatch(text, [
     /inspector\s*id\s*no\.?\s*[:\-]\s*(.+?)\s+(?:Inspector|Signature|OUR|PARTNERS|$)/i,
-    /inspector id\s*[:\-]\s*(.+)/i,
+    /inspector\s+id\s*[:\-]\s*(.+)/i,
   ]);
 
-  const legalFramework = firstMatch(text, [
-    /legal compliance\s*[:\-]\s*(.+)/i,
-    /legal framework\s*[:\-]\s*(.+)/i,
-    /design code\s*[:\-]\s*(.+)/i,
-  ]) || "Mines, Quarries, Works and Machinery Act Cap 44:02";
+  const certificateType = firstMatch(text, [
+    /(load\s+test\s+certificate)/i,
+    /(pressure\s+test\s+certificate)/i,
+    /(certificate\s+of\s+statutory\s+inspection)/i,
+    /(inspection\s+certificate)/i,
+  ]);
 
-  // ✅ FIXED: captures STATUS PASS even without colon
   const equipmentStatus = firstMatch(text, [
-    /inspection result\s*[:\-]\s*(.+)/i,
     /status\s*[:\-]?\s*(PASS|FAIL|CONDITIONAL)/i,
-    /equipment status\s*[:\-]?\s*(PASS|FAIL|CONDITIONAL)/i,
+    /equipment\s+status\s*[:\-]?\s*(PASS|FAIL|CONDITIONAL)/i,
   ]) || "PASS";
 
   const assetType = equipmentDescription || detectEquipmentType(text);
-  const isPressure = [
-    "Pressure Vessel",
-    "Boiler",
-    "Air Receiver",
-    "Air Compressor",
-    "Oil Separator",
-  ].includes(assetType);
-
+  const isPressure = ["Pressure Vessel","Boiler","Air Receiver","Air Compressor","Oil Separator"].includes(assetType);
   const certType = certificateType || (isPressure ? "Pressure Test Certificate" : "Load Test Certificate");
 
   return {
-    company,
-    asset_type: assetType,
-    certificate_type: certType,
-    equipment_description: assetType,
-    location: equipmentLocation,
-    equipment_location: equipmentLocation,
-    equipment_id: equipmentId || inspectionNo,
-    manufacturer,
-    model,
-    serial_number: serialNumber,
-    year_built: yearBuilt,
-    safe_working_load: swl,
-    swl,
-    working_pressure: mawp,
-    mawp,
-    design_pressure: designPressure,
-    test_pressure: testPressure,
-    design_temperature: designTemperature,
-    capacity_volume: capacityVolume,
-    shell_material: shellMaterial,
-    fluid_type: fluidType,
-    proof_load: proofLoad,
-    lifting_height: liftingHeight,
-    sling_length: slingLength,
-    chain_size: chainSize,
-    rope_diameter: ropeDiameter,
+    company, asset_type: assetType, certificate_type: certType,
+    equipment_description: assetType, location: equipmentLocation,
+    equipment_location: equipmentLocation, equipment_id: equipmentId || inspectionNo,
+    manufacturer, model, serial_number: serialNumber, year_built: yearBuilt,
+    safe_working_load: swl, swl, working_pressure: mawp, mawp,
     issued_at: issueDate || new Date().toISOString().slice(0, 10),
-    valid_to: expiryDate,
-    inspector_name: inspectorName,
-    inspector_id: inspectorId,
-    legal_framework: legalFramework,
+    valid_to: expiryDate, inspector_name: inspectorName, inspector_id: inspectorId,
+    legal_framework: "Mines, Quarries, Works and Machinery Act Cap 44:02",
     equipment_status: equipmentStatus.toUpperCase(),
   };
 }
 
-// ✅ FIXED: CDN version updated to match pdfjs-dist 4.10.38
 async function extractTextFromPdf(file) {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
-
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-
   let text = "";
-
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
-    const page = await pdf.getPage(pageNum);
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
     const content = await page.getTextContent();
-    const pageText = content.items.map((item) => item.str).join(" ");
-    text += `\n${pageText}`;
+    text += "\n" + content.items.map((i) => i.str).join(" ");
   }
-
   return text;
-}
-
-async function extractTextFromFile(file) {
-  if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-    return extractTextFromPdf(file);
-  }
-  return await file.text();
 }
 
 async function getOrCreateClient(companyName) {
   const cleanName = normalizeText(companyName);
-  if (!cleanName) {
-    throw new Error("Client / company name not found in certificate.");
-  }
-
-  const { data: existing, error: findError } = await supabase
-    .from("clients")
-    .select("id, company_name, company_code")
-    .ilike("company_name", cleanName)
-    .limit(1)
-    .maybeSingle();
-
-  if (findError) throw findError;
+  if (!cleanName) throw new Error("Company name missing");
+  const { data: existing } = await supabase
+    .from("clients").select("id,company_name,company_code")
+    .ilike("company_name", cleanName).limit(1).maybeSingle();
   if (existing) return existing;
-
-  const { data: created, error: createError } = await supabase
-    .from("clients")
-    .insert([{ company_name: cleanName, status: "active" }])
-    .select("id, company_name, company_code")
-    .single();
-
-  if (createError) throw createError;
+  const { data: created, error } = await supabase
+    .from("clients").insert([{ company_name: cleanName, status: "active" }])
+    .select("id,company_name,company_code").single();
+  if (error) throw error;
   return created;
 }
 
-async function getExistingEquipment(clientId, serialNumber, equipmentId) {
-  let query = supabase
-    .from("assets")
-    .select("id, asset_tag, asset_name")
-    .eq("client_id", clientId);
+async function getOrCreateEquipment(clientId, parsed) {
+  let query = supabase.from("assets").select("id,asset_tag,asset_name").eq("client_id", clientId);
+  if (parsed.serial_number) query = query.eq("serial_number", parsed.serial_number);
+  else if (parsed.equipment_id) query = query.eq("asset_tag", parsed.equipment_id);
+  else query = null;
 
-  if (serialNumber) {
-    query = query.eq("serial_number", serialNumber);
-  } else if (equipmentId) {
-    query = query.eq("asset_tag", equipmentId);
-  } else {
-    return null;
+  if (query) {
+    const { data } = await query.limit(1).maybeSingle();
+    if (data) return data;
   }
 
-  const { data, error } = await query.limit(1).maybeSingle();
+  const { data: created, error } = await registerEquipment({
+    client_id: clientId,
+    asset_type: parsed.asset_type,
+    serial_number: parsed.serial_number || parsed.equipment_id,
+    manufacturer: parsed.manufacturer || "Unknown",
+    model: parsed.model,
+    year_built: parsed.year_built,
+    location: parsed.location,
+    cert_type: parsed.certificate_type,
+    safe_working_load: parsed.safe_working_load,
+    working_pressure: parsed.working_pressure,
+    last_inspection_date: parsed.issued_at,
+    next_inspection_date: parsed.valid_to,
+    license_status: "valid",
+    inspector_name: parsed.inspector_name,
+    notes: "Imported from certificate",
+  });
   if (error) throw error;
-  return data || null;
+  return created;
 }
 
-export default function ImportCertificatesPage() {
+async function registerCertificate(equipmentId, clientName, parsed) {
+  const { data: existing } = await supabase
+    .from("certificates").select("id")
+    .eq("asset_id", equipmentId)
+    .eq("issued_at", new Date(parsed.issued_at).toISOString())
+    .limit(1).maybeSingle();
+  if (existing) return;
+
+  const { error } = await supabase.from("certificates").insert([{
+    asset_id: equipmentId,
+    certificate_type: parsed.certificate_type || "Certificate of Statutory Inspection",
+    company: clientName,
+    equipment_description: parsed.equipment_description || parsed.asset_type,
+    equipment_location: parsed.equipment_location || parsed.location || null,
+    equipment_id: parsed.equipment_id || null,
+    swl: parsed.swl || null,
+    mawp: parsed.mawp || null,
+    equipment_status: parsed.equipment_status || "PASS",
+    issued_at: new Date(parsed.issued_at).toISOString(),
+    valid_to: parsed.valid_to || null,
+    status: "issued",
+    legal_framework: parsed.legal_framework,
+    inspector_name: parsed.inspector_name || null,
+    inspector_id: parsed.inspector_id || null,
+    logo_url: "/logo.png",
+  }]);
+  if (error) throw error;
+}
+
+// ── Status badge colours ──────────────────────────────────
+const STATUS_STYLE = {
+  pending:    { bg: "rgba(148,163,184,0.1)", color: "#94a3b8", border: "rgba(148,163,184,0.3)" },
+  extracting: { bg: "rgba(251,191,36,0.1)",  color: "#fbbf24", border: "rgba(251,191,36,0.3)" },
+  extracted:  { bg: "rgba(99,102,241,0.1)",  color: "#818cf8", border: "rgba(99,102,241,0.3)" },
+  registering:{ bg: "rgba(251,191,36,0.1)",  color: "#fbbf24", border: "rgba(251,191,36,0.3)" },
+  done:       { bg: "rgba(16,185,129,0.1)",  color: "#86efac", border: "rgba(16,185,129,0.3)" },
+  error:      { bg: "rgba(244,114,182,0.1)", color: "#f472b6", border: "rgba(244,114,182,0.3)" },
+};
+
+function StatusBadge({ status, message }) {
+  const s = STATUS_STYLE[status] || STATUS_STYLE.pending;
+  const labels = { pending:"Pending", extracting:"Extracting…", extracted:"Extracted",
+    registering:"Registering…", done:"Done ✓", error:"Error" };
+  return (
+    <span style={{
+      display: "inline-block", padding: "3px 10px", borderRadius: 20, fontSize: 11,
+      fontWeight: 700, background: s.bg, color: s.color,
+      border: `1px solid ${s.border}`,
+    }} title={message || ""}>
+      {labels[status] || status}
+    </span>
+  );
+}
+
+export default function BulkImportPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [file, setFile] = useState(null);
-  const [rawText, setRawText] = useState("");
-  const [preview, setPreview] = useState(null);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [files, setFiles] = useState([]);   // [{ file, status, parsed, error }]
+  const [running, setRunning] = useState(false);
+  const [globalError, setGlobalError] = useState("");
+  const [globalSuccess, setGlobalSuccess] = useState("");
 
-  async function handleExtract() {
-    try {
-      setLoading(true);
-      setError("");
-      setSuccess("");
-      setPreview(null);
-
-      if (!supabase) throw new Error("Supabase not configured.");
-      if (!file) throw new Error("Choose a certificate file first.");
-
-      const extractedText = await extractTextFromFile(file);
-      setRawText(extractedText);
-
-      const parsed = extractCertificateData(extractedText);
-
-      if (!parsed.company) throw new Error("Client / company name was not found.");
-
-      // Final fallback: scan raw text directly for equipment type
-      if (!parsed.asset_type) {
-        const fallback = detectEquipmentType(extractedText);
-        if (fallback) parsed.asset_type = fallback;
-      }
-      if (!parsed.asset_type) throw new Error("Equipment type was not found.");
-
-      // ✅ No longer required — asset_tag is auto-generated by the database
-      // serial_number is stored if found, but not mandatory
-
-      setPreview(parsed);
-    } catch (err) {
-      setError(err?.message || "Failed to extract certificate data.");
-    } finally {
-      setLoading(false);
-    }
+  function handleFileSelect(e) {
+    const selected = Array.from(e.target.files || []).filter(
+      (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf")
+    );
+    setFiles(selected.map((file) => ({ file, status: "pending", parsed: null, error: "" })));
+    setGlobalError("");
+    setGlobalSuccess("");
   }
 
+  function updateFile(index, patch) {
+    setFiles((prev) => prev.map((f, i) => i === index ? { ...f, ...patch } : f));
+  }
+
+  // Step 1 — Extract all PDFs
+  async function handleExtractAll() {
+    if (!files.length) return;
+    setRunning(true);
+    setGlobalError("");
+    setGlobalSuccess("");
+
+    for (let i = 0; i < files.length; i++) {
+      updateFile(i, { status: "extracting", error: "" });
+      try {
+        const text = await extractTextFromPdf(files[i].file);
+        const parsed = extractCertificateData(text);
+        if (!parsed.company) throw new Error("Company name not found.");
+        if (!parsed.asset_type) throw new Error("Equipment type not found.");
+        updateFile(i, { status: "extracted", parsed });
+      } catch (err) {
+        updateFile(i, { status: "error", error: err.message });
+      }
+    }
+    setRunning(false);
+  }
+
+  // Step 2 — Register all extracted
   async function handleRegisterAll() {
-    try {
-      setLoading(true);
-      setError("");
-      setSuccess("");
+    setRunning(true);
+    setGlobalError("");
+    setGlobalSuccess("");
+    let successCount = 0;
 
-      if (!preview) throw new Error("Extract certificate data first.");
-
-      const client = await getOrCreateClient(preview.company);
-
-      const existingEquipment = await getExistingEquipment(
-        client.id,
-        preview.serial_number,
-        preview.equipment_id
-      );
-
-      let equipment = existingEquipment;
-
-      if (!equipment) {
-        const equipmentPayload = {
-          client_id: client.id,
-          asset_type: preview.asset_type,
-          serial_number: preview.serial_number || preview.equipment_id,
-          manufacturer: preview.manufacturer || "Unknown",
-          model: preview.model,
-          year_built: preview.year_built,
-          location: preview.location,
-          cert_type: preview.certificate_type,
-          design_standard: preview.legal_framework,
-          shell_material: preview.shell_material,
-          fluid_type: preview.fluid_type,
-          design_pressure: preview.design_pressure,
-          working_pressure: preview.working_pressure,
-          test_pressure: preview.test_pressure,
-          design_temperature: preview.design_temperature,
-          capacity_volume: preview.capacity_volume,
-          safe_working_load: preview.safe_working_load,
-          proof_load: preview.proof_load,
-          lifting_height: preview.lifting_height,
-          sling_length: preview.sling_length,
-          chain_size: preview.chain_size,
-          rope_diameter: preview.rope_diameter,
-          next_inspection_date: preview.valid_to,
-          last_inspection_date: preview.issued_at,
-          license_status: "valid",
-          inspector_name: preview.inspector_name,
-          notes: "Imported from certificate",
-        };
-
-        const { data: createdEquipment, error: equipmentError } = await registerEquipment(equipmentPayload);
-        if (equipmentError) throw equipmentError;
-        equipment = createdEquipment;
+    for (let i = 0; i < files.length; i++) {
+      if (files[i].status !== "extracted") continue;
+      updateFile(i, { status: "registering" });
+      try {
+        const { parsed } = files[i];
+        const client = await getOrCreateClient(parsed.company);
+        const equipment = await getOrCreateEquipment(client.id, parsed);
+        await registerCertificate(equipment.id, client.company_name, parsed);
+        updateFile(i, { status: "done" });
+        successCount++;
+      } catch (err) {
+        updateFile(i, { status: "error", error: err.message });
       }
+    }
 
-      const { data: existingCert } = await supabase
-        .from("certificates")
-        .select("id")
-        .eq("asset_id", equipment.id)
-        .eq("issued_at", new Date(preview.issued_at).toISOString())
-        .limit(1)
-        .maybeSingle();
-
-      if (!existingCert) {
-        const certificatePayload = {
-          asset_id: equipment.id,
-          certificate_type: preview.certificate_type || "Certificate of Statutory Inspection",
-          company: client.company_name,
-          equipment_description: preview.equipment_description || preview.asset_type,
-          equipment_location: preview.equipment_location || preview.location || null,
-          equipment_id: equipment.asset_tag || preview.equipment_id || null,
-          swl: preview.swl || null,
-          mawp: preview.mawp || null,
-          equipment_status: preview.equipment_status || "PASS",
-          issued_at: new Date(preview.issued_at).toISOString(),
-          valid_to: preview.valid_to || null,
-          status: "issued",
-          legal_framework: preview.legal_framework || "Mines, Quarries, Works and Machinery Act Cap 44:02",
-          inspector_name: preview.inspector_name || null,
-          inspector_id: preview.inspector_id || null,
-          logo_url: "/logo.png",
-        };
-
-        const { error: certError } = await supabase
-          .from("certificates")
-          .insert([certificatePayload]);
-
-        if (certError) throw certError;
-      }
-
-      setSuccess("Certificate imported. Client, equipment and certificate registered successfully.");
-
-      setTimeout(() => {
-        router.push(`/equipment/${equipment.asset_tag}`);
-      }, 1200);
-    } catch (err) {
-      setError(err?.message || "Failed to register client, equipment and certificate.");
-    } finally {
-      setLoading(false);
+    setRunning(false);
+    if (successCount > 0) {
+      setGlobalSuccess(`${successCount} certificate${successCount > 1 ? "s" : ""} registered successfully!`);
     }
   }
+
+  const allExtracted = files.length > 0 && files.every((f) => f.status === "extracted" || f.status === "done" || f.status === "error");
+  const anyExtracted = files.some((f) => f.status === "extracted");
+  const doneCount = files.filter((f) => f.status === "done").length;
+  const errorCount = files.filter((f) => f.status === "error").length;
+
+  const labelStyle = {
+    fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.5)",
+    textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, display: "block",
+  };
 
   return (
-    <AppLayout title="Import Certificate">
+    <AppLayout title="Bulk Import Certificates">
       <div style={{ maxWidth: 1000 }}>
-        <h1 style={{ color: "#fff", marginBottom: 16 }}>Import Certificate</h1>
+        <h1 style={{ color: "#fff", marginBottom: 6 }}>Bulk Import Certificates</h1>
+        <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 28 }}>
+          Upload multiple certificate PDFs at once. The system will extract, register clients,
+          equipment and certificates automatically for each file.
+        </p>
 
-        {error && (
-          <div style={{
-            background: "rgba(244,114,182,0.1)",
-            border: "1px solid rgba(244,114,182,0.3)",
-            borderRadius: 12,
-            padding: "12px 16px",
-            marginBottom: 20,
-            color: "#f472b6",
-            fontSize: 13,
-          }}>
-            ⚠️ {error}
+        {globalError && (
+          <div style={{ background:"rgba(244,114,182,0.1)", border:"1px solid rgba(244,114,182,0.3)", borderRadius:12, padding:"12px 16px", marginBottom:20, color:"#f472b6", fontSize:13 }}>
+            ⚠️ {globalError}
+          </div>
+        )}
+        {globalSuccess && (
+          <div style={{ background:"rgba(16,185,129,0.12)", border:"1px solid rgba(16,185,129,0.35)", borderRadius:12, padding:"12px 16px", marginBottom:20, color:"#86efac", fontSize:13 }}>
+            ✅ {globalSuccess}
           </div>
         )}
 
-        {success && (
-          <div style={{
-            background: "rgba(16,185,129,0.12)",
-            border: "1px solid rgba(16,185,129,0.35)",
-            borderRadius: 12,
-            padding: "12px 16px",
-            marginBottom: 20,
-            color: "#86efac",
-            fontSize: 13,
-          }}>
-            {success}
-          </div>
-        )}
+        {/* ── File picker ───────────────────────────────── */}
+        <div style={{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:16, padding:20, marginBottom:20 }}>
+          <label style={labelStyle}>Select Certificate PDFs (multiple allowed)</label>
+          <input
+            type="file"
+            accept=".pdf"
+            multiple
+            onChange={handleFileSelect}
+            disabled={running}
+            style={{ color:"#e2e8f0", marginBottom:16, display:"block" }}
+          />
 
-        <div style={{
-          background: "rgba(255,255,255,0.03)",
-          border: "1px solid rgba(255,255,255,0.08)",
-          borderRadius: 16,
-          padding: 20,
-          marginBottom: 20,
-        }}>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>Certificate File</label>
-            <input
-              type="file"
-              accept=".pdf,.txt"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
-              style={{ ...inputStyle, padding: "10px", height: "auto" }}
-            />
-          </div>
+          {files.length > 0 && (
+            <p style={{ color:"rgba(255,255,255,0.4)", fontSize:12, marginBottom:16 }}>
+              {files.length} file{files.length > 1 ? "s" : ""} selected
+              {doneCount > 0 ? ` · ${doneCount} done` : ""}
+              {errorCount > 0 ? ` · ${errorCount} failed` : ""}
+            </p>
+          )}
 
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
             <button
               type="button"
-              onClick={handleExtract}
-              disabled={loading}
+              onClick={handleExtractAll}
+              disabled={running || !files.length}
               style={{
-                padding: "11px 24px",
-                borderRadius: 8,
-                cursor: loading ? "wait" : "pointer",
-                fontWeight: 700,
-                background: "linear-gradient(135deg,#667eea,#764ba2)",
-                border: "none",
-                color: "#fff",
-                opacity: loading ? 0.7 : 1,
+                padding:"11px 24px", borderRadius:8, border:"none",
+                background:"linear-gradient(135deg,#667eea,#764ba2)",
+                color:"#fff", fontWeight:700, cursor: running || !files.length ? "not-allowed" : "pointer",
+                opacity: running || !files.length ? 0.6 : 1,
               }}
             >
-              {loading ? "Extracting..." : "Extract Important Information"}
+              {running && !anyExtracted ? "Extracting…" : "1. Extract All"}
             </button>
 
             <button
               type="button"
               onClick={handleRegisterAll}
-              disabled={loading || !preview}
+              disabled={running || !anyExtracted}
               style={{
-                padding: "11px 24px",
-                borderRadius: 8,
-                cursor: loading || !preview ? "not-allowed" : "pointer",
-                fontWeight: 700,
-                background: "linear-gradient(135deg,#00f5c4,#4fc3f7)",
-                border: "none",
-                color: "#111827",
-                opacity: loading || !preview ? 0.7 : 1,
+                padding:"11px 24px", borderRadius:8, border:"none",
+                background:"linear-gradient(135deg,#00f5c4,#4fc3f7)",
+                color:"#111827", fontWeight:700, cursor: running || !anyExtracted ? "not-allowed" : "pointer",
+                opacity: running || !anyExtracted ? 0.6 : 1,
               }}
             >
-              Register Client, Equipment and Certificate
+              {running && anyExtracted ? "Registering…" : "2. Register All"}
             </button>
           </div>
         </div>
 
-        {preview && (
-          <div style={{
-            background: "rgba(255,255,255,0.03)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 16,
-            padding: 20,
-            marginBottom: 20,
-          }}>
-            <h2 style={{ color: "#fff", marginTop: 0 }}>Extracted Information</h2>
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
-              gap: 16,
-            }}>
-              <div><label style={labelStyle}>Client</label><div style={{ color: "#fff" }}>{preview.company || "-"}</div></div>
-              <div><label style={labelStyle}>Equipment Type</label><div style={{ color: "#fff" }}>{preview.asset_type || "-"}</div></div>
-              <div><label style={labelStyle}>Equipment Tag</label><div style={{ color: "#fff" }}>{preview.equipment_id || "-"}</div></div>
-              <div><label style={labelStyle}>Serial Number</label><div style={{ color: "#fff" }}>{preview.serial_number || "-"}</div></div>
-              <div><label style={labelStyle}>Manufacturer</label><div style={{ color: "#fff" }}>{preview.manufacturer || "-"}</div></div>
-              <div><label style={labelStyle}>Model</label><div style={{ color: "#fff" }}>{preview.model || "-"}</div></div>
-              <div><label style={labelStyle}>Location</label><div style={{ color: "#fff" }}>{preview.location || "-"}</div></div>
-              <div><label style={labelStyle}>SWL</label><div style={{ color: "#fff" }}>{preview.swl || "-"}</div></div>
-              <div><label style={labelStyle}>MAWP</label><div style={{ color: "#fff" }}>{preview.mawp || "-"}</div></div>
-              <div><label style={labelStyle}>Issue Date</label><div style={{ color: "#fff" }}>{preview.issued_at || "-"}</div></div>
-              <div><label style={labelStyle}>Expiry Date</label><div style={{ color: "#fff" }}>{preview.valid_to || "-"}</div></div>
-              <div><label style={labelStyle}>Inspector Name</label><div style={{ color: "#fff" }}>{preview.inspector_name || "-"}</div></div>
-            </div>
+        {/* ── File list ─────────────────────────────────── */}
+        {files.length > 0 && (
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            {files.map((item, i) => (
+              <div key={i} style={{
+                background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)",
+                borderRadius:12, padding:16,
+              }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, flexWrap:"wrap" }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ color:"#fff", fontWeight:600, fontSize:13, marginBottom:4, wordBreak:"break-word" }}>
+                      📄 {item.file.name}
+                    </div>
+                    <div style={{ color:"rgba(255,255,255,0.4)", fontSize:11 }}>
+                      {(item.file.size / 1024).toFixed(1)} KB
+                    </div>
+                    {item.error && (
+                      <div style={{ color:"#f472b6", fontSize:11, marginTop:6 }}>⚠️ {item.error}</div>
+                    )}
+                  </div>
+                  <StatusBadge status={item.status} message={item.error} />
+                </div>
+
+                {/* Extracted preview */}
+                {item.parsed && (item.status === "extracted" || item.status === "done") && (
+                  <div style={{
+                    marginTop:12, padding:12,
+                    background:"rgba(255,255,255,0.03)", borderRadius:8,
+                    display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:8,
+                  }}>
+                    {[
+                      ["Client", item.parsed.company],
+                      ["Equipment", item.parsed.asset_type],
+                      ["Serial No.", item.parsed.serial_number],
+                      ["Location", item.parsed.location],
+                      ["SWL", item.parsed.swl],
+                      ["Inspector", item.parsed.inspector_name],
+                      ["Issue Date", item.parsed.issued_at],
+                      ["Expiry Date", item.parsed.valid_to],
+                    ].filter(([, v]) => v).map(([label, value]) => (
+                      <div key={label}>
+                        <div style={{ fontSize:9, fontWeight:700, color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:2 }}>{label}</div>
+                        <div style={{ fontSize:12, color:"#e2e8f0", fontWeight:500 }}>{value}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
-
-        <div style={{
-          background: "rgba(255,255,255,0.03)",
-          border: "1px solid rgba(255,255,255,0.08)",
-          borderRadius: 16,
-          padding: 20,
-        }}>
-          <label style={labelStyle}>Extracted Raw Text</label>
-          <textarea
-            value={rawText}
-            readOnly
-            style={{ ...inputStyle, minHeight: 260, resize: "vertical" }}
-          />
-        </div>
       </div>
     </AppLayout>
   );
