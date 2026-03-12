@@ -35,7 +35,7 @@ const initialForm = {
   inspector_name:        "Moemedi Masupe",
   inspector_id:          "700117910",
   signature_url:         "",
-  logo_url:              "/monroy-logo.png",
+  logo_url:              "/logo.png",
   pdf_url:               "",
 };
 
