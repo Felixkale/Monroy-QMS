@@ -19,17 +19,19 @@ function normalizeDate(value) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
   const d = new Date(text);
   if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-  const m = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-  if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  // DD/MM/YYYY
+  const m1 = text.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (m1) return `${m1[3]}-${m1[2].padStart(2, "0")}-${m1[1].padStart(2, "0")}`;
+  // MM/DD/YYYY fallback
+  const m2 = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (m2) return `${m2[3]}-${m2[2].padStart(2, "0")}-${m2[1].padStart(2, "0")}`;
   return null;
 }
 
-// ✅ FIX: trim trailing noise after the real value
 function firstMatch(text, patterns = []) {
   for (const p of patterns) {
     const m = text.match(p);
     if (m?.[1]) {
-      // strip anything after a double-space, newline or obvious next-field keyword
       const raw = m[1]
         .replace(/\s{2,}.*/s, "")
         .replace(/\n.*/s, "")
@@ -47,7 +49,8 @@ function detectEquipmentType(text) {
     "Jack Stand", "Chain Block", "Bow Shackle", "Mobile Crane", "Overhead Crane",
     "Trolley Jack", "Step Ladders", "Tifor", "Crawl Beam", "Beam Crawl", "Beam Clamp",
     "Webbing Sling", "Nylon Sling", "Wire Sling", "Wire Rope", "Fall Arrest", "Man Cage",
-    "Shutter Clamp", "Drum Clamp", "Scissor Lift", "Axile Jack", "Personnel Basket", "Load Cell",
+    "Shutter Clamp", "Drum Clamp", "Scissor Lift", "Axile Jack", "Personnel Basket",
+    "Load Cell", "Trestle",
   ];
   const lower = text.toLowerCase();
   return checks.find((i) => lower.includes(i.toLowerCase())) || "";
@@ -76,11 +79,11 @@ function extractCertificateData(text) {
     /location\s*[:\-]\s*(.+)/i,
   ]);
 
-  const equipmentId = firstMatch(text, [
-    /identification\s+number\s*[:\-]?\s*(.+?)\s+(?:INSPECTION|STATUS|PASS|FAIL|EXPIRY|ISSUE)/i,
+  // ✅ FIX 1: capture IDENTIFICATION NUMBER as the serial/equipment ID
+  const identificationNumber = firstMatch(text, [
+    /identification\s+number\s*[:\-]?\s*(.+?)\s+(?:INSPECTION|STATUS|PASS|FAIL|EXPIRY|ISSUE|SWL|DATE)/i,
     /identification\s+number\s*[:\-]\s*(.+)/i,
-    /equipment\s+id\s*[:\-]\s*(.+)/i,
-    /equipment\s+tag\s*[:\-]\s*(.+)/i,
+    /identification\s+no\.?\s*[:\-]\s*(.+)/i,
   ]);
 
   const inspectionNo = firstMatch(text, [
@@ -88,12 +91,12 @@ function extractCertificateData(text) {
     /inspection\s+no\.?\s*[:\-]\s*(.+)/i,
   ]);
 
-  // ✅ FIX: tighter serial number extraction — stop at whitespace runs / next field
+  // ✅ FIX 1 cont: serial_number prefers explicit serial label, falls back to identification number
   const serialNumber = firstMatch(text, [
     /serial\s+number\s*[:\-]\s*([^\s\n]{3,40})/i,
     /serial\s+no\.?\s*[:\-]\s*([^\s\n]{3,40})/i,
     /s\/n\s*[:\-]\s*([^\s\n]{3,40})/i,
-  ]);
+  ]) || identificationNumber;
 
   const manufacturer = firstMatch(text, [/manufacturer\s*[:\-]\s*(.+)/i]);
   const model        = firstMatch(text, [/model\s*[:\-]\s*(.+)/i, /model\s+no\.?\s*[:\-]\s*(.+)/i]);
@@ -110,16 +113,19 @@ function extractCertificateData(text) {
     /working\s+pressure\s*[:\-]\s*(.+)/i,
   ]);
 
-  // ✅ FIX: "issued_at" = date of certificate issue; also capture as last_inspection_date
+  // ✅ FIX 2: capture bare "DATE" label (as used in Monroy source PDFs)
   const issueDate = normalizeDate(firstMatch(text, [
-    /pass\s+date\s+(.+?)\s+(?:EXPIRY|INSPECTOR|VALID|CUSTOMER|SIGNATURE|OUR|$)/i,
+    /\bpass\s+date\s+(.+?)\s+(?:EXPIRY|INSPECTOR|VALID|CUSTOMER|SIGNATURE|OUR|$)/i,
     /issue\s+date\s*[:\-]\s*(.+)/i,
     /date\s+issued\s*[:\-]\s*(.+)/i,
     /date\s+of\s+inspection\s*[:\-]\s*(.+)/i,
     /inspection\s+date\s*[:\-]\s*(.+)/i,
+    // ✅ bare DATE row — must come after more specific patterns
+    /^DATE\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/im,
+    /\bDATE\s*[:\-]\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
   ]));
 
-  // ✅ FIX: expiry = next_inspection_date
+  // ✅ FIX 2 cont: expiry date
   const expiryDate = normalizeDate(firstMatch(text, [
     /expiry\s+date\s+(.+?)\s+(?:INSPECTOR|VALID|PASS|ISSUE|CUSTOMER|SIGNATURE|OUR|$)/i,
     /expiry\s+date\s*[:\-]\s*(.+)/i,
@@ -156,30 +162,29 @@ function extractCertificateData(text) {
 
   return {
     company,
-    asset_type: assetType,
-    certificate_type: certType,
+    asset_type:            assetType,
+    certificate_type:      certType,
     equipment_description: assetType,
-    location: equipmentLocation,
-    equipment_location: equipmentLocation,
-    equipment_id: equipmentId || inspectionNo,
+    location:              equipmentLocation,
+    equipment_location:    equipmentLocation,
+    // ✅ equipment_id = inspectionNo (KLC/TR-2026-SANS-500), serial = identification number (TR-2695)
+    equipment_id:          inspectionNo || identificationNumber,
     manufacturer,
     model,
-    // ✅ serial_number is now cleanly extracted
-    serial_number: serialNumber,
-    year_built: yearBuilt,
-    safe_working_load: swl,
+    serial_number:         serialNumber,
+    year_built:            yearBuilt,
+    safe_working_load:     swl,
     swl,
-    working_pressure: mawp,
+    working_pressure:      mawp,
     mawp,
-    // ✅ FIX: issue date = last inspection; expiry = next inspection
-    issued_at: issueDate || new Date().toISOString().slice(0, 10),
-    last_inspection_date: issueDate || null,
-    valid_to: expiryDate,
-    next_inspection_date: expiryDate || null,
-    inspector_name: inspectorName,
-    inspector_id: inspectorId,
-    legal_framework: "Mines, Quarries, Works and Machinery Act Cap 44:02",
-    equipment_status: equipmentStatus,
+    issued_at:             issueDate || new Date().toISOString().slice(0, 10),
+    last_inspection_date:  issueDate || null,
+    valid_to:              expiryDate,
+    next_inspection_date:  expiryDate || null,
+    inspector_name:        inspectorName,
+    inspector_id:          inspectorId,
+    legal_framework:       "Mines, Quarries, Works and Machinery Act Cap 44:02",
+    equipment_status:      equipmentStatus,
   };
 }
 
@@ -212,9 +217,7 @@ async function getOrCreateClient(companyName) {
   return created;
 }
 
-// ✅ FIX: pass serial_number, last_inspection_date, next_inspection_date correctly
 async function getOrCreateEquipment(clientId, parsed) {
-  // Try to find existing by serial_number or asset_tag
   if (parsed.serial_number || parsed.equipment_id) {
     let query = supabase.from("assets").select("id,asset_tag,asset_name").eq("client_id", clientId);
     if (parsed.serial_number) query = query.eq("serial_number", parsed.serial_number);
@@ -222,9 +225,8 @@ async function getOrCreateEquipment(clientId, parsed) {
 
     const { data } = await query.limit(1).maybeSingle();
     if (data) {
-      // ✅ Update dates and serial on the existing record so they're always current
       await supabase.from("assets").update({
-        serial_number:        parsed.serial_number       || undefined,
+        serial_number:        parsed.serial_number        || undefined,
         last_inspection_date: parsed.last_inspection_date || undefined,
         next_inspection_date: parsed.next_inspection_date || undefined,
         safe_working_load:    parsed.safe_working_load    || undefined,
@@ -235,11 +237,9 @@ async function getOrCreateEquipment(clientId, parsed) {
     }
   }
 
-  // Create new equipment record
   const { data: created, error } = await registerEquipment({
     client_id:            clientId,
     asset_type:           parsed.asset_type,
-    // ✅ serial_number cleanly stored
     serial_number:        parsed.serial_number || parsed.equipment_id || null,
     manufacturer:         parsed.manufacturer  || "Unknown",
     model:                parsed.model         || null,
@@ -248,7 +248,6 @@ async function getOrCreateEquipment(clientId, parsed) {
     cert_type:            parsed.certificate_type,
     safe_working_load:    parsed.safe_working_load  || null,
     working_pressure:     parsed.working_pressure   || null,
-    // ✅ FIX: correct field mapping — issue date → last inspection, expiry → next inspection
     last_inspection_date: parsed.last_inspection_date || null,
     next_inspection_date: parsed.next_inspection_date || null,
     license_status:       "valid",
@@ -259,6 +258,32 @@ async function getOrCreateEquipment(clientId, parsed) {
   return created;
 }
 
+// ✅ FIX 3: auto-generate certificate number as CERT-{serial}-{sequence 01..∞}
+async function generateCertNumber(serialNumber, assetId) {
+  const base = serialNumber
+    ? serialNumber.replace(/[\s\-\/]+/g, "").toUpperCase()
+    : `ASSET${assetId}`;
+
+  const prefix = `CERT-${base}-`;
+
+  const { data: existing } = await supabase
+    .from("certificates")
+    .select("certificate_number")
+    .like("certificate_number", `${prefix}%`)
+    .order("certificate_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let nextSeq = 1;
+  if (existing?.certificate_number) {
+    const parts = existing.certificate_number.split("-");
+    const last = parseInt(parts[parts.length - 1], 10);
+    if (!isNaN(last)) nextSeq = last + 1;
+  }
+
+  return `${prefix}${String(nextSeq).padStart(2, "0")}`;
+}
+
 async function registerCertificate(equipmentId, clientName, parsed) {
   const { data: existing } = await supabase
     .from("certificates").select("id")
@@ -267,8 +292,12 @@ async function registerCertificate(equipmentId, clientName, parsed) {
     .limit(1).maybeSingle();
   if (existing) return;
 
+  // ✅ generate cert number before insert
+  const certNumber = await generateCertNumber(parsed.serial_number, equipmentId);
+
   const { error } = await supabase.from("certificates").insert([{
     asset_id:              equipmentId,
+    certificate_number:    certNumber,
     certificate_type:      parsed.certificate_type || "Certificate of Statutory Inspection",
     company:               clientName,
     equipment_description: parsed.equipment_description || parsed.asset_type,
@@ -380,9 +409,9 @@ export default function BulkImportPage() {
     }
   }
 
-  const anyExtracted  = files.some((f) => f.status === "extracted");
-  const doneCount     = files.filter((f) => f.status === "done").length;
-  const errorCount    = files.filter((f) => f.status === "error").length;
+  const anyExtracted = files.some((f) => f.status === "extracted");
+  const doneCount    = files.filter((f) => f.status === "done").length;
+  const errorCount   = files.filter((f) => f.status === "error").length;
 
   const labelStyle = {
     fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.5)",
@@ -481,12 +510,13 @@ export default function BulkImportPage() {
                     {[
                       ["Client",           item.parsed.company],
                       ["Equipment",        item.parsed.asset_type],
-                      ["Serial No.",       item.parsed.serial_number],   // ✅ now clean
+                      ["Serial / ID No.",  item.parsed.serial_number],
+                      ["Inspection No.",   item.parsed.equipment_id],
                       ["Location",         item.parsed.location],
                       ["SWL",              item.parsed.swl],
                       ["Inspector",        item.parsed.inspector_name],
-                      ["Last Inspection",  item.parsed.last_inspection_date], // ✅ correct label
-                      ["Next Inspection",  item.parsed.next_inspection_date], // ✅ correct label
+                      ["Last Inspection",  item.parsed.last_inspection_date],
+                      ["Next Inspection",  item.parsed.next_inspection_date],
                     ].filter(([, v]) => v).map(([label, value]) => (
                       <div key={label}>
                         <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>{label}</div>
