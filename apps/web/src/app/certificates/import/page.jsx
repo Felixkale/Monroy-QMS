@@ -93,6 +93,7 @@ function detectEquipmentType(text) {
     "Shutter Clamp",
     "Drum Clamp",
     "Overhead Crane",
+    "Trestle Stand",
   ];
 
   const lower = text.toLowerCase();
@@ -108,28 +109,40 @@ function extractCertificateData(text) {
     /(inspection certificate)/i,
   ]);
 
+  // ✅ FIXED: colon is now optional ([:\-]?) and captures company name
+  // even when PDF has no colon/dash separator e.g. "COMPANY KALCON EQUIPMENT..."
   const company = firstMatch(text, [
     /client\s*\/?\s*company\s*[:\-]\s*(.+)/i,
+    /company\s*[:\-]?\s*(.+?)\s+(?:EQUIPMENT|DESCRIPTION|CLIENT|LOCATION|IDENTIFICATION|STATUS)/i,
     /company\s*[:\-]\s*(.+)/i,
     /client\s*[:\-]\s*(.+)/i,
   ]);
 
   const equipmentDescription = firstMatch(text, [
+    /equipment description\s*[:\-]?\s*(.+?)\s+(?:EQUIPMENT|LOCATION|IDENTIFICATION|STATUS|COMPANY|CLIENT)/i,
     /equipment description\s*[:\-]\s*(.+)/i,
     /equipment type\s*[:\-]\s*(.+)/i,
     /equipment category\s*[:\-]\s*(.+)/i,
   ]) || detectEquipmentType(text);
 
   const equipmentLocation = firstMatch(text, [
+    /equipment location\s*[:\-]?\s*(.+?)\s+(?:IDENTIFICATION|STATUS|EQUIPMENT|COMPANY|PASS|FAIL)/i,
     /equipment location\s*[:\-]\s*(.+)/i,
     /location\s*[:\-]\s*(.+)/i,
   ]);
 
   const equipmentId = firstMatch(text, [
+    /identification number\s*[:\-]?\s*(.+?)\s+(?:INSPECTION|STATUS|PASS|FAIL|EXPIRY|ISSUE)/i,
+    /identification number\s*[:\-]\s*(.+)/i,
     /equipment id\s*[:\-]\s*(.+)/i,
     /equipment tag no\.?\s*[:\-]\s*(.+)/i,
     /equipment tag\s*[:\-]\s*(.+)/i,
     /asset tag\s*[:\-]\s*(.+)/i,
+  ]);
+
+  const inspectionNo = firstMatch(text, [
+    /inspection no\s*[:\-]?\s*(.+?)\s+(?:SWL|STATUS|PASS|FAIL|EXPIRY|ISSUE|EQUIPMENT)/i,
+    /inspection no\.?\s*[:\-]\s*(.+)/i,
   ]);
 
   const manufacturer = firstMatch(text, [
@@ -151,9 +164,11 @@ function extractCertificateData(text) {
     /year of manufacture\s*[:\-]\s*(.+)/i,
   ]);
 
+  // ✅ FIXED: SWL captured even without colon e.g. "SWL 25 TON"
   const swl = firstMatch(text, [
     /safe working load\s*[:\-]\s*(.+)/i,
     /\bSWL\s*[:\-]\s*(.+)/i,
+    /\bSWL\s+(\d+[\s\w]+?)(?:\s+(?:EQUIPMENT|STATUS|PASS|FAIL|EXPIRY|ISSUE|DATE)|$)/i,
   ]);
 
   const mawp = firstMatch(text, [
@@ -211,22 +226,29 @@ function extractCertificateData(text) {
     /rope diameter\s*[:\-]\s*(.+)/i,
   ]);
 
+  // ✅ FIXED: captures dates in format "12 /01/2026" or "12/01/2026"
   const issueDate = normalizeDate(firstMatch(text, [
     /issue date\s*[:\-]\s*(.+)/i,
     /date issued\s*[:\-]\s*(.+)/i,
+    /pass date\s*[:\-]?\s*(.+?)\s+(?:EXPIRY|INSPECTOR|VALID|$)/i,
   ]));
 
   const expiryDate = normalizeDate(firstMatch(text, [
+    /expiry date\s*[:\-]?\s*(.+?)\s+(?:INSPECTOR|VALID|PASS|ISSUE|$)/i,
     /expiry date\s*[:\-]\s*(.+)/i,
     /valid to\s*[:\-]\s*(.+)/i,
   ]));
 
+  // ✅ FIXED: captures "Inspector's Name: Moemedi Masupe"
   const inspectorName = firstMatch(text, [
+    /inspector'?s?\s*name\s*[:\-]\s*(.+)/i,
     /inspector name\s*[:\-]\s*(.+)/i,
     /inspector\s*[:\-]\s*(.+)/i,
   ]);
 
+  // ✅ FIXED: captures "INSPECTOR ID NO: 700117910"
   const inspectorId = firstMatch(text, [
+    /inspector\s*id\s*no\.?\s*[:\-]\s*(.+?)\s+(?:Inspector|Signature|OUR|PARTNERS|$)/i,
     /inspector id\s*[:\-]\s*(.+)/i,
   ]);
 
@@ -236,9 +258,11 @@ function extractCertificateData(text) {
     /design code\s*[:\-]\s*(.+)/i,
   ]) || "Mines, Quarries, Works and Machinery Act Cap 44:02";
 
+  // ✅ FIXED: captures STATUS PASS even without colon
   const equipmentStatus = firstMatch(text, [
     /inspection result\s*[:\-]\s*(.+)/i,
-    /status\s*[:\-]\s*(PASS|FAIL|CONDITIONAL)/i,
+    /status\s*[:\-]?\s*(PASS|FAIL|CONDITIONAL)/i,
+    /equipment status\s*[:\-]?\s*(PASS|FAIL|CONDITIONAL)/i,
   ]) || "PASS";
 
   const assetType = equipmentDescription || detectEquipmentType(text);
@@ -259,7 +283,7 @@ function extractCertificateData(text) {
     equipment_description: assetType,
     location: equipmentLocation,
     equipment_location: equipmentLocation,
-    equipment_id: equipmentId,
+    equipment_id: equipmentId || inspectionNo,
     manufacturer,
     model,
     serial_number: serialNumber,
@@ -288,7 +312,7 @@ function extractCertificateData(text) {
   };
 }
 
-// ✅ FIXED — update the CDN version to match
+// ✅ FIXED: CDN version updated to match pdfjs-dist 4.10.38
 async function extractTextFromPdf(file) {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
   pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -313,7 +337,6 @@ async function extractTextFromFile(file) {
   if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
     return extractTextFromPdf(file);
   }
-
   return await file.text();
 }
 
@@ -335,12 +358,7 @@ async function getOrCreateClient(companyName) {
 
   const { data: created, error: createError } = await supabase
     .from("clients")
-    .insert([
-      {
-        company_name: cleanName,
-        status: "active",
-      },
-    ])
+    .insert([{ company_name: cleanName, status: "active" }])
     .select("id, company_name, company_code")
     .single();
 
@@ -383,13 +401,8 @@ export default function ImportCertificatesPage() {
       setSuccess("");
       setPreview(null);
 
-      if (!supabase) {
-        throw new Error("Supabase not configured.");
-      }
-
-      if (!file) {
-        throw new Error("Choose a certificate file first.");
-      }
+      if (!supabase) throw new Error("Supabase not configured.");
+      if (!file) throw new Error("Choose a certificate file first.");
 
       const extractedText = await extractTextFromFile(file);
       setRawText(extractedText);
@@ -416,9 +429,7 @@ export default function ImportCertificatesPage() {
       setError("");
       setSuccess("");
 
-      if (!preview) {
-        throw new Error("Extract certificate data first.");
-      }
+      if (!preview) throw new Error("Extract certificate data first.");
 
       const client = await getOrCreateClient(preview.company);
 
@@ -519,46 +530,40 @@ export default function ImportCertificatesPage() {
         <h1 style={{ color: "#fff", marginBottom: 16 }}>Import Certificate</h1>
 
         {error && (
-          <div
-            style={{
-              background: "rgba(244,114,182,0.1)",
-              border: "1px solid rgba(244,114,182,0.3)",
-              borderRadius: 12,
-              padding: "12px 16px",
-              marginBottom: 20,
-              color: "#f472b6",
-              fontSize: 13,
-            }}
-          >
+          <div style={{
+            background: "rgba(244,114,182,0.1)",
+            border: "1px solid rgba(244,114,182,0.3)",
+            borderRadius: 12,
+            padding: "12px 16px",
+            marginBottom: 20,
+            color: "#f472b6",
+            fontSize: 13,
+          }}>
             ⚠️ {error}
           </div>
         )}
 
         {success && (
-          <div
-            style={{
-              background: "rgba(16,185,129,0.12)",
-              border: "1px solid rgba(16,185,129,0.35)",
-              borderRadius: 12,
-              padding: "12px 16px",
-              marginBottom: 20,
-              color: "#86efac",
-              fontSize: 13,
-            }}
-          >
+          <div style={{
+            background: "rgba(16,185,129,0.12)",
+            border: "1px solid rgba(16,185,129,0.35)",
+            borderRadius: 12,
+            padding: "12px 16px",
+            marginBottom: 20,
+            color: "#86efac",
+            fontSize: 13,
+          }}>
             {success}
           </div>
         )}
 
-        <div
-          style={{
-            background: "rgba(255,255,255,0.03)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 16,
-            padding: 20,
-            marginBottom: 20,
-          }}
-        >
+        <div style={{
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 16,
+          padding: 20,
+          marginBottom: 20,
+        }}>
           <div style={{ marginBottom: 16 }}>
             <label style={labelStyle}>Certificate File</label>
             <input
@@ -609,24 +614,19 @@ export default function ImportCertificatesPage() {
         </div>
 
         {preview && (
-          <div
-            style={{
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              borderRadius: 16,
-              padding: 20,
-              marginBottom: 20,
-            }}
-          >
+          <div style={{
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 16,
+            padding: 20,
+            marginBottom: 20,
+          }}>
             <h2 style={{ color: "#fff", marginTop: 0 }}>Extracted Information</h2>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
-                gap: 16,
-              }}
-            >
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+              gap: 16,
+            }}>
               <div><label style={labelStyle}>Client</label><div style={{ color: "#fff" }}>{preview.company || "-"}</div></div>
               <div><label style={labelStyle}>Equipment Type</label><div style={{ color: "#fff" }}>{preview.asset_type || "-"}</div></div>
               <div><label style={labelStyle}>Equipment Tag</label><div style={{ color: "#fff" }}>{preview.equipment_id || "-"}</div></div>
@@ -643,23 +643,17 @@ export default function ImportCertificatesPage() {
           </div>
         )}
 
-        <div
-          style={{
-            background: "rgba(255,255,255,0.03)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 16,
-            padding: 20,
-          }}
-        >
+        <div style={{
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 16,
+          padding: 20,
+        }}>
           <label style={labelStyle}>Extracted Raw Text</label>
           <textarea
             value={rawText}
             readOnly
-            style={{
-              ...inputStyle,
-              minHeight: 260,
-              resize: "vertical",
-            }}
+            style={{ ...inputStyle, minHeight: 260, resize: "vertical" }}
           />
         </div>
       </div>
