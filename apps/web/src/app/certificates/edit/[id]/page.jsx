@@ -292,7 +292,7 @@ export default function EditCertificatePage() {
         equipment_description: form.equipment_description,
         equipment_location: form.equipment_location,
         equipment_id: form.equipment_id,
-        swl: form.swl ? withUnit(form.swl, "Tons") : null,
+        swl: form.swl ? withUnit(form.swl, "Ton") : null,
         mawp: form.mawp ? withUnit(form.mawp, "kPa") : null,
         equipment_status: form.equipment_status,
         issued_at: form.issued_at ? new Date(form.issued_at).toISOString() : null,
