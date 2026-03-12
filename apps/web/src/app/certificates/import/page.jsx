@@ -38,7 +38,8 @@ function normalizeText(value, fallback = "") {
 function normalizeDate(value) {
   if (!value) return null;
 
-  const text = String(value).trim();
+  // ✅ Strip spaces around slashes e.g. "12 /04 /2026" → "12/04/2026"
+  let text = String(value).trim().replace(/\s*\/\s*/g, "/").replace(/\s*\-\s*/g, "-");
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
 
@@ -47,10 +48,11 @@ function normalizeDate(value) {
     return d.toISOString().slice(0, 10);
   }
 
-  const match1 = text.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/);
+  // dd/mm/yyyy or dd-mm-yyyy
+  const match1 = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
   if (match1) {
     const [, dd, mm, yyyy] = match1;
-    return `${yyyy}-${mm}-${dd}`;
+    return `${yyyy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`;
   }
 
   return null;
@@ -132,9 +134,11 @@ function extractCertificateData(text) {
     /description\s*[:\-]\s*(.+)/i,
   ]) || detectEquipmentType(text);
 
+  // ✅ FIXED: captures "EQUIPMENT LOCATION KHOEMACAU MINE" without colon
   const equipmentLocation = firstMatch(text, [
-    /equipment location\s*[:\-]?\s*(.+?)\s+(?:IDENTIFICATION|STATUS|EQUIPMENT|COMPANY|PASS|FAIL)/i,
-    /equipment location\s*[:\-]\s*(.+)/i,
+    /equipment\s+location\s*[:\-]\s*(.+)/i,
+    /equipment\s+location\s+(.+?)\s{2,}/i,
+    /equipment\s+location\s+(.+?)\s+(?:IDENTIFICATION|INSPECTION|STATUS|SWL|PASS|FAIL|DATE|EXPIRY|COMPANY|CLIENT)/i,
     /location\s*[:\-]\s*(.+)/i,
   ]);
 
