@@ -4,6 +4,37 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
+// ── Defaults ────────────────────────────────────────────────────
+const DEFAULT_INSPECTOR_NAME = "Moemedi Masupe";
+const DEFAULT_INSPECTOR_ID   = "700117910";
+const DEFAULT_LEGAL_FRAMEWORK =
+  "Mines, Quarries, Works and Machinery Act Cap 44:02";
+const CONTACT_DETAILS = "+267 77906461 / +267 71450610";
+
+// ── Derive certificate title from type / asset_type ─────────────
+function resolveCertTitle(certType = "", assetType = "") {
+  const ct = String(certType).toLowerCase();
+  const at = String(assetType).toLowerCase();
+  const pressureWords = ["pressure", "boiler", "air receiver", "air compressor", "oil separator"];
+  const isPressure = pressureWords.some((w) => ct.includes(w) || at.includes(w));
+  if (isPressure) return "Pressure Test Certificate";
+  return "Load Test Certificate – Lifting Equipment";
+}
+
+// ── Build certificate number ─────────────────────────────────────
+// Format: CERT-<SERIAL_NUMBER>-<sequence padded to 2 digits>
+// Uses cert.certificate_number if already stored in that format,
+// otherwise constructs it from serial_number + a sequence counter.
+function buildCertNumber(cert, asset) {
+  if (cert.certificate_number) return cert.certificate_number;
+  const serial = (asset?.serial_number || asset?.asset_tag || "XX").replace(/\s+/g, "-").toUpperCase();
+  // sequence falls back to "01" when not stored
+  const seq = cert.sequence_number
+    ? String(cert.sequence_number).padStart(2, "0")
+    : "01";
+  return `CERT-${serial}-${seq}`;
+}
+
 export default function PrintCertificatePage() {
   const params = useParams();
   const id = params?.id;
@@ -45,52 +76,56 @@ export default function PrintCertificatePage() {
   }, [id]);
 
   if (loading) return <div style={{ padding: 40, fontFamily: "sans-serif" }}>Loading certificate...</div>;
-  if (error) return <div style={{ padding: 40, color: "red", fontFamily: "sans-serif" }}>{error}</div>;
-  if (!cert) return null;
+  if (error)   return <div style={{ padding: 40, color: "red", fontFamily: "sans-serif" }}>{error}</div>;
+  if (!cert)   return null;
 
-  const asset = cert.assets || {};
+  const asset  = cert.assets  || {};
   const client = asset.clients || {};
 
-  // ── Only show fields that have values ─────────────────
+  // ── Only show fields that have values ──────────────────────────
   function val(v) {
     if (v === null || v === undefined) return null;
     const s = String(v).trim();
     return s === "" || s === "Unknown" ? null : s;
   }
 
-  const issueDate = cert.issued_at ? new Date(cert.issued_at).toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" }) : null;
-  const expiryDate = cert.valid_to ? new Date(cert.valid_to).toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" }) : null;
+  // ── Resolved values ────────────────────────────────────────────
+  const certTitle      = resolveCertTitle(cert.certificate_type, asset.asset_type);
+  const certNumber     = buildCertNumber(cert, asset);
+  const inspectorName  = val(cert.inspector_name)  || DEFAULT_INSPECTOR_NAME;
+  const inspectorId    = val(cert.inspector_id)    || DEFAULT_INSPECTOR_ID;
+  const legalFramework = val(cert.legal_framework) || DEFAULT_LEGAL_FRAMEWORK;
 
-  const isPressure = ["Pressure Test Certificate", "pressure vessel", "boiler", "air receiver"].some(
-    (t) => (cert.certificate_type || "").toLowerCase().includes(t.toLowerCase()) ||
-            (asset.asset_type || "").toLowerCase().includes(t.toLowerCase())
-  );
+  const issueDate  = cert.issued_at ? new Date(cert.issued_at).toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" }) : null;
+  const expiryDate = cert.valid_to  ? new Date(cert.valid_to ).toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" }) : null;
 
-  // Build equipment data rows — only non-empty
+  const isPressure = certTitle.toLowerCase().includes("pressure");
+
+  // ── Equipment data rows — only non-empty ───────────────────────
   const equipmentRows = [
-    { label: "Company / Client", value: val(cert.company) || val(client.company_name) },
+    { label: "Company / Client",      value: val(cert.company)               || val(client.company_name) },
     { label: "Equipment Description", value: val(cert.equipment_description) || val(asset.asset_type) },
-    { label: "Equipment Location", value: val(cert.equipment_location) || val(asset.location) },
-    { label: "Serial Number / ID", value: val(cert.equipment_id) || val(asset.serial_number) },
-    { label: "Manufacturer", value: val(asset.manufacturer) },
-    { label: "Model", value: val(asset.model) },
-    { label: "Year Built", value: val(asset.year_built) },
-    isPressure ? { label: "MAWP", value: val(cert.mawp) || val(asset.working_pressure) } : null,
-    isPressure ? { label: "Design Pressure", value: val(asset.design_pressure) } : null,
-    isPressure ? { label: "Test Pressure", value: val(asset.test_pressure) } : null,
+    { label: "Equipment Location",    value: val(cert.equipment_location)    || val(asset.location) },
+    { label: "Serial Number / ID",    value: val(cert.equipment_id)          || val(asset.serial_number) },
+    { label: "Manufacturer",          value: val(asset.manufacturer) },
+    { label: "Model",                 value: val(asset.model) },
+    { label: "Year Built",            value: val(asset.year_built) },
+    isPressure ? { label: "MAWP",               value: val(cert.mawp)         || val(asset.working_pressure) } : null,
+    isPressure ? { label: "Design Pressure",    value: val(asset.design_pressure) }    : null,
+    isPressure ? { label: "Test Pressure",      value: val(asset.test_pressure) }      : null,
     isPressure ? { label: "Design Temperature", value: val(asset.design_temperature) } : null,
-    isPressure ? { label: "Capacity / Volume", value: val(asset.capacity_volume) } : null,
-    isPressure ? { label: "Shell Material", value: val(asset.shell_material) } : null,
-    isPressure ? { label: "Fluid Type", value: val(asset.fluid_type) } : null,
-    !isPressure ? { label: "Safe Working Load (SWL)", value: val(cert.swl) || val(asset.safe_working_load) } : null,
-    !isPressure ? { label: "Proof Load", value: val(asset.proof_load) } : null,
-    !isPressure ? { label: "Lifting Height", value: val(asset.lifting_height) } : null,
-    !isPressure ? { label: "Sling Length", value: val(asset.sling_length) } : null,
-    !isPressure ? { label: "Chain Size", value: val(asset.chain_size) } : null,
-    !isPressure ? { label: "Rope Diameter", value: val(asset.rope_diameter) } : null,
+    isPressure ? { label: "Capacity / Volume",  value: val(asset.capacity_volume) }    : null,
+    isPressure ? { label: "Shell Material",     value: val(asset.shell_material) }     : null,
+    isPressure ? { label: "Fluid Type",         value: val(asset.fluid_type) }         : null,
+    !isPressure ? { label: "Safe Working Load (SWL)", value: val(cert.swl)           || val(asset.safe_working_load) } : null,
+    !isPressure ? { label: "Proof Load",              value: val(asset.proof_load) }   : null,
+    !isPressure ? { label: "Lifting Height",          value: val(asset.lifting_height) } : null,
+    !isPressure ? { label: "Sling Length",            value: val(asset.sling_length) }  : null,
+    !isPressure ? { label: "Chain Size",              value: val(asset.chain_size) }    : null,
+    !isPressure ? { label: "Rope Diameter",           value: val(asset.rope_diameter) } : null,
   ]
-    .filter(Boolean)               // remove nulls from conditional rows
-    .filter((r) => r.value);       // ✅ remove rows with no value
+    .filter(Boolean)
+    .filter((r) => r.value);
 
   const statusColor =
     cert.equipment_status === "PASS" ? "#16a34a" :
@@ -145,7 +180,8 @@ export default function PrintCertificatePage() {
         }}>
           <div>
             {val(cert.logo_url) && (
-              <img src={cert.logo_url} alt="Logo" style={{ height: 52, marginBottom: 10, objectFit: "contain" }}
+              <img src={cert.logo_url} alt="Logo"
+                style={{ height: 52, marginBottom: 10, objectFit: "contain" }}
                 onError={(e) => { e.target.style.display = "none"; }} />
             )}
             <div style={{ color: "#bfdbfe", fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: 600 }}>
@@ -160,7 +196,7 @@ export default function PrintCertificatePage() {
             }}>
               <div style={{ color: "#bfdbfe", fontSize: 9, letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 4 }}>Certificate No.</div>
               <div style={{ color: "#fff", fontSize: 15, fontWeight: 800, letterSpacing: "0.05em" }}>
-                {val(cert.certificate_number) || id?.slice(0, 8).toUpperCase()}
+                {certNumber}
               </div>
             </div>
           </div>
@@ -175,7 +211,7 @@ export default function PrintCertificatePage() {
             fontSize: 22, fontWeight: 900, color: "#1e3a5f",
             letterSpacing: "0.04em", textTransform: "uppercase",
           }}>
-            {val(cert.certificate_type) || "Certificate of Inspection"}
+            {certTitle}
           </div>
           <div style={{ marginTop: 6, display: "flex", justifyContent: "center", gap: 8 }}>
             <div style={{ height: 3, width: 60, background: "#2563eb", borderRadius: 2 }} />
@@ -208,9 +244,7 @@ export default function PrintCertificatePage() {
           </p>
 
           {/* Equipment data table */}
-          <div style={{
-            border: "1.5px solid #e2e8f0", borderRadius: 10, overflow: "hidden", marginBottom: 24,
-          }}>
+          <div style={{ border: "1.5px solid #e2e8f0", borderRadius: 10, overflow: "hidden", marginBottom: 24 }}>
             <div style={{
               background: "#1e3a5f", padding: "10px 18px",
               fontSize: 10, fontWeight: 800, color: "#bfdbfe",
@@ -240,15 +274,9 @@ export default function PrintCertificatePage() {
           </div>
 
           {/* Dates row */}
-          <div style={{
-            display: "grid", gridTemplateColumns: "1fr 1fr",
-            gap: 16, marginBottom: 24,
-          }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
             {issueDate && (
-              <div style={{
-                border: "1.5px solid #dbeafe", borderRadius: 10,
-                padding: "14px 18px", background: "#eff6ff",
-              }}>
+              <div style={{ border: "1.5px solid #dbeafe", borderRadius: 10, padding: "14px 18px", background: "#eff6ff" }}>
                 <div style={{ fontSize: 9, fontWeight: 800, color: "#3b82f6", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 6 }}>
                   Date of Issue
                 </div>
@@ -256,10 +284,7 @@ export default function PrintCertificatePage() {
               </div>
             )}
             {expiryDate && (
-              <div style={{
-                border: "1.5px solid #fecaca", borderRadius: 10,
-                padding: "14px 18px", background: "#fef2f2",
-              }}>
+              <div style={{ border: "1.5px solid #fecaca", borderRadius: 10, padding: "14px 18px", background: "#fef2f2" }}>
                 <div style={{ fontSize: 9, fontWeight: 800, color: "#ef4444", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 6 }}>
                   Expiry Date
                 </div>
@@ -269,23 +294,18 @@ export default function PrintCertificatePage() {
           </div>
 
           {/* Legal framework */}
-          {val(cert.legal_framework) && (
-            <div style={{
-              background: "#f8fafc", border: "1px solid #e2e8f0",
-              borderRadius: 8, padding: "12px 16px", marginBottom: 24,
-            }}>
-              <div style={{ fontSize: 9, fontWeight: 800, color: "#64748b", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 4 }}>
-                Legal Framework
-              </div>
-              <div style={{ fontSize: 11, color: "#334155" }}>{cert.legal_framework}</div>
+          <div style={{
+            background: "#f8fafc", border: "1px solid #e2e8f0",
+            borderRadius: 8, padding: "12px 16px", marginBottom: 24,
+          }}>
+            <div style={{ fontSize: 9, fontWeight: 800, color: "#64748b", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 4 }}>
+              Legal Framework
             </div>
-          )}
+            <div style={{ fontSize: 11, color: "#334155" }}>{legalFramework}</div>
+          </div>
 
           {/* Signature section */}
-          <div style={{
-            display: "grid", gridTemplateColumns: "1fr 1fr",
-            gap: 24, marginTop: 8,
-          }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginTop: 8 }}>
             <div>
               <div style={{ fontSize: 9, fontWeight: 800, color: "#64748b", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 10 }}>
                 Inspector
@@ -306,12 +326,9 @@ export default function PrintCertificatePage() {
                 )}
               </div>
 
-              {val(cert.inspector_name) && (
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b" }}>{cert.inspector_name}</div>
-              )}
-              {val(cert.inspector_id) && (
-                <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>ID: {cert.inspector_id}</div>
-              )}
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b" }}>{inspectorName}</div>
+              <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>ID: {inspectorId}</div>
+              <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>Contact: {CONTACT_DETAILS}</div>
             </div>
 
             {/* Customer signature box */}
@@ -326,17 +343,42 @@ export default function PrintCertificatePage() {
         </div>
 
         {/* Footer */}
-        <div style={{
-          background: "linear-gradient(135deg,#1e3a5f,#1e40af)",
-          padding: "14px 48px",
-          display: "flex", justifyContent: "space-between", alignItems: "center",
-          marginTop: 20,
-        }}>
-          <div style={{ color: "#bfdbfe", fontSize: 9, letterSpacing: "0.1em" }}>
-            This certificate is valid only for the equipment and period described above.
+        <div style={{ marginTop: 20 }}>
+          {/* Validity strip */}
+          <div style={{
+            background: "linear-gradient(135deg,#1e3a5f,#1e40af)",
+            padding: "10px 48px",
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+          }}>
+            <div style={{ color: "#bfdbfe", fontSize: 9, letterSpacing: "0.1em" }}>
+              This certificate is valid only for the equipment and period described above.
+            </div>
+            <div style={{ color: "#93c5fd", fontSize: 9, fontWeight: 700 }}>
+              MONROY QMS PLATFORM
+            </div>
           </div>
-          <div style={{ color: "#93c5fd", fontSize: 9, fontWeight: 700 }}>
-            MONROY QMS PLATFORM
+
+          {/* Services banner — blue matching certificate header */}
+          <div style={{
+            background: "linear-gradient(135deg, #1e3a5f 0%, #1e40af 60%, #0ea5e9 100%)",
+            padding: "14px 48px 14px 80px",
+            position: "relative", textAlign: "center",
+          }}>
+            {/* Decorative left triangles */}
+            <div style={{
+              position: "absolute", left: 0, top: 0, bottom: 0, width: 60,
+              background: "#0ea5e9", clipPath: "polygon(0 0, 100% 0, 60% 100%, 0 100%)",
+            }} />
+            <div style={{
+              position: "absolute", left: 40, top: 0, bottom: 0, width: 30,
+              background: "rgba(255,255,255,0.15)", clipPath: "polygon(0 0, 100% 0, 60% 100%, 0 100%)",
+            }} />
+            <p style={{ color: "#fff", fontSize: 10, fontWeight: 600, lineHeight: 1.8, letterSpacing: "0.02em" }}>
+              Mobile Crane Hire | <strong>Rigging</strong> | NDT Test | <strong>Scaffolding</strong> | Painting |{" "}
+              <strong>Inspection of Lifting Equipment and Machinery, Pressure Vessels &amp; Air Receiver</strong>
+              {" "}| Inspection of Lifting Equipment Steel Fabricating and Structural |{" "}
+              <strong>Mechanical Engineering</strong> | Fencing | <strong>Maintenance</strong>
+            </p>
           </div>
         </div>
 
