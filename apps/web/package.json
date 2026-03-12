@@ -15,7 +15,7 @@
     "@supabase/supabase-js": "^2.38.4",
     "@supabase/ssr": "^0.6.1",
     "recharts": "^2.12.7",
-    "pdfjs-dist": "^4.4.168"
+    "pdfjs-dist": "4.10.38"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
