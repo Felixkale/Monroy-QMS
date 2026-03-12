@@ -6,6 +6,38 @@ import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 import { registerEquipment } from "@/services/equipment";
 
+// ── Security: limits ──────────────────────────────────────────────
+const MAX_FILES    = 20;
+const MAX_FILE_MB  = 10;
+
+// ── Security: sanitize extracted text ────────────────────────────
+function sanitizeText(val, maxLen = 200) {
+  if (!val) return val;
+  return String(val)
+    .replace(/<[^>]*>/g, "")
+    .replace(/[^\x20-\x7E\u00C0-\u024F]/g, "")
+    .slice(0, maxLen)
+    .trim();
+}
+
+// ── Security: validate parsed data before DB write ────────────────
+function validateParsed(parsed) {
+  const errors = [];
+  if (!parsed.company || parsed.company.length < 2)
+    errors.push("Company name too short or missing");
+  if (!parsed.asset_type || parsed.asset_type.length < 2)
+    errors.push("Equipment type missing");
+  if (parsed.last_inspection_date && isNaN(new Date(parsed.last_inspection_date)))
+    errors.push("Invalid inspection date");
+  if (parsed.next_inspection_date && isNaN(new Date(parsed.next_inspection_date)))
+    errors.push("Invalid expiry date");
+  if (parsed.last_inspection_date && parsed.next_inspection_date) {
+    if (new Date(parsed.next_inspection_date) <= new Date(parsed.last_inspection_date))
+      errors.push("Expiry date must be after inspection date");
+  }
+  return errors;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────
 function normalizeText(value, fallback = "") {
   if (value === undefined || value === null) return fallback;
@@ -19,10 +51,8 @@ function normalizeDate(value) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
   const d = new Date(text);
   if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-  // DD/MM/YYYY
   const m1 = text.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
   if (m1) return `${m1[3]}-${m1[2].padStart(2, "0")}-${m1[1].padStart(2, "0")}`;
-  // MM/DD/YYYY fallback
   const m2 = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
   if (m2) return `${m2[3]}-${m2[2].padStart(2, "0")}-${m2[1].padStart(2, "0")}`;
   return null;
@@ -32,10 +62,7 @@ function firstMatch(text, patterns = []) {
   for (const p of patterns) {
     const m = text.match(p);
     if (m?.[1]) {
-      const raw = m[1]
-        .replace(/\s{2,}.*/s, "")
-        .replace(/\n.*/s, "")
-        .trim();
+      const raw = m[1].replace(/\s{2,}.*/s, "").replace(/\n.*/s, "").trim();
       return normalizeText(raw);
     }
   }
@@ -79,7 +106,6 @@ function extractCertificateData(text) {
     /location\s*[:\-]\s*(.+)/i,
   ]);
 
-  // ✅ FIX 1: capture IDENTIFICATION NUMBER as the serial/equipment ID
   const identificationNumber = firstMatch(text, [
     /identification\s+number\s*[:\-]?\s*(.+?)\s+(?:INSPECTION|STATUS|PASS|FAIL|EXPIRY|ISSUE|SWL|DATE)/i,
     /identification\s+number\s*[:\-]\s*(.+)/i,
@@ -91,7 +117,6 @@ function extractCertificateData(text) {
     /inspection\s+no\.?\s*[:\-]\s*(.+)/i,
   ]);
 
-  // ✅ FIX 1 cont: serial_number prefers explicit serial label, falls back to identification number
   const serialNumber = firstMatch(text, [
     /serial\s+number\s*[:\-]\s*([^\s\n]{3,40})/i,
     /serial\s+no\.?\s*[:\-]\s*([^\s\n]{3,40})/i,
@@ -113,19 +138,16 @@ function extractCertificateData(text) {
     /working\s+pressure\s*[:\-]\s*(.+)/i,
   ]);
 
-  // ✅ FIX 2: capture bare "DATE" label (as used in Monroy source PDFs)
   const issueDate = normalizeDate(firstMatch(text, [
     /\bpass\s+date\s+(.+?)\s+(?:EXPIRY|INSPECTOR|VALID|CUSTOMER|SIGNATURE|OUR|$)/i,
     /issue\s+date\s*[:\-]\s*(.+)/i,
     /date\s+issued\s*[:\-]\s*(.+)/i,
     /date\s+of\s+inspection\s*[:\-]\s*(.+)/i,
     /inspection\s+date\s*[:\-]\s*(.+)/i,
-    // ✅ bare DATE row — must come after more specific patterns
     /^DATE\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/im,
     /\bDATE\s*[:\-]\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
   ]));
 
-  // ✅ FIX 2 cont: expiry date
   const expiryDate = normalizeDate(firstMatch(text, [
     /expiry\s+date\s+(.+?)\s+(?:INSPECTOR|VALID|PASS|ISSUE|CUSTOMER|SIGNATURE|OUR|$)/i,
     /expiry\s+date\s*[:\-]\s*(.+)/i,
@@ -156,9 +178,9 @@ function extractCertificateData(text) {
     /equipment\s+status\s*[:\-]?\s*(PASS|FAIL|CONDITIONAL)/i,
   ]) || "PASS").toUpperCase();
 
-  const assetType = equipmentDescription || detectEquipmentType(text);
-  const isPressure = ["Pressure Vessel", "Boiler", "Air Receiver", "Air Compressor", "Oil Separator"].includes(assetType);
-  const certType = certificateType || (isPressure ? "Pressure Test Certificate" : "Load Test Certificate");
+  const assetType  = equipmentDescription || detectEquipmentType(text);
+  const isPressure = ["Pressure Vessel","Boiler","Air Receiver","Air Compressor","Oil Separator"].includes(assetType);
+  const certType   = certificateType || (isPressure ? "Pressure Test Certificate" : "Load Test Certificate");
 
   return {
     company,
@@ -167,7 +189,6 @@ function extractCertificateData(text) {
     equipment_description: assetType,
     location:              equipmentLocation,
     equipment_location:    equipmentLocation,
-    // ✅ equipment_id = inspectionNo (KLC/TR-2026-SANS-500), serial = identification number (TR-2695)
     equipment_id:          inspectionNo || identificationNumber,
     manufacturer,
     model,
@@ -185,6 +206,25 @@ function extractCertificateData(text) {
     inspector_id:          inspectorId,
     legal_framework:       "Mines, Quarries, Works and Machinery Act Cap 44:02",
     equipment_status:      equipmentStatus,
+  };
+}
+
+// ── Security: sanitize all fields after extraction ────────────────
+function sanitizeParsed(raw) {
+  return {
+    ...raw,
+    company:            sanitizeText(raw.company, 100),
+    asset_type:         sanitizeText(raw.asset_type, 100),
+    location:           sanitizeText(raw.location, 200),
+    equipment_location: sanitizeText(raw.equipment_location, 200),
+    serial_number:      sanitizeText(raw.serial_number, 80),
+    equipment_id:       sanitizeText(raw.equipment_id, 80),
+    manufacturer:       sanitizeText(raw.manufacturer, 100),
+    model:              sanitizeText(raw.model, 100),
+    inspector_name:     sanitizeText(raw.inspector_name, 100),
+    inspector_id:       sanitizeText(raw.inspector_id, 80),
+    safe_working_load:  sanitizeText(raw.safe_working_load, 50),
+    working_pressure:   sanitizeText(raw.working_pressure, 50),
   };
 }
 
@@ -222,7 +262,6 @@ async function getOrCreateEquipment(clientId, parsed) {
     let query = supabase.from("assets").select("id,asset_tag,asset_name").eq("client_id", clientId);
     if (parsed.serial_number) query = query.eq("serial_number", parsed.serial_number);
     else query = query.eq("asset_tag", parsed.equipment_id);
-
     const { data } = await query.limit(1).maybeSingle();
     if (data) {
       await supabase.from("assets").update({
@@ -236,7 +275,6 @@ async function getOrCreateEquipment(clientId, parsed) {
       return data;
     }
   }
-
   const { data: created, error } = await registerEquipment({
     client_id:            clientId,
     asset_type:           parsed.asset_type,
@@ -258,29 +296,23 @@ async function getOrCreateEquipment(clientId, parsed) {
   return created;
 }
 
-// ✅ FIX 3: auto-generate certificate number as CERT-{serial}-{sequence 01..∞}
 async function generateCertNumber(serialNumber, assetId) {
-  const base = serialNumber
+  const base   = serialNumber
     ? serialNumber.replace(/[\s\-\/]+/g, "").toUpperCase()
     : `ASSET${assetId}`;
-
   const prefix = `CERT-${base}-`;
-
   const { data: existing } = await supabase
     .from("certificates")
     .select("certificate_number")
     .like("certificate_number", `${prefix}%`)
     .order("certificate_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
+    .limit(1).maybeSingle();
   let nextSeq = 1;
   if (existing?.certificate_number) {
     const parts = existing.certificate_number.split("-");
-    const last = parseInt(parts[parts.length - 1], 10);
+    const last  = parseInt(parts[parts.length - 1], 10);
     if (!isNaN(last)) nextSeq = last + 1;
   }
-
   return `${prefix}${String(nextSeq).padStart(2, "0")}`;
 }
 
@@ -292,9 +324,7 @@ async function registerCertificate(equipmentId, clientName, parsed) {
     .limit(1).maybeSingle();
   if (existing) return;
 
-  // ✅ generate cert number before insert
   const certNumber = await generateCertNumber(parsed.serial_number, equipmentId);
-
   const { error } = await supabase.from("certificates").insert([{
     asset_id:              equipmentId,
     certificate_number:    certNumber,
@@ -343,17 +373,31 @@ function StatusBadge({ status, message }) {
 
 export default function BulkImportPage() {
   const router = useRouter();
-  const [files, setFiles] = useState([]);
-  const [running, setRunning] = useState(false);
-  const [globalError, setGlobalError] = useState("");
+  const [files,         setFiles]         = useState([]);
+  const [running,       setRunning]       = useState(false);
+  const [globalError,   setGlobalError]   = useState("");
   const [globalSuccess, setGlobalSuccess] = useState("");
 
+  // ── Security: file select with limits ────────────────────────
   function handleFileSelect(e) {
-    const selected = Array.from(e.target.files || []).filter(
+    const all = Array.from(e.target.files || []).filter(
       (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf")
     );
-    setFiles(selected.map((file) => ({ file, status: "pending", parsed: null, error: "" })));
-    setGlobalError("");
+
+    // Cap at MAX_FILES
+    const selected = all.slice(0, MAX_FILES);
+    if (all.length > MAX_FILES)
+      setGlobalError(`Max ${MAX_FILES} files per import. Only the first ${MAX_FILES} were loaded.`);
+    else
+      setGlobalError("");
+
+    // Warn about oversized files
+    const tooBig = selected.filter((f) => f.size > MAX_FILE_MB * 1024 * 1024);
+    if (tooBig.length)
+      setGlobalError(`${tooBig.length} file(s) exceed ${MAX_FILE_MB}MB and were skipped.`);
+
+    const valid = selected.filter((f) => f.size <= MAX_FILE_MB * 1024 * 1024);
+    setFiles(valid.map((file) => ({ file, status: "pending", parsed: null, error: "" })));
     setGlobalSuccess("");
   }
 
@@ -361,6 +405,7 @@ export default function BulkImportPage() {
     setFiles((prev) => prev.map((f, i) => i === index ? { ...f, ...patch } : f));
   }
 
+  // ── Extract with sanitize + validate ─────────────────────────
   async function handleExtractAll() {
     if (!files.length) return;
     setRunning(true);
@@ -370,10 +415,14 @@ export default function BulkImportPage() {
     for (let i = 0; i < files.length; i++) {
       updateFile(i, { status: "extracting", error: "" });
       try {
-        const text = await extractTextFromPdf(files[i].file);
-        const parsed = extractCertificateData(text);
-        if (!parsed.company) throw new Error("Company name not found.");
-        if (!parsed.asset_type) throw new Error("Equipment type not found.");
+        const text   = await extractTextFromPdf(files[i].file);
+        const raw    = extractCertificateData(text);
+        const parsed = sanitizeParsed(raw);          // ✅ sanitize
+
+        // ✅ validate before allowing register
+        const validationErrors = validateParsed(parsed);
+        if (validationErrors.length) throw new Error(validationErrors.join("; "));
+
         updateFile(i, { status: "extracted", parsed });
       } catch (err) {
         updateFile(i, { status: "error", error: err.message });
@@ -393,7 +442,7 @@ export default function BulkImportPage() {
       updateFile(i, { status: "registering" });
       try {
         const { parsed } = files[i];
-        const client = await getOrCreateClient(parsed.company);
+        const client    = await getOrCreateClient(parsed.company);
         const equipment = await getOrCreateEquipment(client.id, parsed);
         await registerCertificate(equipment.id, client.company_name, parsed);
         updateFile(i, { status: "done" });
@@ -404,9 +453,8 @@ export default function BulkImportPage() {
     }
 
     setRunning(false);
-    if (successCount > 0) {
+    if (successCount > 0)
       setGlobalSuccess(`${successCount} certificate${successCount > 1 ? "s" : ""} registered successfully!`);
-    }
   }
 
   const anyExtracted = files.some((f) => f.status === "extracted");
@@ -423,8 +471,8 @@ export default function BulkImportPage() {
       <div style={{ maxWidth: 1000 }}>
         <h1 style={{ color: "#fff", marginBottom: 6 }}>Bulk Import Certificates</h1>
         <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 28 }}>
-          Upload multiple certificate PDFs at once. The system will extract, register clients,
-          equipment and certificates automatically for each file.
+          Upload multiple certificate PDFs at once (max {MAX_FILES} files, {MAX_FILE_MB}MB each).
+          The system will extract, register clients, equipment and certificates automatically.
         </p>
 
         {globalError && (
@@ -439,7 +487,7 @@ export default function BulkImportPage() {
         )}
 
         <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: 20, marginBottom: 20 }}>
-          <label style={labelStyle}>Select Certificate PDFs (multiple allowed)</label>
+          <label style={labelStyle}>Select Certificate PDFs (max {MAX_FILES} files)</label>
           <input
             type="file" accept=".pdf" multiple
             onChange={handleFileSelect} disabled={running}
@@ -508,15 +556,15 @@ export default function BulkImportPage() {
                     display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 8,
                   }}>
                     {[
-                      ["Client",           item.parsed.company],
-                      ["Equipment",        item.parsed.asset_type],
-                      ["Serial / ID No.",  item.parsed.serial_number],
-                      ["Inspection No.",   item.parsed.equipment_id],
-                      ["Location",         item.parsed.location],
-                      ["SWL",              item.parsed.swl],
-                      ["Inspector",        item.parsed.inspector_name],
-                      ["Last Inspection",  item.parsed.last_inspection_date],
-                      ["Next Inspection",  item.parsed.next_inspection_date],
+                      ["Client",          item.parsed.company],
+                      ["Equipment",       item.parsed.asset_type],
+                      ["Serial / ID No.", item.parsed.serial_number],
+                      ["Inspection No.",  item.parsed.equipment_id],
+                      ["Location",        item.parsed.location],
+                      ["SWL",             item.parsed.swl],
+                      ["Inspector",       item.parsed.inspector_name],
+                      ["Last Inspection", item.parsed.last_inspection_date],
+                      ["Next Inspection", item.parsed.next_inspection_date],
                     ].filter(([, v]) => v).map(([label, value]) => (
                       <div key={label}>
                         <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>{label}</div>
