@@ -6,11 +6,9 @@ import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 import { registerEquipment } from "@/services/equipment";
 
-// ── Security: limits ──────────────────────────────────────────────
-const MAX_FILES    = 20;
-const MAX_FILE_MB  = 10;
+const MAX_FILES   = 20;
+const MAX_FILE_MB = 10;
 
-// ── Security: sanitize extracted text ────────────────────────────
 function sanitizeText(val, maxLen = 200) {
   if (!val) return val;
   return String(val)
@@ -20,7 +18,6 @@ function sanitizeText(val, maxLen = 200) {
     .trim();
 }
 
-// ── Security: validate parsed data before DB write ────────────────
 function validateParsed(parsed) {
   const errors = [];
   if (!parsed.company || parsed.company.length < 2)
@@ -38,11 +35,9 @@ function validateParsed(parsed) {
   return errors;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────
 function normalizeText(value, fallback = "") {
   if (value === undefined || value === null) return fallback;
-  const text = String(value).replace(/\s+/g, " ").trim();
-  return text || fallback;
+  return String(value).replace(/\s+/g, " ").trim() || fallback;
 }
 
 function normalizeDate(value) {
@@ -52,17 +47,21 @@ function normalizeDate(value) {
   const d = new Date(text);
   if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
   const m1 = text.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-  if (m1) return `${m1[3]}-${m1[2].padStart(2, "0")}-${m1[1].padStart(2, "0")}`;
+  if (m1) return `${m1[3]}-${m1[2].padStart(2,"0")}-${m1[1].padStart(2,"0")}`;
   const m2 = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-  if (m2) return `${m2[3]}-${m2[2].padStart(2, "0")}-${m2[1].padStart(2, "0")}`;
+  if (m2) return `${m2[3]}-${m2[2].padStart(2,"0")}-${m2[1].padStart(2,"0")}`;
   return null;
 }
 
+// ── FIX 1: Only strip at newline — NOT at double spaces.
+// This preserves multi-word values like "SAFETY HARNESS" and "ZTG - H - 020".
 function firstMatch(text, patterns = []) {
   for (const p of patterns) {
     const m = text.match(p);
     if (m?.[1]) {
-      const raw = m[1].replace(/\s{2,}.*/s, "").replace(/\n.*/s, "").trim();
+      const raw = m[1]
+        .replace(/\n.*/s, "")   // stop at next line
+        .trim();
       return normalizeText(raw);
     }
   }
@@ -71,66 +70,78 @@ function firstMatch(text, patterns = []) {
 
 function detectEquipmentType(text) {
   const checks = [
-    "Pressure Vessel", "Boiler", "Air Receiver", "Air Compressor", "Oil Separator",
-    "Trestle Jack", "Trestle Stand", "Lever Hoist", "Bottle Jack", "Safety Harness",
-    "Jack Stand", "Chain Block", "Bow Shackle", "Mobile Crane", "Overhead Crane",
-    "Trolley Jack", "Step Ladders", "Tifor", "Crawl Beam", "Beam Crawl", "Beam Clamp",
-    "Webbing Sling", "Nylon Sling", "Wire Sling", "Wire Rope", "Fall Arrest", "Man Cage",
-    "Shutter Clamp", "Drum Clamp", "Scissor Lift", "Axile Jack", "Personnel Basket",
-    "Load Cell", "Trestle",
+    "Pressure Vessel","Boiler","Air Receiver","Air Compressor","Oil Separator",
+    "Trestle Jack","Trestle Stand","Lever Hoist","Bottle Jack","Safety Harness",
+    "Jack Stand","Chain Block","Bow Shackle","Mobile Crane","Overhead Crane",
+    "Trolley Jack","Step Ladders","Tifor","Crawl Beam","Beam Crawl","Beam Clamp",
+    "Webbing Sling","Nylon Sling","Wire Sling","Wire Rope","Fall Arrest","Man Cage",
+    "Shutter Clamp","Drum Clamp","Scissor Lift","Axile Jack","Personnel Basket",
+    "Load Cell","Trestle",
   ];
   const lower = text.toLowerCase();
   return checks.find((i) => lower.includes(i.toLowerCase())) || "";
 }
 
 function extractCertificateData(text) {
+  // ── Company ───────────────────────────────────────────────────────────────
   const company = firstMatch(text, [
+    /^COMPANY\s+(.+)/im,
     /client\s*\/?\s*company\s*[:\-]\s*(.+)/i,
-    /company\s*[:\-]?\s*(.+?)\s+(?:EQUIPMENT|DESCRIPTION|CLIENT|LOCATION|IDENTIFICATION|STATUS)/i,
     /company\s*[:\-]\s*(.+)/i,
     /client\s*[:\-]\s*(.+)/i,
   ]);
 
+  // ── Equipment Description — capture full line after label ─────────────────
   const equipmentDescription = firstMatch(text, [
+    /^EQUIPMENT\s+DESCRIPTION\s+(.+)/im,
     /equipment\s+description\s*[:\-]\s*(.+)/i,
-    /equipment\s+description\s+(.+?)\s{2,}/i,
-    /equipment\s+description\s+(.+?)\s+(?:EQUIPMENT|LOCATION|IDENTIFICATION|STATUS)/i,
     /equipment\s+type\s*[:\-]\s*(.+)/i,
     /description\s*[:\-]\s*(.+)/i,
   ]) || detectEquipmentType(text);
 
+  // ── Location — capture full line ──────────────────────────────────────────
   const equipmentLocation = firstMatch(text, [
+    /^EQUIPMENT\s+LOCATION\s+(.+)/im,
     /equipment\s+location\s*[:\-]\s*(.+)/i,
-    /equipment\s+location\s+(.+?)\s{2,}/i,
-    /equipment\s+location\s+(.+?)\s+(?:IDENTIFICATION|INSPECTION|STATUS|SWL|PASS|FAIL|DATE|EXPIRY)/i,
     /location\s*[:\-]\s*(.+)/i,
   ]);
 
+  // ── Identification Number — capture full line (handles "ZTG - H - 020") ───
   const identificationNumber = firstMatch(text, [
-    /identification\s+number\s*[:\-]?\s*(.+?)\s+(?:INSPECTION|STATUS|PASS|FAIL|EXPIRY|ISSUE|SWL|DATE)/i,
+    /^IDENTIFICATION\s+NUMBER\s+(.+)/im,
     /identification\s+number\s*[:\-]\s*(.+)/i,
     /identification\s+no\.?\s*[:\-]\s*(.+)/i,
   ]);
 
+  // ── FIX 2: Lanyard Serial No — new field ─────────────────────────────────
+  const lanyardSerialNo = firstMatch(text, [
+    /^LANYARD\s+SERIAL\s+NO\.?\s+(.+)/im,
+    /lanyard\s+serial\s+no\.?\s*[:\-]\s*(.+)/i,
+    /lanyard\s+serial\s*[:\-]\s*(.+)/i,
+    /lanyard\s+no\.?\s*[:\-]\s*(.+)/i,
+  ]);
+
+  // ── Inspection No ─────────────────────────────────────────────────────────
   const inspectionNo = firstMatch(text, [
-    /inspection\s+no\.?\s*[:\-]?\s*(.+?)\s+(?:SWL|STATUS|PASS|FAIL|EXPIRY|ISSUE|DATE|EQUIPMENT|$)/i,
+    /^INSPECTION\s+NO\.?\s+(.+)/im,
     /inspection\s+no\.?\s*[:\-]\s*(.+)/i,
   ]);
 
+  // ── Serial Number ─────────────────────────────────────────────────────────
   const serialNumber = firstMatch(text, [
-    /serial\s+number\s*[:\-]\s*([^\s\n]{3,40})/i,
-    /serial\s+no\.?\s*[:\-]\s*([^\s\n]{3,40})/i,
-    /s\/n\s*[:\-]\s*([^\s\n]{3,40})/i,
-  ]) || identificationNumber;
+    /serial\s+number\s*[:\-]\s*(.+)/i,
+    /serial\s+no\.?\s*[:\-]\s*(.+)/i,
+    /s\/n\s*[:\-]\s*(.+)/i,
+  ]) || lanyardSerialNo || identificationNumber;
 
   const manufacturer = firstMatch(text, [/manufacturer\s*[:\-]\s*(.+)/i]);
   const model        = firstMatch(text, [/model\s*[:\-]\s*(.+)/i, /model\s+no\.?\s*[:\-]\s*(.+)/i]);
   const yearBuilt    = firstMatch(text, [/year\s+built\s*[:\-]\s*(.+)/i, /year\s+of\s+manufacture\s*[:\-]\s*(.+)/i]);
 
   const swl = firstMatch(text, [
+    /^SWL\s+(.+)/im,
     /safe\s+working\s+load\s*[:\-]\s*(.+)/i,
     /\bSWL\s*[:\-]\s*(.+)/i,
-    /\bSWL\s+(\d+[\s\w]+?)(?:\s+(?:EQUIPMENT|STATUS|PASS|FAIL|EXPIRY|ISSUE|DATE)|$)/i,
   ]);
 
   const mawp = firstMatch(text, [
@@ -139,17 +150,16 @@ function extractCertificateData(text) {
   ]);
 
   const issueDate = normalizeDate(firstMatch(text, [
-    /\bpass\s+date\s+(.+?)\s+(?:EXPIRY|INSPECTOR|VALID|CUSTOMER|SIGNATURE|OUR|$)/i,
+    /^DATE\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/im,
+    /\bDATE\s*[:\-]\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
     /issue\s+date\s*[:\-]\s*(.+)/i,
     /date\s+issued\s*[:\-]\s*(.+)/i,
     /date\s+of\s+inspection\s*[:\-]\s*(.+)/i,
     /inspection\s+date\s*[:\-]\s*(.+)/i,
-    /^DATE\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/im,
-    /\bDATE\s*[:\-]\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
   ]));
 
   const expiryDate = normalizeDate(firstMatch(text, [
-    /expiry\s+date\s+(.+?)\s+(?:INSPECTOR|VALID|PASS|ISSUE|CUSTOMER|SIGNATURE|OUR|$)/i,
+    /^EXPIRY\s+DATE\s+(.+)/im,
     /expiry\s+date\s*[:\-]\s*(.+)/i,
     /valid\s+to\s*[:\-]\s*(.+)/i,
     /next\s+inspection\s+date\s*[:\-]\s*(.+)/i,
@@ -158,11 +168,10 @@ function extractCertificateData(text) {
   const inspectorName = firstMatch(text, [
     /inspector'?s?\s*name\s*[:\-]\s*(.+)/i,
     /inspector\s+name\s*[:\-]\s*(.+)/i,
-    /inspector\s*[:\-]\s*(.+)/i,
   ]);
 
   const inspectorId = firstMatch(text, [
-    /inspector\s*id\s*no\.?\s*[:\-]\s*(.+?)\s+(?:Inspector|Signature|OUR|PARTNERS|$)/i,
+    /inspector\s*id\s*no\.?\s*[:\-]\s*(.+)/i,
     /inspector\s+id\s*[:\-]\s*(.+)/i,
   ]);
 
@@ -174,8 +183,8 @@ function extractCertificateData(text) {
   ]);
 
   const equipmentStatus = (firstMatch(text, [
-    /status\s*[:\-]?\s*(PASS|FAIL|CONDITIONAL)/i,
     /equipment\s+status\s*[:\-]?\s*(PASS|FAIL|CONDITIONAL)/i,
+    /status\s*[:\-]?\s*(PASS|FAIL|CONDITIONAL)/i,
   ]) || "PASS").toUpperCase();
 
   const assetType  = equipmentDescription || detectEquipmentType(text);
@@ -190,6 +199,8 @@ function extractCertificateData(text) {
     location:              equipmentLocation,
     equipment_location:    equipmentLocation,
     equipment_id:          inspectionNo || identificationNumber,
+    identification_number: identificationNumber,   // ← preserved separately
+    lanyard_serial_no:     lanyardSerialNo,         // ← new field
     manufacturer,
     model,
     serial_number:         serialNumber,
@@ -209,37 +220,62 @@ function extractCertificateData(text) {
   };
 }
 
-// ── Security: sanitize all fields after extraction ────────────────
 function sanitizeParsed(raw) {
   return {
     ...raw,
-    company:            sanitizeText(raw.company, 100),
-    asset_type:         sanitizeText(raw.asset_type, 100),
-    location:           sanitizeText(raw.location, 200),
-    equipment_location: sanitizeText(raw.equipment_location, 200),
-    serial_number:      sanitizeText(raw.serial_number, 80),
-    equipment_id:       sanitizeText(raw.equipment_id, 80),
-    manufacturer:       sanitizeText(raw.manufacturer, 100),
-    model:              sanitizeText(raw.model, 100),
-    inspector_name:     sanitizeText(raw.inspector_name, 100),
-    inspector_id:       sanitizeText(raw.inspector_id, 80),
-    safe_working_load:  sanitizeText(raw.safe_working_load, 50),
-    working_pressure:   sanitizeText(raw.working_pressure, 50),
+    company:               sanitizeText(raw.company, 100),
+    asset_type:            sanitizeText(raw.asset_type, 100),
+    location:              sanitizeText(raw.location, 200),
+    equipment_location:    sanitizeText(raw.equipment_location, 200),
+    serial_number:         sanitizeText(raw.serial_number, 80),
+    equipment_id:          sanitizeText(raw.equipment_id, 80),
+    identification_number: sanitizeText(raw.identification_number, 80),
+    lanyard_serial_no:     sanitizeText(raw.lanyard_serial_no, 80),
+    manufacturer:          sanitizeText(raw.manufacturer, 100),
+    model:                 sanitizeText(raw.model, 100),
+    inspector_name:        sanitizeText(raw.inspector_name, 100),
+    inspector_id:          sanitizeText(raw.inspector_id, 80),
+    safe_working_load:     sanitizeText(raw.safe_working_load, 50),
+    working_pressure:      sanitizeText(raw.working_pressure, 50),
   };
 }
 
+// ── FIX 3: Reconstruct lines by Y-position so table cells stay separate ──────
+// PDF.js returns each text fragment with a transform [a,b,c,d,x,y].
+// Grouping by rounded Y gives us proper rows, fixing multi-word truncation.
 async function extractTextFromPdf(file) {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
   const buffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  const pdf    = await pdfjsLib.getDocument({ data: buffer }).promise;
   let text = "";
+
   for (let p = 1; p <= pdf.numPages; p++) {
-    const page = await pdf.getPage(p);
+    const page    = await pdf.getPage(p);
     const content = await page.getTextContent();
-    text += "\n" + content.items.map((i) => i.str).join(" ");
+
+    // Group items by rounded Y coordinate (same visual row)
+    const lineMap = new Map();
+    for (const item of content.items) {
+      if (!item.str) continue;
+      const y = Math.round(item.transform[5]);
+      if (!lineMap.has(y)) lineMap.set(y, []);
+      lineMap.get(y).push({ x: item.transform[4], str: item.str });
+    }
+
+    // PDF Y-axis is bottom-up, so sort descending to get top→bottom reading order
+    const sortedYs = [...lineMap.keys()].sort((a, b) => b - a);
+
+    for (const y of sortedYs) {
+      const lineItems = lineMap.get(y).sort((a, b) => a.x - b.x);
+      const lineText  = lineItems.map((i) => i.str).join(" ").trim();
+      if (lineText) text += lineText + "\n";
+    }
+
+    text += "\n"; // page break
   }
+
   return text;
 }
 
@@ -332,7 +368,9 @@ async function registerCertificate(equipmentId, clientName, parsed) {
     company:               clientName,
     equipment_description: parsed.equipment_description || parsed.asset_type,
     equipment_location:    parsed.equipment_location    || parsed.location || null,
-    equipment_id:          parsed.serial_number         || parsed.equipment_id || null,
+    // FIX: store identification_number and lanyard_serial_no separately
+    equipment_id:          parsed.identification_number || parsed.serial_number || parsed.equipment_id || null,
+    lanyard_serial_no:     parsed.lanyard_serial_no     || null,   // ← new column (run migration below)
     swl:                   parsed.swl                   || null,
     mawp:                  parsed.mawp                  || null,
     equipment_status:      parsed.equipment_status      || "PASS",
@@ -349,22 +387,22 @@ async function registerCertificate(equipmentId, clientName, parsed) {
 
 // ── Status badge ──────────────────────────────────────────────────
 const STATUS_STYLE = {
-  pending:     { bg: "rgba(148,163,184,0.1)", color: "#94a3b8", border: "rgba(148,163,184,0.3)" },
-  extracting:  { bg: "rgba(251,191,36,0.1)",  color: "#fbbf24", border: "rgba(251,191,36,0.3)" },
-  extracted:   { bg: "rgba(99,102,241,0.1)",  color: "#818cf8", border: "rgba(99,102,241,0.3)" },
-  registering: { bg: "rgba(251,191,36,0.1)",  color: "#fbbf24", border: "rgba(251,191,36,0.3)" },
-  done:        { bg: "rgba(16,185,129,0.1)",  color: "#86efac", border: "rgba(16,185,129,0.3)" },
-  error:       { bg: "rgba(244,114,182,0.1)", color: "#f472b6", border: "rgba(244,114,182,0.3)" },
+  pending:     { bg:"rgba(148,163,184,0.1)", color:"#94a3b8", border:"rgba(148,163,184,0.3)" },
+  extracting:  { bg:"rgba(251,191,36,0.1)",  color:"#fbbf24", border:"rgba(251,191,36,0.3)" },
+  extracted:   { bg:"rgba(99,102,241,0.1)",  color:"#818cf8", border:"rgba(99,102,241,0.3)" },
+  registering: { bg:"rgba(251,191,36,0.1)",  color:"#fbbf24", border:"rgba(251,191,36,0.3)" },
+  done:        { bg:"rgba(16,185,129,0.1)",  color:"#86efac", border:"rgba(16,185,129,0.3)" },
+  error:       { bg:"rgba(244,114,182,0.1)", color:"#f472b6", border:"rgba(244,114,182,0.3)" },
 };
 
 function StatusBadge({ status, message }) {
-  const s = STATUS_STYLE[status] || STATUS_STYLE.pending;
-  const labels = { pending: "Pending", extracting: "Extracting…", extracted: "Extracted",
-    registering: "Registering…", done: "Done ✓", error: "Error" };
+  const s      = STATUS_STYLE[status] || STATUS_STYLE.pending;
+  const labels = { pending:"Pending", extracting:"Extracting…", extracted:"Extracted",
+    registering:"Registering…", done:"Done ✓", error:"Error" };
   return (
     <span style={{
-      display: "inline-block", padding: "3px 10px", borderRadius: 20, fontSize: 11,
-      fontWeight: 700, background: s.bg, color: s.color, border: `1px solid ${s.border}`,
+      display:"inline-block", padding:"3px 10px", borderRadius:20, fontSize:11,
+      fontWeight:700, background:s.bg, color:s.color, border:`1px solid ${s.border}`,
     }} title={message || ""}>
       {labels[status] || status}
     </span>
@@ -378,26 +416,21 @@ export default function BulkImportPage() {
   const [globalError,   setGlobalError]   = useState("");
   const [globalSuccess, setGlobalSuccess] = useState("");
 
-  // ── Security: file select with limits ────────────────────────
   function handleFileSelect(e) {
-    const all = Array.from(e.target.files || []).filter(
+    const all      = Array.from(e.target.files || []).filter(
       (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf")
     );
-
-    // Cap at MAX_FILES
     const selected = all.slice(0, MAX_FILES);
     if (all.length > MAX_FILES)
       setGlobalError(`Max ${MAX_FILES} files per import. Only the first ${MAX_FILES} were loaded.`);
-    else
-      setGlobalError("");
+    else setGlobalError("");
 
-    // Warn about oversized files
     const tooBig = selected.filter((f) => f.size > MAX_FILE_MB * 1024 * 1024);
     if (tooBig.length)
       setGlobalError(`${tooBig.length} file(s) exceed ${MAX_FILE_MB}MB and were skipped.`);
 
     const valid = selected.filter((f) => f.size <= MAX_FILE_MB * 1024 * 1024);
-    setFiles(valid.map((file) => ({ file, status: "pending", parsed: null, error: "" })));
+    setFiles(valid.map((file) => ({ file, status:"pending", parsed:null, error:"" })));
     setGlobalSuccess("");
   }
 
@@ -405,7 +438,6 @@ export default function BulkImportPage() {
     setFiles((prev) => prev.map((f, i) => i === index ? { ...f, ...patch } : f));
   }
 
-  // ── Extract with sanitize + validate ─────────────────────────
   async function handleExtractAll() {
     if (!files.length) return;
     setRunning(true);
@@ -413,19 +445,16 @@ export default function BulkImportPage() {
     setGlobalSuccess("");
 
     for (let i = 0; i < files.length; i++) {
-      updateFile(i, { status: "extracting", error: "" });
+      updateFile(i, { status:"extracting", error:"" });
       try {
         const text   = await extractTextFromPdf(files[i].file);
         const raw    = extractCertificateData(text);
-        const parsed = sanitizeParsed(raw);          // ✅ sanitize
-
-        // ✅ validate before allowing register
+        const parsed = sanitizeParsed(raw);
         const validationErrors = validateParsed(parsed);
         if (validationErrors.length) throw new Error(validationErrors.join("; "));
-
-        updateFile(i, { status: "extracted", parsed });
+        updateFile(i, { status:"extracted", parsed });
       } catch (err) {
-        updateFile(i, { status: "error", error: err.message });
+        updateFile(i, { status:"error", error: err.message });
       }
     }
     setRunning(false);
@@ -439,16 +468,16 @@ export default function BulkImportPage() {
 
     for (let i = 0; i < files.length; i++) {
       if (files[i].status !== "extracted") continue;
-      updateFile(i, { status: "registering" });
+      updateFile(i, { status:"registering" });
       try {
         const { parsed } = files[i];
         const client    = await getOrCreateClient(parsed.company);
         const equipment = await getOrCreateEquipment(client.id, parsed);
         await registerCertificate(equipment.id, client.company_name, parsed);
-        updateFile(i, { status: "done" });
+        updateFile(i, { status:"done" });
         successCount++;
       } catch (err) {
-        updateFile(i, { status: "error", error: err.message });
+        updateFile(i, { status:"error", error: err.message });
       }
     }
 
@@ -462,88 +491,78 @@ export default function BulkImportPage() {
   const errorCount   = files.filter((f) => f.status === "error").length;
 
   const labelStyle = {
-    fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.5)",
-    textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, display: "block",
+    fontSize:11, fontWeight:700, color:"rgba(255,255,255,0.5)",
+    textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6, display:"block",
   };
 
   return (
     <AppLayout title="Bulk Import Certificates">
-      <div style={{ maxWidth: 1000 }}>
-        <h1 style={{ color: "#fff", marginBottom: 6 }}>Bulk Import Certificates</h1>
-        <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 28 }}>
+      <div style={{ maxWidth:1000 }}>
+        <h1 style={{ color:"#fff", marginBottom:6 }}>Bulk Import Certificates</h1>
+        <p style={{ color:"rgba(255,255,255,0.5)", fontSize:13, marginBottom:28 }}>
           Upload multiple certificate PDFs at once (max {MAX_FILES} files, {MAX_FILE_MB}MB each).
-          The system will extract, register clients, equipment and certificates automatically.
         </p>
 
         {globalError && (
-          <div style={{ background: "rgba(244,114,182,0.1)", border: "1px solid rgba(244,114,182,0.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 20, color: "#f472b6", fontSize: 13 }}>
+          <div style={{ background:"rgba(244,114,182,0.1)", border:"1px solid rgba(244,114,182,0.3)", borderRadius:12, padding:"12px 16px", marginBottom:20, color:"#f472b6", fontSize:13 }}>
             ⚠️ {globalError}
           </div>
         )}
         {globalSuccess && (
-          <div style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.35)", borderRadius: 12, padding: "12px 16px", marginBottom: 20, color: "#86efac", fontSize: 13 }}>
+          <div style={{ background:"rgba(16,185,129,0.12)", border:"1px solid rgba(16,185,129,0.35)", borderRadius:12, padding:"12px 16px", marginBottom:20, color:"#86efac", fontSize:13 }}>
             ✅ {globalSuccess}
           </div>
         )}
 
-        <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: 20, marginBottom: 20 }}>
+        <div style={{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:16, padding:20, marginBottom:20 }}>
           <label style={labelStyle}>Select Certificate PDFs (max {MAX_FILES} files)</label>
-          <input
-            type="file" accept=".pdf" multiple
-            onChange={handleFileSelect} disabled={running}
-            style={{ color: "#e2e8f0", marginBottom: 16, display: "block" }}
+          <input type="file" accept=".pdf" multiple onChange={handleFileSelect} disabled={running}
+            style={{ color:"#e2e8f0", marginBottom:16, display:"block" }}
           />
 
           {files.length > 0 && (
-            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginBottom: 16 }}>
+            <p style={{ color:"rgba(255,255,255,0.4)", fontSize:12, marginBottom:16 }}>
               {files.length} file{files.length > 1 ? "s" : ""} selected
               {doneCount  > 0 ? ` · ${doneCount} done`   : ""}
               {errorCount > 0 ? ` · ${errorCount} failed` : ""}
             </p>
           )}
 
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
             <button type="button" onClick={handleExtractAll} disabled={running || !files.length}
-              style={{
-                padding: "11px 24px", borderRadius: 8, border: "none",
-                background: "linear-gradient(135deg,#667eea,#764ba2)",
-                color: "#fff", fontWeight: 700,
+              style={{ padding:"11px 24px", borderRadius:8, border:"none",
+                background:"linear-gradient(135deg,#667eea,#764ba2)", color:"#fff", fontWeight:700,
                 cursor: running || !files.length ? "not-allowed" : "pointer",
-                opacity: running || !files.length ? 0.6 : 1,
-              }}>
+                opacity: running || !files.length ? 0.6 : 1 }}>
               {running && !anyExtracted ? "Extracting…" : "1. Extract All"}
             </button>
-
             <button type="button" onClick={handleRegisterAll} disabled={running || !anyExtracted}
-              style={{
-                padding: "11px 24px", borderRadius: 8, border: "none",
-                background: "linear-gradient(135deg,#00f5c4,#4fc3f7)",
-                color: "#111827", fontWeight: 700,
+              style={{ padding:"11px 24px", borderRadius:8, border:"none",
+                background:"linear-gradient(135deg,#00f5c4,#4fc3f7)", color:"#111827", fontWeight:700,
                 cursor: running || !anyExtracted ? "not-allowed" : "pointer",
-                opacity: running || !anyExtracted ? 0.6 : 1,
-              }}>
+                opacity: running || !anyExtracted ? 0.6 : 1 }}>
               {running && anyExtracted ? "Registering…" : "2. Register All"}
             </button>
           </div>
         </div>
 
         {files.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
             {files.map((item, i) => (
               <div key={i} style={{
-                background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: 12, padding: 16,
+                background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)",
+                borderRadius:12, padding:16,
               }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: "#fff", fontWeight: 600, fontSize: 13, marginBottom: 4, wordBreak: "break-word" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, flexWrap:"wrap" }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ color:"#fff", fontWeight:600, fontSize:13, marginBottom:4, wordBreak:"break-word" }}>
                       📄 {item.file.name}
                     </div>
-                    <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>
+                    <div style={{ color:"rgba(255,255,255,0.4)", fontSize:11 }}>
                       {(item.file.size / 1024).toFixed(1)} KB
                     </div>
                     {item.error && (
-                      <div style={{ color: "#f472b6", fontSize: 11, marginTop: 6 }}>⚠️ {item.error}</div>
+                      <div style={{ color:"#f472b6", fontSize:11, marginTop:6 }}>⚠️ {item.error}</div>
                     )}
                   </div>
                   <StatusBadge status={item.status} message={item.error} />
@@ -551,24 +570,26 @@ export default function BulkImportPage() {
 
                 {item.parsed && (item.status === "extracted" || item.status === "done") && (
                   <div style={{
-                    marginTop: 12, padding: 12,
-                    background: "rgba(255,255,255,0.03)", borderRadius: 8,
-                    display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 8,
+                    marginTop:12, padding:12,
+                    background:"rgba(255,255,255,0.03)", borderRadius:8,
+                    display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:8,
                   }}>
                     {[
-                      ["Client",          item.parsed.company],
-                      ["Equipment",       item.parsed.asset_type],
-                      ["Serial / ID No.", item.parsed.serial_number],
-                      ["Inspection No.",  item.parsed.equipment_id],
-                      ["Location",        item.parsed.location],
-                      ["SWL",             item.parsed.swl],
-                      ["Inspector",       item.parsed.inspector_name],
-                      ["Last Inspection", item.parsed.last_inspection_date],
-                      ["Next Inspection", item.parsed.next_inspection_date],
+                      // FIX: show Identification No. and Lanyard Serial No. as separate rows
+                      ["Client",              item.parsed.company],
+                      ["Equipment",           item.parsed.asset_type],
+                      ["Identification No.",  item.parsed.identification_number],
+                      ["Lanyard Serial No.",  item.parsed.lanyard_serial_no],
+                      ["Inspection No.",      item.parsed.equipment_id],
+                      ["Location",            item.parsed.location],
+                      ["SWL",                 item.parsed.swl],
+                      ["Inspector",           item.parsed.inspector_name],
+                      ["Last Inspection",     item.parsed.last_inspection_date],
+                      ["Next Inspection",     item.parsed.next_inspection_date],
                     ].filter(([, v]) => v).map(([label, value]) => (
                       <div key={label}>
-                        <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>{label}</div>
-                        <div style={{ fontSize: 12, color: "#e2e8f0", fontWeight: 500 }}>{value}</div>
+                        <div style={{ fontSize:9, fontWeight:700, color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:2 }}>{label}</div>
+                        <div style={{ fontSize:12, color:"#e2e8f0", fontWeight:500 }}>{value}</div>
                       </div>
                     ))}
                   </div>
