@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
-// ── Defaults ─────────────────────────────────────────────────────
 const DEFAULT_INSPECTOR_NAME  = "Moemedi Masupe";
 const DEFAULT_INSPECTOR_ID    = "700117910";
 const DEFAULT_LEGAL_FRAMEWORK = "Mines, Quarries, Works and Machinery Act Cap 44:02";
@@ -35,12 +34,7 @@ export default function PrintCertificatePage() {
 
   useEffect(() => {
     async function load() {
-      // ✅ FIX: always call setLoading(false), even on early return
-      if (!id) {
-        setError("No certificate ID provided.");
-        setLoading(false);
-        return;
-      }
+      if (!id) { setError("No certificate ID provided."); setLoading(false); return; }
       try {
         const { data, error } = await supabase
           .from("certificates")
@@ -58,14 +52,12 @@ export default function PrintCertificatePage() {
           `)
           .eq("id", id)
           .single();
-
         if (error) throw new Error(error.message || "Certificate not found.");
         if (!data)  throw new Error("Certificate not found.");
         setCert(data);
       } catch (err) {
         setError(err.message || "Failed to load certificate.");
       } finally {
-        // ✅ FIX: this now ALWAYS runs
         setLoading(false);
       }
     }
@@ -73,10 +65,10 @@ export default function PrintCertificatePage() {
   }, [id]);
 
   if (loading) return <div style={{ padding: 40, fontFamily: "sans-serif", color: "#334155" }}>Loading certificate...</div>;
-  if (error)   return <div style={{ padding: 40, color: "red",     fontFamily: "sans-serif" }}>{error}</div>;
+  if (error)   return <div style={{ padding: 40, color: "red", fontFamily: "sans-serif" }}>{error}</div>;
   if (!cert)   return <div style={{ padding: 40, color: "#64748b", fontFamily: "sans-serif" }}>Certificate not found.</div>;
 
-  const asset  = cert.assets  || {};
+  const asset  = cert.assets   || {};
   const client = asset.clients || {};
 
   function val(v) {
@@ -111,15 +103,13 @@ export default function PrintCertificatePage() {
     isPressure ? { label: "Capacity / Volume",  value: val(asset.capacity_volume) }    : null,
     isPressure ? { label: "Shell Material",     value: val(asset.shell_material) }     : null,
     isPressure ? { label: "Fluid Type",         value: val(asset.fluid_type) }         : null,
-    !isPressure ? { label: "Safe Working Load (SWL)", value: val(cert.swl)            || val(asset.safe_working_load) } : null,
+    !isPressure ? { label: "Safe Working Load (SWL)", value: val(cert.swl)             || val(asset.safe_working_load) } : null,
     !isPressure ? { label: "Proof Load",              value: val(asset.proof_load) }   : null,
     !isPressure ? { label: "Lifting Height",          value: val(asset.lifting_height) } : null,
     !isPressure ? { label: "Sling Length",            value: val(asset.sling_length) }  : null,
     !isPressure ? { label: "Chain Size",              value: val(asset.chain_size) }    : null,
     !isPressure ? { label: "Rope Diameter",           value: val(asset.rope_diameter) } : null,
-  ]
-    .filter(Boolean)
-    .filter((r) => r.value);
+  ].filter(Boolean).filter((r) => r.value);
 
   const statusColor =
     cert.equipment_status === "PASS" ? "#16a34a" :
@@ -129,47 +119,73 @@ export default function PrintCertificatePage() {
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body { font-family: 'Inter', sans-serif; background: #f0f4f8; }
+
+        /* ✅ FULL COLOR PRINTING */
+        * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+          color-adjust: exact !important;
+        }
+
         @media print {
-          body { background: white; }
+          body { background: white; margin: 0; padding: 0; }
           .no-print { display: none !important; }
-          .page { box-shadow: none !important; margin: 0 !important; border-radius: 0 !important; }
+
+          @page {
+            size: A4 portrait;
+            margin: 0;
+          }
+
+          /* ✅ Force page wrapper to fill full A4 */
+          .page {
+            box-shadow: none !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            width: 100% !important;
+            min-height: 100vh !important;
+          }
         }
       `}</style>
 
       {/* Print button */}
       <div className="no-print" style={{
-        background: "#1e293b", padding: "12px 24px", display: "flex",
-        justifyContent: "space-between", alignItems: "center",
+        background: "#1e293b", padding: "12px 24px",
+        display: "flex", justifyContent: "space-between", alignItems: "center",
       }}>
         <span style={{ color: "#94a3b8", fontSize: 13 }}>Certificate Preview</span>
-        <button
-          onClick={() => window.print()}
-          style={{
-            padding: "9px 24px", borderRadius: 8, border: "none",
-            background: "linear-gradient(135deg,#667eea,#764ba2)",
-            color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 13,
-          }}
-        >
+        <button onClick={() => window.print()} style={{
+          padding: "9px 24px", borderRadius: 8, border: "none",
+          background: "linear-gradient(135deg,#667eea,#764ba2)",
+          color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 13,
+        }}>
           🖨 Print / Save PDF
         </button>
       </div>
 
-      {/* Certificate page */}
+      {/* ✅ Certificate page — flex column so footer is pushed to bottom */}
       <div className="page" style={{
-        width: 794, minHeight: 1123, margin: "24px auto",
-        background: "#fff", borderRadius: 4, boxShadow: "0 4px 40px rgba(0,0,0,0.18)",
-        overflow: "hidden", position: "relative",
+        width: 794,
+        minHeight: 1123,           /* A4 at 96dpi */
+        margin: "24px auto",
+        background: "#fff",
+        borderRadius: 4,
+        boxShadow: "0 4px 40px rgba(0,0,0,0.18)",
+        overflow: "hidden",
+        display: "flex",           /* ✅ flex column */
+        flexDirection: "column",
       }}>
 
         {/* Top colour bar */}
-        <div style={{ height: 8, background: "linear-gradient(90deg, #1e3a5f, #2563eb, #00b4d8)" }} />
+        <div style={{ height: 8, background: "linear-gradient(90deg,#1e3a5f,#2563eb,#00b4d8)", flexShrink: 0 }} />
 
         {/* Header */}
         <div style={{
-          padding: "28px 48px 20px",
-          background: "linear-gradient(135deg, #1e3a5f 0%, #1e40af 60%, #0ea5e9 100%)",
+          padding: "28px 48px 20px", flexShrink: 0,
+          background: "linear-gradient(135deg,#1e3a5f 0%,#1e40af 60%,#0ea5e9 100%)",
           display: "flex", justifyContent: "space-between", alignItems: "center",
         }}>
           <div>
@@ -194,7 +210,7 @@ export default function PrintCertificatePage() {
         </div>
 
         {/* Title band */}
-        <div style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0", padding: "20px 48px", textAlign: "center" }}>
+        <div style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0", padding: "20px 48px", textAlign: "center", flexShrink: 0 }}>
           <div style={{ fontSize: 22, fontWeight: 900, color: "#1e3a5f", letterSpacing: "0.04em", textTransform: "uppercase" }}>
             {certTitle}
           </div>
@@ -204,8 +220,8 @@ export default function PrintCertificatePage() {
           </div>
         </div>
 
-        {/* Body */}
-        <div style={{ padding: "28px 48px" }}>
+        {/* ✅ Body — flex: 1 makes this grow and push footer down */}
+        <div style={{ padding: "28px 48px", flex: 1 }}>
 
           {/* Status badge */}
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 20 }}>
@@ -294,15 +310,24 @@ export default function PrintCertificatePage() {
           </div>
         </div>
 
-        {/* Footer */}
-        <div style={{ marginTop: 20 }}>
-          <div style={{ background: "linear-gradient(135deg,#1e3a5f,#1e40af)", padding: "10px 48px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ color: "#bfdbfe", fontSize: 9, letterSpacing: "0.1em" }}>This certificate is valid only for the equipment and period described above.</div>
+        {/* ✅ Footer — always at bottom because body has flex:1 above */}
+        <div style={{ flexShrink: 0 }}>
+          <div style={{
+            background: "linear-gradient(135deg,#1e3a5f,#1e40af)",
+            padding: "10px 48px",
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+          }}>
+            <div style={{ color: "#bfdbfe", fontSize: 9, letterSpacing: "0.1em" }}>
+              This certificate is valid only for the equipment and period described above.
+            </div>
             <div style={{ color: "#93c5fd", fontSize: 9, fontWeight: 700 }}>MONROY QMS PLATFORM</div>
           </div>
-          <div style={{ background: "linear-gradient(135deg, #1e3a5f 0%, #1e40af 60%, #0ea5e9 100%)", padding: "14px 48px 14px 80px", position: "relative", textAlign: "center" }}>
-            <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 60, background: "#0ea5e9", clipPath: "polygon(0 0, 100% 0, 60% 100%, 0 100%)" }} />
-            <div style={{ position: "absolute", left: 40, top: 0, bottom: 0, width: 30, background: "rgba(255,255,255,0.15)", clipPath: "polygon(0 0, 100% 0, 60% 100%, 0 100%)" }} />
+          <div style={{
+            background: "linear-gradient(135deg,#1e3a5f 0%,#1e40af 60%,#0ea5e9 100%)",
+            padding: "14px 48px 14px 80px", position: "relative", textAlign: "center",
+          }}>
+            <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 60, background: "#0ea5e9", clipPath: "polygon(0 0,100% 0,60% 100%,0 100%)" }} />
+            <div style={{ position: "absolute", left: 40, top: 0, bottom: 0, width: 30, background: "rgba(255,255,255,0.15)", clipPath: "polygon(0 0,100% 0,60% 100%,0 100%)" }} />
             <p style={{ color: "#fff", fontSize: 10, fontWeight: 600, lineHeight: 1.8, letterSpacing: "0.02em" }}>
               Mobile Crane Hire | <strong>Rigging</strong> | NDT Test | <strong>Scaffolding</strong> | Painting |{" "}
               <strong>Inspection of Lifting Equipment and Machinery, Pressure Vessels &amp; Air Receiver</strong>
@@ -310,10 +335,10 @@ export default function PrintCertificatePage() {
               <strong>Mechanical Engineering</strong> | Fencing | <strong>Maintenance</strong>
             </p>
           </div>
+          {/* ✅ Bottom colour bar */}
+          <div style={{ height: 6, background: "linear-gradient(90deg,#00b4d8,#2563eb,#1e3a5f)" }} />
         </div>
 
-        {/* Bottom colour bar */}
-        <div style={{ height: 6, background: "linear-gradient(90deg,#00b4d8,#2563eb,#1e3a5f)" }} />
       </div>
     </>
   );
