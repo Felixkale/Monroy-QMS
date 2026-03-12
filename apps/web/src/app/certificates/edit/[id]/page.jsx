@@ -233,7 +233,6 @@ export default function EditCertificatePage() {
     }));
   }
 
-  // ✅ FIXED: signature upload with proper public URL and preview
   async function handleSignatureUpload(e) {
     try {
       const file = e.target.files?.[0];
@@ -252,14 +251,25 @@ export default function EditCertificatePage() {
 
       if (uploadError) throw uploadError;
 
+      // ✅ Try public URL first
       const { data: urlData } = supabase.storage
         .from("documents")
         .getPublicUrl(filePath);
 
-      const publicUrl = urlData?.publicUrl;
-      if (!publicUrl) throw new Error("Could not get public URL for signature.");
+      let finalUrl = urlData?.publicUrl || null;
 
-      setForm((prev) => ({ ...prev, signature_url: publicUrl }));
+      // ✅ If public URL doesn't load, fall back to signed URL (60 min)
+      if (!finalUrl) {
+        const { data: signedData, error: signedError } = await supabase.storage
+          .from("documents")
+          .createSignedUrl(filePath, 60 * 60);
+        if (signedError) throw signedError;
+        finalUrl = signedData?.signedUrl;
+      }
+
+      if (!finalUrl) throw new Error("Could not generate a URL for the signature.");
+
+      setForm((prev) => ({ ...prev, signature_url: finalUrl }));
       setSuccess("Signature uploaded successfully.");
     } catch (err) {
       setError(err?.message || "Failed to upload signature.");
@@ -469,28 +479,32 @@ export default function EditCertificatePage() {
               />
             </div>
 
-            {/* ✅ FIXED: proper signature preview with fallback */}
+            {/* ✅ FIXED: signature preview with error state */}
             <div>
               <label style={labelStyle}>Signature Preview</label>
               <div style={{
-                background: "#fff",
-                borderRadius: 8,
-                padding: 12,
-                minHeight: 90,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
+                background: "#fff", borderRadius: 8, padding: 12,
+                minHeight: 90, display: "flex", alignItems: "center", justifyContent: "center",
+                border: "1px solid #e2e8f0",
               }}>
                 {form.signature_url ? (
                   <img
+                    key={form.signature_url}
                     src={form.signature_url}
-                    alt="Signature Preview"
+                    alt="Signature"
                     style={{ maxHeight: 80, maxWidth: "100%", objectFit: "contain" }}
-                    onError={(e) => { e.target.style.display = "none"; }}
+                    onError={(e) => {
+                      e.target.style.display = "none";
+                      e.target.nextSibling.style.display = "block";
+                    }}
                   />
-                ) : (
-                  <span style={{ color: "#9ca3af", fontSize: 12 }}>No signature uploaded</span>
-                )}
+                ) : null}
+                <span style={{
+                  color: "#9ca3af", fontSize: 12, textAlign: "center",
+                  display: form.signature_url ? "none" : "block",
+                }}>
+                  {form.signature_url ? "⚠️ Image failed to load — bucket may not be public" : "No signature uploaded"}
+                </span>
               </div>
             </div>
           </div>
