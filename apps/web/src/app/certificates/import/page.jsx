@@ -72,6 +72,7 @@ function detectEquipmentType(text) {
     "Air Compressor",
     "Oil Separator",
     "Trestle Jack",
+    "Trestle Stand",
     "Lever Hoist",
     "Bottle Jack",
     "Safety Harness",
@@ -79,6 +80,7 @@ function detectEquipmentType(text) {
     "Chain Block",
     "Bow Shackle",
     "Mobile Crane",
+    "Overhead Crane",
     "Trolley Jack",
     "Step Ladders",
     "Tifor",
@@ -88,12 +90,14 @@ function detectEquipmentType(text) {
     "Webbing Sling",
     "Nylon Sling",
     "Wire Sling",
+    "Wire Rope",
     "Fall Arrest",
     "Man Cage",
     "Shutter Clamp",
     "Drum Clamp",
-    "Overhead Crane",
-    "Trestle Stand",
+    "Scissor Lift",
+    "Personnel Basket",
+    "Load Cell",
   ];
 
   const lower = text.toLowerCase();
@@ -118,11 +122,14 @@ function extractCertificateData(text) {
     /client\s*[:\-]\s*(.+)/i,
   ]);
 
+  // ✅ FIXED: captures "EQUIPMENT DESCRIPTION TRESTLE STAND" even with no colon
   const equipmentDescription = firstMatch(text, [
-    /equipment description\s*[:\-]?\s*(.+?)\s+(?:EQUIPMENT|LOCATION|IDENTIFICATION|STATUS|COMPANY|CLIENT)/i,
-    /equipment description\s*[:\-]\s*(.+)/i,
-    /equipment type\s*[:\-]\s*(.+)/i,
-    /equipment category\s*[:\-]\s*(.+)/i,
+    /equipment\s+description\s*[:\-]\s*(.+)/i,
+    /equipment\s+description\s+([A-Z][A-Za-z\s]+?)(?:\s{2,}|\s+EQUIPMENT|\s+LOCATION|\s+IDENTIFICATION|\s+STATUS|\s+COMPANY|\s+CLIENT|\s+SWL|\s+PASS|\s+FAIL|$)/i,
+    /equipment\s+type\s*[:\-]\s*(.+)/i,
+    /equipment\s+type\s+([A-Z][A-Za-z\s]+?)(?:\s{2,}|\s+EQUIPMENT|\s+LOCATION|\s+IDENTIFICATION|\s+STATUS|$)/i,
+    /equipment\s+category\s*[:\-]\s*(.+)/i,
+    /description\s*[:\-]\s*(.+)/i,
   ]) || detectEquipmentType(text);
 
   const equipmentLocation = firstMatch(text, [
@@ -410,7 +417,14 @@ export default function ImportCertificatesPage() {
       const parsed = extractCertificateData(extractedText);
 
       if (!parsed.company) throw new Error("Client / company name was not found.");
+
+      // Final fallback: scan raw text directly for equipment type
+      if (!parsed.asset_type) {
+        const fallback = detectEquipmentType(extractedText);
+        if (fallback) parsed.asset_type = fallback;
+      }
       if (!parsed.asset_type) throw new Error("Equipment type was not found.");
+
       if (!parsed.serial_number && !parsed.equipment_id) {
         throw new Error("Serial number or equipment tag was not found.");
       }
