@@ -1,575 +1,552 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
+import { updateEquipmentById } from "@/services/equipment";
 
-const C = {
-  green: "#00f5c4",
-  purple: "#7c5cfc",
-  blue: "#4fc3f7",
-  pink: "#f472b6",
+const labelStyle = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: "rgba(255,255,255,0.5)",
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
+  marginBottom: 6,
+  display: "block",
 };
 
-export default function EquipmentDetailsPage() {
+const inputStyle = {
+  width: "100%",
+  padding: "11px 14px",
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(102,126,234,0.25)",
+  borderRadius: 8,
+  color: "#e2e8f0",
+  fontSize: 13,
+  fontFamily: "inherit",
+  outline: "none",
+  boxSizing: "border-box",
+};
+
+const sectionStyle = {
+  background: "rgba(255,255,255,0.03)",
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: 16,
+  padding: 24,
+  marginBottom: 24,
+};
+
+const sectionTitle = {
+  color: "#fff",
+  fontSize: 15,
+  fontWeight: 700,
+  marginBottom: 20,
+  marginTop: 0,
+  paddingBottom: 12,
+  borderBottom: "1px solid rgba(255,255,255,0.08)",
+};
+
+const gridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+  gap: 16,
+};
+
+function Field({ label, name, value, onChange, type = "text", readOnly = false }) {
+  return (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      <input
+        type={type}
+        name={name}
+        value={value ?? ""}
+        onChange={onChange}
+        readOnly={readOnly}
+        style={{
+          ...inputStyle,
+          ...(readOnly ? { opacity: 0.5, cursor: "not-allowed" } : {}),
+        }}
+      />
+    </div>
+  );
+}
+
+function SelectField({ label, name, value, onChange, options = [], placeholder = "Select..." }) {
+  return (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      <select
+        name={name}
+        value={value ?? ""}
+        onChange={onChange}
+        style={{
+          ...inputStyle,
+          cursor: "pointer",
+          appearance: "auto",
+        }}
+      >
+        <option value="">{placeholder}</option>
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+const EQUIPMENT_TYPES = [
+  "Pressure Vessel", "Boiler", "Air Receiver", "Air Compressor", "Oil Separator",
+  "Trestle Jack", "Trestle Stand", "Lever Hoist", "Bottle Jack", "Safety Harness",
+  "Jack Stand", "Chain Block", "Bow Shackle", "Mobile Crane", "Overhead Crane",
+  "Trolley Jack", "Step Ladders", "Tifor", "Crawl Beam", "Beam Crawl",
+  "Beam Clamp", "Webbing Sling", "Nylon Sling", "Wire Sling", "Wire Rope",
+  "Fall Arrest", "Man Cage", "Shutter Clamp", "Drum Clamp", "Scissor Lift",
+  "Axile Jack", "Personnel Basket", "Load Cell", "Other",
+];
+
+const CERT_TYPES = [
+  "Load Test Certificate",
+  "Pressure Test Certificate",
+  "Certificate of Statutory Inspection",
+  "Inspection Certificate",
+];
+
+const STATUS_OPTIONS = ["active", "inactive", "decommissioned"];
+const LICENSE_STATUS_OPTIONS = ["valid", "expired", "pending"];
+
+export default function EditEquipmentPage() {
   const params = useParams();
   const router = useRouter();
-  const id = params?.id;
+  const assetTag = params?.id;
 
   const [loading, setLoading] = useState(true);
-  const [equipment, setEquipment] = useState(null);
-  const [certificates, setCertificates] = useState([]);
-  const [ncrs, setNcrs] = useState([]);
-  const [reports, setReports] = useState([]);
-  const [inspections, setInspections] = useState([]);
-  const [documents, setDocuments] = useState([]);
-  const [activeTab, setActiveTab] = useState("overview");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [clients, setClients] = useState([]);
+  const [assetId, setAssetId] = useState(null);
+
+  const [form, setForm] = useState({
+    client_id: "",
+    asset_name: "",
+    asset_tag: "",
+    asset_type: "",
+    manufacturer: "",
+    model: "",
+    serial_number: "",
+    year_built: "",
+    location: "",
+    status: "active",
+    license_status: "valid",
+    license_expiry: "",
+    cert_type: "",
+    design_standard: "",
+    // Lifting fields
+    safe_working_load: "",
+    proof_load: "",
+    lifting_height: "",
+    sling_length: "",
+    chain_size: "",
+    rope_diameter: "",
+    // Pressure fields
+    design_pressure: "",
+    working_pressure: "",
+    test_pressure: "",
+    design_temperature: "",
+    capacity_volume: "",
+    shell_material: "",
+    fluid_type: "",
+    // Inspection fields
+    last_inspection_date: "",
+    next_inspection_date: "",
+    inspector_name: "",
+    inspection_freq: "",
+    // Other
+    department: "",
+    condition: "",
+    notes: "",
+  });
 
   useEffect(() => {
-    if (id) fetchAll();
-  }, [id]);
+    if (assetTag) {
+      fetchEquipment();
+      fetchClients();
+    }
+  }, [assetTag]);
 
-  async function fetchAll() {
+  async function fetchEquipment() {
     try {
       setLoading(true);
-
-      const equipmentRes = await supabase
-        .from("equipment")
-        .select("*")
-        .eq("id", id)
+      const { data, error } = await supabase
+        .from("assets")
+        .select("*, clients(id, company_name, company_code)")
+        .eq("asset_tag", assetTag)
         .maybeSingle();
 
-      if (equipmentRes.error) throw equipmentRes.error;
-      setEquipment(equipmentRes.data || null);
+      if (error) throw error;
+      if (!data) throw new Error("Equipment not found.");
 
-      const [
-        certificatesRes,
-        ncrRes,
-        reportsRes,
-        inspectionsRes,
-        documentsRes,
-      ] = await Promise.all([
-        supabase
-          .from("certificates")
-          .select("*")
-          .eq("equipment_id", id)
-          .order("created_at", { ascending: false }),
-
-        supabase
-          .from("ncr")
-          .select("*")
-          .eq("equipment_id", id)
-          .order("created_at", { ascending: false }),
-
-        supabase
-          .from("reports")
-          .select("*")
-          .eq("equipment_id", id)
-          .order("created_at", { ascending: false }),
-
-        supabase
-          .from("inspections")
-          .select("*")
-          .eq("equipment_id", id)
-          .order("created_at", { ascending: false }),
-
-        supabase
-          .from("documents")
-          .select("*")
-          .eq("equipment_id", id)
-          .order("created_at", { ascending: false }),
-      ]);
-
-      if (certificatesRes.error) console.error(certificatesRes.error);
-      if (ncrRes.error) console.error(ncrRes.error);
-      if (reportsRes.error) console.error(reportsRes.error);
-      if (inspectionsRes.error) console.error(inspectionsRes.error);
-      if (documentsRes.error) console.error(documentsRes.error);
-
-      setCertificates(certificatesRes.data || []);
-      setNcrs(ncrRes.data || []);
-      setReports(reportsRes.data || []);
-      setInspections(inspectionsRes.data || []);
-      setDocuments(documentsRes.data || []);
+      setAssetId(data.id);
+      setForm({
+        client_id: data.client_id ?? "",
+        asset_name: data.asset_name ?? "",
+        asset_tag: data.asset_tag ?? "",
+        asset_type: data.asset_type ?? "",
+        manufacturer: data.manufacturer ?? "",
+        model: data.model ?? "",
+        serial_number: data.serial_number ?? "",
+        year_built: data.year_built ?? "",
+        location: data.location ?? "",
+        status: data.status ?? "active",
+        license_status: data.license_status ?? "valid",
+        license_expiry: data.license_expiry ?? "",
+        cert_type: data.cert_type ?? "",
+        design_standard: data.design_standard ?? "",
+        safe_working_load: data.safe_working_load ?? "",
+        proof_load: data.proof_load ?? "",
+        lifting_height: data.lifting_height ?? "",
+        sling_length: data.sling_length ?? "",
+        chain_size: data.chain_size ?? "",
+        rope_diameter: data.rope_diameter ?? "",
+        design_pressure: data.design_pressure ?? "",
+        working_pressure: data.working_pressure ?? "",
+        test_pressure: data.test_pressure ?? "",
+        design_temperature: data.design_temperature ?? "",
+        capacity_volume: data.capacity_volume ?? "",
+        shell_material: data.shell_material ?? "",
+        fluid_type: data.fluid_type ?? "",
+        last_inspection_date: data.last_inspection_date ?? "",
+        next_inspection_date: data.next_inspection_date ?? "",
+        inspector_name: data.inspector_name ?? "",
+        inspection_freq: data.inspection_freq ?? "",
+        department: data.department ?? "",
+        condition: data.condition ?? "",
+        notes: data.notes ?? "",
+      });
     } catch (err) {
-      console.error("Failed to load equipment details:", err);
+      setError(err.message || "Failed to load equipment.");
     } finally {
       setLoading(false);
     }
   }
 
-  const stats = useMemo(() => {
-    return {
-      certificates: certificates.length,
-      ncrs: ncrs.length,
-      reports: reports.length,
-      inspections: inspections.length,
-      documents: documents.length,
-    };
-  }, [certificates, ncrs, reports, inspections, documents]);
+  async function fetchClients() {
+    const { data } = await supabase
+      .from("clients")
+      .select("id, company_name, company_code")
+      .eq("status", "active")
+      .order("company_name", { ascending: true });
 
-  function badge(status) {
-    const s = (status || "").toLowerCase();
-
-    if (s.includes("expired") || s.includes("closed overdue")) {
-      return (
-        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-red-500/20 text-red-300 border border-red-500/30">
-          {status}
-        </span>
+    if (data) {
+      setClients(
+        data.map((c) => ({
+          value: c.id,
+          label: `${c.company_name}${c.company_code ? ` (${c.company_code})` : ""}`,
+        }))
       );
     }
+  }
 
-    if (s.includes("expiring") || s.includes("pending")) {
-      return (
-        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
-          {status}
-        </span>
-      );
+  function handleChange(e) {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  }
+
+  async function handleSave() {
+    try {
+      setSaving(true);
+      setError("");
+      setSuccess("");
+
+      if (!assetId) throw new Error("Asset ID not found.");
+      if (!form.asset_type) throw new Error("Equipment type is required.");
+
+      const { data, error } = await updateEquipmentById(assetId, {
+        ...form,
+        // ensure asset_name stays in sync if user cleared it
+        asset_name:
+          form.asset_name?.trim() ||
+          `${form.asset_type}${form.serial_number ? " - " + form.serial_number : ""}`,
+      });
+
+      if (error) throw new Error(error.message || "Failed to save.");
+
+      setSuccess("Equipment saved successfully!");
+      setTimeout(() => {
+        router.push(`/equipment/${form.asset_tag}`);
+      }, 1200);
+    } catch (err) {
+      setError(err.message || "Failed to save equipment.");
+    } finally {
+      setSaving(false);
     }
-
-    return (
-      <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-        {status || "valid"}
-      </span>
-    );
-  }
-
-  function InfoCard({ label, value }) {
-    return (
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-        <p className="text-xs uppercase tracking-wide text-white/50">{label}</p>
-        <p className="mt-2 text-sm md:text-base font-semibold text-white break-words">
-          {value || "N/A"}
-        </p>
-      </div>
-    );
-  }
-
-  function TabButton({ id, label, count }) {
-    const active = activeTab === id;
-
-    return (
-      <button
-        onClick={() => setActiveTab(id)}
-        className={`px-4 py-2 rounded-xl border text-sm font-semibold transition ${
-          active
-            ? "bg-[#7c5cfc] border-[#7c5cfc] text-white"
-            : "bg-white/5 border-white/10 text-white/80 hover:bg-white/10"
-        }`}
-      >
-        {label} {typeof count === "number" ? `(${count})` : ""}
-      </button>
-    );
-  }
-
-  function EmptyState({ text }) {
-    return (
-      <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-8 text-white/60">
-        {text}
-      </div>
-    );
   }
 
   if (loading) {
     return (
-      <AppLayout>
-        <div className="min-h-screen bg-[#060b16] text-white px-4 md:px-8 py-8">
-          <div className="max-w-7xl mx-auto">
-            <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-8 text-white/70">
-              Loading equipment details...
-            </div>
-          </div>
-        </div>
-      </AppLayout>
-    );
-  }
-
-  if (!equipment) {
-    return (
-      <AppLayout>
-        <div className="min-h-screen bg-[#060b16] text-white px-4 md:px-8 py-8">
-          <div className="max-w-7xl mx-auto">
-            <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-8">
-              <p className="text-white/80">Equipment not found.</p>
-              <button
-                onClick={() => router.push("/equipment")}
-                className="mt-4 px-4 py-2 rounded-xl bg-[#7c5cfc] text-white font-semibold"
-              >
-                Back to Equipment
-              </button>
-            </div>
-          </div>
-        </div>
+      <AppLayout title="Edit Equipment">
+        <div style={{ color: "#fff", padding: 40 }}>Loading equipment...</div>
       </AppLayout>
     );
   }
 
   return (
-    <AppLayout>
-      <div className="min-h-screen bg-[#060b16] text-white px-4 md:px-8 py-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-            <div>
-              <button
-                onClick={() => router.push("/equipment")}
-                className="mb-4 px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white text-sm font-semibold"
-              >
-                ← Back to Equipment
-              </button>
+    <AppLayout title="Edit Equipment">
+      <div style={{ maxWidth: 1100 }}>
+        <button
+          onClick={() => router.push(`/equipment/${assetTag}`)}
+          style={{
+            marginBottom: 20,
+            padding: "9px 18px",
+            borderRadius: 8,
+            border: "1px solid rgba(255,255,255,0.1)",
+            background: "rgba(255,255,255,0.05)",
+            color: "#fff",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          ← Back to Equipment
+        </button>
 
-              <h1 className="text-3xl md:text-4xl font-black tracking-tight">
-                {equipment.asset_name || "Equipment"}
-              </h1>
+        <h1 style={{ color: "#fff", marginBottom: 24, marginTop: 0 }}>
+          Edit Equipment
+        </h1>
 
-              <div
-                className="mt-3 h-1.5 w-20 rounded-full"
-                style={{
-                  background: `linear-gradient(90deg, ${C.green}, ${C.purple})`,
-                }}
-              />
-
-              <p className="mt-4 text-white/70 text-sm md:text-base">
-                {(equipment.asset_tag || "No Tag")} •{" "}
-                {(equipment.equipment_type || "No Type")} •{" "}
-                {(equipment.manufacturer || "Unknown Manufacturer")}
-              </p>
-
-              <p className="mt-1 text-white/60 text-sm md:text-base">
-                Serial: {equipment.serial_number || "N/A"} | Location:{" "}
-                {equipment.location || "N/A"}
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {badge(
-                equipment.certificate_status ||
-                  equipment.inspection_status ||
-                  "valid"
-              )}
-
-              <Link
-                href={`/equipment/edit/${equipment.id}`}
-                className="px-4 py-2 rounded-xl bg-[#7c5cfc] hover:bg-[#6d4ef2] text-white text-sm font-semibold"
-              >
-                Edit Equipment
-              </Link>
-            </div>
+        {error && (
+          <div style={{
+            background: "rgba(244,114,182,0.1)",
+            border: "1px solid rgba(244,114,182,0.3)",
+            borderRadius: 12,
+            padding: "12px 16px",
+            marginBottom: 20,
+            color: "#f472b6",
+            fontSize: 13,
+          }}>
+            ⚠️ {error}
           </div>
+        )}
 
-          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-5">
-              <p className="text-sm text-white/50">Certificates</p>
-              <p className="mt-2 text-2xl font-black">{stats.certificates}</p>
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-5">
-              <p className="text-sm text-white/50">NCRs</p>
-              <p className="mt-2 text-2xl font-black">{stats.ncrs}</p>
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-5">
-              <p className="text-sm text-white/50">Reports</p>
-              <p className="mt-2 text-2xl font-black">{stats.reports}</p>
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-5">
-              <p className="text-sm text-white/50">Inspections</p>
-              <p className="mt-2 text-2xl font-black">{stats.inspections}</p>
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-5">
-              <p className="text-sm text-white/50">Documents</p>
-              <p className="mt-2 text-2xl font-black">{stats.documents}</p>
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-[#0b1220] p-5">
-              <p className="text-sm text-white/50">Next Inspection</p>
-              <p className="mt-2 text-sm font-bold break-words">
-                {equipment.next_inspection_date || "N/A"}
-              </p>
-            </div>
+        {success && (
+          <div style={{
+            background: "rgba(16,185,129,0.12)",
+            border: "1px solid rgba(16,185,129,0.35)",
+            borderRadius: 12,
+            padding: "12px 16px",
+            marginBottom: 20,
+            color: "#86efac",
+            fontSize: 13,
+          }}>
+            ✅ {success}
           </div>
+        )}
 
-          <div className="mt-8 flex flex-wrap gap-2">
-            <TabButton id="overview" label="Overview" />
-            <TabButton
-              id="certificates"
-              label="Certificates"
-              count={certificates.length}
+        {/* ── IDENTITY ── */}
+        <div style={sectionStyle}>
+          <h2 style={sectionTitle}>Identity</h2>
+          <div style={gridStyle}>
+            <SelectField
+              label="Client / Company *"
+              name="client_id"
+              value={form.client_id}
+              onChange={handleChange}
+              options={clients}
+              placeholder="Select a client..."
             />
-            <TabButton id="ncrs" label="NCRs" count={ncrs.length} />
-            <TabButton id="reports" label="Reports" count={reports.length} />
-            <TabButton
-              id="inspections"
-              label="Inspection History"
-              count={inspections.length}
+            <Field
+              label="Asset Tag (auto-generated)"
+              name="asset_tag"
+              value={form.asset_tag}
+              onChange={handleChange}
+              readOnly
             />
-            <TabButton
-              id="documents"
-              label="Documents"
-              count={documents.length}
+            <Field
+              label="Asset Name"
+              name="asset_name"
+              value={form.asset_name}
+              onChange={handleChange}
+            />
+            <SelectField
+              label="Equipment Type *"
+              name="asset_type"
+              value={form.asset_type}
+              onChange={handleChange}
+              options={EQUIPMENT_TYPES.map((t) => ({ value: t, label: t }))}
+              placeholder="Select equipment type..."
+            />
+            <Field
+              label="Manufacturer"
+              name="manufacturer"
+              value={form.manufacturer}
+              onChange={handleChange}
+            />
+            <Field
+              label="Model"
+              name="model"
+              value={form.model}
+              onChange={handleChange}
+            />
+            <Field
+              label="Serial Number"
+              name="serial_number"
+              value={form.serial_number}
+              onChange={handleChange}
+            />
+            <Field
+              label="Year Built"
+              name="year_built"
+              value={form.year_built}
+              onChange={handleChange}
+            />
+            <Field
+              label="Location"
+              name="location"
+              value={form.location}
+              onChange={handleChange}
+            />
+            <Field
+              label="Department"
+              name="department"
+              value={form.department}
+              onChange={handleChange}
+            />
+            <SelectField
+              label="Status"
+              name="status"
+              value={form.status}
+              onChange={handleChange}
+              options={STATUS_OPTIONS.map((s) => ({ value: s, label: s }))}
+            />
+            <SelectField
+              label="License Status"
+              name="license_status"
+              value={form.license_status}
+              onChange={handleChange}
+              options={LICENSE_STATUS_OPTIONS.map((s) => ({ value: s, label: s }))}
+            />
+            <Field
+              label="License Expiry Date"
+              name="license_expiry"
+              type="date"
+              value={form.license_expiry}
+              onChange={handleChange}
+            />
+            <SelectField
+              label="Certificate Type"
+              name="cert_type"
+              value={form.cert_type}
+              onChange={handleChange}
+              options={CERT_TYPES.map((t) => ({ value: t, label: t }))}
+              placeholder="Select certificate type..."
+            />
+            <Field
+              label="Design Standard"
+              name="design_standard"
+              value={form.design_standard}
+              onChange={handleChange}
+            />
+            <Field
+              label="Condition"
+              name="condition"
+              value={form.condition}
+              onChange={handleChange}
             />
           </div>
+        </div>
 
-          <div className="mt-6">
-            {activeTab === "overview" && (
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                <InfoCard label="Asset Name" value={equipment.asset_name} />
-                <InfoCard label="Asset Tag" value={equipment.asset_tag} />
-                <InfoCard
-                  label="Equipment Type"
-                  value={equipment.equipment_type}
-                />
-                <InfoCard label="Serial Number" value={equipment.serial_number} />
-                <InfoCard label="Manufacturer" value={equipment.manufacturer} />
-                <InfoCard label="Model" value={equipment.model} />
-                <InfoCard label="Client" value={equipment.client_name} />
-                <InfoCard label="Location" value={equipment.location} />
-                <InfoCard
-                  label="Year Built"
-                  value={equipment.year_built}
-                />
-                <InfoCard label="SWL" value={equipment.swl} />
-                <InfoCard label="Lift Height" value={equipment.lift_height} />
-                <InfoCard label="Proof Load" value={equipment.proof_load} />
-                <InfoCard
-                  label="Sling Length"
-                  value={equipment.sling_length}
-                />
-                <InfoCard
-                  label="Working Pressure"
-                  value={equipment.working_pressure}
-                />
-                <InfoCard
-                  label="Test Pressure"
-                  value={equipment.test_pressure}
-                />
-                <InfoCard
-                  label="Country of Origin"
-                  value={equipment.country_of_origin}
-                />
-                <InfoCard
-                  label="Inspection Status"
-                  value={equipment.inspection_status}
-                />
-                <InfoCard
-                  label="Certificate Status"
-                  value={equipment.certificate_status}
-                />
-                <InfoCard
-                  label="Last Inspection Date"
-                  value={equipment.last_inspection_date}
-                />
-                <InfoCard
-                  label="Next Inspection Date"
-                  value={equipment.next_inspection_date}
-                />
-              </div>
-            )}
-
-            {activeTab === "certificates" && (
-              <div className="space-y-4">
-                {certificates.length === 0 ? (
-                  <EmptyState text="No certificates found for this equipment." />
-                ) : (
-                  certificates.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl border border-white/10 bg-[#0b1220] p-5"
-                    >
-                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                        <div>
-                          <h3 className="text-lg font-bold text-white">
-                            {item.certificate_no || "Certificate"}
-                          </h3>
-                          <p className="mt-1 text-sm text-white/60">
-                            Issue Date: {item.issue_date || "N/A"} | Expiry Date:{" "}
-                            {item.expiry_date || "N/A"}
-                          </p>
-                          <p className="mt-1 text-sm text-white/60">
-                            Inspector: {item.inspector_name || "N/A"}
-                          </p>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2">
-                          {badge(item.status || "valid")}
-                          <Link
-                            href={`/certificates/${item.id}`}
-                            className="px-4 py-2 rounded-xl bg-[#7c5cfc] hover:bg-[#6d4ef2] text-white text-sm font-semibold"
-                          >
-                            View Certificate
-                          </Link>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-
-            {activeTab === "ncrs" && (
-              <div className="space-y-4">
-                {ncrs.length === 0 ? (
-                  <EmptyState text="No NCRs found for this equipment." />
-                ) : (
-                  ncrs.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl border border-white/10 bg-[#0b1220] p-5"
-                    >
-                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                        <div>
-                          <h3 className="text-lg font-bold text-white">
-                            {item.ncr_no || "NCR"}
-                          </h3>
-                          <p className="mt-1 text-sm text-white/60">
-                            Date: {item.created_at?.slice(0, 10) || "N/A"}
-                          </p>
-                          <p className="mt-1 text-sm text-white/60">
-                            Description: {item.description || "N/A"}
-                          </p>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2">
-                          {badge(item.status || "pending")}
-                          <Link
-                            href={`/ncr/${item.id}`}
-                            className="px-4 py-2 rounded-xl bg-[#7c5cfc] hover:bg-[#6d4ef2] text-white text-sm font-semibold"
-                          >
-                            View NCR
-                          </Link>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-
-            {activeTab === "reports" && (
-              <div className="space-y-4">
-                {reports.length === 0 ? (
-                  <EmptyState text="No reports found for this equipment." />
-                ) : (
-                  reports.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl border border-white/10 bg-[#0b1220] p-5"
-                    >
-                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                        <div>
-                          <h3 className="text-lg font-bold text-white">
-                            {item.report_no || "Report"}
-                          </h3>
-                          <p className="mt-1 text-sm text-white/60">
-                            Date: {item.created_at?.slice(0, 10) || "N/A"}
-                          </p>
-                          <p className="mt-1 text-sm text-white/60">
-                            Report Type: {item.report_type || "N/A"}
-                          </p>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2">
-                          {badge(item.status || "active")}
-                          <Link
-                            href={`/reports/${item.id}`}
-                            className="px-4 py-2 rounded-xl bg-[#7c5cfc] hover:bg-[#6d4ef2] text-white text-sm font-semibold"
-                          >
-                            View Report
-                          </Link>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-
-            {activeTab === "inspections" && (
-              <div className="space-y-4">
-                {inspections.length === 0 ? (
-                  <EmptyState text="No inspection history found for this equipment." />
-                ) : (
-                  inspections.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl border border-white/10 bg-[#0b1220] p-5"
-                    >
-                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                        <div>
-                          <h3 className="text-lg font-bold text-white">
-                            {item.inspection_type || "Inspection"}
-                          </h3>
-                          <p className="mt-1 text-sm text-white/60">
-                            Date: {item.inspection_date || "N/A"}
-                          </p>
-                          <p className="mt-1 text-sm text-white/60">
-                            Inspector: {item.inspector_name || "N/A"}
-                          </p>
-                          <p className="mt-1 text-sm text-white/60">
-                            Remarks: {item.remarks || "N/A"}
-                          </p>
-                        </div>
-
-                        <div>{badge(item.status || "completed")}</div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-
-            {activeTab === "documents" && (
-              <div className="space-y-4">
-                {documents.length === 0 ? (
-                  <EmptyState text="No documents uploaded for this equipment." />
-                ) : (
-                  documents.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl border border-white/10 bg-[#0b1220] p-5"
-                    >
-                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                        <div>
-                          <h3 className="text-lg font-bold text-white">
-                            {item.title || item.file_name || "Document"}
-                          </h3>
-                          <p className="mt-1 text-sm text-white/60">
-                            Type: {item.document_type || "N/A"}
-                          </p>
-                          <p className="mt-1 text-sm text-white/60">
-                            Uploaded: {item.created_at?.slice(0, 10) || "N/A"}
-                          </p>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          {item.file_url ? (
-                            <a
-                              href={item.file_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="px-4 py-2 rounded-xl bg-[#7c5cfc] hover:bg-[#6d4ef2] text-white text-sm font-semibold"
-                            >
-                              Open Document
-                            </a>
-                          ) : (
-                            <button
-                              disabled
-                              className="px-4 py-2 rounded-xl bg-white/5 text-white/40 border border-white/10 text-sm font-semibold cursor-not-allowed"
-                            >
-                              No File
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
+        {/* ── LIFTING ── */}
+        <div style={sectionStyle}>
+          <h2 style={sectionTitle}>Lifting & Load Data</h2>
+          <div style={gridStyle}>
+            <Field label="Safe Working Load (SWL)" name="safe_working_load" value={form.safe_working_load} onChange={handleChange} />
+            <Field label="Proof Load" name="proof_load" value={form.proof_load} onChange={handleChange} />
+            <Field label="Lifting Height" name="lifting_height" value={form.lifting_height} onChange={handleChange} />
+            <Field label="Sling Length" name="sling_length" value={form.sling_length} onChange={handleChange} />
+            <Field label="Chain Size" name="chain_size" value={form.chain_size} onChange={handleChange} />
+            <Field label="Rope Diameter" name="rope_diameter" value={form.rope_diameter} onChange={handleChange} />
           </div>
+        </div>
+
+        {/* ── PRESSURE ── */}
+        <div style={sectionStyle}>
+          <h2 style={sectionTitle}>Pressure & Vessel Data</h2>
+          <div style={gridStyle}>
+            <Field label="Design Pressure" name="design_pressure" value={form.design_pressure} onChange={handleChange} />
+            <Field label="Working Pressure" name="working_pressure" value={form.working_pressure} onChange={handleChange} />
+            <Field label="Test Pressure" name="test_pressure" value={form.test_pressure} onChange={handleChange} />
+            <Field label="Design Temperature" name="design_temperature" value={form.design_temperature} onChange={handleChange} />
+            <Field label="Capacity / Volume" name="capacity_volume" value={form.capacity_volume} onChange={handleChange} />
+            <Field label="Shell Material" name="shell_material" value={form.shell_material} onChange={handleChange} />
+            <Field label="Fluid Type" name="fluid_type" value={form.fluid_type} onChange={handleChange} />
+          </div>
+        </div>
+
+        {/* ── INSPECTION ── */}
+        <div style={sectionStyle}>
+          <h2 style={sectionTitle}>Inspection Details</h2>
+          <div style={gridStyle}>
+            <Field label="Inspector Name" name="inspector_name" value={form.inspector_name} onChange={handleChange} />
+            <Field label="Last Inspection Date" name="last_inspection_date" type="date" value={form.last_inspection_date} onChange={handleChange} />
+            <Field label="Next Inspection Date" name="next_inspection_date" type="date" value={form.next_inspection_date} onChange={handleChange} />
+            <Field label="Inspection Frequency" name="inspection_freq" value={form.inspection_freq} onChange={handleChange} />
+          </div>
+        </div>
+
+        {/* ── NOTES ── */}
+        <div style={sectionStyle}>
+          <h2 style={sectionTitle}>Notes</h2>
+          <div>
+            <label style={labelStyle}>Notes</label>
+            <textarea
+              name="notes"
+              value={form.notes ?? ""}
+              onChange={handleChange}
+              rows={4}
+              style={{ ...inputStyle, resize: "vertical", minHeight: 100 }}
+            />
+          </div>
+        </div>
+
+        {/* ── ACTIONS ── */}
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 40 }}>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={{
+              padding: "12px 32px",
+              borderRadius: 8,
+              border: "none",
+              background: "linear-gradient(135deg,#667eea,#764ba2)",
+              color: "#fff",
+              fontWeight: 700,
+              fontSize: 14,
+              cursor: saving ? "wait" : "pointer",
+              opacity: saving ? 0.7 : 1,
+            }}
+          >
+            {saving ? "Saving..." : "Save Equipment"}
+          </button>
+
+          <button
+            onClick={() => router.push(`/equipment/${assetTag}`)}
+            disabled={saving}
+            style={{
+              padding: "12px 32px",
+              borderRadius: 8,
+              border: "1px solid rgba(255,255,255,0.15)",
+              background: "rgba(255,255,255,0.05)",
+              color: "#fff",
+              fontWeight: 700,
+              fontSize: 14,
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
         </div>
       </div>
     </AppLayout>
