@@ -1,11 +1,31 @@
-import { useState } from "react";
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import AppLayout from "@/components/AppLayout";
+import { supabase } from "@/lib/supabaseClient";
+import { registerEquipment } from "@/services/equipment";
 
 const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7", pink:"#f472b6" };
 
 const BOTSWANA_LOCATIONS = [
   "Gaborone","Francistown","Maun","Lobatse","Selebi-Phikwe","Jwaneng","Orapa",
-  "Sowa Town","Kasane","Ghanzi","Letlhakane","Serowe","Molepolole","Kanye",
-  "Mahalapye","Palapye","Mochudi","Mogoditshane","Tlokweng",
+  "Sowa Town","Kasane","Ghanzi","Tsabong","Shakawe","Serowe","Molepolole","Kanye",
+  "Mahalapye","Palapye","Mochudi","Ramotswa","Mogoditshane","Tlokweng","Gabane",
+  "Letlhakane","Bobonong","Tutume","Tonota","Tati Siding","Mmadinare","Sefhare",
+  "Mmashoro","Machaneng","Lerala","Maunatlala","Artesia","Dibete","Palla Road",
+  "Moshupa","Thamaga","Kopong","Otse","Mogobane","Ramatlabama","Pitsane","Goodhope",
+  "Mabule","Moshaneng","Phitshane Molopo","Metlojane","Barolong","Mmathethe",
+  "Molapowabojang","Sekoma","Werda","Khakhea","Pilane","Bokaa","Mmathubudukwane",
+  "Sikwane","Oodi","Modipane","Boatlaname","Rasesa","Malolwane","Khumaga",
+  "Letlhakeng","Takatokwane","Dutlwe","Shoshong","Paje","Mookane","Mosolotshane",
+  "Ramokgonami","Tamasane","Gweta","Nata","Dukwi","Nkange","Tobane","Tsetsebjwe",
+  "Sefophe","Mathangwane","Chadibe","Mosetse","Matshelagabedi","Tsamaya","Goshwe",
+  "Masunga","Gulumani","Matsinde","Zwenshambe","Mapoka","Siviya","Ramokgwebana",
+  "Kazungula","Kavimba","Pandamatenga","Kachikau","Satau","Muchenje","Sehithwa",
+  "Nokaneng","Gumare","Etsha 6","Etsha 13","Seronga","Beetsha","Tsau","Kareng",
+  "Toteng","Bodibeng","Shorobe","Khwai","Sankoyo","Hukuntsi","Tshane","Lehututu",
+  "Kang","Charleshill","Bere","Ncojane","Hunhukwe","Kokotsha","Zutshwa","Struizendam",
   "Morupule Colliery","Sua Pan (Botash)","Damtshaa Mine","Letlhakane Mine",
   "Jwaneng Mine Complex","BCL Smelter (Selebi-Phikwe)","Morupule Power Station",
   "Gaborone Industrial","Francistown Industrial","Lobatse Industrial",
@@ -19,153 +39,289 @@ const EQUIPMENT_TYPES = [
   "Wire Sling","Fall Arrest","Man Cage","Shutter Clamp","Drum Clamp",
 ];
 
-const PRESSURE_TYPES  = ["Pressure Vessel","Boiler","Air Receiver","Air Compressor","Oil Separator"];
-const LIFTING_TYPES   = ["Trestle Jack","Lever Hoist","Bottle Jack","Safety Harness","Jack Stand",
-  "Chain Block","Bow Shackle","Mobile Crane","Trolley Jack","Step Ladders","Tifor",
-  "Crawl Beam","Beam Crawl","Beam Clamp","Webbing Sling","Nylon Sling",
-  "Wire Sling","Fall Arrest","Man Cage","Shutter Clamp","Drum Clamp"];
-const LANYARD_TYPES   = ["Safety Harness","Fall Arrest"];
-
-const STANDARDS  = ["ASME Section VIII Div 1","ASME Section VIII Div 2","BS PD 5500","EN 13445","AD 2000 (Germany)","AS 1210 (Australia)","SANS 347 (South Africa)","Local / In-house","Other"];
-const MATERIALS  = ["Carbon Steel","Stainless Steel 304","Stainless Steel 316","Duplex Stainless","Low Alloy Steel","Hastelloy","Inconel","Aluminium","Copper","Fibreglass (GRP)","Other"];
-const FLUIDS     = ["Air / Compressed Air","Steam","Water","Hot Oil","Natural Gas","LPG / Propane","Hydrogen","Nitrogen","Oxygen","Ammonia","Hydrocarbons","Chemicals / Corrosive","Other"];
-const CERT_TYPES = ["Compliance Certificate","Pressure Test Certificate","NDT Certificate","Compliance and Test Certificate"];
-const FREQS      = ["3 Months","6 Months","12 Months","24 Months"];
-const MOCK_CLIENTS = [
-  { id:"1", company_name:"Jwaneng Mine Complex",   company_code:"CLT-001" },
-  { id:"2", company_name:"BCL Smelter",            company_code:"CLT-002" },
-  { id:"3", company_name:"Morupule Power Station", company_code:"CLT-003" },
-  { id:"4", company_name:"ZHENGTAI GROUP",         company_code:"CLT-004" },
-  { id:"5", company_name:"COMADEV",                company_code:"CLT-005" },
+const PRESSURE_EQUIPMENT_TYPES = [
+  "Pressure Vessel","Boiler","Air Receiver","Air Compressor","Oil Separator",
 ];
 
-const empty = {
-  serial_number:"", equipment_type:"Pressure Vessel", manufacturer:"", model:"",
-  year_built:"", client_id:"", location:"", department:"",
-  cert_type:"Compliance Certificate", design_standard:"ASME Section VIII Div 1",
-  inspection_freq:"12 Months", shell_material:"Carbon Steel", fluid_type:"Air / Compressed Air",
-  design_pressure:"", working_pressure:"", test_pressure:"", design_temperature:"", capacity_volume:"",
-  safe_working_load:"", proof_load:"", lifting_height:"", sling_length:"", chain_size:"", rope_diameter:"",
-  lanyard_serial_no:"", last_inspection_date:"", next_inspection_date:"",
-  license_status:"valid", license_expiry:"", condition:"Good", status:"active", notes:"",
-};
+const LIFTING_EQUIPMENT_TYPES = [
+  "Trestle Jack","Lever Hoist","Bottle Jack","Safety Harness","Jack Stand",
+  "Chain Block","Bow Shackle","Mobile Crane","Trolley Jack","Step Ladders",
+  "Tifor","Crawl Beam","Beam Crawl","Beam Clamp","Webbing Sling","Nylon Sling",
+  "Wire Sling","Fall Arrest","Man Cage","Shutter Clamp","Drum Clamp",
+];
 
-const inp = {
-  width:"100%", padding:"10px 13px",
+const LANYARD_EQUIPMENT_TYPES = ["Safety Harness","Fall Arrest"];
+
+const STANDARDS = [
+  "ASME Section VIII Div 1","ASME Section VIII Div 2","BS PD 5500","EN 13445",
+  "AD 2000 (Germany)","AS 1210 (Australia)","SANS 347 (South Africa)","Local / In-house","Other",
+];
+const MATERIALS = [
+  "Carbon Steel","Stainless Steel 304","Stainless Steel 316","Duplex Stainless",
+  "Low Alloy Steel","Hastelloy","Inconel","Aluminium","Copper","Fibreglass (GRP)","Other",
+];
+const FLUID_TYPES = [
+  "Air / Compressed Air","Steam","Water","Hot Oil","Natural Gas","LPG / Propane",
+  "Hydrogen","Nitrogen","Oxygen","Ammonia","Hydrocarbons","Chemicals / Corrosive","Other",
+];
+const CERT_TYPES = [
+  "Compliance Certificate","Pressure Test Certificate",
+  "NDT Certificate","Compliance and Test Certificate",
+];
+const INSPECTION_FREQS = ["3 Months","6 Months","12 Months","24 Months"];
+
+const inputStyle = {
+  width:"100%", padding:"11px 14px",
   background:"rgba(255,255,255,0.04)",
   border:"1px solid rgba(102,126,234,0.25)",
   borderRadius:8, color:"#e2e8f0", fontSize:13,
-  fontFamily:"inherit", outline:"none", boxSizing:"border-box",
+  fontFamily:"inherit", outline:"none",
+  boxSizing:"border-box", transition:"border-color .2s",
 };
-const lbl = {
-  fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.45)",
-  textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:5, display:"block",
+const labelStyle = {
+  fontSize:11, fontWeight:700, color:"rgba(255,255,255,0.5)",
+  textTransform:"uppercase", letterSpacing:"0.08em",
+  marginBottom:6, display:"block",
 };
-const sec = {
-  fontSize:11, fontWeight:800, color:"#667eea", textTransform:"uppercase",
-  letterSpacing:"0.12em", borderBottom:"1px solid rgba(102,126,234,0.18)",
-  paddingBottom:8, marginBottom:16, marginTop:4,
+const sectionHeadStyle = {
+  fontSize:11, fontWeight:800, color:"#667eea",
+  textTransform:"uppercase", letterSpacing:"0.12em",
+  borderBottom:"1px solid rgba(102,126,234,0.2)",
+  paddingBottom:8, marginBottom:16, marginTop:8,
   display:"flex", alignItems:"center", gap:8,
 };
 
-function Field({ label, children, highlight }) {
-  return (
-    <div>
-      <label style={{ ...lbl, color: highlight ? C.green : "rgba(255,255,255,0.45)" }}>{label}</label>
-      {children}
-    </div>
-  );
-}
-
-function Sel({ name, value, onChange, children, disabled }) {
+function SelectField({ name, value, onChange, required=false, disabled=false, children }) {
   return (
     <div style={{ position:"relative" }}>
-      <select name={name} value={value} onChange={onChange} disabled={disabled}
-        style={{ ...inp, appearance:"none", WebkitAppearance:"none", paddingRight:36,
-          background:"#1a1f2e", color:"#e2e8f0", cursor:disabled?"not-allowed":"pointer" }}>
+      <select name={name} value={value} onChange={onChange} required={required} disabled={disabled}
+        style={{ ...inputStyle, cursor:disabled?"not-allowed":"pointer", appearance:"none",
+          WebkitAppearance:"none", MozAppearance:"none", paddingRight:40,
+          background:"#1a1f2e", color:"#e2e8f0" }}>
         {children}
       </select>
-      <span style={{ position:"absolute", right:11, top:"50%", transform:"translateY(-50%)",
-        color:"#64748b", pointerEvents:"none", fontSize:11 }}>▾</span>
+      <span style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)",
+        color:"#94a3b8", pointerEvents:"none", fontSize:12 }}>▾</span>
     </div>
   );
 }
 
-function LocationPicker({ name, value, onChange }) {
-  const [manual, setManual] = useState(false);
+function BotswanaLocationPicker({ name, value, onChange, required }) {
+  const [manual, setManual] = useState(
+    value && !BOTSWANA_LOCATIONS.includes(value) && value !== ""
+  );
+  const handleSelect = (e) => {
+    if (e.target.value === "__manual__") {
+      setManual(true);
+      onChange({ target:{ name, value:"" } });
+    } else {
+      setManual(false);
+      onChange(e);
+    }
+  };
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-      <Sel name={name} value={manual?"__m__":(value||"")} onChange={e=>{
-        if(e.target.value==="__m__"){ setManual(true); onChange({target:{name,value:""}}); }
-        else { setManual(false); onChange(e); }
-      }}>
+      <SelectField name={name} value={manual?"__manual__":(value||"")}
+        onChange={handleSelect} required={required && !manual}>
         <option value="">Select location</option>
-        {BOTSWANA_LOCATIONS.map(l=><option key={l} value={l}>{l}</option>)}
-        <option value="__m__">Type manually…</option>
-      </Sel>
-      {manual && <input style={{...inp, borderColor:"rgba(0,245,196,0.4)"}} type="text"
-        name={name} placeholder="Enter location / site name" value={value} onChange={onChange} autoFocus />}
+        {BOTSWANA_LOCATIONS.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+        <option value="__manual__">Type manually…</option>
+      </SelectField>
+      {manual && (
+        <input style={{ ...inputStyle, borderColor:"rgba(0,245,196,0.4)" }}
+          type="text" name={name} placeholder="Enter location / site name"
+          value={value} onChange={onChange} required={required} autoFocus />
+      )}
     </div>
   );
 }
 
-export default function RegisterEquipmentUI() {
-  const [form, setForm] = useState({ ...empty, equipment_type:"Safety Harness" });
-  const [saved, setSaved] = useState(false);
+const emptyForm = {
+  serial_number:"", equipment_type:"Pressure Vessel",
+  manufacturer:"", model:"", year_built:"",
+  client_id:"", location:"", department:"",
+  cert_type:"Compliance Certificate",
+  design_standard:"ASME Section VIII Div 1",
+  inspection_freq:"12 Months",
+  shell_material:"Carbon Steel",
+  fluid_type:"Air / Compressed Air",
+  design_pressure:"", working_pressure:"", test_pressure:"",
+  design_temperature:"", capacity_volume:"",
+  safe_working_load:"", proof_load:"",
+  lifting_height:"", sling_length:"",
+  chain_size:"", rope_diameter:"",
+  lanyard_serial_no:"",
+  last_inspection_date:"", next_inspection_date:"",
+  license_status:"valid", license_expiry:"",
+  condition:"Good", status:"active", notes:"",
+};
 
-  const set = e => {
+export default function RegisterEquipmentPage() {
+  const router = useRouter();
+  const [formData, setFormData]             = useState(emptyForm);
+  const [clients,  setClients]              = useState([]);
+  const [clientsLoading, setClientsLoading] = useState(true);
+  const [loading,  setLoading]              = useState(false);
+  const [submitError, setSubmitError]       = useState(null);
+
+  useEffect(() => {
+    async function loadClients() {
+      setClientsLoading(true);
+      const { data, error } = await supabase
+        .from("clients").select("id,company_name,company_code,status")
+        .eq("status","active").order("company_name",{ ascending:true });
+      setClients(error ? [] : (data||[]));
+      setClientsLoading(false);
+    }
+    loadClients();
+  }, []);
+
+  const handleChange = (e) => {
     const { name, value } = e.target;
-    setForm(p => {
-      const n = { ...p, [name]:value };
+    setFormData(prev => {
+      const next = { ...prev, [name]:value };
       if (name === "equipment_type") {
-        const isPres = PRESSURE_TYPES.includes(value);
-        const isLift = LIFTING_TYPES.includes(value);
-        const isLan  = LANYARD_TYPES.includes(value);
-        if (isPres) { n.safe_working_load=""; n.proof_load=""; n.lifting_height=""; n.sling_length=""; n.chain_size=""; n.rope_diameter=""; n.lanyard_serial_no=""; }
-        if (isLift && !isLan) { n.design_pressure=""; n.working_pressure=""; n.test_pressure=""; n.design_temperature=""; n.capacity_volume=""; n.fluid_type=""; n.lanyard_serial_no=""; }
-        if (!isPres && !isLift) { n.design_pressure=""; n.working_pressure=""; n.test_pressure=""; n.design_temperature=""; n.capacity_volume=""; n.fluid_type=""; n.safe_working_load=""; n.proof_load=""; n.lifting_height=""; n.sling_length=""; n.chain_size=""; n.rope_diameter=""; n.lanyard_serial_no=""; }
+        const pressure   = PRESSURE_EQUIPMENT_TYPES.includes(value);
+        const lifting    = LIFTING_EQUIPMENT_TYPES.includes(value);
+        const hasLanyard = LANYARD_EQUIPMENT_TYPES.includes(value);
+        if (pressure) {
+          next.safe_working_load=""; next.proof_load="";
+          next.lifting_height="";   next.sling_length="";
+          next.chain_size="";       next.rope_diameter="";
+          next.lanyard_serial_no="";
+        }
+        if (lifting && !hasLanyard) {
+          next.design_pressure="";  next.working_pressure="";
+          next.test_pressure="";    next.design_temperature="";
+          next.capacity_volume="";  next.fluid_type="";
+          next.lanyard_serial_no="";
+        }
+        if (!pressure && !lifting) {
+          next.design_pressure="";  next.working_pressure="";
+          next.test_pressure="";    next.design_temperature="";
+          next.capacity_volume="";  next.fluid_type="";
+          next.safe_working_load=""; next.proof_load="";
+          next.lifting_height="";   next.sling_length="";
+          next.chain_size="";       next.rope_diameter="";
+          next.lanyard_serial_no="";
+        }
       }
-      return n;
+      return next;
     });
   };
 
-  const isPressure = PRESSURE_TYPES.includes(form.equipment_type);
-  const isLifting  = LIFTING_TYPES.includes(form.equipment_type);
-  const hasLanyard = LANYARD_TYPES.includes(form.equipment_type);
+  const handleClear = () => { setFormData(emptyForm); setSubmitError(null); };
 
-  if (saved) return (
-    <div style={{ minHeight:"100vh", background:"#0d1117", display:"flex", alignItems:"center",
-      justifyContent:"center", flexDirection:"column", gap:16, fontFamily:"inherit" }}>
-      <div style={{ fontSize:56 }}>✅</div>
-      <div style={{ fontSize:22, fontWeight:800, color:"#fff" }}>Equipment Registered!</div>
-      <div style={{ fontSize:13, color:"#64748b" }}>Redirecting to equipment detail…</div>
-      <button onClick={()=>setSaved(false)} style={{ marginTop:8, padding:"10px 24px", borderRadius:8,
-        border:"none", background:`linear-gradient(135deg,${C.purple},${C.blue})`,
-        color:"#fff", fontWeight:700, cursor:"pointer", fontSize:13 }}>
-        ← Back to Form
-      </button>
-    </div>
-  );
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setSubmitError(null);
+    try {
+      const selectedClient = clients.find(c => c.id === formData.client_id);
+      if (!selectedClient) throw new Error("Please select a registered client.");
+
+      const assetName = formData.model
+        ? `${formData.equipment_type} - ${formData.model}`
+        : `${formData.equipment_type} - ${formData.serial_number}`;
+
+      const payload = {
+        asset_name:           assetName,
+        client_id:            formData.client_id,
+        asset_type:           formData.equipment_type,
+        serial_number:        formData.serial_number,
+        manufacturer:         formData.manufacturer,
+        model:                formData.model,
+        year_built:           formData.year_built,
+        location:             formData.location,
+        department:           formData.department,
+        cert_type:            formData.cert_type,
+        design_standard:      formData.design_standard,
+        inspection_freq:      formData.inspection_freq,
+        shell_material:       formData.shell_material,
+        fluid_type:           formData.fluid_type,
+        design_pressure:      formData.design_pressure,
+        working_pressure:     formData.working_pressure,
+        test_pressure:        formData.test_pressure,
+        design_temperature:   formData.design_temperature,
+        capacity_volume:      formData.capacity_volume,
+        safe_working_load:    formData.safe_working_load,
+        proof_load:           formData.proof_load,
+        lifting_height:       formData.lifting_height,
+        sling_length:         formData.sling_length,
+        chain_size:           formData.chain_size,
+        rope_diameter:        formData.rope_diameter,
+        lanyard_serial_no:    formData.lanyard_serial_no || null,
+        last_inspection_date: formData.last_inspection_date || null,
+        next_inspection_date: formData.next_inspection_date || null,
+        license_status:       formData.license_status,
+        license_expiry:       formData.license_expiry       || null,
+        condition:            formData.condition,
+        status:               formData.status,
+        notes:                formData.notes,
+        description:          formData.notes
+          ? `${formData.equipment_type} | ${formData.notes}`
+          : formData.equipment_type,
+      };
+
+      const { data:asset, error:assetError } = await registerEquipment(payload);
+      if (assetError) throw assetError;
+
+      const { error:certError } = await supabase.from("certificates").insert([{
+        certificate_type:      formData.cert_type || "Compliance Certificate",
+        asset_id:              asset.id,
+        company:               selectedClient.company_name,
+        equipment_description: formData.equipment_type,
+        equipment_location:    formData.location             || null,
+        equipment_id:          formData.serial_number        || asset.asset_tag,
+        lanyard_serial_no:     formData.lanyard_serial_no    || null,
+        // ── SWL stored as-is — no unit hardcoded ──
+        swl:                   formData.safe_working_load    || null,
+        mawp:                  formData.working_pressure     || null,
+        equipment_status:      "PASS",
+        issued_at:             new Date().toISOString(),
+        valid_to:              formData.next_inspection_date || null,
+        status:                "issued",
+        legal_framework:       formData.design_standard      || null,
+      }]);
+      if (certError) throw certError;
+
+      router.push(`/equipment/${asset.asset_tag}`);
+    } catch (err) {
+      setSubmitError(err?.message || "Failed to register equipment.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isPressureEquipment = PRESSURE_EQUIPMENT_TYPES.includes(formData.equipment_type);
+  const isLiftingEquipment  = LIFTING_EQUIPMENT_TYPES.includes(formData.equipment_type);
+  const hasLanyardField     = LANYARD_EQUIPMENT_TYPES.includes(formData.equipment_type);
 
   return (
-    <div style={{ minHeight:"100vh", background:"#0d1117", fontFamily:"'Inter',system-ui,sans-serif",
-      color:"#e2e8f0", padding:"28px 20px" }}>
+    <AppLayout title="Register Equipment">
+      <style>{`
+        select { background:#1a1f2e !important; color:#e2e8f0 !important; }
+        select option { background:#111827 !important; color:#f8fafc !important; }
+        input[type="date"]::-webkit-calendar-picker-indicator { filter:invert(0.8); cursor:pointer; }
+      `}</style>
 
-      {/* Header */}
-      <div style={{ marginBottom:24, maxWidth:900 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
-          <button onClick={()=>alert("← Navigating to /equipment")} style={{
-            display:"inline-flex", alignItems:"center", gap:6,
-            padding:"7px 14px", borderRadius:8, cursor:"pointer",
-            background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)",
-            color:"#94a3b8", fontSize:12, fontWeight:600, fontFamily:"inherit",
-          }}>
+      {/* ── Header + back button ── */}
+      <div style={{ marginBottom:24 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+          <button type="button" onClick={() => router.push("/equipment")}
+            style={{ display:"inline-flex", alignItems:"center", gap:6,
+              padding:"7px 14px", borderRadius:8, cursor:"pointer",
+              background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)",
+              color:"#94a3b8", fontSize:12, fontWeight:600, fontFamily:"inherit" }}>
             ← Back to Equipment
           </button>
           <span style={{ color:"#334155" }}>›</span>
-          <span style={{ fontSize:11, color:"#94a3b8", fontWeight:600 }}>Register</span>
+          <span style={{ fontSize:11, color:"#64748b", fontWeight:600 }}>Register</span>
         </div>
-        <h1 style={{ margin:0, fontSize:26, fontWeight:900, color:"#fff" }}>Register Equipment</h1>
+
+        <h1 style={{ margin:0, fontSize:"clamp(22px,4vw,32px)", fontWeight:900, color:"#fff" }}>
+          Register Equipment
+        </h1>
         <div style={{ marginTop:8, width:72, height:4, borderRadius:999,
           background:`linear-gradient(90deg,${C.green},${C.purple},${C.blue})` }} />
         <p style={{ color:"rgba(255,255,255,0.4)", fontSize:13, margin:"8px 0 0" }}>
@@ -173,202 +329,227 @@ export default function RegisterEquipmentUI() {
         </p>
       </div>
 
-      <div style={{ background:"linear-gradient(135deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))",
-        border:"1px solid rgba(102,126,234,0.2)", borderRadius:16, padding:"24px 28px", maxWidth:900 }}>
+      {submitError && (
+        <div style={{ background:"rgba(244,114,182,0.1)", border:"1px solid rgba(244,114,182,0.3)",
+          borderRadius:12, padding:"12px 16px", marginBottom:20, color:C.pink, fontSize:13 }}>
+          ⚠️ {submitError}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} style={{
+        background:"linear-gradient(135deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))",
+        border:"1px solid rgba(102,126,234,0.2)", borderRadius:16, padding:28, maxWidth:900,
+      }}>
 
         {/* ── Equipment Identity ── */}
-        <div style={sec}>⚙️ Equipment Identity</div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:14, marginBottom:24 }}>
-          <Field label="Equipment Tag">
-            <input style={{ ...inp, opacity:0.5, cursor:"not-allowed" }} value="Auto generated (e.g. CERT-01)" readOnly />
-          </Field>
-          <Field label="Serial Number / ID No. *">
-            <input style={inp} type="text" name="serial_number" value={form.serial_number} onChange={set} placeholder="e.g. 0188" />
-          </Field>
+        <div style={sectionHeadStyle}>⚙️ Equipment Identity</div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16, marginBottom:24 }}>
+          <div>
+            <label style={labelStyle}>Equipment Tag</label>
+            <input style={{ ...inputStyle, opacity:0.7, cursor:"not-allowed" }}
+              type="text" value="Auto generated, example CERT-01" readOnly />
+          </div>
+          <div>
+            <label style={labelStyle}>Serial Number / ID No. *</label>
+            <input style={inputStyle} type="text" name="serial_number"
+              value={formData.serial_number} onChange={handleChange} required />
+          </div>
 
-          {/* Lanyard — only for Safety Harness / Fall Arrest */}
-          {hasLanyard && (
-            <Field label={
-              <span>Lanyard Serial No.
-                <span style={{ marginLeft:6, fontSize:9, color:C.green,
+          {hasLanyardField && (
+            <div>
+              <label style={labelStyle}>
+                Lanyard Serial No.
+                <span style={{ marginLeft:6, fontSize:9, color:"#00f5c4",
                   background:"rgba(0,245,196,0.1)", border:"1px solid rgba(0,245,196,0.3)",
-                  borderRadius:4, padding:"1px 5px", fontWeight:700 }}>
-                  on certificate
+                  borderRadius:4, padding:"1px 5px" }}>
+                  displayed on certificate
                 </span>
-              </span>
-            } highlight>
-              <input style={{ ...inp, borderColor:"rgba(0,245,196,0.35)" }}
-                type="text" name="lanyard_serial_no" value={form.lanyard_serial_no}
-                onChange={set} placeholder="e.g. 0135" />
-            </Field>
+              </label>
+              <input style={{ ...inputStyle, borderColor:"rgba(0,245,196,0.35)" }}
+                type="text" name="lanyard_serial_no"
+                value={formData.lanyard_serial_no} onChange={handleChange}
+                placeholder="e.g. 0135" />
+            </div>
           )}
 
-          <Field label="Equipment Type *">
-            <Sel name="equipment_type" value={form.equipment_type} onChange={set}>
-              {EQUIPMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
-            </Sel>
-          </Field>
-          <Field label="Manufacturer *">
-            <input style={inp} type="text" name="manufacturer" value={form.manufacturer} onChange={set} placeholder="e.g. SALA, Petzl" />
-          </Field>
-          <Field label="Model / Drawing No.">
-            <input style={inp} type="text" name="model" value={form.model} onChange={set} />
-          </Field>
-          <Field label="Year Built">
-            <input style={inp} type="text" name="year_built" value={form.year_built} onChange={set} placeholder="Type freely" />
-          </Field>
+          <div>
+            <label style={labelStyle}>Equipment Type *</label>
+            <SelectField name="equipment_type" value={formData.equipment_type} onChange={handleChange}>
+              {EQUIPMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </SelectField>
+          </div>
+          <div>
+            <label style={labelStyle}>Manufacturer *</label>
+            <input style={inputStyle} type="text" name="manufacturer"
+              value={formData.manufacturer} onChange={handleChange} required />
+          </div>
+          <div>
+            <label style={labelStyle}>Model / Drawing No.</label>
+            <input style={inputStyle} type="text" name="model"
+              value={formData.model} onChange={handleChange} />
+          </div>
+          <div>
+            <label style={labelStyle}>Year Built</label>
+            <input style={inputStyle} type="text" name="year_built"
+              placeholder="Type freely" value={formData.year_built} onChange={handleChange} />
+          </div>
         </div>
 
         {/* ── Ownership & Site ── */}
-        <div style={sec}>🏢 Ownership & Site</div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:14, marginBottom:24 }}>
-          <Field label="Client *">
-            <Sel name="client_id" value={form.client_id} onChange={set}>
-              <option value="">Select registered client</option>
-              {MOCK_CLIENTS.map(c=><option key={c.id} value={c.id}>{c.company_name} ({c.company_code})</option>)}
-            </Sel>
-          </Field>
-          <Field label="Location / Town *">
-            <LocationPicker name="location" value={form.location} onChange={set} />
-          </Field>
-          <Field label="Department / Plant">
-            <input style={inp} type="text" name="department" value={form.department} onChange={set} />
-          </Field>
+        <div style={sectionHeadStyle}>🏢 Ownership & Site</div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16, marginBottom:24 }}>
+          <div>
+            <label style={labelStyle}>Client *</label>
+            <SelectField name="client_id" value={formData.client_id}
+              onChange={handleChange} required disabled={clientsLoading}>
+              <option value="">{clientsLoading ? "Loading clients..." : "Select registered client"}</option>
+              {clients.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.company_name} {c.company_code ? `(${c.company_code})` : ""}
+                </option>
+              ))}
+            </SelectField>
+          </div>
+          <div>
+            <label style={labelStyle}>Location / Town *</label>
+            <BotswanaLocationPicker name="location" value={formData.location}
+              onChange={handleChange} required />
+          </div>
+          <div>
+            <label style={labelStyle}>Department / Plant</label>
+            <input style={inputStyle} type="text" name="department"
+              value={formData.department} onChange={handleChange} />
+          </div>
         </div>
 
         {/* ── Certificate Information ── */}
-        <div style={sec}>📜 Certificate Information</div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:14, marginBottom:24 }}>
-          <Field label="Certificate Type *">
-            <Sel name="cert_type" value={form.cert_type} onChange={set}>
-              {CERT_TYPES.map(c=><option key={c} value={c}>{c}</option>)}
-            </Sel>
-          </Field>
-          <Field label="Inspection Frequency">
-            <Sel name="inspection_freq" value={form.inspection_freq} onChange={set}>
-              {FREQS.map(f=><option key={f} value={f}>{f}</option>)}
-            </Sel>
-          </Field>
-          <Field label="License Status">
-            <Sel name="license_status" value={form.license_status} onChange={set}>
+        <div style={sectionHeadStyle}>📜 Certificate Information</div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16, marginBottom:24 }}>
+          <div>
+            <label style={labelStyle}>Certificate Type *</label>
+            <SelectField name="cert_type" value={formData.cert_type} onChange={handleChange}>
+              {CERT_TYPES.map(c => <option key={c} value={c}>{c}</option>)}
+            </SelectField>
+          </div>
+          <div>
+            <label style={labelStyle}>Inspection Frequency</label>
+            <SelectField name="inspection_freq" value={formData.inspection_freq} onChange={handleChange}>
+              {INSPECTION_FREQS.map(f => <option key={f} value={f}>{f}</option>)}
+            </SelectField>
+          </div>
+          <div>
+            <label style={labelStyle}>License Status</label>
+            <SelectField name="license_status" value={formData.license_status} onChange={handleChange}>
               <option value="valid">valid</option>
               <option value="expiring">expiring</option>
               <option value="expired">expired</option>
-            </Sel>
-          </Field>
+            </SelectField>
+          </div>
         </div>
 
         {/* ── Design & Technical ── */}
-        <div style={sec}>📐 Design & Technical Parameters</div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:14, marginBottom:24 }}>
-          <Field label="Shell / Body Material">
-            <Sel name="shell_material" value={form.shell_material} onChange={set}>
-              {MATERIALS.map(m=><option key={m} value={m}>{m}</option>)}
-            </Sel>
-          </Field>
-          <Field label="Design Standard">
-            <Sel name="design_standard" value={form.design_standard} onChange={set}>
-              {STANDARDS.map(s=><option key={s} value={s}>{s}</option>)}
-            </Sel>
-          </Field>
+        <div style={sectionHeadStyle}>📐 Design & Technical Parameters</div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16, marginBottom:24 }}>
+          <div>
+            <label style={labelStyle}>Shell / Body Material</label>
+            <SelectField name="shell_material" value={formData.shell_material} onChange={handleChange}>
+              {MATERIALS.map(m => <option key={m} value={m}>{m}</option>)}
+            </SelectField>
+          </div>
+          <div>
+            <label style={labelStyle}>Design Standard</label>
+            <SelectField name="design_standard" value={formData.design_standard} onChange={handleChange}>
+              {STANDARDS.map(s => <option key={s} value={s}>{s}</option>)}
+            </SelectField>
+          </div>
 
-          {isPressure && (<>
-            <Field label="Fluid / Contents Type">
-              <Sel name="fluid_type" value={form.fluid_type} onChange={set}>
-                {FLUIDS.map(f=><option key={f} value={f}>{f}</option>)}
-              </Sel>
-            </Field>
-            <Field label="Design Pressure (kPa)"><input style={inp} type="text" name="design_pressure" value={form.design_pressure} onChange={set} placeholder="e.g. 1500 kPa" /></Field>
-            <Field label="Working Pressure (kPa)"><input style={inp} type="text" name="working_pressure" value={form.working_pressure} onChange={set} placeholder="e.g. 1200 kPa" /></Field>
-            <Field label="Test Pressure (kPa)"><input style={inp} type="text" name="test_pressure" value={form.test_pressure} onChange={set} placeholder="e.g. 2250 kPa" /></Field>
-            <Field label="Design Temperature"><input style={inp} type="text" name="design_temperature" value={form.design_temperature} onChange={set} /></Field>
-            <Field label="Volume / Capacity"><input style={inp} type="text" name="capacity_volume" value={form.capacity_volume} onChange={set} /></Field>
+          {isPressureEquipment && (<>
+            <div>
+              <label style={labelStyle}>Fluid / Contents Type</label>
+              <SelectField name="fluid_type" value={formData.fluid_type} onChange={handleChange}>
+                {FLUID_TYPES.map(f => <option key={f} value={f}>{f}</option>)}
+              </SelectField>
+            </div>
+            <div><label style={labelStyle}>Design Pressure (kPa)</label>
+              <input style={inputStyle} type="text" name="design_pressure" value={formData.design_pressure} onChange={handleChange} placeholder="e.g. 1500 kPa" /></div>
+            <div><label style={labelStyle}>Working Pressure (kPa)</label>
+              <input style={inputStyle} type="text" name="working_pressure" value={formData.working_pressure} onChange={handleChange} placeholder="e.g. 1200 kPa" /></div>
+            <div><label style={labelStyle}>Test Pressure (kPa)</label>
+              <input style={inputStyle} type="text" name="test_pressure" value={formData.test_pressure} onChange={handleChange} placeholder="e.g. 2250 kPa" /></div>
+            <div><label style={labelStyle}>Design Temperature</label>
+              <input style={inputStyle} type="text" name="design_temperature" value={formData.design_temperature} onChange={handleChange} /></div>
+            <div><label style={labelStyle}>Volume / Capacity</label>
+              <input style={inputStyle} type="text" name="capacity_volume" value={formData.capacity_volume} onChange={handleChange} /></div>
           </>)}
 
-          {isLifting && (<>
-            <Field label="SWL"><input style={inp} type="text" name="safe_working_load" value={form.safe_working_load} onChange={set} placeholder="e.g. STANDARD or 2.5 Tons" /></Field>
-            <Field label="Proof Load"><input style={inp} type="text" name="proof_load" value={form.proof_load} onChange={set} placeholder="e.g. 3 Tons" /></Field>
-            <Field label="Lift Height"><input style={inp} type="text" name="lifting_height" value={form.lifting_height} onChange={set} /></Field>
-            <Field label="Sling Length"><input style={inp} type="text" name="sling_length" value={form.sling_length} onChange={set} /></Field>
-            <Field label="Chain Size"><input style={inp} type="text" name="chain_size" value={form.chain_size} onChange={set} /></Field>
-            <Field label="Rope / Wire Diameter"><input style={inp} type="text" name="rope_diameter" value={form.rope_diameter} onChange={set} /></Field>
+          {isLiftingEquipment && (<>
+            <div><label style={labelStyle}>SWL</label>
+              <input style={inputStyle} type="text" name="safe_working_load" value={formData.safe_working_load} onChange={handleChange} placeholder="e.g. STANDARD or 2.5 Tons" /></div>
+            <div><label style={labelStyle}>Proof Load</label>
+              <input style={inputStyle} type="text" name="proof_load" value={formData.proof_load} onChange={handleChange} placeholder="e.g. 3 Tons" /></div>
+            <div><label style={labelStyle}>Lift Height</label>
+              <input style={inputStyle} type="text" name="lifting_height" value={formData.lifting_height} onChange={handleChange} /></div>
+            <div><label style={labelStyle}>Sling Length</label>
+              <input style={inputStyle} type="text" name="sling_length" value={formData.sling_length} onChange={handleChange} /></div>
+            <div><label style={labelStyle}>Chain Size</label>
+              <input style={inputStyle} type="text" name="chain_size" value={formData.chain_size} onChange={handleChange} /></div>
+            <div><label style={labelStyle}>Rope / Wire Diameter</label>
+              <input style={inputStyle} type="text" name="rope_diameter" value={formData.rope_diameter} onChange={handleChange} /></div>
           </>)}
         </div>
 
         {/* ── Dates ── */}
-        <div style={sec}>📅 Inspection & Service Dates</div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:14, marginBottom:24 }}>
-          <Field label="Last Inspection Date"><input style={inp} type="date" name="last_inspection_date" value={form.last_inspection_date} onChange={set} /></Field>
-          <Field label="Next Inspection Due"><input style={inp} type="date" name="next_inspection_date" value={form.next_inspection_date} onChange={set} /></Field>
-          <Field label="License Expiry"><input style={inp} type="date" name="license_expiry" value={form.license_expiry} onChange={set} /></Field>
+        <div style={sectionHeadStyle}>📅 Inspection & Service Dates</div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16, marginBottom:24 }}>
+          <div><label style={labelStyle}>Last Inspection Date</label>
+            <input style={inputStyle} type="date" name="last_inspection_date" value={formData.last_inspection_date} onChange={handleChange} /></div>
+          <div><label style={labelStyle}>Next Inspection Due</label>
+            <input style={inputStyle} type="date" name="next_inspection_date" value={formData.next_inspection_date} onChange={handleChange} /></div>
+          <div><label style={labelStyle}>License Expiry</label>
+            <input style={inputStyle} type="date" name="license_expiry" value={formData.license_expiry} onChange={handleChange} /></div>
         </div>
 
         {/* ── Operational Status ── */}
-        <div style={sec}>📘 Operational Status</div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:14, marginBottom:24 }}>
-          <Field label="Condition"><input style={inp} type="text" name="condition" value={form.condition} onChange={set} /></Field>
-          <Field label="Status">
-            <Sel name="status" value={form.status} onChange={set}>
+        <div style={sectionHeadStyle}>📘 Operational Status</div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16, marginBottom:24 }}>
+          <div><label style={labelStyle}>Condition</label>
+            <input style={inputStyle} type="text" name="condition" value={formData.condition} onChange={handleChange} /></div>
+          <div>
+            <label style={labelStyle}>Status</label>
+            <SelectField name="status" value={formData.status} onChange={handleChange}>
               <option value="active">active</option>
               <option value="inactive">inactive</option>
               <option value="suspended">suspended</option>
-            </Sel>
-          </Field>
+            </SelectField>
+          </div>
         </div>
 
         {/* ── Notes ── */}
-        <div style={sec}>📝 Notes</div>
+        <div style={sectionHeadStyle}>📝 Notes</div>
         <div style={{ marginBottom:24 }}>
-          <textarea style={{ ...inp, minHeight:90, resize:"vertical" }}
-            name="notes" value={form.notes} onChange={set}
-            placeholder="Any additional notes about this equipment…" />
+          <textarea style={{ ...inputStyle, minHeight:100, resize:"vertical" }}
+            name="notes" value={formData.notes} onChange={handleChange} />
         </div>
 
-        {/* ── Live Preview strip ── */}
-        {(form.serial_number || form.equipment_type) && (
-          <div style={{ background:"rgba(0,245,196,0.04)", border:"1px solid rgba(0,245,196,0.15)",
-            borderRadius:12, padding:"14px 18px", marginBottom:20 }}>
-            <div style={{ fontSize:10, fontWeight:700, color:C.green, textTransform:"uppercase",
-              letterSpacing:"0.1em", marginBottom:10 }}>📋 Certificate Preview</div>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))", gap:10 }}>
-              {[
-                ["Equipment",    form.equipment_type],
-                ["Serial / ID",  form.serial_number],
-                hasLanyard && form.lanyard_serial_no ? ["Lanyard S/N", form.lanyard_serial_no] : null,
-                ["Client",       MOCK_CLIENTS.find(c=>c.id===form.client_id)?.company_name],
-                ["Location",     form.location],
-                ["SWL",          form.safe_working_load],
-                ["Cert Type",    form.cert_type],
-                ["Issue Date",   form.last_inspection_date],
-                ["Expiry Date",  form.next_inspection_date],
-              ].filter(Boolean).filter(([,v])=>v).map(([label,val])=>(
-                <div key={label}>
-                  <div style={{ fontSize:9, color:"rgba(255,255,255,0.3)", textTransform:"uppercase",
-                    letterSpacing:"0.08em", marginBottom:2 }}>{label}</div>
-                  <div style={{ fontSize:12, color:"#e2e8f0", fontWeight:600 }}>{val}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Actions */}
+        {/* ── Actions ── */}
         <div style={{ display:"flex", gap:12, justifyContent:"flex-end",
           paddingTop:16, borderTop:"1px solid rgba(102,126,234,0.12)" }}>
-          <button onClick={()=>setForm({...empty,equipment_type:"Safety Harness"})} style={{
+          <button type="button" onClick={handleClear} style={{
             padding:"11px 24px", borderRadius:8, cursor:"pointer", fontFamily:"inherit",
             fontWeight:700, background:"rgba(102,126,234,0.1)",
-            border:"1px solid rgba(102,126,234,0.25)", color:"#667eea", fontSize:13 }}>
+            border:"1px solid rgba(102,126,234,0.25)", color:"#667eea" }}>
             Clear Form
           </button>
-          <button onClick={()=>setSaved(true)} style={{
-            padding:"11px 28px", borderRadius:8, cursor:"pointer", fontFamily:"inherit",
-            fontWeight:700, background:"linear-gradient(135deg,#667eea,#764ba2)",
-            border:"none", color:"#fff", boxShadow:"0 0 20px rgba(102,126,234,0.4)", fontSize:13 }}>
-            Register Equipment
+          <button type="submit" disabled={loading||clientsLoading} style={{
+            padding:"11px 28px", borderRadius:8, cursor:loading?"wait":"pointer",
+            fontFamily:"inherit", fontWeight:700,
+            background:"linear-gradient(135deg,#667eea,#764ba2)",
+            border:"none", color:"#fff",
+            boxShadow:"0 0 20px rgba(102,126,234,0.4)", opacity:loading?0.7:1 }}>
+            {loading ? "Saving..." : "Register Equipment"}
           </button>
         </div>
-      </div>
-    </div>
+      </form>
+    </AppLayout>
   );
 }
