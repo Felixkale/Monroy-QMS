@@ -119,7 +119,6 @@ function extractCertificateData(text) {
     /model\s+no\.?\s*[:\-]\s*(.+)/i,
   ]);
 
-  // ── FIX: added "year of manufacture" pattern ──
   const yearBuilt = firstMatch(text, [
     /^YEAR\s+OF\s+MANUFACTURE\s+(.+)/im,
     /year\s+of\s+manufacture\s*[:\-]\s*(.+)/i,
@@ -127,13 +126,11 @@ function extractCertificateData(text) {
     /year\s+manufactured\s*[:\-]\s*(.+)/i,
   ]);
 
-  // ── NEW: capacity ──
   const capacity = firstMatch(text, [
     /^CAPACITY\s+(.+)/im,
     /capacity\s*[:\-]\s*(.+)/i,
   ]);
 
-  // ── NEW: country of origin ──
   const countryOfOrigin = firstMatch(text, [
     /^COUNTRY\s+OF\s+ORIGIN\s+(.+)/im,
     /country\s+of\s+origin\s*[:\-]\s*(.+)/i,
@@ -204,8 +201,8 @@ function extractCertificateData(text) {
     manufacturer, model,
     serial_number:serialNumber,
     year_built:yearBuilt,
-    capacity,                    // ── NEW
-    country_of_origin:countryOfOrigin, // ── NEW
+    capacity,
+    country_of_origin:countryOfOrigin,
     safe_working_load:swl, swl,
     working_pressure:mawp, mawp,
     issued_at:issueDate || new Date().toISOString().slice(0,10),
@@ -231,8 +228,8 @@ function sanitizeParsed(raw) {
     manufacturer:          sanitizeText(raw.manufacturer, 100),
     model:                 sanitizeText(raw.model, 100),
     year_built:            sanitizeText(raw.year_built, 20),
-    capacity:              sanitizeText(raw.capacity, 50),        // ── NEW
-    country_of_origin:     sanitizeText(raw.country_of_origin, 80), // ── NEW
+    capacity:              sanitizeText(raw.capacity, 50),
+    country_of_origin:     sanitizeText(raw.country_of_origin, 80),
     inspector_name:        sanitizeText(raw.inspector_name, 100),
     inspector_id:          sanitizeText(raw.inspector_id, 80),
     safe_working_load:     sanitizeText(raw.safe_working_load, 50),
@@ -302,6 +299,11 @@ async function getOrCreateEquipment(clientId, parsed) {
         safe_working_load:    parsed.safe_working_load    || undefined,
         working_pressure:     parsed.working_pressure     || undefined,
         inspector_name:       parsed.inspector_name       || undefined,
+        year_built:           parsed.year_built           || undefined,
+        capacity_volume:      parsed.capacity             || undefined,
+        country_of_origin:    parsed.country_of_origin    || undefined,
+        manufacturer:         parsed.manufacturer         || undefined,
+        model:                parsed.model                || undefined,
       }).eq("id", data.id);
       return data;
     }
@@ -321,6 +323,8 @@ async function getOrCreateEquipment(clientId, parsed) {
     next_inspection_date: parsed.next_inspection_date || null,
     license_status:       "valid",
     inspector_name:       parsed.inspector_name || null,
+    capacity_volume:      parsed.capacity       || null,
+    country_of_origin:    parsed.country_of_origin || null,
     notes:                "Imported from certificate",
   });
   if (error) throw error;
@@ -359,6 +363,11 @@ async function registerCertificate(equipmentId, clientName, parsed) {
     lanyard_serial_no:     parsed.lanyard_serial_no     || null,
     swl:                   parsed.swl                   || null,
     mawp:                  parsed.mawp                  || null,
+    capacity:              parsed.capacity              || null,
+    country_of_origin:     parsed.country_of_origin     || null,
+    year_built:            parsed.year_built             || null,
+    manufacturer:          parsed.manufacturer           || null,
+    model:                 parsed.model                  || null,
     equipment_status:      parsed.equipment_status      || "PASS",
     issued_at:             new Date(parsed.issued_at).toISOString(),
     valid_to:              parsed.valid_to              || null,
@@ -672,33 +681,34 @@ export default function BulkImportPage() {
                     borderRadius:8, display:"grid",
                     gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:8 }}>
                     {[
-                      ["Client",               item.parsed.company],
-                      ["Equipment",            item.parsed.asset_type],
-                      ["Location",             item.parsed.location],
-                      ["Identification No.",   item.parsed.identification_number],
-                      ["Inspection No.",       item.parsed.equipment_id],
-                      ["Lanyard Serial No.",   item.parsed.lanyard_serial_no],
-                      ["Manufacturer",         item.parsed.manufacturer],
-                      ["Model",                item.parsed.model],
-                      ["Year of Manufacture",  item.parsed.year_built],
-                      ["Country of Origin",    item.parsed.country_of_origin],
-                      ["Capacity",             item.parsed.capacity],
-                      ["SWL",                  item.parsed.swl],
-                      ["MAWP",                 item.parsed.mawp],
-                      ["Equipment Status",     item.parsed.equipment_status],
-                      ["Inspector",            inspectorName.trim() || item.parsed.inspector_name],
-                      ["Inspector ID",         inspectorId.trim()   || item.parsed.inspector_id],
-                      ["Last Inspection",      item.parsed.last_inspection_date],
-                      ["Next Inspection",      item.parsed.next_inspection_date],
+                      ["Client",              item.parsed.company],
+                      ["Equipment",           item.parsed.asset_type],
+                      ["Location",            item.parsed.location],
+                      ["Identification No.",  item.parsed.identification_number],
+                      ["Inspection No.",      item.parsed.equipment_id],
+                      ["Lanyard Serial No.",  item.parsed.lanyard_serial_no],
+                      ["Manufacturer",        item.parsed.manufacturer],
+                      ["Model",               item.parsed.model],
+                      ["Year of Manufacture", item.parsed.year_built],
+                      ["Country of Origin",   item.parsed.country_of_origin],
+                      ["Capacity",            item.parsed.capacity],
+                      ["SWL",                 item.parsed.swl],
+                      ["MAWP",                item.parsed.mawp],
+                      ["Equipment Status",    item.parsed.equipment_status],
+                      ["Inspector",           inspectorName.trim() || item.parsed.inspector_name],
+                      ["Inspector ID",        inspectorId.trim()   || item.parsed.inspector_id],
+                      ["Last Inspection",     item.parsed.last_inspection_date],
+                      ["Next Inspection",     item.parsed.next_inspection_date],
                     ].filter(([,v]) => v).map(([label, value]) => (
                       <div key={label}>
                         <div style={{ fontSize:9, fontWeight:700, color:"rgba(255,255,255,0.4)",
                           textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:2 }}>{label}</div>
-                        <div style={{ fontSize:12, color:
-                          label==="Equipment Status"
+                        <div style={{
+                          fontSize:12, fontWeight: label==="Equipment Status" ? 700 : 500,
+                          color: label==="Equipment Status"
                             ? value==="PASS" ? "#86efac" : value==="FAIL" ? "#f472b6" : "#fbbf24"
                             : "#e2e8f0",
-                          fontWeight: label==="Equipment Status" ? 700 : 500 }}>{value}</div>
+                        }}>{value}</div>
                       </div>
                     ))}
                     {signaturePreview && (
