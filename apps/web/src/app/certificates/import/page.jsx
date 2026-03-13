@@ -4,526 +4,116 @@ import { useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 import { registerEquipment } from "@/services/equipment";
+import {
+  sanitizeParsed,
+  validateParsed,
+  extractCertificateData,
+  mapParsedToEquipment,
+  mapParsedToCertificate,
+  normalizeText,
+} from "@/lib/certificateParser";
 
 const MAX_FILES = 20;
 const MAX_FILE_MB = 10;
 
-function sanitizeText(val, maxLen = 200) {
-  if (val === undefined || val === null) return "";
-  return String(val)
-    .replace(/<[^>]*>/g, "")
-    .replace(/[^\x20-\x7E\u00C0-\u024F]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maxLen);
-}
+const STATUS_STYLE = {
+  pending: {
+    bg: "rgba(148,163,184,0.1)",
+    color: "#94a3b8",
+    border: "rgba(148,163,184,0.3)",
+  },
+  extracting: {
+    bg: "rgba(251,191,36,0.1)",
+    color: "#fbbf24",
+    border: "rgba(251,191,36,0.3)",
+  },
+  extracted: {
+    bg: "rgba(99,102,241,0.1)",
+    color: "#818cf8",
+    border: "rgba(99,102,241,0.3)",
+  },
+  registering: {
+    bg: "rgba(251,191,36,0.1)",
+    color: "#fbbf24",
+    border: "rgba(251,191,36,0.3)",
+  },
+  done: {
+    bg: "rgba(16,185,129,0.1)",
+    color: "#86efac",
+    border: "rgba(16,185,129,0.3)",
+  },
+  error: {
+    bg: "rgba(244,114,182,0.1)",
+    color: "#f472b6",
+    border: "rgba(244,114,182,0.3)",
+  },
+};
 
-function normalizeText(value, fallback = "") {
-  if (value === undefined || value === null) return fallback;
-  return String(value).replace(/\s+/g, " ").trim() || fallback;
-}
+const inputStyle = {
+  width: "100%",
+  padding: "10px 14px",
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(124,92,252,0.3)",
+  borderRadius: 8,
+  color: "#e2e8f0",
+  fontSize: 13,
+  fontFamily: "inherit",
+  outline: "none",
+  boxSizing: "border-box",
+};
 
-function normalizeDate(value) {
-  if (!value) return null;
+const labelStyle = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: "rgba(255,255,255,0.5)",
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
+  marginBottom: 6,
+  display: "block",
+};
 
-  let text = String(value)
-    .trim()
-    .replace(/[.,;]+$/g, "")
-    .replace(/\s+/g, " ")
-    .replace(/\s*\/\s*/g, "/")
-    .replace(/\s*-\s*/g, "-");
+const sectionHead = {
+  fontSize: 11,
+  fontWeight: 800,
+  color: "#7c5cfc",
+  textTransform: "uppercase",
+  letterSpacing: "0.12em",
+  borderBottom: "1px solid rgba(124,92,252,0.2)",
+  paddingBottom: 8,
+  marginBottom: 16,
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+};
 
-  const ddmmyyyy = text.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-  if (ddmmyyyy) {
-    const [, dd, mm, yyyy] = ddmmyyyy;
-    return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
-  }
-
-  const yyyymmdd = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (yyyymmdd) {
-    const [, yyyy, mm, dd] = yyyymmdd;
-    return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
-  }
-
-  const d = new Date(text);
-  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-
-  return null;
-}
-
-function firstMatch(text, patterns = []) {
-  for (const p of patterns) {
-    const m = text.match(p);
-    if (m?.[1]) return normalizeText(m[1].replace(/\n.*/s, "").trim());
-  }
-  return "";
-}
-
-function cleanExtractedValue(value, maxLen = 200) {
-  if (!value) return "";
-  return String(value)
-    .replace(/[|]+/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/[.,;]+$/g, "")
-    .trim()
-    .slice(0, maxLen);
-}
-
-function escapeRegex(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function extractLabeledValue(text, labels = [], stopLabels = []) {
-  const allStops = stopLabels.length
-    ? stopLabels
-    : [
-        "Equipment owner",
-        "Client / Company",
-        "Client",
-        "Company",
-        "Location",
-        "Equipment location",
-        "Site",
-        "Serial no",
-        "Serial No",
-        "Serial number",
-        "Vessel Unique ID",
-        "Equipment ID",
-        "Identification number",
-        "Identification No",
-        "Lanyard Serial No",
-        "Manufacturer",
-        "Manufactured by",
-        "Model",
-        "Model No",
-        "Year of Manufacture",
-        "Year Built",
-        "Year Manufactured",
-        "Production Year",
-        "Year",
-        "Volume",
-        "Capacity",
-        "Country of Origin",
-        "Country",
-        "Competent person",
-        "Inspector Name",
-        "Inspector ID",
-        "Inspector ID No",
-        "Design Pressure",
-        "Design Pressure rating",
-        "Working Pressure",
-        "Actual working Pressure",
-        "MAWP",
-        "Test Pressure",
-        "Inspection Date",
-        "Date of Inspection",
-        "Issue Date",
-        "Date Issued",
-        "Next inspection Date",
-        "Next Inspection",
-        "Expiry Date",
-        "Valid To",
-        "Safe Working Load",
-        "SWL",
-        "Pressure Gauge No",
-        "Pressure Relief No",
-        "Test Type",
-        "Test Results",
-      ];
-
-  for (const label of labels) {
-    const labelPattern = escapeRegex(label).replace(/\s+/g, "\\s+");
-    const stopPattern = allStops
-      .map((s) => escapeRegex(s).replace(/\s+/g, "\\s+"))
-      .join("|");
-
-    const regex = new RegExp(
-      `${labelPattern}\\s*[:\\-]?\\s*(.+?)(?=\\s+(?:${stopPattern})\\b|$)`,
-      "i"
-    );
-
-    const match = text.match(regex);
-    if (match?.[1]) return cleanExtractedValue(match[1]);
-  }
-
-  return "";
-}
-
-function extractDateAfterLabel(text, labels = []) {
-  for (const label of labels) {
-    const labelPattern = escapeRegex(label).replace(/\s+/g, "\\s+");
-    const regex = new RegExp(
-      `${labelPattern}\\s*[:\\-]?\\s*(\\d{1,2}[\\/\\-]\\d{1,2}[\\/\\-]\\d{4})`,
-      "i"
-    );
-    const match = text.match(regex);
-    if (match?.[1]) return normalizeDate(match[1]);
-  }
-  return null;
-}
-
-function extractNumberWithUnit(text, labels = [], units = []) {
-  for (const label of labels) {
-    const labelPattern = escapeRegex(label).replace(/\s+/g, "\\s+");
-    const unitPattern = units.length
-      ? `(?:${units.map((u) => escapeRegex(u)).join("|")})`
-      : `[A-Za-z%°³/]+`;
-
-    const regex = new RegExp(
-      `${labelPattern}\\s*[:\\-]?\\s*(\\d+(?:[.,]\\d+)?\\s*${unitPattern})`,
-      "i"
-    );
-    const match = text.match(regex);
-    if (match?.[1]) return cleanExtractedValue(match[1]);
-  }
-  return "";
-}
-
-function detectEquipmentType(text) {
-  const checks = [
-    "Air Compressor",
-    "Pressure Vessel",
-    "Air Receiver",
-    "Boiler",
-    "Oil Separator",
-    "Trestle Jack",
-    "Trestle Stand",
-    "Lever Hoist",
-    "Bottle Jack",
-    "Safety Harness",
-    "Jack Stand",
-    "Chain Block",
-    "Bow Shackle",
-    "Mobile Crane",
-    "Overhead Crane",
-    "Trolley Jack",
-    "Step Ladder",
-    "Step Ladders",
-    "Tifor",
-    "Crawl Beam",
-    "Beam Crawl",
-    "Beam Clamp",
-    "Webbing Sling",
-    "Nylon Sling",
-    "Wire Sling",
-    "Wire Rope",
-    "Fall Arrest",
-    "Man Cage",
-    "Shutter Clamp",
-    "Drum Clamp",
-    "Scissor Lift",
-    "Axle Jack",
-    "Axile Jack",
-    "Personnel Basket",
-    "Load Cell",
-    "Trestle",
-    "Crane Truck",
-  ];
-
-  const lower = String(text || "").toLowerCase();
-
-  for (const item of checks) {
-    if (lower.includes(item.toLowerCase())) return item;
-  }
-
-  if (lower.includes("air compressor test certificate")) return "Air Compressor";
-  if (lower.includes("horizontal air receiver")) return "Air Receiver";
-  if (lower.includes("vertical air receiver")) return "Air Receiver";
-
-  return "";
-}
-
-function validateParsed(parsed) {
-  const errors = [];
-
-  if (!parsed.company || parsed.company.length < 2) {
-    errors.push("Company name too short or missing");
-  }
-
-  if (!parsed.asset_type || parsed.asset_type.length < 2) {
-    errors.push("Equipment type missing");
-  }
-
-  if (!parsed.serial_number && !parsed.equipment_id && !parsed.identification_number) {
-    errors.push("Serial number / equipment ID missing");
-  }
-
-  if (parsed.last_inspection_date && isNaN(new Date(parsed.last_inspection_date))) {
-    errors.push("Invalid inspection date");
-  }
-
-  if (parsed.next_inspection_date && isNaN(new Date(parsed.next_inspection_date))) {
-    errors.push("Invalid expiry date");
-  }
-
-  if (parsed.last_inspection_date && parsed.next_inspection_date) {
-    if (new Date(parsed.next_inspection_date) <= new Date(parsed.last_inspection_date)) {
-      errors.push("Expiry date must be after inspection date");
-    }
-  }
-
-  return errors;
-}
-
-function extractCertificateData(text) {
-  const normalizedText = String(text || "")
-    .replace(/\r/g, "\n")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{2,}/g, "\n")
-    .trim();
-
-  const company =
-    extractLabeledValue(normalizedText, [
-      "Equipment owner",
-      "Client / Company",
-      "Client",
-      "Company",
-    ]) || "";
-
-  const assetType =
-    extractLabeledValue(normalizedText, [
-      "Equipment",
-      "Equipment Description",
-      "Equipment Type",
-      "Description",
-      "Product",
-    ]) ||
-    detectEquipmentType(normalizedText) ||
-    "";
-
-  const location =
-    extractLabeledValue(normalizedText, [
-      "Equipment location",
-      "Location",
-      "Site",
-    ]) || "";
-
-  const equipmentLocation = location;
-
-  const serialNumber =
-    extractLabeledValue(normalizedText, [
-      "Serial number",
-      "Serial no",
-      "Serial No",
-      "S/N",
-    ]) || "";
-
-  const equipmentId =
-    extractLabeledValue(normalizedText, [
-      "Vessel Unique ID",
-      "Equipment ID",
-      "Identification number",
-      "Identification No",
-      "Inspection No",
-    ]) ||
-    serialNumber ||
-    "";
-
-  const identificationNumber =
-    extractLabeledValue(normalizedText, [
-      "Identification number",
-      "Identification No",
-      "Vessel Unique ID",
-    ]) ||
-    equipmentId ||
-    "";
-
-  const lanyardSerialNo =
-    extractLabeledValue(normalizedText, [
-      "Lanyard Serial No",
-      "Lanyard No",
-    ]) || "";
-
-  const manufacturer =
-    extractLabeledValue(normalizedText, [
-      "Manufacturer",
-      "Manufactured by",
-    ]) || "";
-
-  const model =
-    extractLabeledValue(normalizedText, [
-      "Model",
-      "Model No",
-      "Product",
-    ]) || "";
-
-  const yearBuilt =
-    extractLabeledValue(normalizedText, [
-      "Year of Manufacture",
-      "Year Built",
-      "Year Manufactured",
-      "Production Year",
-      "Year",
-    ]) || "";
-
-  const capacity =
-    extractNumberWithUnit(
-      normalizedText,
-      ["Capacity", "Volume"],
-      ["L", "LT", "LTR", "LITRES", "LITERS", "m3", "m³"]
-    ) ||
-    extractLabeledValue(normalizedText, ["Capacity", "Volume"]) ||
-    "";
-
-  const countryOfOrigin =
-    extractLabeledValue(normalizedText, [
-      "Country of Origin",
-      "Country",
-    ]) || "";
-
-  const swl =
-    extractNumberWithUnit(
-      normalizedText,
-      ["Safe Working Load", "SWL"],
-      ["kg", "ton", "tons", "t", "kN"]
-    ) ||
-    extractLabeledValue(normalizedText, ["Safe Working Load", "SWL"]) ||
-    "";
-
-  const mawp =
-    extractNumberWithUnit(
-      normalizedText,
-      ["Working Pressure", "Actual working Pressure", "MAWP"],
-      ["kPa", "Kpa", "bar", "MPa", "psi"]
-    ) ||
-    extractLabeledValue(normalizedText, [
-      "Working Pressure",
-      "Actual working Pressure",
-      "MAWP",
-    ]) ||
-    "";
-
-  const designPressure =
-    extractNumberWithUnit(
-      normalizedText,
-      ["Design Pressure", "Design Pressure rating"],
-      ["kPa", "Kpa", "bar", "MPa", "psi"]
-    ) || "";
-
-  const testPressure =
-    extractNumberWithUnit(
-      normalizedText,
-      ["Test Pressure", "Prest-Test Pressure", "Prest-Test Pressure"],
-      ["kPa", "Kpa", "bar", "MPa", "psi"]
-    ) || "";
-
-  const issueDate =
-    extractDateAfterLabel(normalizedText, [
-      "Inspection Date",
-      "Date of Inspection",
-      "Issue Date",
-      "Date Issued",
-      "Date",
-    ]) || null;
-
-  const expiryDate =
-    extractDateAfterLabel(normalizedText, [
-      "Next inspection Date",
-      "Next Inspection",
-      "Expiry Date",
-      "Valid To",
-    ]) || null;
-
-  const inspectorName =
-    extractLabeledValue(normalizedText, [
-      "Inspector Name",
-      "Inspector",
-      "Competent person",
-    ]) || "";
-
-  const inspectorId =
-    extractLabeledValue(normalizedText, [
-      "Inspector ID No",
-      "Inspector ID",
-      "Inspector No",
-    ]) || "";
-
-  const certificateType = firstMatch(normalizedText, [
-    /(load\s+test\s+certificate)/i,
-    /(pressure\s+test\s+certificate)/i,
-    /(air\s+compressor\s+test\s+certificate)/i,
-    /(certificate\s+of\s+statutory\s+inspection)/i,
-    /(inspection\s+certificate)/i,
-  ]);
-
-  const equipmentStatus = (
-    firstMatch(normalizedText, [
-      /test\s+results\s*\(?pass\/fail\)?\s*(PASS|FAIL|CONDITIONAL)/i,
-      /equipment\s+status\s*[:\-]?\s*(PASS|FAIL|CONDITIONAL)/i,
-      /status\s*[:\-]?\s*(PASS|FAIL|CONDITIONAL)/i,
-    ]) || "PASS"
-  ).toUpperCase();
-
-  const isPressure = [
-    "Pressure Vessel",
-    "Boiler",
-    "Air Receiver",
-    "Air Compressor",
-    "Oil Separator",
-  ].includes(assetType);
-
-  const certType =
-    certificateType ||
-    (isPressure ? "Pressure Test Certificate" : "Load Test Certificate");
-
-  return {
-    company,
-    asset_type: assetType,
-    certificate_type: certType,
-    equipment_description: assetType,
-    location,
-    equipment_location: equipmentLocation,
-    equipment_id: equipmentId,
-    identification_number: identificationNumber,
-    lanyard_serial_no: lanyardSerialNo,
-    manufacturer,
-    model,
-    serial_number: serialNumber || identificationNumber || equipmentId,
-    year_built: yearBuilt,
-    capacity,
-    country_of_origin: countryOfOrigin,
-    safe_working_load: swl,
-    swl,
-    working_pressure: mawp,
-    mawp,
-    design_pressure: designPressure,
-    test_pressure: testPressure,
-    issued_at: issueDate || new Date().toISOString().slice(0, 10),
-    last_inspection_date: issueDate || null,
-    valid_to: expiryDate || null,
-    next_inspection_date: expiryDate || null,
-    inspector_name: inspectorName,
-    inspector_id: inspectorId,
-    legal_framework: "Mines, Quarries, Works and Machinery Act Cap 44:02",
-    equipment_status: equipmentStatus,
+function StatusBadge({ status, message }) {
+  const s = STATUS_STYLE[status] || STATUS_STYLE.pending;
+  const labels = {
+    pending: "Pending",
+    extracting: "Extracting…",
+    extracted: "Extracted",
+    registering: "Registering…",
+    done: "Done ✓",
+    error: "Error",
   };
-}
 
-function sanitizeParsed(raw) {
-  return {
-    ...raw,
-    company: sanitizeText(raw.company, 100),
-    asset_type: sanitizeText(raw.asset_type, 100),
-    location: sanitizeText(raw.location, 200),
-    equipment_location: sanitizeText(raw.equipment_location, 200),
-    serial_number: sanitizeText(raw.serial_number, 80),
-    equipment_id: sanitizeText(raw.equipment_id, 80),
-    identification_number: sanitizeText(raw.identification_number, 80),
-    lanyard_serial_no: sanitizeText(raw.lanyard_serial_no, 80),
-    manufacturer: sanitizeText(raw.manufacturer, 100),
-    model: sanitizeText(raw.model, 100),
-    year_built: sanitizeText(raw.year_built, 20),
-    capacity: sanitizeText(raw.capacity, 50),
-    country_of_origin: sanitizeText(raw.country_of_origin, 80),
-    inspector_name: sanitizeText(raw.inspector_name, 100),
-    inspector_id: sanitizeText(raw.inspector_id, 80),
-    safe_working_load: sanitizeText(raw.safe_working_load, 50),
-    swl: sanitizeText(raw.swl, 50),
-    working_pressure: sanitizeText(raw.working_pressure, 50),
-    mawp: sanitizeText(raw.mawp, 50),
-    design_pressure: sanitizeText(raw.design_pressure, 50),
-    test_pressure: sanitizeText(raw.test_pressure, 50),
-  };
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "3px 10px",
+        borderRadius: 20,
+        fontSize: 11,
+        fontWeight: 700,
+        background: s.bg,
+        color: s.color,
+        border: `1px solid ${s.border}`,
+      }}
+      title={message || ""}
+    >
+      {labels[status] || status}
+    </span>
+  );
 }
 
 async function extractTextFromPdf(file) {
@@ -548,6 +138,7 @@ async function extractTextFromPdf(file) {
     }
 
     const sortedYs = [...lineMap.keys()].sort((a, b) => b - a);
+
     for (const y of sortedYs) {
       const lineText = lineMap
         .get(y)
@@ -604,57 +195,28 @@ async function getOrCreateClient(companyName) {
 }
 
 async function getOrCreateEquipment(clientId, parsed) {
-  if (parsed.serial_number || parsed.equipment_id) {
-    let q = supabase.from("assets").select("id,asset_tag,asset_name").eq("client_id", clientId);
+  const lookupSerial = parsed.serial_number || parsed.identification_number || parsed.equipment_id;
 
-    if (parsed.serial_number) q = q.eq("serial_number", parsed.serial_number);
-    else q = q.eq("asset_tag", parsed.equipment_id);
+  if (lookupSerial) {
+    const { data: existing } = await supabase
+      .from("assets")
+      .select("id,asset_tag,asset_name,serial_number")
+      .eq("client_id", clientId)
+      .eq("serial_number", lookupSerial)
+      .limit(1)
+      .maybeSingle();
 
-    const { data } = await q.limit(1).maybeSingle();
+    if (existing) {
+      const assetUpdate = mapParsedToEquipment(parsed, clientId);
 
-    if (data) {
-      await supabase
-        .from("assets")
-        .update({
-          serial_number: parsed.serial_number || undefined,
-          last_inspection_date: parsed.last_inspection_date || undefined,
-          next_inspection_date: parsed.next_inspection_date || undefined,
-          safe_working_load: parsed.safe_working_load || undefined,
-          working_pressure: parsed.working_pressure || undefined,
-          inspector_name: parsed.inspector_name || undefined,
-          year_built: parsed.year_built || undefined,
-          capacity_volume: parsed.capacity || undefined,
-          country_of_origin: parsed.country_of_origin || undefined,
-          manufacturer: parsed.manufacturer || undefined,
-          model: parsed.model || undefined,
-          location: parsed.location || undefined,
-        })
-        .eq("id", data.id);
-
-      return data;
+      await supabase.from("assets").update(assetUpdate).eq("id", existing.id);
+      return existing;
     }
   }
 
-  const { data: created, error } = await registerEquipment({
-    client_id: clientId,
-    asset_type: parsed.asset_type,
-    serial_number: parsed.serial_number || parsed.equipment_id || null,
-    manufacturer: parsed.manufacturer || "Unknown",
-    model: parsed.model || null,
-    year_built: parsed.year_built || null,
-    location: parsed.location || null,
-    cert_type: parsed.certificate_type,
-    safe_working_load: parsed.safe_working_load || null,
-    working_pressure: parsed.working_pressure || null,
-    last_inspection_date: parsed.last_inspection_date || null,
-    next_inspection_date: parsed.next_inspection_date || null,
-    license_status: "valid",
-    inspector_name: parsed.inspector_name || null,
-    capacity_volume: parsed.capacity || null,
-    country_of_origin: parsed.country_of_origin || null,
-    notes: "Imported from certificate",
-  });
+  const payload = mapParsedToEquipment(parsed, clientId);
 
+  const { data: created, error } = await registerEquipment(payload);
   if (error) throw error;
   return created;
 }
@@ -684,156 +246,43 @@ async function generateCertNumber(serialNumber, assetId) {
   return `${prefix}${String(nextSeq).padStart(2, "0")}`;
 }
 
-async function registerCertificate(equipmentId, clientName, parsed) {
-  const issuedAtIso = new Date(parsed.issued_at).toISOString();
+async function registerCertificate(assetId, clientName, parsed) {
+  const issuedAtIso = parsed.issued_at ? new Date(parsed.issued_at).toISOString() : null;
 
-  const { data: existing } = await supabase
-    .from("certificates")
-    .select("id")
-    .eq("asset_id", equipmentId)
-    .eq("issued_at", issuedAtIso)
-    .limit(1)
-    .maybeSingle();
+  if (issuedAtIso) {
+    const { data: existing } = await supabase
+      .from("certificates")
+      .select("id")
+      .eq("asset_id", assetId)
+      .eq("issued_at", issuedAtIso)
+      .limit(1)
+      .maybeSingle();
 
-  if (existing) return;
+    if (existing) return existing;
+  }
 
-  const certNumber = await generateCertNumber(parsed.serial_number, equipmentId);
+  const certNumber = await generateCertNumber(
+    parsed.serial_number || parsed.identification_number || parsed.equipment_id,
+    assetId
+  );
 
-  const { error } = await supabase.from("certificates").insert([
-    {
-      asset_id: equipmentId,
-      certificate_number: certNumber,
-      certificate_type: parsed.certificate_type || "Certificate of Statutory Inspection",
-      company: clientName,
-      equipment_description: parsed.equipment_description || parsed.asset_type,
-      equipment_location: parsed.equipment_location || parsed.location || null,
-      equipment_id:
-        parsed.identification_number ||
-        parsed.serial_number ||
-        parsed.equipment_id ||
-        null,
-      lanyard_serial_no: parsed.lanyard_serial_no || null,
-      swl: parsed.swl || parsed.safe_working_load || null,
-      mawp: parsed.mawp || parsed.working_pressure || null,
-      capacity: parsed.capacity || null,
-      country_of_origin: parsed.country_of_origin || null,
-      year_built: parsed.year_built || null,
-      manufacturer: parsed.manufacturer || null,
-      model: parsed.model || null,
-      equipment_status: parsed.equipment_status || "PASS",
-      issued_at: issuedAtIso,
-      valid_to: parsed.valid_to || null,
-      status: "issued",
-      legal_framework: parsed.legal_framework,
-      inspector_name: parsed.inspector_name || null,
-      inspector_id: parsed.inspector_id || null,
-      signature_url: parsed.signature_url || null,
-      logo_url: "/logo.png",
-    },
-  ]);
-
-  if (error) throw error;
-}
-
-const STATUS_STYLE = {
-  pending: {
-    bg: "rgba(148,163,184,0.1)",
-    color: "#94a3b8",
-    border: "rgba(148,163,184,0.3)",
-  },
-  extracting: {
-    bg: "rgba(251,191,36,0.1)",
-    color: "#fbbf24",
-    border: "rgba(251,191,36,0.3)",
-  },
-  extracted: {
-    bg: "rgba(99,102,241,0.1)",
-    color: "#818cf8",
-    border: "rgba(99,102,241,0.3)",
-  },
-  registering: {
-    bg: "rgba(251,191,36,0.1)",
-    color: "#fbbf24",
-    border: "rgba(251,191,36,0.3)",
-  },
-  done: {
-    bg: "rgba(16,185,129,0.1)",
-    color: "#86efac",
-    border: "rgba(16,185,129,0.3)",
-  },
-  error: {
-    bg: "rgba(244,114,182,0.1)",
-    color: "#f472b6",
-    border: "rgba(244,114,182,0.3)",
-  },
-};
-
-function StatusBadge({ status, message }) {
-  const s = STATUS_STYLE[status] || STATUS_STYLE.pending;
-  const labels = {
-    pending: "Pending",
-    extracting: "Extracting…",
-    extracted: "Extracted",
-    registering: "Registering…",
-    done: "Done ✓",
-    error: "Error",
+  const payload = {
+    ...mapParsedToCertificate(parsed, assetId, clientName),
+    certificate_number: certNumber,
+    signature_url: parsed.signature_url || null,
+    logo_url: "/logo.png",
+    pdf_url: parsed.pdf_url || null,
   };
 
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        padding: "3px 10px",
-        borderRadius: 20,
-        fontSize: 11,
-        fontWeight: 700,
-        background: s.bg,
-        color: s.color,
-        border: `1px solid ${s.border}`,
-      }}
-      title={message || ""}
-    >
-      {labels[status] || status}
-    </span>
-  );
+  const { data, error } = await supabase
+    .from("certificates")
+    .insert([payload])
+    .select("id")
+    .single();
+
+  if (error) throw error;
+  return data;
 }
-
-const inputStyle = {
-  width: "100%",
-  padding: "10px 14px",
-  background: "rgba(255,255,255,0.04)",
-  border: "1px solid rgba(124,92,252,0.3)",
-  borderRadius: 8,
-  color: "#e2e8f0",
-  fontSize: 13,
-  fontFamily: "inherit",
-  outline: "none",
-  boxSizing: "border-box",
-};
-
-const labelStyle = {
-  fontSize: 11,
-  fontWeight: 700,
-  color: "rgba(255,255,255,0.5)",
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  marginBottom: 6,
-  display: "block",
-};
-
-const sectionHead = {
-  fontSize: 11,
-  fontWeight: 800,
-  color: "#7c5cfc",
-  textTransform: "uppercase",
-  letterSpacing: "0.12em",
-  borderBottom: "1px solid rgba(124,92,252,0.2)",
-  paddingBottom: 8,
-  marginBottom: 16,
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-};
 
 export default function BulkImportPage() {
   const [files, setFiles] = useState([]);
@@ -916,7 +365,10 @@ export default function BulkImportPage() {
 
         updateFile(i, { status: "extracted", parsed });
       } catch (err) {
-        updateFile(i, { status: "error", error: err.message || "Extraction failed" });
+        updateFile(i, {
+          status: "error",
+          error: err.message || "Extraction failed",
+        });
       }
     }
 
@@ -959,10 +411,13 @@ export default function BulkImportPage() {
         const equipment = await getOrCreateEquipment(client.id, parsed);
         await registerCertificate(equipment.id, client.company_name, parsed);
 
-        updateFile(i, { status: "done" });
+        updateFile(i, { status: "done", parsed });
         successCount++;
       } catch (err) {
-        updateFile(i, { status: "error", error: err.message || "Registration failed" });
+        updateFile(i, {
+          status: "error",
+          error: err.message || "Registration failed",
+        });
       }
     }
 
@@ -970,7 +425,7 @@ export default function BulkImportPage() {
 
     if (successCount > 0) {
       setGlobalSuccess(
-        `${successCount} certificate${successCount > 1 ? "s" : ""} registered successfully!`
+        `${successCount} certificate${successCount > 1 ? "s" : ""} registered successfully and synced to equipment register!`
       );
     }
   }
@@ -985,8 +440,9 @@ export default function BulkImportPage() {
         <h1 style={{ color: "#fff", marginBottom: 6 }}>Bulk Import Certificates</h1>
         <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 28 }}>
           Upload multiple certificate PDFs at once (max {MAX_FILES} files, {MAX_FILE_MB}MB
-          each). Inspector details and signature entered here are applied to{" "}
-          <strong style={{ color: "#e2e8f0" }}>all</strong> certificates.
+          each). Inspector details and signature entered here are applied to all
+          certificates. Imported certificate data also updates the equipment register
+          automatically.
         </p>
 
         {globalError && (
@@ -1064,23 +520,7 @@ export default function BulkImportPage() {
           </div>
 
           <div>
-            <label style={labelStyle}>
-              Signature Image
-              <span
-                style={{
-                  marginLeft: 6,
-                  fontSize: 9,
-                  color: "#00f5c4",
-                  background: "rgba(0,245,196,0.1)",
-                  border: "1px solid rgba(0,245,196,0.3)",
-                  borderRadius: 4,
-                  padding: "1px 5px",
-                  fontWeight: 700,
-                }}
-              >
-                PNG / JPG / SVG
-              </span>
-            </label>
+            <label style={labelStyle}>Signature Image</label>
 
             <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
               <label
@@ -1277,33 +717,35 @@ export default function BulkImportPage() {
                       background: "rgba(255,255,255,0.03)",
                       borderRadius: 8,
                       display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))",
+                      gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))",
                       gap: 8,
                     }}
                   >
                     {[
                       ["Client", item.parsed.company],
-                      ["Equipment", item.parsed.asset_type],
+                      ["Asset Type", item.parsed.asset_type],
                       ["Location", item.parsed.location],
                       ["Equipment Location", item.parsed.equipment_location],
                       ["Serial Number", item.parsed.serial_number],
-                      ["Identification No.", item.parsed.identification_number],
                       ["Equipment ID", item.parsed.equipment_id],
-                      ["Lanyard Serial No.", item.parsed.lanyard_serial_no],
+                      ["Identification Number", item.parsed.identification_number],
+                      ["Inspection No", item.parsed.inspection_no],
+                      ["Lanyard Serial No", item.parsed.lanyard_serial_no],
                       ["Manufacturer", item.parsed.manufacturer],
                       ["Model", item.parsed.model],
-                      ["Year of Manufacture", item.parsed.year_built],
-                      ["Country of Origin", item.parsed.country_of_origin],
+                      ["Year Built", item.parsed.year_built],
                       ["Capacity", item.parsed.capacity],
+                      ["Country of Origin", item.parsed.country_of_origin],
                       ["SWL", item.parsed.swl],
-                      ["MAWP", item.parsed.mawp],
+                      ["Working Pressure", item.parsed.mawp],
                       ["Design Pressure", item.parsed.design_pressure],
                       ["Test Pressure", item.parsed.test_pressure],
+                      ["Certificate Type", item.parsed.certificate_type],
                       ["Equipment Status", item.parsed.equipment_status],
                       ["Inspector", inspectorName.trim() || item.parsed.inspector_name],
                       ["Inspector ID", inspectorId.trim() || item.parsed.inspector_id],
-                      ["Last Inspection", item.parsed.last_inspection_date],
-                      ["Next Inspection", item.parsed.next_inspection_date],
+                      ["Inspection Date", item.parsed.last_inspection_date],
+                      ["Expiry Date", item.parsed.next_inspection_date],
                     ]
                       .filter(([, v]) => v)
                       .map(([label, value]) => (
