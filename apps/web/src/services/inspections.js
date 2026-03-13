@@ -350,16 +350,6 @@ function InspectionsPageInner() {
                     position: "relative",
                     overflow: "hidden",
                   }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = `rgba(${rrgb},0.5)`;
-                    e.currentTarget.style.transform = "translateY(-2px)";
-                    e.currentTarget.style.background = `rgba(${rrgb},0.06)`;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = `rgba(${rrgb},0.2)`;
-                    e.currentTarget.style.transform = "translateY(0)";
-                    e.currentTarget.style.background = "linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))";
-                  }}
                 >
                   <div
                     style={{
