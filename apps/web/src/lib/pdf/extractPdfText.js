@@ -4,7 +4,7 @@ import * as pdfjsLib from "pdfjs-dist";
 
 // This makes the worker version match the installed pdfjs package version
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
+  'pdfjs-dist/build/pdf.worker.min.js',
   import.meta.url
 ).toString();
 
