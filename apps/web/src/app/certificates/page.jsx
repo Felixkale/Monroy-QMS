@@ -9,7 +9,6 @@ const STATUS_COLOR = {
   PASS:        { bg: "rgba(16,185,129,0.12)",  color: "#86efac", border: "rgba(16,185,129,0.35)" },
   FAIL:        { bg: "rgba(244,63,94,0.1)",    color: "#fda4af", border: "rgba(244,63,94,0.35)" },
   CONDITIONAL: { bg: "rgba(251,191,36,0.12)",  color: "#fde68a", border: "rgba(251,191,36,0.35)" },
-  // ✅ FIX: map "active"/"issued" to PASS display since manually created certs default to these
   ACTIVE:      { bg: "rgba(16,185,129,0.12)",  color: "#86efac", border: "rgba(16,185,129,0.35)" },
   ISSUED:      { bg: "rgba(16,185,129,0.12)",  color: "#86efac", border: "rgba(16,185,129,0.35)" },
 };
@@ -22,8 +21,8 @@ function normalizeStatus(val) {
 }
 
 function Badge({ rawStatus }) {
-  const key  = normalizeStatus(rawStatus);
-  const s    = STATUS_COLOR[key] || { bg: "rgba(148,163,184,0.1)", color: "#94a3b8", border: "rgba(148,163,184,0.3)" };
+  const key = normalizeStatus(rawStatus);
+  const s   = STATUS_COLOR[key] || { bg: "rgba(148,163,184,0.1)", color: "#94a3b8", border: "rgba(148,163,184,0.3)" };
   return (
     <span style={{
       display: "inline-block", padding: "3px 10px", borderRadius: 20,
@@ -45,7 +44,6 @@ function isExpired(val) {
   return new Date(val) < new Date();
 }
 
-// ── Confirm Delete Modal ──────────────────────────────────────────
 function DeleteModal({ cert, onCancel, onConfirm, deleting }) {
   return (
     <div style={{
@@ -90,7 +88,7 @@ export default function CertificatesPage() {
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState("");
   const [search,   setSearch]   = useState("");
-  const [toDelete, setToDelete] = useState(null);   // cert object pending delete
+  const [toDelete, setToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => { load(); }, []);
@@ -105,7 +103,9 @@ export default function CertificatesPage() {
           id, certificate_number, certificate_type,
           company, equipment_description, equipment_location,
           equipment_id, equipment_status, issued_at, valid_to,
-          status, inspector_name,
+          status, inspector_name, inspector_id,
+          lanyard_serial_no, capacity, country_of_origin,
+          year_built, manufacturer, model, swl, mawp,
           assets (
             id, asset_tag, asset_type, serial_number,
             clients ( company_name )
@@ -121,19 +121,16 @@ export default function CertificatesPage() {
     }
   }
 
-  // ✅ Delete certificate + its equipment asset
   async function handleDelete() {
     if (!toDelete) return;
     setDeleting(true);
     try {
-      // 1. Delete certificate first (FK references asset)
       const { error: certErr } = await supabase
         .from("certificates")
         .delete()
         .eq("id", toDelete.id);
       if (certErr) throw certErr;
 
-      // 2. Delete the asset if it exists
       if (toDelete.assets?.id) {
         const { error: assetErr } = await supabase
           .from("assets")
@@ -162,7 +159,10 @@ export default function CertificatesPage() {
       (c.equipment_id || "").toLowerCase().includes(q) ||
       (c.assets?.asset_tag || "").toLowerCase().includes(q) ||
       (c.assets?.clients?.company_name || "").toLowerCase().includes(q) ||
-      (c.certificate_type || "").toLowerCase().includes(q)
+      (c.certificate_type || "").toLowerCase().includes(q) ||
+      (c.manufacturer || "").toLowerCase().includes(q) ||
+      (c.model || "").toLowerCase().includes(q) ||
+      (c.country_of_origin || "").toLowerCase().includes(q)
     );
   });
 
@@ -222,7 +222,7 @@ export default function CertificatesPage() {
         {/* Search */}
         <div style={{ marginBottom: 16 }}>
           <input value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by company, equipment, certificate no, asset tag…"
+            placeholder="Search by company, equipment, certificate no, manufacturer, country…"
             style={{ width: "100%", padding: "11px 16px", borderRadius: 10, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(102,126,234,0.25)", color: "#e2e8f0", fontSize: 13, outline: "none", boxSizing: "border-box" }}
           />
         </div>
@@ -293,8 +293,14 @@ export default function CertificatesPage() {
                   <div>
                     <div style={{ color: "#e2e8f0", fontWeight: 600, fontSize: 13 }}>{company}</div>
                     <div style={{ color: "#64748b", fontSize: 11, marginTop: 2 }}>{equip}</div>
+                    {c.manufacturer && (
+                      <div style={{ color: "#475569", fontSize: 10, marginTop: 1 }}>🏭 {c.manufacturer}{c.model ? ` · ${c.model}` : ""}</div>
+                    )}
                     {c.equipment_location && (
                       <div style={{ color: "#475569", fontSize: 10, marginTop: 1 }}>📍 {c.equipment_location}</div>
+                    )}
+                    {c.country_of_origin && (
+                      <div style={{ color: "#475569", fontSize: 10, marginTop: 1 }}>🌍 {c.country_of_origin}{c.year_built ? ` · ${c.year_built}` : ""}</div>
                     )}
                   </div>
 
@@ -307,10 +313,8 @@ export default function CertificatesPage() {
                     {expired && <div style={{ fontSize: 9, color: "#fda4af", fontWeight: 700 }}>EXPIRED</div>}
                   </div>
 
-                  {/* ✅ Fixed: normalizes "active"/"issued" → PASS */}
                   <div><Badge rawStatus={c.equipment_status || c.status} /></div>
 
-                  {/* ✅ Actions: View + Print + Delete */}
                   <div style={{ display: "flex", gap: 5 }} onClick={(e) => e.stopPropagation()}>
                     <button onClick={() => router.push(`/certificates/${c.id}`)}
                       style={{ padding: "5px 9px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#e2e8f0", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
