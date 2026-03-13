@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect, Suspense, useMemo } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
-import { getInspections, getInspectionStats } from "@/services/inspections";
-import { getClientById } from "@/services/clients";
+import { supabase } from "@/lib/supabaseClient";
 
 const C = {
   green: "#00f5c4",
@@ -14,388 +13,364 @@ const C = {
   yellow: "#fbbf24",
 };
 
-const rgbaMap = {
-  [C.green]: "0,245,196",
-  [C.blue]: "79,195,247",
-  [C.purple]: "124,92,252",
-  [C.pink]: "244,114,182",
-  [C.yellow]: "251,191,36",
+const inputStyle = {
+  width: "100%",
+  padding: "11px 14px",
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(124,92,252,0.25)",
+  borderRadius: 10,
+  color: "#e2e8f0",
+  fontSize: 13,
+  fontFamily: "inherit",
+  outline: "none",
+  boxSizing: "border-box",
 };
 
-const resultColor = {
-  pass: C.green,
-  fail: C.pink,
-  conditional: C.yellow,
+const labelStyle = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: "#64748b",
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
+  marginBottom: 6,
+  display: "block",
 };
 
-const resultLabel = {
-  pass: "Pass",
-  fail: "Fail",
-  conditional: "Conditional",
-};
-
-function formatDate(value) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+function todayDateString() {
+  return new Date().toISOString().slice(0, 10);
 }
 
-function InspectionsPageInner() {
+export default function CreateInspectionPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const clientId = searchParams.get("client");
+  const preselectedClientId = searchParams.get("client");
 
-  const [inspections, setInspections] = useState([]);
-  const [stats, setStats] = useState({ total: 0, pass: 0, fail: 0, conditional: 0 });
-  const [client, setClient] = useState(null);
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("All");
-  const [loading, setLoading] = useState(true);
+  const [assets, setAssets] = useState([]);
+  const [loadingAssets, setLoadingAssets] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const [formData, setFormData] = useState({
+    asset_id: "",
+    inspection_number: "",
+    inspection_date: todayDateString(),
+    inspector_name: "",
+    result: "pass",
+    notes: "",
+  });
 
   useEffect(() => {
     let ignore = false;
 
-    async function load() {
-      setLoading(true);
+    async function loadAssets() {
+      setLoadingAssets(true);
       setError("");
 
       try {
-        const [inspRes, statsRes, clientRes] = await Promise.all([
-          getInspections(clientId),
-          getInspectionStats(clientId),
-          clientId ? getClientById(clientId) : Promise.resolve({ data: null }),
-        ]);
+        let q = supabase
+          .from("assets")
+          .select(`
+            id,
+            asset_tag,
+            asset_name,
+            asset_type,
+            client_id,
+            clients (
+              company_name
+            )
+          `)
+          .order("asset_tag", { ascending: true });
 
-        if (ignore) return;
-
-        if (inspRes?.error) {
-          throw new Error(inspRes.error.message || "Failed to load inspections.");
+        if (preselectedClientId) {
+          q = q.eq("client_id", preselectedClientId);
         }
 
-        setInspections(inspRes?.data || []);
-        setStats(statsRes || { total: 0, pass: 0, fail: 0, conditional: 0 });
-        setClient(clientRes?.data || null);
+        const { data, error } = await q;
+        if (error) throw error;
+
+        if (!ignore) {
+          setAssets(data || []);
+        }
       } catch (err) {
         if (!ignore) {
-          setError(err.message || "Failed to load inspections.");
-          setInspections([]);
-          setStats({ total: 0, pass: 0, fail: 0, conditional: 0 });
-          setClient(null);
+          setError(err.message || "Failed to load equipment.");
+          setAssets([]);
         }
       } finally {
-        if (!ignore) setLoading(false);
+        if (!ignore) setLoadingAssets(false);
       }
     }
 
-    load();
+    loadAssets();
 
     return () => {
       ignore = true;
     };
-  }, [clientId]);
+  }, [preselectedClientId]);
 
-  const filtered = useMemo(() => {
-    return inspections.filter((i) => {
-      const normalizedFilter = filter === "All" ? "all" : filter.toLowerCase();
-      const matchFilter = normalizedFilter === "all" || i.result === normalizedFilter;
+  const selectedAsset = useMemo(() => {
+    return assets.find((a) => a.id === formData.asset_id) || null;
+  }, [assets, formData.asset_id]);
 
-      const q = search.trim().toLowerCase();
-      const matchSearch =
-        !q ||
-        (i.inspection_number || "").toLowerCase().includes(q) ||
-        (i.assets?.asset_tag || "").toLowerCase().includes(q) ||
-        (i.assets?.asset_name || "").toLowerCase().includes(q) ||
-        (i.assets?.clients?.company_name || "").toLowerCase().includes(q) ||
-        (i.notes || "").toLowerCase().includes(q);
+  function handleChange(e) {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  }
 
-      return matchFilter && matchSearch;
-    });
-  }, [inspections, filter, search]);
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+    setSuccess("");
 
-  const title = client ? `Inspections — ${client.company_name}` : "Inspections";
+    try {
+      if (!formData.asset_id) {
+        throw new Error("Please select equipment.");
+      }
+
+      const payload = {
+        asset_id: formData.asset_id,
+        inspection_number: formData.inspection_number.trim() || null,
+        inspection_date: formData.inspection_date || null,
+        inspector_name: formData.inspector_name.trim() || null,
+        result: formData.result,
+        notes: formData.notes.trim() || null,
+      };
+
+      const { data, error } = await supabase
+        .from("inspections")
+        .insert(payload)
+        .select("id")
+        .single();
+
+      if (error) throw error;
+
+      setSuccess("Inspection created successfully.");
+
+      setTimeout(() => {
+        router.push(`/inspections/${data.id}`);
+      }, 500);
+    } catch (err) {
+      setError(err.message || "Failed to create inspection.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
-    <AppLayout title={title}>
-      {client && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, fontSize: 13 }}>
-          <a href="/clients" style={{ color: "#64748b", textDecoration: "none" }}>Clients</a>
-          <span style={{ color: "#64748b" }}>→</span>
-          <a href={`/clients/${clientId}`} style={{ color: "#64748b", textDecoration: "none" }}>
-            {client.company_name}
+    <AppLayout title="Create Inspection">
+      <div style={{ maxWidth: 760 }}>
+        <div style={{ marginBottom: 28 }}>
+          <a href="/inspections" style={{ color: "#64748b", fontSize: 13, textDecoration: "none", display: "inline-block", marginBottom: 10 }}>
+            ← Back to Inspections
           </a>
-          <span style={{ color: "#64748b" }}>→</span>
-          <span style={{ color: "#e2e8f0" }}>Inspections</span>
+
+          <h1
+            style={{
+              fontSize: "clamp(22px,4vw,32px)",
+              fontWeight: 900,
+              margin: 0,
+              background: `linear-gradient(90deg,#fff 30%,${C.green})`,
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+            }}
+          >
+            Create Inspection
+          </h1>
+
+          <p style={{ color: "#64748b", fontSize: 13, margin: "4px 0 0" }}>
+            Record a new inspection for equipment
+          </p>
         </div>
-      )}
 
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 12,
-          marginBottom: 24,
-        }}
-      >
-        <p style={{ color: "#64748b", fontSize: 13, margin: 0 }}>
-          {client ? `All inspections for ${client.company_name}` : "All equipment inspections"}
-        </p>
+        {error && (
+          <div
+            style={{
+              background: "rgba(244,114,182,0.1)",
+              border: "1px solid rgba(244,114,182,0.3)",
+              borderRadius: 12,
+              padding: "12px 16px",
+              marginBottom: 20,
+              color: C.pink,
+              fontSize: 13,
+            }}
+          >
+            ⚠️ {error}
+          </div>
+        )}
 
-        <div style={{ display: "flex", gap: 10 }}>
-          {clientId && (
-            <a
-              href={`/clients/${clientId}`}
+        {success && (
+          <div
+            style={{
+              background: "rgba(16,185,129,0.12)",
+              border: "1px solid rgba(16,185,129,0.35)",
+              borderRadius: 12,
+              padding: "12px 16px",
+              marginBottom: 20,
+              color: "#86efac",
+              fontSize: 13,
+            }}
+          >
+            ✅ {success}
+          </div>
+        )}
+
+        <form
+          onSubmit={handleSubmit}
+          style={{
+            background: "linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
+            border: "1px solid rgba(124,92,252,0.2)",
+            borderRadius: 18,
+            padding: "28px",
+          }}
+        >
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))", gap: 16, marginBottom: 24 }}>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label style={labelStyle}>Equipment *</label>
+              <select
+                style={{ ...inputStyle, cursor: "pointer" }}
+                name="asset_id"
+                value={formData.asset_id}
+                onChange={handleChange}
+                disabled={loadingAssets}
+                required
+              >
+                <option value="">
+                  {loadingAssets ? "Loading equipment..." : "Select equipment"}
+                </option>
+                {assets.map((asset) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.asset_tag} · {asset.asset_name || asset.asset_type || "Equipment"} · {asset.clients?.company_name || "No Client"}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Inspection Number</label>
+              <input
+                style={inputStyle}
+                type="text"
+                name="inspection_number"
+                placeholder="e.g. INS-2026-001"
+                value={formData.inspection_number}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Inspection Date *</label>
+              <input
+                style={inputStyle}
+                type="date"
+                name="inspection_date"
+                value={formData.inspection_date}
+                onChange={handleChange}
+                required
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Inspector Name *</label>
+              <input
+                style={inputStyle}
+                type="text"
+                name="inspector_name"
+                placeholder="Full name"
+                value={formData.inspector_name}
+                onChange={handleChange}
+                required
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Result *</label>
+              <select
+                style={{ ...inputStyle, cursor: "pointer" }}
+                name="result"
+                value={formData.result}
+                onChange={handleChange}
+              >
+                <option value="pass">Pass</option>
+                <option value="fail">Fail</option>
+                <option value="conditional">Conditional</option>
+              </select>
+            </div>
+          </div>
+
+          {selectedAsset && (
+            <div
               style={{
-                padding: "9px 16px",
-                borderRadius: 10,
-                textDecoration: "none",
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.1)",
-                color: "#94a3b8",
-                fontSize: 13,
-                fontWeight: 600,
+                marginBottom: 24,
+                padding: "12px 14px",
+                borderRadius: 12,
+                background: "rgba(79,195,247,0.08)",
+                border: "1px solid rgba(79,195,247,0.2)",
+                color: "#cbd5e1",
+                fontSize: 12,
               }}
             >
-              ← Back to Client
-            </a>
+              Selected equipment: <strong style={{ color: "#fff" }}>{selectedAsset.asset_tag}</strong>
+              {" · "}
+              {selectedAsset.asset_name || selectedAsset.asset_type || "Equipment"}
+              {" · "}
+              {selectedAsset.clients?.company_name || "No Client"}
+            </div>
           )}
 
-          <a
-            href={clientId ? `/inspections/create?client=${clientId}` : "/inspections/create"}
-            style={{
-              padding: "10px 18px",
-              borderRadius: 12,
-              textDecoration: "none",
-              background: `linear-gradient(135deg,${C.purple},${C.blue})`,
-              color: "#fff",
-              fontWeight: 700,
-              fontSize: 13,
-              boxShadow: `0 0 20px rgba(124,92,252,0.4)`,
-            }}
-          >
-            + New Inspection
-          </a>
-        </div>
-      </div>
-
-      {error && (
-        <div
-          style={{
-            background: "rgba(244,114,182,0.1)",
-            border: "1px solid rgba(244,114,182,0.3)",
-            borderRadius: 12,
-            padding: "12px 16px",
-            marginBottom: 20,
-            color: C.pink,
-            fontSize: 13,
-          }}
-        >
-          ⚠️ {error}
-        </div>
-      )}
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 14, marginBottom: 22 }}>
-        {[
-          { label: "Total", value: loading ? "…" : stats.total, color: C.blue },
-          { label: "Pass", value: loading ? "…" : stats.pass, color: C.green },
-          { label: "Conditional", value: loading ? "…" : stats.conditional, color: C.yellow },
-          { label: "Fail", value: loading ? "…" : stats.fail, color: C.pink },
-        ].map((s) => (
-          <div
-            key={s.label}
-            style={{
-              background: `rgba(${rgbaMap[s.color]},0.07)`,
-              border: `1px solid rgba(${rgbaMap[s.color]},0.25)`,
-              borderRadius: 14,
-              padding: "16px 18px",
-            }}
-          >
-            <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>
-              {s.label}
-            </div>
-            <div style={{ fontSize: 26, fontWeight: 900, color: s.color }}>{s.value}</div>
+          <div style={{ marginBottom: 24 }}>
+            <label style={labelStyle}>Notes & Observations</label>
+            <textarea
+              style={{ ...inputStyle, minHeight: 100, resize: "vertical" }}
+              name="notes"
+              placeholder="Any observations or notes..."
+              value={formData.notes}
+              onChange={handleChange}
+            />
           </div>
-        ))}
-      </div>
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by ID, equipment, client or notes…"
-          style={{
-            flex: "1 1 220px",
-            padding: "10px 16px",
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(124,92,252,0.3)",
-            borderRadius: 10,
-            color: "#e2e8f0",
-            fontSize: 13,
-            fontFamily: "inherit",
-            outline: "none",
-          }}
-        />
-
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {["All", "Pass", "Conditional", "Fail"].map((f) => (
+          <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
             <button
-              key={f}
-              onClick={() => setFilter(f)}
+              type="button"
+              onClick={() => router.back()}
               style={{
-                padding: "8px 14px",
-                borderRadius: 20,
-                fontSize: 12,
+                padding: "11px 24px",
+                borderRadius: 12,
                 cursor: "pointer",
                 fontFamily: "inherit",
-                fontWeight: 600,
-                background: filter === f ? "rgba(124,92,252,0.25)" : "rgba(255,255,255,0.04)",
-                border: filter === f ? `1px solid ${C.purple}` : "1px solid rgba(255,255,255,0.08)",
-                color: filter === f ? C.purple : "#94a3b8",
+                fontWeight: 700,
+                background: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                color: "#94a3b8",
               }}
             >
-              {f}
+              Cancel
             </button>
-          ))}
-        </div>
-      </div>
 
-      {loading && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14 }}>
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div
-              key={i}
+            <button
+              type="submit"
+              disabled={saving}
               style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                borderRadius: 14,
-                padding: "18px 20px",
-                height: 130,
+                padding: "11px 28px",
+                borderRadius: 12,
+                cursor: saving ? "not-allowed" : "pointer",
+                fontFamily: "inherit",
+                fontWeight: 700,
+                background: saving
+                  ? "rgba(255,255,255,0.1)"
+                  : `linear-gradient(135deg,${C.purple},${C.blue})`,
+                border: "none",
+                color: "#fff",
+                opacity: saving ? 0.7 : 1,
+                boxShadow: `0 0 20px rgba(124,92,252,0.4)`,
               }}
-            />
-          ))}
-        </div>
-      )}
-
-      {!loading && filtered.length === 0 && (
-        <div
-          style={{
-            textAlign: "center",
-            padding: "60px 20px",
-            background: "rgba(255,255,255,0.02)",
-            border: "1px solid rgba(124,92,252,0.15)",
-            borderRadius: 16,
-          }}
-        >
-          <div style={{ fontSize: 40, marginBottom: 12 }}>🔍</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0", marginBottom: 6 }}>
-            {search || filter !== "All" ? "No inspections match your search" : "No inspections recorded yet"}
+            >
+              {saving ? "Creating..." : "Create Inspection"}
+            </button>
           </div>
-          <div style={{ fontSize: 13, color: "#64748b" }}>
-            {client ? `No inspections found for ${client.company_name}` : "Start by creating a new inspection"}
-          </div>
-        </div>
-      )}
-
-      {!loading && filtered.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14 }}>
-          {filtered.map((insp) => {
-            const rc = resultColor[insp.result] || C.blue;
-            const rrgb = rgbaMap[rc] || "79,195,247";
-
-            return (
-              <a key={insp.id} href={`/inspections/${insp.id}`} style={{ textDecoration: "none" }}>
-                <div
-                  style={{
-                    background: "linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
-                    border: `1px solid rgba(${rrgb},0.2)`,
-                    borderRadius: 14,
-                    padding: "18px 20px",
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                    position: "relative",
-                    overflow: "hidden",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = `rgba(${rrgb},0.5)`;
-                    e.currentTarget.style.transform = "translateY(-2px)";
-                    e.currentTarget.style.background = `rgba(${rrgb},0.06)`;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = `rgba(${rrgb},0.2)`;
-                    e.currentTarget.style.transform = "translateY(0)";
-                    e.currentTarget.style.background = "linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))";
-                  }}
-                >
-                  <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg,${rc},transparent)` }} />
-
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-                    <div>
-                      <div style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>
-                        {insp.inspection_number || insp.id?.slice(0, 8)}
-                      </div>
-                      <div style={{ fontSize: 11, color: "#64748b" }}>
-                        {formatDate(insp.inspection_date)}
-                      </div>
-                    </div>
-
-                    {insp.result && (
-                      <span
-                        style={{
-                          padding: "3px 10px",
-                          borderRadius: 20,
-                          fontSize: 11,
-                          fontWeight: 700,
-                          background: `rgba(${rrgb},0.15)`,
-                          color: rc,
-                          border: `1px solid rgba(${rrgb},0.3)`,
-                          textTransform: "capitalize",
-                        }}
-                      >
-                        {resultLabel[insp.result] || insp.result}
-                      </span>
-                    )}
-                  </div>
-
-                  <div style={{ fontSize: 12, color: "#cbd5e1", marginBottom: 4 }}>
-                    ⚙️ Equipment: <strong>{insp.assets?.asset_tag || "—"}</strong>
-                  </div>
-
-                  <div style={{ fontSize: 12, color: "#64748b" }}>
-                    🏢 {insp.assets?.clients?.company_name || "—"}
-                  </div>
-
-                  {insp.notes && (
-                    <div style={{ fontSize: 11, color: "#475569", marginTop: 8, fontStyle: "italic" }}>
-                      {insp.notes.slice(0, 80)}
-                      {insp.notes.length > 80 ? "…" : ""}
-                    </div>
-                  )}
-                </div>
-              </a>
-            );
-          })}
-        </div>
-      )}
+        </form>
+      </div>
     </AppLayout>
-  );
-}
-
-export default function InspectionsPage() {
-  return (
-    <Suspense
-      fallback={
-        <div style={{ minHeight: "100vh", background: "#0f1419", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b" }}>
-          Loading…
-        </div>
-      }
-    >
-      <InspectionsPageInner />
-    </Suspense>
   );
 }
