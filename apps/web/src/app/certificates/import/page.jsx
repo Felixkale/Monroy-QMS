@@ -203,10 +203,10 @@ function sanitizeParsed(raw) {
   };
 }
 
+// ── ONLY THIS FUNCTION CHANGED (workerSrc line) ──────────────────
 async function extractTextFromPdf(file) {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.js");
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
   const buffer = await file.arrayBuffer();
   const pdf    = await pdfjsLib.getDocument({ data:buffer }).promise;
   let text = "";
@@ -230,7 +230,6 @@ async function extractTextFromPdf(file) {
   return text;
 }
 
-// ── Upload signature to Supabase Storage, return public URL ──────
 async function uploadSignature(file) {
   const ext  = file.name.split(".").pop();
   const path = `signatures/shared-${Date.now()}.${ext}`;
@@ -337,7 +336,6 @@ async function registerCertificate(equipmentId, clientName, parsed) {
   if (error) throw error;
 }
 
-// ── Status badge ─────────────────────────────────────────────────
 const STATUS_STYLE = {
   pending:     { bg:"rgba(148,163,184,0.1)", color:"#94a3b8", border:"rgba(148,163,184,0.3)" },
   extracting:  { bg:"rgba(251,191,36,0.1)",  color:"#fbbf24", border:"rgba(251,191,36,0.3)" },
