@@ -61,7 +61,7 @@ function detectEquipmentType(text) {
     "Trolley Jack","Step Ladders","Tifor","Crawl Beam","Beam Crawl","Beam Clamp",
     "Webbing Sling","Nylon Sling","Wire Sling","Wire Rope","Fall Arrest","Man Cage",
     "Shutter Clamp","Drum Clamp","Scissor Lift","Axile Jack","Personnel Basket",
-    "Load Cell","Trestle",
+    "Load Cell","Trestle","Crane Truck",
   ];
   const lower = text.toLowerCase();
   return checks.find(i => lower.includes(i.toLowerCase())) || "";
@@ -113,8 +113,32 @@ function extractCertificateData(text) {
   ]) || lanyardSerialNo || identificationNumber;
 
   const manufacturer = firstMatch(text, [/manufacturer\s*[:\-]\s*(.+)/i]);
-  const model        = firstMatch(text, [/model\s*[:\-]\s*(.+)/i,/model\s+no\.?\s*[:\-]\s*(.+)/i]);
-  const yearBuilt    = firstMatch(text, [/year\s+built\s*[:\-]\s*(.+)/i,/year\s+of\s+manufacture\s*[:\-]\s*(.+)/i]);
+
+  const model = firstMatch(text, [
+    /model\s*[:\-]\s*(.+)/i,
+    /model\s+no\.?\s*[:\-]\s*(.+)/i,
+  ]);
+
+  // ── FIX: added "year of manufacture" pattern ──
+  const yearBuilt = firstMatch(text, [
+    /^YEAR\s+OF\s+MANUFACTURE\s+(.+)/im,
+    /year\s+of\s+manufacture\s*[:\-]\s*(.+)/i,
+    /year\s+built\s*[:\-]\s*(.+)/i,
+    /year\s+manufactured\s*[:\-]\s*(.+)/i,
+  ]);
+
+  // ── NEW: capacity ──
+  const capacity = firstMatch(text, [
+    /^CAPACITY\s+(.+)/im,
+    /capacity\s*[:\-]\s*(.+)/i,
+  ]);
+
+  // ── NEW: country of origin ──
+  const countryOfOrigin = firstMatch(text, [
+    /^COUNTRY\s+OF\s+ORIGIN\s+(.+)/im,
+    /country\s+of\s+origin\s*[:\-]\s*(.+)/i,
+    /country\s*[:\-]\s*(.+)/i,
+  ]);
 
   const swl = firstMatch(text, [
     /^SWL\s+(.+)/im,
@@ -122,9 +146,13 @@ function extractCertificateData(text) {
     /\bSWL\s*[:\-]\s*(.+)/i,
   ]);
 
-  const mawp = firstMatch(text, [/\bMAWP\s*[:\-]\s*(.+)/i,/working\s+pressure\s*[:\-]\s*(.+)/i]);
+  const mawp = firstMatch(text, [
+    /^MAWP\s+(.+)/im,
+    /\bMAWP\s*[:\-]\s*(.+)/i,
+    /working\s+pressure\s*[:\-]\s*(.+)/i,
+  ]);
 
-  const issueDate  = normalizeDate(firstMatch(text, [
+  const issueDate = normalizeDate(firstMatch(text, [
     /^DATE\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/im,
     /\bDATE\s*[:\-]\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
     /issue\s+date\s*[:\-]\s*(.+)/i,
@@ -157,6 +185,7 @@ function extractCertificateData(text) {
   ]);
 
   const equipmentStatus = (firstMatch(text, [
+    /^EQUIPMENT\s+STATUS\s+(PASS|FAIL|CONDITIONAL)/im,
     /equipment\s+status\s*[:\-]?\s*(PASS|FAIL|CONDITIONAL)/i,
     /status\s*[:\-]?\s*(PASS|FAIL|CONDITIONAL)/i,
   ]) || "PASS").toUpperCase();
@@ -172,8 +201,13 @@ function extractCertificateData(text) {
     equipment_id:inspectionNo || identificationNumber,
     identification_number:identificationNumber,
     lanyard_serial_no:lanyardSerialNo,
-    manufacturer, model, serial_number:serialNumber, year_built:yearBuilt,
-    safe_working_load:swl, swl, working_pressure:mawp, mawp,
+    manufacturer, model,
+    serial_number:serialNumber,
+    year_built:yearBuilt,
+    capacity,                    // ── NEW
+    country_of_origin:countryOfOrigin, // ── NEW
+    safe_working_load:swl, swl,
+    working_pressure:mawp, mawp,
     issued_at:issueDate || new Date().toISOString().slice(0,10),
     last_inspection_date:issueDate || null,
     valid_to:expiryDate, next_inspection_date:expiryDate || null,
@@ -196,6 +230,9 @@ function sanitizeParsed(raw) {
     lanyard_serial_no:     sanitizeText(raw.lanyard_serial_no, 80),
     manufacturer:          sanitizeText(raw.manufacturer, 100),
     model:                 sanitizeText(raw.model, 100),
+    year_built:            sanitizeText(raw.year_built, 20),
+    capacity:              sanitizeText(raw.capacity, 50),        // ── NEW
+    country_of_origin:     sanitizeText(raw.country_of_origin, 80), // ── NEW
     inspector_name:        sanitizeText(raw.inspector_name, 100),
     inspector_id:          sanitizeText(raw.inspector_id, 80),
     safe_working_load:     sanitizeText(raw.safe_working_load, 50),
@@ -203,7 +240,6 @@ function sanitizeParsed(raw) {
   };
 }
 
-// ── ONLY THIS FUNCTION CHANGED (workerSrc line) ──────────────────
 async function extractTextFromPdf(file) {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.js");
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -634,24 +670,35 @@ export default function BulkImportPage() {
                 {item.parsed && (item.status==="extracted"||item.status==="done") && (
                   <div style={{ marginTop:12, padding:12, background:"rgba(255,255,255,0.03)",
                     borderRadius:8, display:"grid",
-                    gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:8 }}>
+                    gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:8 }}>
                     {[
-                      ["Client",             item.parsed.company],
-                      ["Equipment",          item.parsed.asset_type],
-                      ["Identification No.", item.parsed.identification_number],
-                      ["Lanyard Serial No.", item.parsed.lanyard_serial_no],
-                      ["Inspection No.",     item.parsed.equipment_id],
-                      ["Location",           item.parsed.location],
-                      ["SWL",                item.parsed.swl],
-                      ["Inspector",          inspectorName.trim() || item.parsed.inspector_name],
-                      ["Inspector ID",       inspectorId.trim()   || item.parsed.inspector_id],
-                      ["Last Inspection",    item.parsed.last_inspection_date],
-                      ["Next Inspection",    item.parsed.next_inspection_date],
+                      ["Client",               item.parsed.company],
+                      ["Equipment",            item.parsed.asset_type],
+                      ["Location",             item.parsed.location],
+                      ["Identification No.",   item.parsed.identification_number],
+                      ["Inspection No.",       item.parsed.equipment_id],
+                      ["Lanyard Serial No.",   item.parsed.lanyard_serial_no],
+                      ["Manufacturer",         item.parsed.manufacturer],
+                      ["Model",                item.parsed.model],
+                      ["Year of Manufacture",  item.parsed.year_built],
+                      ["Country of Origin",    item.parsed.country_of_origin],
+                      ["Capacity",             item.parsed.capacity],
+                      ["SWL",                  item.parsed.swl],
+                      ["MAWP",                 item.parsed.mawp],
+                      ["Equipment Status",     item.parsed.equipment_status],
+                      ["Inspector",            inspectorName.trim() || item.parsed.inspector_name],
+                      ["Inspector ID",         inspectorId.trim()   || item.parsed.inspector_id],
+                      ["Last Inspection",      item.parsed.last_inspection_date],
+                      ["Next Inspection",      item.parsed.next_inspection_date],
                     ].filter(([,v]) => v).map(([label, value]) => (
                       <div key={label}>
                         <div style={{ fontSize:9, fontWeight:700, color:"rgba(255,255,255,0.4)",
                           textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:2 }}>{label}</div>
-                        <div style={{ fontSize:12, color:"#e2e8f0", fontWeight:500 }}>{value}</div>
+                        <div style={{ fontSize:12, color:
+                          label==="Equipment Status"
+                            ? value==="PASS" ? "#86efac" : value==="FAIL" ? "#f472b6" : "#fbbf24"
+                            : "#e2e8f0",
+                          fontWeight: label==="Equipment Status" ? 700 : 500 }}>{value}</div>
                       </div>
                     ))}
                     {signaturePreview && (
