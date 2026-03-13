@@ -157,9 +157,13 @@ export default function EditCertificatePage() {
     equipment_description: "",
     equipment_location: "",
     equipment_id: "",
+    identification_number: "",
+    inspection_no: "",
     lanyard_serial_no: "",
     swl: "",
     mawp: "",
+    design_pressure: "",
+    test_pressure: "",
     capacity: "",
     year_built: "",
     manufacturer: "",
@@ -187,9 +191,14 @@ export default function EditCertificatePage() {
         asset_type,
         location,
         serial_number,
+        equipment_id,
+        identification_number,
+        inspection_no,
         lanyard_serial_no,
         safe_working_load,
         working_pressure,
+        design_pressure,
+        test_pressure,
         next_inspection_date,
         design_standard,
         year_built,
@@ -197,6 +206,8 @@ export default function EditCertificatePage() {
         manufacturer,
         model,
         country_of_origin,
+        inspector_name,
+        inspector_id,
         clients ( company_name )
       `)
       .order("created_at", { ascending: false })
@@ -233,9 +244,13 @@ export default function EditCertificatePage() {
           equipment_description: data.equipment_description || "",
           equipment_location: data.equipment_location || "",
           equipment_id: data.equipment_id || "",
+          identification_number: data.identification_number || "",
+          inspection_no: data.inspection_no || "",
           lanyard_serial_no: data.lanyard_serial_no || "",
           swl: data.swl || "",
           mawp: data.mawp || "",
+          design_pressure: data.design_pressure || "",
+          test_pressure: data.test_pressure || "",
           capacity: data.capacity || "",
           year_built: data.year_built || "",
           manufacturer: data.manufacturer || "",
@@ -286,17 +301,27 @@ export default function EditCertificatePage() {
         selectedAsset.asset_type || selectedAsset.asset_name || prev.equipment_description,
       equipment_location: selectedAsset.location || prev.equipment_location,
       equipment_id:
-        selectedAsset.serial_number || selectedAsset.asset_tag || prev.equipment_id,
+        selectedAsset.equipment_id ||
+        selectedAsset.serial_number ||
+        selectedAsset.asset_tag ||
+        prev.equipment_id,
+      identification_number:
+        selectedAsset.identification_number || prev.identification_number,
+      inspection_no: selectedAsset.inspection_no || prev.inspection_no,
       lanyard_serial_no:
         selectedAsset.lanyard_serial_no || prev.lanyard_serial_no,
       swl: type === "lift" ? selectedAsset.safe_working_load || prev.swl : prev.swl,
       mawp: type === "pv" ? selectedAsset.working_pressure || prev.mawp : prev.mawp,
+      design_pressure: selectedAsset.design_pressure || prev.design_pressure,
+      test_pressure: selectedAsset.test_pressure || prev.test_pressure,
       capacity: selectedAsset.capacity_volume || prev.capacity,
       year_built: selectedAsset.year_built || prev.year_built,
       manufacturer: selectedAsset.manufacturer || prev.manufacturer,
       model: selectedAsset.model || prev.model,
       country_of_origin:
         selectedAsset.country_of_origin || prev.country_of_origin,
+      inspector_name: selectedAsset.inspector_name || prev.inspector_name,
+      inspector_id: selectedAsset.inspector_id || prev.inspector_id,
       valid_to: prev.valid_to || formatDateInput(selectedAsset.next_inspection_date),
       legal_framework:
         prev.legal_framework || selectedAsset.design_standard || "",
@@ -384,9 +409,13 @@ export default function EditCertificatePage() {
         equipment_description: sanitizeText(form.equipment_description, 150),
         equipment_location: sanitizeText(form.equipment_location, 150) || null,
         equipment_id: sanitizeText(form.equipment_id, 80),
+        identification_number: sanitizeText(form.identification_number, 80) || null,
+        inspection_no: sanitizeText(form.inspection_no, 80) || null,
         lanyard_serial_no: sanitizeText(form.lanyard_serial_no, 80) || null,
         swl: sanitizeText(form.swl, 50) || null,
         mawp: sanitizeText(form.mawp, 50) || null,
+        design_pressure: sanitizeText(form.design_pressure, 50) || null,
+        test_pressure: sanitizeText(form.test_pressure, 50) || null,
         capacity: sanitizeText(form.capacity, 50) || null,
         year_built: sanitizeText(form.year_built, 20) || null,
         manufacturer: sanitizeText(form.manufacturer, 100) || null,
@@ -414,15 +443,24 @@ export default function EditCertificatePage() {
       if (form.asset_id) {
         const assetUpdate = {
           location: sanitizeText(form.equipment_location, 150) || null,
+          equipment_id: sanitizeText(form.equipment_id, 80) || null,
+          identification_number: sanitizeText(form.identification_number, 80) || null,
+          inspection_no: sanitizeText(form.inspection_no, 80) || null,
           lanyard_serial_no: sanitizeText(form.lanyard_serial_no, 80) || null,
           safe_working_load: sanitizeText(form.swl, 50) || null,
           working_pressure: sanitizeText(form.mawp, 50) || null,
+          design_pressure: sanitizeText(form.design_pressure, 50) || null,
+          test_pressure: sanitizeText(form.test_pressure, 50) || null,
           next_inspection_date: form.valid_to || null,
           year_built: sanitizeText(form.year_built, 20) || null,
           capacity_volume: sanitizeText(form.capacity, 50) || null,
           manufacturer: sanitizeText(form.manufacturer, 100) || null,
           model: sanitizeText(form.model, 100) || null,
           country_of_origin: sanitizeText(form.country_of_origin, 80) || null,
+          inspector_name: sanitizeText(form.inspector_name, 100) || null,
+          inspector_id: sanitizeText(form.inspector_id, 80) || null,
+          cert_type: sanitizeText(form.certificate_type, 100) || null,
+          design_standard: sanitizeText(form.legal_framework, 200) || null,
         };
 
         await supabase.from("assets").update(assetUpdate).eq("id", form.asset_id);
@@ -645,6 +683,7 @@ export default function EditCertificatePage() {
                   Certificate of Statutory Inspection
                 </option>
                 <option value="Inspection Certificate">Inspection Certificate</option>
+                <option value="Compliance Certificate">Compliance Certificate</option>
               </select>
             </div>
 
@@ -711,9 +750,23 @@ export default function EditCertificatePage() {
             />
 
             <Field
-              label="Equipment Serial No / ID"
+              label="Equipment ID / Serial"
               name="equipment_id"
               value={form.equipment_id}
+              onChange={handleChange}
+            />
+
+            <Field
+              label="Identification Number"
+              name="identification_number"
+              value={form.identification_number}
+              onChange={handleChange}
+            />
+
+            <Field
+              label="Inspection No."
+              name="inspection_no"
+              value={form.inspection_no}
               onChange={handleChange}
             />
 
@@ -760,6 +813,22 @@ export default function EditCertificatePage() {
               value={form.mawp}
               onChange={handleChange}
               placeholder="e.g. 1600 kPa"
+            />
+
+            <Field
+              label="Design Pressure"
+              name="design_pressure"
+              value={form.design_pressure}
+              onChange={handleChange}
+              placeholder="e.g. 1300 kPa"
+            />
+
+            <Field
+              label="Test Pressure"
+              name="test_pressure"
+              value={form.test_pressure}
+              onChange={handleChange}
+              placeholder="e.g. 1950 kPa"
             />
 
             <Field
