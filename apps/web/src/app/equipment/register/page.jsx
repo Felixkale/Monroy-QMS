@@ -274,7 +274,6 @@ export default function RegisterEquipmentPage() {
         equipment_location:    formData.location             || null,
         equipment_id:          formData.serial_number        || asset.asset_tag,
         lanyard_serial_no:     formData.lanyard_serial_no    || null,
-        // ── SWL stored as-is — no unit hardcoded ──
         swl:                   formData.safe_working_load    || null,
         mawp:                  formData.working_pressure     || null,
         equipment_status:      "PASS",
