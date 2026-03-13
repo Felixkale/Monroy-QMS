@@ -2,8 +2,6 @@
 const nextConfig = {
   reactStrictMode: true,
   experimental: {
-    // esmExternals: "loose" is required for pdfjs-dist.
-    // Remove if you stop using pdfjs-dist in the future.
     esmExternals: "loose",
   },
   typescript: {
@@ -21,9 +19,7 @@ const nextConfig = {
     ],
   },
   webpack: (config) => {
-    // Treat the PDF.js worker as a static file asset so Terser never
-    // tries to minify it (it uses ES module syntax that Terser rejects
-    // when processed as a plain script).
+    // 1. Emit the worker as a plain static file (no bundling).
     config.module.rules.push({
       test: /pdf\.worker\.(min\.)?mjs$/,
       type: "asset/resource",
@@ -31,6 +27,17 @@ const nextConfig = {
         filename: "static/worker/[hash][ext][query]",
       },
     });
+
+    // 2. Tell every Terser instance to skip any file whose output path
+    //    contains "pdf.worker" or lands in "static/worker/".
+    //    Without this, Terser re-processes the copied asset and chokes
+    //    on the ES-module import/export syntax inside it.
+    for (const minimizer of config.optimization?.minimizer ?? []) {
+      if (minimizer.constructor?.name === "TerserPlugin") {
+        minimizer.options.exclude = /pdf\.worker/i;
+      }
+    }
+
     return config;
   },
 };
