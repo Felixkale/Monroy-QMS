@@ -23,12 +23,14 @@ const fieldGroups = [
   {
     title: "Equipment Info",
     fields: [
-      { key: "asset_type",    label: "Equipment Type" },
-      { key: "serial_number", label: "Serial Number" },
-      { key: "manufacturer",  label: "Manufacturer" },
-      { key: "model",         label: "Model" },
-      { key: "year_built",    label: "Year Built" },
-      { key: "location",      label: "Location" },
+      { key: "asset_type",       label: "Equipment Type" },
+      { key: "serial_number",    label: "Serial Number" },
+      { key: "manufacturer",     label: "Manufacturer" },
+      { key: "model",            label: "Model" },
+      { key: "year_built",       label: "Year of Manufacture" },
+      { key: "country_of_origin",label: "Country of Origin" },
+      { key: "capacity_volume",  label: "Capacity" },
+      { key: "location",         label: "Location" },
     ],
   },
   {
@@ -40,7 +42,7 @@ const fieldGroups = [
       { key: "next_inspection_date", label: "Next Inspection Date", type: "date" },
       { key: "inspector_name",       label: "Inspector Name" },
       { key: "license_status",       label: "License Status", type: "select",
-        options: ["valid", "expired", "pending", "suspended"] },
+        options: ["valid", "expired", "expiring", "pending", "suspended"] },
     ],
   },
   {
@@ -55,15 +57,14 @@ export default function EditEquipmentPage() {
   const router = useRouter();
   const params = useParams();
 
-  const [assetTag, setAssetTag]   = useState(params?.tag || "");
-  const [assetId,  setAssetId]    = useState(null);
-  const [form,     setForm]       = useState({});
-  const [loading,  setLoading]    = useState(true);
-  const [saving,   setSaving]     = useState(false);
-  const [error,    setError]      = useState("");
-  const [success,  setSuccess]    = useState("");
+  const [assetTag, setAssetTag] = useState(params?.tag || "");
+  const [assetId,  setAssetId]  = useState(null);
+  const [form,     setForm]     = useState({});
+  const [loading,  setLoading]  = useState(true);
+  const [saving,   setSaving]   = useState(false);
+  const [error,    setError]    = useState("");
+  const [success,  setSuccess]  = useState("");
 
-  // ── Fetch existing equipment ──────────────────────────────────
   useEffect(() => {
     const tag = params?.tag;
     if (!tag) return;
@@ -83,19 +84,21 @@ export default function EditEquipmentPage() {
         setAssetId(data.id);
         setAssetTag(data.asset_tag);
         setForm({
-          asset_type:           data.asset_type           || "",
-          serial_number:        data.serial_number        || "",
-          manufacturer:         data.manufacturer         || "",
-          model:                data.model                || "",
-          year_built:           data.year_built           || "",
-          location:             data.location             || "",
-          safe_working_load:    data.safe_working_load    || "",
-          working_pressure:     data.working_pressure     || "",
-          last_inspection_date: data.last_inspection_date || "",
-          next_inspection_date: data.next_inspection_date || "",
-          inspector_name:       data.inspector_name       || "",
-          license_status:       data.license_status       || "valid",
-          notes:                data.notes                || "",
+          asset_type:            data.asset_type            || "",
+          serial_number:         data.serial_number         || "",
+          manufacturer:          data.manufacturer          || "",
+          model:                 data.model                 || "",
+          year_built:            data.year_built            || "",
+          country_of_origin:     data.country_of_origin     || "",
+          capacity_volume:       data.capacity_volume       || "",
+          location:              data.location              || "",
+          safe_working_load:     data.safe_working_load     || "",
+          working_pressure:      data.working_pressure      || "",
+          last_inspection_date:  data.last_inspection_date  || "",
+          next_inspection_date:  data.next_inspection_date  || "",
+          inspector_name:        data.inspector_name        || "",
+          license_status:        data.license_status        || "valid",
+          notes:                 data.notes                 || "",
         });
       }
       setLoading(false);
@@ -104,14 +107,12 @@ export default function EditEquipmentPage() {
     fetchEquipment();
   }, [params?.tag]);
 
-  // ── Navigation ────────────────────────────────────────────────
   function goBack() {
     const tag = assetTag || form.asset_tag;
     if (tag) router.push(`/equipment/${tag}`);
     else router.push("/equipment");
   }
 
-  // ── Form handlers ─────────────────────────────────────────────
   function handleChange(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
@@ -125,19 +126,21 @@ export default function EditEquipmentPage() {
     const { error: err } = await supabase
       .from("assets")
       .update({
-        asset_type:           form.asset_type           || null,
-        serial_number:        form.serial_number        || null,
-        manufacturer:         form.manufacturer         || null,
-        model:                form.model                || null,
-        year_built:           form.year_built           || null,
-        location:             form.location             || null,
-        safe_working_load:    form.safe_working_load    || null,
-        working_pressure:     form.working_pressure     || null,
-        last_inspection_date: form.last_inspection_date || null,
-        next_inspection_date: form.next_inspection_date || null,
-        inspector_name:       form.inspector_name       || null,
-        license_status:       form.license_status       || "valid",
-        notes:                form.notes                || null,
+        asset_type:            form.asset_type            || null,
+        serial_number:         form.serial_number         || null,
+        manufacturer:          form.manufacturer          || null,
+        model:                 form.model                 || null,
+        year_built:            form.year_built            || null,
+        country_of_origin:     form.country_of_origin     || null,
+        capacity_volume:       form.capacity_volume       || null,
+        location:              form.location              || null,
+        safe_working_load:     form.safe_working_load     || null,
+        working_pressure:      form.working_pressure      || null,
+        last_inspection_date:  form.last_inspection_date  || null,
+        next_inspection_date:  form.next_inspection_date  || null,
+        inspector_name:        form.inspector_name        || null,
+        license_status:        form.license_status        || "valid",
+        notes:                 form.notes                 || null,
       })
       .eq("id", assetId);
 
@@ -150,32 +153,24 @@ export default function EditEquipmentPage() {
     }
   }
 
-  // ── Render ────────────────────────────────────────────────────
   return (
     <AppLayout title="Edit Equipment">
       <div style={{ maxWidth: 760 }}>
 
-        {/* Back button */}
-        <button
-          onClick={goBack}
-          style={{
-            marginBottom: 20, padding: "9px 18px", borderRadius: 8,
-            border: "1px solid rgba(255,255,255,0.1)",
-            background: "rgba(255,255,255,0.05)",
-            color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
-          }}
-        >
+        <button onClick={goBack} style={{
+          marginBottom: 20, padding: "9px 18px", borderRadius: 8,
+          border: "1px solid rgba(255,255,255,0.1)",
+          background: "rgba(255,255,255,0.05)",
+          color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
+        }}>
           ← Back to Equipment
         </button>
 
-        <h1 style={{ color: "#fff", marginBottom: 6, marginTop: 0 }}>
-          Edit Equipment
-        </h1>
+        <h1 style={{ color: "#fff", marginBottom: 6, marginTop: 0 }}>Edit Equipment</h1>
         <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, marginBottom: 28 }}>
           {assetTag ? `Asset Tag: ${assetTag}` : "Loading…"}
         </p>
 
-        {/* Alerts */}
         {error && (
           <div style={{ background: "rgba(244,114,182,0.1)", border: "1px solid rgba(244,114,182,0.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 20, color: "#f472b6", fontSize: 13 }}>
             ⚠️ {error}
@@ -240,34 +235,23 @@ export default function EditEquipmentPage() {
               </div>
             ))}
 
-            {/* Action buttons */}
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                style={{
-                  padding: "12px 28px", borderRadius: 8, border: "none",
-                  background: saving
-                    ? "rgba(255,255,255,0.1)"
-                    : "linear-gradient(135deg,#667eea,#764ba2)",
-                  color: "#fff", fontWeight: 700, fontSize: 14,
-                  cursor: saving ? "not-allowed" : "pointer",
-                }}
-              >
+              <button onClick={handleSave} disabled={saving} style={{
+                padding: "12px 28px", borderRadius: 8, border: "none",
+                background: saving ? "rgba(255,255,255,0.1)" : "linear-gradient(135deg,#667eea,#764ba2)",
+                color: "#fff", fontWeight: 700, fontSize: 14,
+                cursor: saving ? "not-allowed" : "pointer",
+              }}>
                 {saving ? "Saving…" : "Save Changes"}
               </button>
 
-              <button
-                onClick={goBack}
-                disabled={saving}
-                style={{
-                  padding: "12px 28px", borderRadius: 8,
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  background: "rgba(255,255,255,0.05)",
-                  color: "#fff", fontWeight: 600, fontSize: 14,
-                  cursor: saving ? "not-allowed" : "pointer",
-                }}
-              >
+              <button onClick={goBack} disabled={saving} style={{
+                padding: "12px 28px", borderRadius: 8,
+                border: "1px solid rgba(255,255,255,0.1)",
+                background: "rgba(255,255,255,0.05)",
+                color: "#fff", fontWeight: 600, fontSize: 14,
+                cursor: saving ? "not-allowed" : "pointer",
+              }}>
                 Cancel
               </button>
             </div>
