@@ -116,7 +116,6 @@ function extractCertificateData(text) {
   const model        = firstMatch(text, [/model\s*[:\-]\s*(.+)/i,/model\s+no\.?\s*[:\-]\s*(.+)/i]);
   const yearBuilt    = firstMatch(text, [/year\s+built\s*[:\-]\s*(.+)/i,/year\s+of\s+manufacture\s*[:\-]\s*(.+)/i]);
 
-  // ── FIX: SWL stored as-is, no "Tons" appended ──
   const swl = firstMatch(text, [
     /^SWL\s+(.+)/im,
     /safe\s+working\s+load\s*[:\-]\s*(.+)/i,
@@ -141,7 +140,6 @@ function extractCertificateData(text) {
     /next\s+inspection\s+date\s*[:\-]\s*(.+)/i,
   ]));
 
-  // Inspector extracted from PDF but will be overridden by global fields if provided
   const inspectorName = firstMatch(text, [
     /inspector'?s?\s*name\s*[:\-]\s*(.+)/i,
     /inspector\s+name\s*[:\-]\s*(.+)/i,
@@ -206,7 +204,7 @@ function sanitizeParsed(raw) {
 }
 
 async function extractTextFromPdf(file) {
-  const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.js");
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
   const buffer = await file.arrayBuffer();
@@ -324,7 +322,7 @@ async function registerCertificate(equipmentId, clientName, parsed) {
     equipment_location:    parsed.equipment_location    || parsed.location || null,
     equipment_id:          parsed.identification_number || parsed.serial_number || parsed.equipment_id || null,
     lanyard_serial_no:     parsed.lanyard_serial_no     || null,
-    swl:                   parsed.swl                   || null,   // ← stored as-is, no "Tons" appended
+    swl:                   parsed.swl                   || null,
     mawp:                  parsed.mawp                  || null,
     equipment_status:      parsed.equipment_status      || "PASS",
     issued_at:             new Date(parsed.issued_at).toISOString(),
@@ -333,7 +331,7 @@ async function registerCertificate(equipmentId, clientName, parsed) {
     legal_framework:       parsed.legal_framework,
     inspector_name:        parsed.inspector_name        || null,
     inspector_id:          parsed.inspector_id          || null,
-    signature_url:         parsed.signature_url         || null,   // ← shared signature
+    signature_url:         parsed.signature_url         || null,
     logo_url:              "/logo.png",
   }]);
   if (error) throw error;
@@ -389,12 +387,11 @@ export default function BulkImportPage() {
   const [globalError,   setGlobalError]   = useState("");
   const [globalSuccess, setGlobalSuccess] = useState("");
 
-  // ── Shared fields applied to ALL certificates ──────────────────
-  const [inspectorName,   setInspectorName]   = useState("");
-  const [inspectorId,     setInspectorId]     = useState("");
-  const [signatureFile,   setSignatureFile]   = useState(null);   // File object
-  const [signaturePreview,setSignaturePreview]= useState("");     // data URL for preview
-  const [signatureUrl,    setSignatureUrl]    = useState("");     // uploaded public URL
+  const [inspectorName,    setInspectorName]    = useState("");
+  const [inspectorId,      setInspectorId]      = useState("");
+  const [signatureFile,    setSignatureFile]    = useState(null);
+  const [signaturePreview, setSignaturePreview] = useState("");
+  const [signatureUrl,     setSignatureUrl]     = useState("");
 
   function handleSignatureSelect(e) {
     const file = e.target.files?.[0];
@@ -403,7 +400,7 @@ export default function BulkImportPage() {
     const reader = new FileReader();
     reader.onload = ev => setSignaturePreview(ev.target.result);
     reader.readAsDataURL(file);
-    setSignatureUrl(""); // reset so it re-uploads on register
+    setSignatureUrl("");
   }
 
   function handleFileSelect(e) {
@@ -455,7 +452,6 @@ export default function BulkImportPage() {
     setGlobalSuccess("");
     let successCount = 0;
 
-    // Upload signature once if not yet uploaded
     let resolvedSigUrl = signatureUrl;
     if (signatureFile && !resolvedSigUrl) {
       try {
@@ -474,7 +470,6 @@ export default function BulkImportPage() {
       try {
         const parsed = {
           ...files[i].parsed,
-          // Override with global shared fields if provided
           inspector_name: inspectorName.trim() || files[i].parsed.inspector_name,
           inspector_id:   inspectorId.trim()   || files[i].parsed.inspector_id,
           signature_url:  resolvedSigUrl        || null,
@@ -537,7 +532,6 @@ export default function BulkImportPage() {
             </div>
           </div>
 
-          {/* Signature upload */}
           <div>
             <label style={labelStyle}>
               Signature Image
@@ -651,7 +645,6 @@ export default function BulkImportPage() {
                       ["Inspection No.",     item.parsed.equipment_id],
                       ["Location",           item.parsed.location],
                       ["SWL",                item.parsed.swl],
-                      // Show global inspector values if set, else fall back to extracted
                       ["Inspector",          inspectorName.trim() || item.parsed.inspector_name],
                       ["Inspector ID",       inspectorId.trim()   || item.parsed.inspector_id],
                       ["Last Inspection",    item.parsed.last_inspection_date],
@@ -663,7 +656,6 @@ export default function BulkImportPage() {
                         <div style={{ fontSize:12, color:"#e2e8f0", fontWeight:500 }}>{value}</div>
                       </div>
                     ))}
-                    {/* Signature indicator per card */}
                     {signaturePreview && (
                       <div>
                         <div style={{ fontSize:9, fontWeight:700, color:"rgba(255,255,255,0.4)",
