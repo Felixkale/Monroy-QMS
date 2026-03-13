@@ -18,24 +18,25 @@ const nextConfig = {
       },
     ],
   },
-  webpack: (config) => {
-    // 1. Emit the worker as a plain static file (no bundling).
-    config.module.rules.push({
-      test: /pdf\.worker\.(min\.)?mjs$/,
-      type: "asset/resource",
-      generator: {
-        filename: "static/worker/[hash][ext][query]",
-      },
-    });
+  webpack: (config, { isServer }) => {
+    // Only run on the client bundle.
+    if (!isServer) {
+      const CopyPlugin = require("copy-webpack-plugin");
 
-    // 2. Tell every Terser instance to skip any file whose output path
-    //    contains "pdf.worker" or lands in "static/worker/".
-    //    Without this, Terser re-processes the copied asset and chokes
-    //    on the ES-module import/export syntax inside it.
-    for (const minimizer of config.optimization?.minimizer ?? []) {
-      if (minimizer.constructor?.name === "TerserPlugin") {
-        minimizer.options.exclude = /pdf\.worker/i;
-      }
+      // Copy the pdf.js worker into public/ so Next.js serves it
+      // as a plain static file — completely bypassing Terser.
+      config.plugins.push(
+        new CopyPlugin({
+          patterns: [
+            {
+              from: require.resolve(
+                "pdfjs-dist/build/pdf.worker.min.mjs"
+              ),
+              to: "../../public/pdf.worker.min.mjs",
+            },
+          ],
+        })
+      );
     }
 
     return config;
