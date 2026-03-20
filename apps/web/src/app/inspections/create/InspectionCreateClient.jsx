@@ -1,245 +1,285 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
-import AppLayout from "@/components/AppLayout";
-import { supabase } from "@/lib/supabaseClient";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createInspectionWithCertificate } from "@/services/inspections";
 
-const C = {
-  green: "#00f5c4",
-  purple: "#7c5cfc",
-  blue: "#4fc3f7",
-  pink: "#f472b6",
-  yellow: "#fbbf24",
+const DEFAULT_FORM = {
+  asset_id: "",
+  inspection_date: "",
+  inspection_type: "",
+  status: "PASS",
+  equipment_status: "PASS",
+  result: "",
+  company: "",
+  equipment_description: "",
+  equipment_location: "",
+  equipment_id: "",
+  identification_number: "",
+  inspection_no: "",
+  lanyard_serial_no: "",
+  manufacturer: "",
+  model: "",
+  year_built: "",
+  country_of_origin: "",
+  capacity: "",
+  mawp: "",
+  design_pressure: "",
+  test_pressure: "",
+  swl: "",
+  proof_load: "",
+  lifting_height: "",
+  sling_length: "",
+  chain_size: "",
+  rope_diameter: "",
+  legal_framework: "",
+  inspector_name: "",
+  inspector_id: "",
+  logo_url: "",
+  signature_url: "",
+  issued_at: "",
+  valid_to: "",
 };
 
-const rgbaMap = {
-  [C.green]: "0,245,196",
-  [C.blue]: "79,195,247",
-  [C.purple]: "124,92,252",
-  [C.pink]: "244,114,182",
-  [C.yellow]: "251,191,36",
-};
-
-const resultColorMap = {
-  pass: C.green,
-  fail: C.pink,
-  conditional: C.yellow,
-};
-
-const resultLabelMap = {
-  pass: "Pass",
-  fail: "Fail",
-  conditional: "Conditional",
-};
-
-function formatDate(value) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-export default function InspectionDetailPage() {
-  const params = useParams();
+export default function InspectionCreateClient() {
   const router = useRouter();
+  const [form, setForm] = useState(DEFAULT_FORM);
+  const [saving, setSaving] = useState(false);
 
-  const [inspection, setInspection] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let ignore = false;
-
-    async function loadInspection() {
-      setLoading(true);
-      setError("");
-
-      try {
-        const { data, error } = await supabase
-          .from("inspections")
-          .select(`
-            id,
-            inspection_number,
-            inspection_date,
-            inspector_name,
-            result,
-            notes,
-            created_at,
-            assets (
-              id,
-              asset_tag,
-              asset_name,
-              asset_type,
-              serial_number,
-              clients (
-                id,
-                company_name
-              )
-            )
-          `)
-          .eq("id", params.id)
-          .single();
-
-        if (error) throw error;
-
-        if (!ignore) {
-          setInspection(data);
-        }
-      } catch (err) {
-        if (!ignore) {
-          setError(err.message || "Failed to load inspection.");
-          setInspection(null);
-        }
-      } finally {
-        if (!ignore) setLoading(false);
-      }
-    }
-
-    if (params?.id) {
-      loadInspection();
-    }
-
-    return () => {
-      ignore = true;
-    };
-  }, [params?.id]);
-
-  if (loading) {
-    return (
-      <AppLayout title="Inspection Details">
-        <div style={{ padding: "40px 0", color: "#64748b", textAlign: "center" }}>Loading inspection...</div>
-      </AppLayout>
-    );
+  function updateField(name, value) {
+    setForm((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
   }
 
-  if (error || !inspection) {
-    return (
-      <AppLayout title="Inspection Not Found">
-        <div style={{ textAlign: "center", padding: "60px 20px" }}>
-          <h2 style={{ color: "#fff", marginBottom: 10 }}>Inspection Not Found</h2>
-          <p style={{ color: "#64748b", marginBottom: 20 }}>
-            {error || "The requested inspection could not be found."}
-          </p>
-          <button
-            onClick={() => router.push("/inspections")}
-            style={{
-              padding: "10px 20px",
-              background: `linear-gradient(135deg,${C.purple},${C.blue})`,
-              color: "#fff",
-              border: "none",
-              borderRadius: 10,
-              cursor: "pointer",
-              fontFamily: "inherit",
-              fontWeight: 700,
-            }}
-          >
-            Back to Inspections
-          </button>
-        </div>
-      </AppLayout>
-    );
-  }
+  async function handleSubmit(e) {
+    e.preventDefault();
 
-  const resultKey = (inspection.result || "").toLowerCase();
-  const resultColor = resultColorMap[resultKey] || C.blue;
-  const resultLabel = resultLabelMap[resultKey] || inspection.result || "—";
+    try {
+      setSaving(true);
+
+      const { certificate } = await createInspectionWithCertificate(form);
+
+      alert("Inspection and certificate saved successfully.");
+      router.push(`/certificates/${certificate.id}`);
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Failed to save inspection and certificate.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
-    <AppLayout title={inspection.inspection_number || "Inspection Details"}>
-      <div style={{ maxWidth: 1000 }}>
-        <div style={{ marginBottom: 28 }}>
-          <a href="/inspections" style={{ color: "#64748b", fontSize: 13, textDecoration: "none", marginBottom: 10, display: "block" }}>
-            ← Back to Inspections
-          </a>
+    <div style={{ padding: 24 }}>
+      <h1 style={{ marginBottom: 20 }}>Create Inspection</h1>
 
-          <h1 style={{ fontSize: "clamp(22px,4vw,32px)", fontWeight: 900, margin: "0 0 8px", color: "#fff" }}>
-            {inspection.inspection_number || inspection.id}
-          </h1>
+      <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12, maxWidth: 900 }}>
+        <input
+          value={form.asset_id}
+          onChange={(e) => updateField("asset_id", e.target.value)}
+          placeholder="Asset ID"
+          required
+        />
 
-          <p style={{ color: "#64748b", margin: 0, fontSize: 13 }}>
-            Equipment {inspection.assets?.asset_tag || "—"} · {inspection.assets?.clients?.company_name || "—"}
-          </p>
-        </div>
+        <input
+          type="date"
+          value={form.inspection_date}
+          onChange={(e) => updateField("inspection_date", e.target.value)}
+        />
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 12, marginBottom: 28 }}>
-          {[
-            { label: "Equipment", value: inspection.assets?.asset_tag || "—", color: C.blue },
-            { label: "Inspector", value: inspection.inspector_name || "—", color: C.purple },
-            { label: "Date", value: formatDate(inspection.inspection_date), color: C.green },
-            { label: "Result", value: resultLabel, color: resultColor },
-          ].map((s) => (
-            <div
-              key={s.label}
-              style={{
-                background: `rgba(${rgbaMap[s.color]},0.07)`,
-                border: `1px solid rgba(${rgbaMap[s.color]},0.25)`,
-                borderRadius: 14,
-                padding: "16px 18px",
-              }}
-            >
-              <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>
-                {s.label}
-              </div>
-              <div style={{ fontSize: 18, fontWeight: 900, color: s.color }}>{s.value}</div>
-            </div>
-          ))}
-        </div>
+        <input
+          value={form.inspection_type}
+          onChange={(e) => updateField("inspection_type", e.target.value)}
+          placeholder="Inspection Type"
+        />
 
-        <div
-          style={{
-            background: "linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
-            border: "1px solid rgba(124,92,252,0.2)",
-            borderRadius: 16,
-            padding: "20px",
-            marginBottom: 20,
+        <select
+          value={form.status}
+          onChange={(e) => {
+            updateField("status", e.target.value);
+            updateField("equipment_status", e.target.value);
           }}
         >
-          <h2 style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 12 }}>Equipment Details</h2>
-          <div style={{ color: "#cbd5e1", fontSize: 13, lineHeight: 1.8 }}>
-            <div><strong style={{ color: "#fff" }}>Asset Tag:</strong> {inspection.assets?.asset_tag || "—"}</div>
-            <div><strong style={{ color: "#fff" }}>Asset Name:</strong> {inspection.assets?.asset_name || "—"}</div>
-            <div><strong style={{ color: "#fff" }}>Asset Type:</strong> {inspection.assets?.asset_type || "—"}</div>
-            <div><strong style={{ color: "#fff" }}>Serial Number:</strong> {inspection.assets?.serial_number || "—"}</div>
-            <div><strong style={{ color: "#fff" }}>Client:</strong> {inspection.assets?.clients?.company_name || "—"}</div>
-          </div>
-        </div>
+          <option value="PASS">PASS</option>
+          <option value="FAIL">FAIL</option>
+          <option value="CONDITIONAL PASS">CONDITIONAL PASS</option>
+          <option value="REPAIR">REPAIR</option>
+        </select>
 
-        <div
-          style={{
-            background: "linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))",
-            border: "1px solid rgba(124,92,252,0.2)",
-            borderRadius: 16,
-            padding: "20px",
-            marginBottom: 20,
-          }}
-        >
-          <h2 style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 12 }}>Notes & Observations</h2>
-          <p style={{ color: "#cbd5e1", fontSize: 13, lineHeight: 1.6, margin: 0 }}>
-            {inspection.notes || "No notes recorded."}
-          </p>
-        </div>
+        <input
+          value={form.company}
+          onChange={(e) => updateField("company", e.target.value)}
+          placeholder="Company"
+        />
 
-        <div
-          style={{
-            background: "linear-gradient(135deg,rgba(0,245,196,0.05),rgba(79,195,247,0.04))",
-            border: "1px solid rgba(79,195,247,0.18)",
-            borderRadius: 16,
-            padding: "20px",
-          }}
-        >
-          <h2 style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 12 }}>Record Info</h2>
-          <div style={{ color: "#cbd5e1", fontSize: 13, lineHeight: 1.8 }}>
-            <div><strong style={{ color: "#fff" }}>Inspection Number:</strong> {inspection.inspection_number || "—"}</div>
-            <div><strong style={{ color: "#fff" }}>Created:</strong> {formatDate(inspection.created_at)}</div>
-            <div><strong style={{ color: "#fff" }}>Database ID:</strong> {inspection.id}</div>
-          </div>
-        </div>
-      </div>
-    </AppLayout>
+        <input
+          value={form.equipment_description}
+          onChange={(e) => updateField("equipment_description", e.target.value)}
+          placeholder="Equipment Description"
+        />
+
+        <input
+          value={form.equipment_location}
+          onChange={(e) => updateField("equipment_location", e.target.value)}
+          placeholder="Equipment Location"
+        />
+
+        <input
+          value={form.equipment_id}
+          onChange={(e) => updateField("equipment_id", e.target.value)}
+          placeholder="Equipment ID"
+        />
+
+        <input
+          value={form.identification_number}
+          onChange={(e) => updateField("identification_number", e.target.value)}
+          placeholder="Identification Number"
+        />
+
+        <input
+          value={form.inspection_no}
+          onChange={(e) => updateField("inspection_no", e.target.value)}
+          placeholder="Inspection Number"
+        />
+
+        <input
+          value={form.lanyard_serial_no}
+          onChange={(e) => updateField("lanyard_serial_no", e.target.value)}
+          placeholder="Lanyard Serial Number"
+        />
+
+        <input
+          value={form.manufacturer}
+          onChange={(e) => updateField("manufacturer", e.target.value)}
+          placeholder="Manufacturer"
+        />
+
+        <input
+          value={form.model}
+          onChange={(e) => updateField("model", e.target.value)}
+          placeholder="Model"
+        />
+
+        <input
+          value={form.year_built}
+          onChange={(e) => updateField("year_built", e.target.value)}
+          placeholder="Year Built"
+        />
+
+        <input
+          value={form.country_of_origin}
+          onChange={(e) => updateField("country_of_origin", e.target.value)}
+          placeholder="Country of Origin"
+        />
+
+        <input
+          value={form.capacity}
+          onChange={(e) => updateField("capacity", e.target.value)}
+          placeholder="Capacity / Volume"
+        />
+
+        <input
+          value={form.mawp}
+          onChange={(e) => updateField("mawp", e.target.value)}
+          placeholder="MAWP"
+        />
+
+        <input
+          value={form.design_pressure}
+          onChange={(e) => updateField("design_pressure", e.target.value)}
+          placeholder="Design Pressure"
+        />
+
+        <input
+          value={form.test_pressure}
+          onChange={(e) => updateField("test_pressure", e.target.value)}
+          placeholder="Test Pressure"
+        />
+
+        <input
+          value={form.swl}
+          onChange={(e) => updateField("swl", e.target.value)}
+          placeholder="Safe Working Load"
+        />
+
+        <input
+          value={form.proof_load}
+          onChange={(e) => updateField("proof_load", e.target.value)}
+          placeholder="Proof Load"
+        />
+
+        <input
+          value={form.lifting_height}
+          onChange={(e) => updateField("lifting_height", e.target.value)}
+          placeholder="Lifting Height"
+        />
+
+        <input
+          value={form.sling_length}
+          onChange={(e) => updateField("sling_length", e.target.value)}
+          placeholder="Sling Length"
+        />
+
+        <input
+          value={form.chain_size}
+          onChange={(e) => updateField("chain_size", e.target.value)}
+          placeholder="Chain Size"
+        />
+
+        <input
+          value={form.rope_diameter}
+          onChange={(e) => updateField("rope_diameter", e.target.value)}
+          placeholder="Rope Diameter"
+        />
+
+        <input
+          value={form.legal_framework}
+          onChange={(e) => updateField("legal_framework", e.target.value)}
+          placeholder="Legal Framework"
+        />
+
+        <input
+          value={form.inspector_name}
+          onChange={(e) => updateField("inspector_name", e.target.value)}
+          placeholder="Inspector Name"
+        />
+
+        <input
+          value={form.inspector_id}
+          onChange={(e) => updateField("inspector_id", e.target.value)}
+          placeholder="Inspector ID"
+        />
+
+        <input
+          value={form.logo_url}
+          onChange={(e) => updateField("logo_url", e.target.value)}
+          placeholder="Logo URL"
+        />
+
+        <input
+          value={form.signature_url}
+          onChange={(e) => updateField("signature_url", e.target.value)}
+          placeholder="Signature URL"
+        />
+
+        <input
+          type="date"
+          value={form.issued_at}
+          onChange={(e) => updateField("issued_at", e.target.value)}
+        />
+
+        <input
+          type="date"
+          value={form.valid_to}
+          onChange={(e) => updateField("valid_to", e.target.value)}
+        />
+
+        <button type="submit" disabled={saving}>
+          {saving ? "Saving..." : "Save Inspection"}
+        </button>
+      </form>
+    </div>
   );
 }
