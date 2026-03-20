@@ -1,16 +1,14 @@
 "use client";
 
-import * as pdfjsLib from "pdfjs-dist";
+import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import {
   extractCertificateData,
   sanitizeParsed,
   validateParsed,
 } from "@/lib/certificateParser";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.js",
-  import.meta.url
-).toString();
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
 function normalizeText(text = "") {
   return String(text)
@@ -25,7 +23,7 @@ export async function extractTextFromPdf(file) {
 
   const pdf = await pdfjsLib.getDocument({
     data: arrayBuffer,
-    useWorkerFetch: false,
+    useWorkerFetch: true,
     isEvalSupported: false,
   }).promise;
 
