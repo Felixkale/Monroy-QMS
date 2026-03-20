@@ -1,28 +1,25 @@
-export async function extractNameplateData(file) {
-  const formData = new FormData();
-  formData.append("file", file);
+import OpenAI from "openai";
 
-  const response = await fetch("/api/extract-nameplate", {
-    method: "POST",
-    body: formData,
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+export async function extractNameplateData(imageUrl) {
+  const res = await client.responses.create({
+    model: "gpt-4o-mini",
+    input: [
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: "Extract all equipment nameplate data as JSON." },
+          {
+            type: "input_image",
+            image_url: imageUrl,
+          },
+        ],
+      },
+    ],
   });
 
-  const text = await response.text();
-
-  if (!response.ok) {
-    let message = "Failed to extract nameplate data.";
-    try {
-      const parsed = JSON.parse(text);
-      message = parsed.error || message;
-    } catch {
-      message = text || message;
-    }
-    throw new Error(message);
-  }
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error("AI returned invalid JSON.");
-  }
+  return res.output[0].content[0].text;
 }
