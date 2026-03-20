@@ -1,374 +1,327 @@
 import { supabase } from "@/lib/supabaseClient";
 
-const CERTIFICATE_SELECT = `
-  id,
-  certificate_number,
-  certificate_type,
-  asset_id,
-  company,
-  equipment_description,
-  equipment_location,
-  equipment_id,
-  swl,
-  mawp,
-  equipment_status,
-  issued_at,
-  valid_to,
-  status,
-  legal_framework,
-  inspector_name,
-  inspector_id,
-  signature_url,
-  logo_url,
-  pdf_url,
-  created_at,
-  updated_at,
-  assets (
-    id,
-    client_id,
-    asset_tag,
-    asset_name,
-    asset_type,
-    manufacturer,
-    model,
-    serial_number,
-    year_built,
-    location,
-    department,
-    cert_type,
-    design_standard,
-    inspection_freq,
-    shell_material,
-    fluid_type,
-    design_pressure,
-    working_pressure,
-    test_pressure,
-    design_temperature,
-    capacity_volume,
-    safe_working_load,
-    proof_load,
-    lifting_height,
-    sling_length,
-    chain_size,
-    rope_diameter,
-    last_inspection_date,
-    next_inspection_date,
-    license_status,
-    license_expiry,
-    condition,
-    status,
-    notes,
-    inspector_name,
-    inspector_signature_url,
-    clients (
-      id,
-      company_name,
-      company_code
-    )
-  )
-`;
-
-function notConfigured(defaultData = null) {
-  return { data: defaultData, error: { message: "Supabase not configured" } };
-}
-
-function normalizeText(value, fallback = null) {
+function clean(value, fallback = null) {
   if (value === undefined || value === null) return fallback;
   const text = String(value).trim();
   return text === "" ? fallback : text;
 }
 
-function normalizeDate(value) {
-  if (!value) return null;
-  return String(value).slice(0, 10);
+function normalizeStatus(value) {
+  const v = String(value || "").trim().toUpperCase();
+  if (["PASS", "FAIL", "CONDITIONAL PASS", "REPAIR"].includes(v)) return v;
+  return "PASS";
 }
 
-function withUnit(value, unit) {
-  if (value === undefined || value === null) return null;
-  const text = String(value).trim();
-  if (!text) return null;
-  if (text.toLowerCase().includes(unit.toLowerCase())) return text;
-  return `${text} ${unit}`;
-}
+function normalizeCertificateType(assetType = "", inspectionType = "") {
+  const source = `${assetType} ${inspectionType}`.toLowerCase();
 
-function mapCertificateRow(row) {
-  if (!row) return null;
-
-  const validTo = row.valid_to ? String(row.valid_to).slice(0, 10) : null;
-  const today = new Date().toISOString().slice(0, 10);
-
-  let expiryState = "unknown";
-  if (validTo) {
-    if (validTo < today) expiryState = "expired";
-    else expiryState = "valid";
+  if (
+    source.includes("pressure") ||
+    source.includes("boiler") ||
+    source.includes("air receiver") ||
+    source.includes("air compressor") ||
+    source.includes("oil separator")
+  ) {
+    return "Pressure Test Certificate";
   }
 
-  return {
-    ...row,
-    certificate_no: row.certificate_number || null,
-    issue_date: row.issued_at ? String(row.issued_at).slice(0, 10) : null,
-    expiry_date: validTo,
-    expiry_state: expiryState,
-    inspection_result: row.equipment_status || null,
-    asset: row.assets || null,
-  };
+  return "Load Test Certificate";
 }
 
-export function buildCertificateQrValue(certificate = {}) {
-  const certificateNumber =
-    certificate.certificate_number ||
-    certificate.certificate_no ||
-    "PENDING-CERTIFICATE";
-
-  const equipmentId =
-    certificate.equipment_id ||
-    certificate.asset?.asset_tag ||
-    "NO-EQUIPMENT";
-
-  const company =
-    certificate.company ||
-    certificate.asset?.clients?.company_name ||
-    "";
-
-  const inspector =
-    certificate.inspector_name ||
-    certificate.asset?.inspector_name ||
-    "";
-
-  const legal =
-    certificate.legal_framework ||
-    "Mines, Quarries, Works and Machinery Act Cap 44:02";
-
-  return [
-    `Certificate: ${certificateNumber}`,
-    `Equipment: ${equipmentId}`,
-    company ? `Company: ${company}` : null,
-    inspector ? `Inspector: ${inspector}` : null,
-    `Legal: ${legal}`,
-  ]
-    .filter(Boolean)
-    .join(" | ");
+function addMonths(dateInput, months = 12) {
+  const date = dateInput ? new Date(dateInput) : new Date();
+  if (Number.isNaN(date.getTime())) return null;
+  date.setMonth(date.getMonth() + months);
+  return date.toISOString();
 }
 
-export async function getCertificates() {
-  if (!supabase) return notConfigured([]);
+function formatCertificateNumber(asset = {}, inspection = {}, existingCount = 0) {
+  const serial =
+    clean(asset.serial_number) ||
+    clean(asset.asset_tag) ||
+    clean(asset.equipment_id) ||
+    "XX";
+
+  const safeSerial = serial.replace(/\s+/g, "-").toUpperCase();
+  const seq = String(existingCount + 1).padStart(2, "0");
+
+  return `CERT-${safeSerial}-${seq}`;
+}
+
+async function getExistingCertificateByInspection(inspectionId) {
+  if (!inspectionId) return null;
 
   const { data, error } = await supabase
     .from("certificates")
-    .select(CERTIFICATE_SELECT)
-    .order("created_at", { ascending: false });
-
-  return {
-    data: (data || []).map(mapCertificateRow),
-    error,
-  };
-}
-
-export async function getCertificateById(id) {
-  if (!supabase) return notConfigured(null);
-  if (!id) {
-    return { data: null, error: { message: "Certificate ID is required" } };
-  }
-
-  const { data, error } = await supabase
-    .from("certificates")
-    .select(CERTIFICATE_SELECT)
-    .eq("id", id)
+    .select("*")
+    .eq("inspection_id", inspectionId)
     .maybeSingle();
 
-  return {
-    data: mapCertificateRow(data),
-    error,
-  };
+  if (error) throw new Error(error.message || "Failed to check existing certificate.");
+
+  return data || null;
 }
 
-export async function getCertificatesByAssetId(assetId) {
-  if (!supabase) return notConfigured([]);
-  if (!assetId) {
-    return { data: [], error: { message: "Asset ID is required" } };
-  }
+async function getAssetById(assetId) {
+  if (!assetId) throw new Error("Asset ID is required.");
 
   const { data, error } = await supabase
-    .from("certificates")
-    .select(CERTIFICATE_SELECT)
-    .eq("asset_id", assetId)
-    .order("created_at", { ascending: false });
-
-  return {
-    data: (data || []).map(mapCertificateRow),
-    error,
-  };
-}
-
-export async function getLatestCertificateByAssetId(assetId) {
-  if (!supabase) return notConfigured(null);
-  if (!assetId) {
-    return { data: null, error: { message: "Asset ID is required" } };
-  }
-
-  const { data, error } = await supabase
-    .from("certificates")
-    .select(CERTIFICATE_SELECT)
-    .eq("asset_id", assetId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  return {
-    data: mapCertificateRow(data),
-    error,
-  };
-}
-
-export async function createCertificate(certificateData = {}) {
-  if (!supabase) return notConfigured(null);
-
-  const payload = {
-    asset_id: normalizeText(certificateData.asset_id),
-    certificate_type: normalizeText(
-      certificateData.certificate_type,
-      "Certificate of Statutory Inspection"
-    ),
-    company: normalizeText(certificateData.company),
-    equipment_description: normalizeText(certificateData.equipment_description),
-    equipment_location: normalizeText(certificateData.equipment_location),
-    equipment_id: normalizeText(certificateData.equipment_id),
-    swl: withUnit(certificateData.swl, "Tons"),
-    mawp: withUnit(certificateData.mawp, "kPa"),
-    equipment_status: normalizeText(certificateData.equipment_status, "PASS"),
-    issued_at: certificateData.issued_at || new Date().toISOString(),
-    valid_to: normalizeDate(certificateData.valid_to),
-    status: normalizeText(certificateData.status, "issued"),
-    legal_framework: normalizeText(
-      certificateData.legal_framework,
-      "Mines, Quarries, Works and Machinery Act Cap 44:02"
-    ),
-    inspector_name: normalizeText(certificateData.inspector_name),
-    inspector_id: normalizeText(certificateData.inspector_id),
-    signature_url: normalizeText(certificateData.signature_url),
-    logo_url: normalizeText(certificateData.logo_url, "/logo.png"),
-    pdf_url: normalizeText(certificateData.pdf_url),
-  };
-
-  if (!payload.asset_id) {
-    return { data: null, error: { message: "Asset is required" } };
-  }
-
-  if (!payload.inspector_name) {
-    return { data: null, error: { message: "Inspector name is required" } };
-  }
-
-  const { data, error } = await supabase
-    .from("certificates")
-    .insert([payload])
-    .select(CERTIFICATE_SELECT)
+    .from("assets")
+    .select(
+      `
+      *,
+      clients (
+        id,
+        company_name,
+        company_code
+      )
+    `
+    )
+    .eq("id", assetId)
     .single();
 
+  if (error) throw new Error(error.message || "Failed to load asset.");
+  if (!data) throw new Error("Asset not found.");
+
+  return data;
+}
+
+async function getCertificateSequenceCount(assetId) {
+  if (!assetId) return 0;
+
+  const { count, error } = await supabase
+    .from("certificates")
+    .select("id", { count: "exact", head: true })
+    .eq("asset_id", assetId);
+
+  if (error) throw new Error(error.message || "Failed to count certificates.");
+
+  return count || 0;
+}
+
+function buildCertificatePayload({ inspection, asset, existingCertificate, inspector }) {
+  const inspectionDate =
+    inspection?.inspection_date ||
+    inspection?.date_of_inspection ||
+    inspection?.tested_at ||
+    new Date().toISOString();
+
+  const validTo =
+    inspection?.valid_to ||
+    inspection?.expiry_date ||
+    addMonths(inspectionDate, 12);
+
+  const companyName =
+    clean(inspection?.company) ||
+    clean(asset?.clients?.company_name);
+
+  const equipmentDescription =
+    clean(inspection?.equipment_description) ||
+    clean(asset?.asset_type) ||
+    clean(asset?.asset_name);
+
+  const equipmentLocation =
+    clean(inspection?.equipment_location) ||
+    clean(asset?.location);
+
+  const equipmentStatus =
+    normalizeStatus(
+      inspection?.equipment_status ||
+        inspection?.status ||
+        inspection?.result ||
+        inspection?.inspection_result
+    );
+
   return {
-    data: mapCertificateRow(data),
-    error,
+    inspection_id: inspection.id,
+    asset_id: asset.id,
+
+    certificate_number:
+      existingCertificate?.certificate_number || inspection.certificate_number,
+
+    sequence_number:
+      existingCertificate?.sequence_number || inspection.sequence_number || 1,
+
+    certificate_type: normalizeCertificateType(
+      asset?.asset_type,
+      inspection?.inspection_type
+    ),
+
+    company: companyName,
+    equipment_description: equipmentDescription,
+    equipment_location: equipmentLocation,
+
+    equipment_id:
+      clean(inspection?.equipment_id) ||
+      clean(asset?.equipment_id) ||
+      clean(asset?.serial_number) ||
+      clean(asset?.asset_tag),
+
+    identification_number:
+      clean(inspection?.identification_number) ||
+      clean(asset?.identification_number),
+
+    inspection_no:
+      clean(inspection?.inspection_no) ||
+      clean(asset?.inspection_no),
+
+    lanyard_serial_no:
+      clean(inspection?.lanyard_serial_no) ||
+      clean(asset?.lanyard_serial_no),
+
+    manufacturer:
+      clean(inspection?.manufacturer) ||
+      clean(asset?.manufacturer),
+
+    model:
+      clean(inspection?.model) ||
+      clean(asset?.model),
+
+    year_built:
+      clean(inspection?.year_built) ||
+      clean(asset?.year_built),
+
+    country_of_origin:
+      clean(inspection?.country_of_origin) ||
+      clean(asset?.country_of_origin),
+
+    capacity:
+      clean(inspection?.capacity) ||
+      clean(asset?.capacity_volume),
+
+    mawp:
+      clean(inspection?.mawp) ||
+      clean(asset?.working_pressure),
+
+    design_pressure:
+      clean(inspection?.design_pressure) ||
+      clean(asset?.design_pressure),
+
+    test_pressure:
+      clean(inspection?.test_pressure) ||
+      clean(asset?.test_pressure),
+
+    swl:
+      clean(inspection?.swl) ||
+      clean(asset?.safe_working_load),
+
+    proof_load:
+      clean(inspection?.proof_load) ||
+      clean(asset?.proof_load),
+
+    lifting_height:
+      clean(inspection?.lifting_height) ||
+      clean(asset?.lifting_height),
+
+    sling_length:
+      clean(inspection?.sling_length) ||
+      clean(asset?.sling_length),
+
+    chain_size:
+      clean(inspection?.chain_size) ||
+      clean(asset?.chain_size),
+
+    rope_diameter:
+      clean(inspection?.rope_diameter) ||
+      clean(asset?.rope_diameter),
+
+    equipment_status: equipmentStatus,
+
+    legal_framework:
+      clean(inspection?.legal_framework) ||
+      "Mines, Quarries, Works and Machinery Act Cap 44:02",
+
+    inspector_name:
+      clean(inspection?.inspector_name) ||
+      clean(asset?.inspector_name) ||
+      clean(inspector?.name) ||
+      "Moemedi Masupe",
+
+    inspector_id:
+      clean(inspection?.inspector_id) ||
+      clean(asset?.inspector_id) ||
+      clean(inspector?.id_number) ||
+      "700117910",
+
+    logo_url:
+      clean(inspection?.logo_url) ||
+      clean(existingCertificate?.logo_url),
+
+    signature_url:
+      clean(inspection?.signature_url) ||
+      clean(existingCertificate?.signature_url),
+
+    issued_at:
+      inspection?.issued_at ||
+      inspectionDate,
+
+    valid_to: validTo,
+
+    updated_at: new Date().toISOString(),
   };
 }
 
-export async function updateCertificate(id, updates = {}) {
-  if (!supabase) return notConfigured(null);
-  if (!id) {
-    return { data: null, error: { message: "Certificate ID is required" } };
+export async function saveCertificateFromInspection({
+  inspection,
+  assetId,
+  inspector = null,
+}) {
+  if (!inspection?.id) {
+    throw new Error("Inspection ID is required.");
   }
 
-  const payload = {};
+  const resolvedAssetId = assetId || inspection.asset_id;
+  if (!resolvedAssetId) {
+    throw new Error("Asset ID is required to save certificate.");
+  }
 
-  if ("asset_id" in updates) payload.asset_id = normalizeText(updates.asset_id);
-  if ("certificate_type" in updates) payload.certificate_type = normalizeText(updates.certificate_type);
-  if ("company" in updates) payload.company = normalizeText(updates.company);
-  if ("equipment_description" in updates) payload.equipment_description = normalizeText(updates.equipment_description);
-  if ("equipment_location" in updates) payload.equipment_location = normalizeText(updates.equipment_location);
-  if ("equipment_id" in updates) payload.equipment_id = normalizeText(updates.equipment_id);
-  if ("swl" in updates) payload.swl = withUnit(updates.swl, "Tons");
-  if ("mawp" in updates) payload.mawp = withUnit(updates.mawp, "kPa");
-  if ("equipment_status" in updates) payload.equipment_status = normalizeText(updates.equipment_status);
-  if ("issued_at" in updates) payload.issued_at = updates.issued_at || null;
-  if ("valid_to" in updates) payload.valid_to = normalizeDate(updates.valid_to);
-  if ("status" in updates) payload.status = normalizeText(updates.status);
-  if ("legal_framework" in updates) payload.legal_framework = normalizeText(updates.legal_framework);
-  if ("inspector_name" in updates) payload.inspector_name = normalizeText(updates.inspector_name);
-  if ("inspector_id" in updates) payload.inspector_id = normalizeText(updates.inspector_id);
-  if ("signature_url" in updates) payload.signature_url = normalizeText(updates.signature_url);
-  if ("logo_url" in updates) payload.logo_url = normalizeText(updates.logo_url);
-  if ("pdf_url" in updates) payload.pdf_url = normalizeText(updates.pdf_url);
+  const asset = await getAssetById(resolvedAssetId);
+  const existingCertificate = await getExistingCertificateByInspection(inspection.id);
 
-  const { data, error } = await supabase
-    .from("certificates")
-    .update(payload)
-    .eq("id", id)
-    .select(CERTIFICATE_SELECT)
+  let sequenceNumber = existingCertificate?.sequence_number || 1;
+  let certificateNumber = existingCertificate?.certificate_number || null;
+
+  if (!existingCertificate) {
+    const existingCount = await getCertificateSequenceCount(resolvedAssetId);
+    sequenceNumber = existingCount + 1;
+    certificateNumber = formatCertificateNumber(asset, inspection, existingCount);
+  }
+
+  const payload = buildCertificatePayload({
+    inspection: {
+      ...inspection,
+      sequence_number: sequenceNumber,
+      certificate_number: certificateNumber,
+    },
+    asset,
+    existingCertificate,
+    inspector,
+  });
+
+  let query = supabase.from("certificates");
+
+  if (existingCertificate?.id) {
+    const { data, error } = await query
+      .update(payload)
+      .eq("id", existingCertificate.id)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message || "Failed to update certificate.");
+    return data;
+  }
+
+  const { data, error } = await query
+    .insert({
+      ...payload,
+      certificate_number: certificateNumber,
+      sequence_number: sequenceNumber,
+      created_at: new Date().toISOString(),
+    })
+    .select()
     .single();
 
-  return {
-    data: mapCertificateRow(data),
-    error,
-  };
-}
+  if (error) throw new Error(error.message || "Failed to create certificate.");
 
-export async function deleteCertificate(id) {
-  if (!supabase) return notConfigured(null);
-  if (!id) {
-    return { data: null, error: { message: "Certificate ID is required" } };
-  }
-
-  const { error } = await supabase
-    .from("certificates")
-    .delete()
-    .eq("id", id);
-
-  return { data: !error, error };
-}
-
-export async function deleteCertificateById(id) {
-  return deleteCertificate(id);
-}
-
-export async function getCertificateStats() {
-  if (!supabase) {
-    return {
-      total: 0,
-      pass: 0,
-      conditional: 0,
-      fail: 0,
-      expired: 0,
-    };
-  }
-
-  const { data, error } = await supabase
-    .from("certificates")
-    .select("equipment_status, valid_to");
-
-  if (error) throw error;
-
-  const today = new Date().toISOString().slice(0, 10);
-
-  const stats = {
-    total: 0,
-    pass: 0,
-    conditional: 0,
-    fail: 0,
-    expired: 0,
-  };
-
-  for (const row of data || []) {
-    stats.total += 1;
-
-    const result = String(row.equipment_status || "").trim().toUpperCase();
-    const validTo = row.valid_to ? String(row.valid_to).slice(0, 10) : null;
-
-    if (result === "PASS") stats.pass += 1;
-    if (result === "CONDITIONAL") stats.conditional += 1;
-    if (result === "FAIL") stats.fail += 1;
-
-    if (validTo && validTo < today) {
-      stats.expired += 1;
-    }
-  }
-
-  return stats;
+  return data;
 }
