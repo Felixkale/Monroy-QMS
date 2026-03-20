@@ -117,15 +117,17 @@ function StatusBadge({ status, message }) {
 }
 
 async function extractTextFromPdf(file) {
-  const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.js");
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+  const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
 
   let text = "";
 
-  for (let p = 1; p <= pdf.numPages; p++) {
+  for (let p = 1; p <= pdf.numPages; p += 1) {
     const page = await pdf.getPage(p);
     const content = await page.getTextContent();
     const lineMap = new Map();
@@ -195,7 +197,8 @@ async function getOrCreateClient(companyName) {
 }
 
 async function getOrCreateEquipment(clientId, parsed) {
-  const lookupSerial = parsed.serial_number || parsed.identification_number || parsed.equipment_id;
+  const lookupSerial =
+    parsed.serial_number || parsed.identification_number || parsed.equipment_id;
 
   if (lookupSerial) {
     const { data: existing } = await supabase
@@ -208,15 +211,14 @@ async function getOrCreateEquipment(clientId, parsed) {
 
     if (existing) {
       const assetUpdate = mapParsedToEquipment(parsed, clientId);
-
       await supabase.from("assets").update(assetUpdate).eq("id", existing.id);
       return existing;
     }
   }
 
   const payload = mapParsedToEquipment(parsed, clientId);
-
   const { data: created, error } = await registerEquipment(payload);
+
   if (error) throw error;
   return created;
 }
@@ -237,17 +239,20 @@ async function generateCertNumber(serialNumber, assetId) {
     .maybeSingle();
 
   let nextSeq = 1;
+
   if (existing?.certificate_number) {
     const parts = existing.certificate_number.split("-");
     const last = parseInt(parts[parts.length - 1], 10);
-    if (!isNaN(last)) nextSeq = last + 1;
+    if (!Number.isNaN(last)) nextSeq = last + 1;
   }
 
   return `${prefix}${String(nextSeq).padStart(2, "0")}`;
 }
 
 async function registerCertificate(assetId, clientName, parsed) {
-  const issuedAtIso = parsed.issued_at ? new Date(parsed.issued_at).toISOString() : null;
+  const issuedAtIso = parsed.issued_at
+    ? new Date(parsed.issued_at).toISOString()
+    : null;
 
   if (issuedAtIso) {
     const { data: existing } = await supabase
@@ -352,7 +357,7 @@ export default function BulkImportPage() {
     setGlobalError("");
     setGlobalSuccess("");
 
-    for (let i = 0; i < files.length; i++) {
+    for (let i = 0; i < files.length; i += 1) {
       updateFile(i, { status: "extracting", error: "" });
 
       try {
@@ -394,7 +399,7 @@ export default function BulkImportPage() {
       }
     }
 
-    for (let i = 0; i < files.length; i++) {
+    for (let i = 0; i < files.length; i += 1) {
       if (files[i].status !== "extracted") continue;
 
       updateFile(i, { status: "registering" });
@@ -412,7 +417,7 @@ export default function BulkImportPage() {
         await registerCertificate(equipment.id, client.company_name, parsed);
 
         updateFile(i, { status: "done", parsed });
-        successCount++;
+        successCount += 1;
       } catch (err) {
         updateFile(i, {
           status: "error",
@@ -539,7 +544,12 @@ export default function BulkImportPage() {
                 }}
               >
                 📁 Choose Signature
-                <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleSignatureSelect} />
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  onChange={handleSignatureSelect}
+                />
               </label>
 
               {signaturePreview ? (
@@ -771,8 +781,8 @@ export default function BulkImportPage() {
                                   ? value === "PASS"
                                     ? "#86efac"
                                     : value === "FAIL"
-                                    ? "#f472b6"
-                                    : "#fbbf24"
+                                      ? "#f472b6"
+                                      : "#fbbf24"
                                   : "#e2e8f0",
                             }}
                           >
