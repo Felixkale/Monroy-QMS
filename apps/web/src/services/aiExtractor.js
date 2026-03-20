@@ -2,14 +2,27 @@ export async function extractNameplateData(file) {
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await fetch("/api/extract-nameplate", {
+  const response = await fetch("/api/extract-nameplate", {
     method: "POST",
     body: formData,
   });
 
-  if (!res.ok) {
-    throw new Error("Failed to extract data");
+  const text = await response.text();
+
+  if (!response.ok) {
+    let message = "Failed to extract nameplate data.";
+    try {
+      const parsed = JSON.parse(text);
+      message = parsed.error || message;
+    } catch {
+      message = text || message;
+    }
+    throw new Error(message);
   }
 
-  return await res.json();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("AI returned invalid JSON.");
+  }
 }
