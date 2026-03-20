@@ -1,10 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import html2canvas from "html2canvas";
-import jsPDF from "jspdf";
 
 const DEFAULT_INSPECTOR_NAME = "Moemedi Masupe";
 const DEFAULT_INSPECTOR_ID = "700117910";
@@ -61,11 +59,9 @@ function dateLabel(value) {
 export default function PrintCertificatePage() {
   const params = useParams();
   const id = params?.id;
-  const pageRef = useRef(null);
 
   const [cert, setCert] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -136,61 +132,9 @@ export default function PrintCertificatePage() {
     load();
   }, [id]);
 
-  async function handleDownloadPdf() {
-    if (!pageRef.current || !cert) return;
-
-    try {
-      setDownloading(true);
-
-      const asset = cert.assets || {};
-      const certNumber = buildCertNumber(cert, asset);
-
-      const canvas = await html2canvas(pageRef.current, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: "#ffffff",
-        logging: false,
-        scrollX: 0,
-        scrollY: -window.scrollY,
-      });
-
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
-
-      const pdfWidth = 210;
-      const pdfHeight = 297;
-      const imgWidth = pdfWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-      let heightLeft = imgHeight;
-      let position = 0;
-
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-      heightLeft -= pdfHeight;
-
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-        heightLeft -= pdfHeight;
-      }
-
-      pdf.save(`${certNumber}.pdf`);
-    } catch (err) {
-      console.error("PDF download failed:", err);
-      alert("Failed to download PDF. Please try again.");
-    } finally {
-      setDownloading(false);
-    }
-  }
-
-  function handlePrint() {
-    window.print();
-  }
-
   if (loading) {
     return (
-      <div style={{ padding: 40, fontFamily: "Inter, sans-serif", color: "#334155" }}>
+      <div style={{ padding: 40, fontFamily: "sans-serif", color: "#334155" }}>
         Loading certificate...
       </div>
     );
@@ -198,7 +142,7 @@ export default function PrintCertificatePage() {
 
   if (error) {
     return (
-      <div style={{ padding: 40, color: "red", fontFamily: "Inter, sans-serif" }}>
+      <div style={{ padding: 40, color: "red", fontFamily: "sans-serif" }}>
         {error}
       </div>
     );
@@ -206,7 +150,7 @@ export default function PrintCertificatePage() {
 
   if (!cert) {
     return (
-      <div style={{ padding: 40, color: "#64748b", fontFamily: "Inter, sans-serif" }}>
+      <div style={{ padding: 40, color: "#64748b", fontFamily: "sans-serif" }}>
         Certificate not found.
       </div>
     );
@@ -224,9 +168,13 @@ export default function PrintCertificatePage() {
     DEFAULT_INSPECTOR_NAME;
 
   const inspectorId =
-    val(cert.inspector_id) || val(asset.inspector_id) || DEFAULT_INSPECTOR_ID;
+    val(cert.inspector_id) ||
+    val(asset.inspector_id) ||
+    DEFAULT_INSPECTOR_ID;
 
-  const legalFramework = val(cert.legal_framework) || DEFAULT_LEGAL_FRAMEWORK;
+  const legalFramework =
+    val(cert.legal_framework) ||
+    DEFAULT_LEGAL_FRAMEWORK;
 
   const issueDate = dateLabel(cert.issued_at);
   const expiryDate = dateLabel(cert.valid_to);
@@ -234,21 +182,9 @@ export default function PrintCertificatePage() {
   const isPressure = certTitle.toLowerCase().includes("pressure");
 
   const equipmentRows = [
-    {
-      label: "Company / Client",
-      value: val(cert.company) || val(client.company_name),
-    },
-    {
-      label: "Equipment Description",
-      value:
-        val(cert.equipment_description) ||
-        val(asset.asset_type) ||
-        val(asset.asset_name),
-    },
-    {
-      label: "Equipment Location",
-      value: val(cert.equipment_location) || val(asset.location),
-    },
+    { label: "Company / Client", value: val(cert.company) || val(client.company_name) },
+    { label: "Equipment Description", value: val(cert.equipment_description) || val(asset.asset_type) || val(asset.asset_name) },
+    { label: "Equipment Location", value: val(cert.equipment_location) || val(asset.location) },
     { label: "Department", value: val(asset.department) },
     {
       label: "Equipment ID / Serial",
@@ -258,68 +194,28 @@ export default function PrintCertificatePage() {
         val(asset.serial_number) ||
         val(asset.asset_tag),
     },
-    {
-      label: "Identification Number",
-      value: val(cert.identification_number) || val(asset.identification_number),
-    },
-    {
-      label: "Inspection No.",
-      value: val(cert.inspection_no) || val(asset.inspection_no),
-    },
-    {
-      label: "Lanyard Serial No.",
-      value: val(cert.lanyard_serial_no) || val(asset.lanyard_serial_no),
-    },
+    { label: "Identification Number", value: val(cert.identification_number) || val(asset.identification_number) },
+    { label: "Inspection No.", value: val(cert.inspection_no) || val(asset.inspection_no) },
+    { label: "Lanyard Serial No.", value: val(cert.lanyard_serial_no) || val(asset.lanyard_serial_no) },
     { label: "Manufacturer", value: val(cert.manufacturer) || val(asset.manufacturer) },
     { label: "Model", value: val(cert.model) || val(asset.model) },
     { label: "Year Built", value: val(cert.year_built) || val(asset.year_built) },
-    {
-      label: "Country of Origin",
-      value: val(cert.country_of_origin) || val(asset.country_of_origin),
-    },
-    {
-      label: "Capacity / Volume",
-      value: val(cert.capacity) || val(asset.capacity_volume),
-    },
+    { label: "Country of Origin", value: val(cert.country_of_origin) || val(asset.country_of_origin) },
+    { label: "Capacity / Volume", value: val(cert.capacity) || val(asset.capacity_volume) },
 
-    isPressure
-      ? { label: "MAWP", value: val(cert.mawp) || val(asset.working_pressure) }
-      : null,
-    isPressure
-      ? {
-          label: "Design Pressure",
-          value: val(cert.design_pressure) || val(asset.design_pressure),
-        }
-      : null,
-    isPressure
-      ? {
-          label: "Test Pressure",
-          value: val(cert.test_pressure) || val(asset.test_pressure),
-        }
-      : null,
-    isPressure
-      ? { label: "Design Temperature", value: val(asset.design_temperature) }
-      : null,
+    isPressure ? { label: "MAWP", value: val(cert.mawp) || val(asset.working_pressure) } : null,
+    isPressure ? { label: "Design Pressure", value: val(cert.design_pressure) || val(asset.design_pressure) } : null,
+    isPressure ? { label: "Test Pressure", value: val(cert.test_pressure) || val(asset.test_pressure) } : null,
+    isPressure ? { label: "Design Temperature", value: val(asset.design_temperature) } : null,
     isPressure ? { label: "Shell Material", value: val(asset.shell_material) } : null,
     isPressure ? { label: "Fluid Type", value: val(asset.fluid_type) } : null,
 
-    !isPressure
-      ? {
-          label: "Safe Working Load (SWL)",
-          value: val(cert.swl) || val(asset.safe_working_load),
-        }
-      : null,
+    !isPressure ? { label: "Safe Working Load (SWL)", value: val(cert.swl) || val(asset.safe_working_load) } : null,
     !isPressure ? { label: "Proof Load", value: val(cert.proof_load) || val(asset.proof_load) } : null,
-    !isPressure
-      ? { label: "Lifting Height", value: val(cert.lifting_height) || val(asset.lifting_height) }
-      : null,
-    !isPressure
-      ? { label: "Sling Length", value: val(cert.sling_length) || val(asset.sling_length) }
-      : null,
+    !isPressure ? { label: "Lifting Height", value: val(cert.lifting_height) || val(asset.lifting_height) } : null,
+    !isPressure ? { label: "Sling Length", value: val(cert.sling_length) || val(asset.sling_length) } : null,
     !isPressure ? { label: "Chain Size", value: val(cert.chain_size) || val(asset.chain_size) } : null,
-    !isPressure
-      ? { label: "Rope Diameter", value: val(cert.rope_diameter) || val(asset.rope_diameter) }
-      : null,
+    !isPressure ? { label: "Rope Diameter", value: val(cert.rope_diameter) || val(asset.rope_diameter) } : null,
   ]
     .filter(Boolean)
     .filter((r) => r.value);
@@ -333,18 +229,9 @@ export default function PrintCertificatePage() {
 
   return (
     <>
-      <style jsx global>{`
-        * {
-          margin: 0;
-          padding: 0;
-          box-sizing: border-box;
-        }
-
-        html,
-        body {
-          font-family: Inter, Arial, sans-serif;
-          background: #f0f4f8;
-        }
+      <style>{`
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background: #f0f4f8; }
 
         * {
           -webkit-print-color-adjust: exact !important;
@@ -353,16 +240,8 @@ export default function PrintCertificatePage() {
         }
 
         @media print {
-          html,
-          body {
-            background: white !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-
-          .no-print {
-            display: none !important;
-          }
+          body { background: white; margin: 0; padding: 0; }
+          .no-print { display: none !important; }
 
           @page {
             size: A4 portrait;
@@ -373,8 +252,8 @@ export default function PrintCertificatePage() {
             box-shadow: none !important;
             margin: 0 !important;
             border-radius: 0 !important;
-            width: 794px !important;
-            min-height: 1123px !important;
+            width: 100% !important;
+            min-height: 100vh !important;
           }
         }
       `}</style>
@@ -387,52 +266,27 @@ export default function PrintCertificatePage() {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          gap: 12,
-          flexWrap: "wrap",
         }}
       >
         <span style={{ color: "#94a3b8", fontSize: 13 }}>Certificate Preview</span>
-
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button
-            onClick={handlePrint}
-            style={{
-              padding: "9px 24px",
-              borderRadius: 8,
-              border: "none",
-              background: "linear-gradient(135deg,#667eea,#764ba2)",
-              color: "#fff",
-              fontWeight: 700,
-              cursor: "pointer",
-              fontSize: 13,
-            }}
-          >
-            🖨 Print / Save PDF
-          </button>
-
-          <button
-            onClick={handleDownloadPdf}
-            disabled={downloading}
-            style={{
-              padding: "9px 24px",
-              borderRadius: 8,
-              border: "none",
-              background: downloading
-                ? "#94a3b8"
-                : "linear-gradient(135deg,#0f766e,#14b8a6)",
-              color: "#fff",
-              fontWeight: 700,
-              cursor: downloading ? "not-allowed" : "pointer",
-              fontSize: 13,
-            }}
-          >
-            {downloading ? "Generating PDF..." : "⬇ Download PDF"}
-          </button>
-        </div>
+        <button
+          onClick={() => window.print()}
+          style={{
+            padding: "9px 24px",
+            borderRadius: 8,
+            border: "none",
+            background: "linear-gradient(135deg,#667eea,#764ba2)",
+            color: "#fff",
+            fontWeight: 700,
+            cursor: "pointer",
+            fontSize: 13,
+          }}
+        >
+          🖨 Print / Save PDF
+        </button>
       </div>
 
       <div
-        ref={pageRef}
         className="page"
         style={{
           width: 794,
@@ -458,8 +312,7 @@ export default function PrintCertificatePage() {
           style={{
             padding: "28px 48px 20px",
             flexShrink: 0,
-            background:
-              "linear-gradient(135deg,#1e3a5f 0%,#1e40af 60%,#0ea5e9 100%)",
+            background: "linear-gradient(135deg,#1e3a5f 0%,#1e40af 60%,#0ea5e9 100%)",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
@@ -470,7 +323,6 @@ export default function PrintCertificatePage() {
               <img
                 src={cert.logo_url}
                 alt="Logo"
-                crossOrigin="anonymous"
                 style={{ height: 52, marginBottom: 10, objectFit: "contain" }}
                 onError={(e) => {
                   e.currentTarget.style.display = "none";
@@ -544,15 +396,7 @@ export default function PrintCertificatePage() {
           >
             {certTitle}
           </div>
-
-          <div
-            style={{
-              marginTop: 6,
-              display: "flex",
-              justifyContent: "center",
-              gap: 8,
-            }}
-          >
+          <div style={{ marginTop: 6, display: "flex", justifyContent: "center", gap: 8 }}>
             <div style={{ height: 3, width: 60, background: "#2563eb", borderRadius: 2 }} />
             <div style={{ height: 3, width: 20, background: "#00b4d8", borderRadius: 2 }} />
           </div>
@@ -600,9 +444,9 @@ export default function PrintCertificatePage() {
               marginBottom: 24,
             }}
           >
-            This is to certify that the equipment described below has been inspected and
-            tested in accordance with the applicable standards and regulations, and is
-            hereby declared to be in a safe and serviceable condition.
+            This is to certify that the equipment described below has been inspected and tested in
+            accordance with the applicable standards and regulations, and is hereby declared to be
+            in a safe and serviceable condition.
           </p>
 
           <div
@@ -780,7 +624,6 @@ export default function PrintCertificatePage() {
                   <img
                     src={cert.signature_url}
                     alt="Signature"
-                    crossOrigin="anonymous"
                     style={{ maxHeight: 65, maxWidth: "80%", objectFit: "contain" }}
                     onError={(e) => {
                       e.currentTarget.style.display = "none";
@@ -845,8 +688,7 @@ export default function PrintCertificatePage() {
 
           <div
             style={{
-              background:
-                "linear-gradient(135deg,#1e3a5f 0%,#1e40af 60%,#0ea5e9 100%)",
+              background: "linear-gradient(135deg,#1e3a5f 0%,#1e40af 60%,#0ea5e9 100%)",
               padding: "14px 48px 14px 80px",
               position: "relative",
               textAlign: "center",
@@ -883,13 +725,8 @@ export default function PrintCertificatePage() {
                 letterSpacing: "0.02em",
               }}
             >
-              Mobile Crane Hire | <strong>Rigging</strong> | NDT Test |{" "}
-              <strong>Scaffolding</strong> | Painting |{" "}
-              <strong>
-                Inspection of Lifting Equipment and Machinery, Pressure Vessels &amp; Air
-                Receiver
-              </strong>{" "}
-              | Inspection of Lifting Equipment Steel Fabricating and Structural |{" "}
+              Mobile Crane Hire | <strong>Rigging</strong> | NDT Test | <strong>Scaffolding</strong> | Painting |{" "}
+              <strong>Inspection of Lifting Equipment and Machinery, Pressure Vessels &amp; Air Receiver</strong> | Inspection of Lifting Equipment Steel Fabricating and Structural |{" "}
               <strong>Mechanical Engineering</strong> | Fencing | <strong>Maintenance</strong>
             </p>
           </div>
