@@ -4,6 +4,7 @@ const nextConfig = {
   experimental: {
     esmExternals: "loose",
   },
+  swcMinify: false,
   typescript: {
     ignoreBuildErrors: true,
   },
