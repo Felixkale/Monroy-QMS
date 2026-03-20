@@ -4,11 +4,12 @@
   box-sizing: border-box;
 }
 
-html, body {
+html,
+body {
   height: 100%;
   background-color: #0f1419;
   color: #e2e8f0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
 }
 
 html {
@@ -33,25 +34,45 @@ html {
   background: rgba(102, 126, 234, 0.3);
 }
 
-/* Selection styling */
 ::selection {
   background-color: rgba(102, 126, 234, 0.3);
   color: #e2e8f0;
 }
 
-/* Focus visible styles */
 :focus-visible {
   outline: 2px solid rgba(102, 126, 234, 0.5);
   outline-offset: 2px;
 }
 
-/* Button reset */
 button {
   font-family: inherit;
 }
 
-/* Link reset */
 a {
   color: inherit;
   text-decoration: none;
+}
+
+/* FIX DARK THEME SELECT READABILITY */
+select {
+  color: #e2e8f0;
+  background-color: #1b2330;
+}
+
+select option {
+  color: #111827;
+  background-color: #ffffff;
+}
+
+/* Better form placeholder contrast */
+input::placeholder,
+textarea::placeholder {
+  color: rgba(226, 232, 240, 0.45);
+}
+
+/* Print helpers */
+@media print {
+  .no-print {
+    display: none !important;
+  }
 }
