@@ -196,6 +196,11 @@ function buildPayload({ inspection, asset, existingCertificate }) {
       clean(inspection.signature_url) || clean(existingCertificate?.signature_url),
     issued_at: inspection.issued_at || inspectionDate,
     valid_to: validTo,
+    extracted_data:
+      inspection.extracted_data || existingCertificate?.extracted_data || null,
+    source_nameplate_image_url:
+      clean(inspection.source_nameplate_image_url) ||
+      clean(existingCertificate?.source_nameplate_image_url),
     updated_at: new Date().toISOString(),
   };
 }
