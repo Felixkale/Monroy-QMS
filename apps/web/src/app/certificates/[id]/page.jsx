@@ -56,6 +56,62 @@ function dateLabel(value) {
   });
 }
 
+function renderDynamicRows(extractedData) {
+  if (!extractedData || typeof extractedData !== "object") return [];
+
+  const ignoredKeys = new Set([
+    "manufacturer",
+    "model",
+    "serial_number",
+    "identification_number",
+    "year_built",
+    "country_of_origin",
+    "capacity",
+    "capacity_volume",
+    "pressure",
+    "working_pressure",
+    "design_pressure",
+    "test_pressure",
+    "safe_working_load",
+    "proof_load",
+    "lifting_height",
+    "sling_length",
+    "chain_size",
+    "rope_diameter",
+    "equipment_type",
+    "plate_text",
+    "other_visible_data",
+  ]);
+
+  const rows = [];
+
+  Object.entries(extractedData).forEach(([key, value]) => {
+    if (ignoredKeys.has(key)) return;
+    if (value === undefined || value === null || String(value).trim() === "") return;
+
+    rows.push({
+      label: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      value: typeof value === "object" ? JSON.stringify(value) : String(value),
+    });
+  });
+
+  if (
+    extractedData.other_visible_data &&
+    typeof extractedData.other_visible_data === "object"
+  ) {
+    Object.entries(extractedData.other_visible_data).forEach(([key, value]) => {
+      if (value === undefined || value === null || String(value).trim() === "") return;
+
+      rows.push({
+        label: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+        value: typeof value === "object" ? JSON.stringify(value) : String(value),
+      });
+    });
+  }
+
+  return rows;
+}
+
 export default function PrintCertificatePage() {
   const params = useParams();
   const id = params?.id;
@@ -78,6 +134,8 @@ export default function PrintCertificatePage() {
           .select(
             `
             *,
+            extracted_data,
+            source_nameplate_image_url,
             assets (
               asset_tag,
               asset_name,
@@ -182,43 +240,181 @@ export default function PrintCertificatePage() {
   const isPressure = certTitle.toLowerCase().includes("pressure");
 
   const equipmentRows = [
-    { label: "Company / Client", value: val(cert.company) || val(client.company_name) },
-    { label: "Equipment Description", value: val(cert.equipment_description) || val(asset.asset_type) || val(asset.asset_name) },
-    { label: "Equipment Location", value: val(cert.equipment_location) || val(asset.location) },
+    {
+      label: "Company / Client",
+      value: val(cert.company) || val(client.company_name),
+    },
+    {
+      label: "Equipment Description",
+      value:
+        val(cert.equipment_description) ||
+        val(cert.extracted_data?.equipment_type) ||
+        val(asset.asset_type) ||
+        val(asset.asset_name),
+    },
+    {
+      label: "Equipment Location",
+      value: val(cert.equipment_location) || val(asset.location),
+    },
     { label: "Department", value: val(asset.department) },
     {
       label: "Equipment ID / Serial",
       value:
         val(cert.equipment_id) ||
+        val(cert.extracted_data?.serial_number) ||
         val(asset.equipment_id) ||
         val(asset.serial_number) ||
         val(asset.asset_tag),
     },
-    { label: "Identification Number", value: val(cert.identification_number) || val(asset.identification_number) },
-    { label: "Inspection No.", value: val(cert.inspection_no) || val(asset.inspection_no) },
-    { label: "Lanyard Serial No.", value: val(cert.lanyard_serial_no) || val(asset.lanyard_serial_no) },
-    { label: "Manufacturer", value: val(cert.manufacturer) || val(asset.manufacturer) },
-    { label: "Model", value: val(cert.model) || val(asset.model) },
-    { label: "Year Built", value: val(cert.year_built) || val(asset.year_built) },
-    { label: "Country of Origin", value: val(cert.country_of_origin) || val(asset.country_of_origin) },
-    { label: "Capacity / Volume", value: val(cert.capacity) || val(asset.capacity_volume) },
+    {
+      label: "Identification Number",
+      value:
+        val(cert.identification_number) ||
+        val(cert.extracted_data?.identification_number) ||
+        val(asset.identification_number),
+    },
+    {
+      label: "Inspection No.",
+      value: val(cert.inspection_no) || val(asset.inspection_no),
+    },
+    {
+      label: "Lanyard Serial No.",
+      value: val(cert.lanyard_serial_no) || val(asset.lanyard_serial_no),
+    },
+    {
+      label: "Manufacturer",
+      value:
+        val(cert.manufacturer) ||
+        val(cert.extracted_data?.manufacturer) ||
+        val(asset.manufacturer),
+    },
+    {
+      label: "Model",
+      value:
+        val(cert.model) ||
+        val(cert.extracted_data?.model) ||
+        val(asset.model),
+    },
+    {
+      label: "Year Built",
+      value:
+        val(cert.year_built) ||
+        val(cert.extracted_data?.year_built) ||
+        val(asset.year_built),
+    },
+    {
+      label: "Country of Origin",
+      value:
+        val(cert.country_of_origin) ||
+        val(cert.extracted_data?.country_of_origin) ||
+        val(asset.country_of_origin),
+    },
+    {
+      label: "Capacity / Volume",
+      value:
+        val(cert.capacity) ||
+        val(cert.extracted_data?.capacity) ||
+        val(cert.extracted_data?.capacity_volume) ||
+        val(asset.capacity_volume),
+    },
 
-    isPressure ? { label: "MAWP", value: val(cert.mawp) || val(asset.working_pressure) } : null,
-    isPressure ? { label: "Design Pressure", value: val(cert.design_pressure) || val(asset.design_pressure) } : null,
-    isPressure ? { label: "Test Pressure", value: val(cert.test_pressure) || val(asset.test_pressure) } : null,
-    isPressure ? { label: "Design Temperature", value: val(asset.design_temperature) } : null,
+    isPressure
+      ? {
+          label: "MAWP",
+          value:
+            val(cert.mawp) ||
+            val(cert.extracted_data?.mawp) ||
+            val(cert.extracted_data?.working_pressure) ||
+            val(cert.extracted_data?.pressure) ||
+            val(asset.working_pressure),
+        }
+      : null,
+    isPressure
+      ? {
+          label: "Design Pressure",
+          value:
+            val(cert.design_pressure) ||
+            val(cert.extracted_data?.design_pressure) ||
+            val(asset.design_pressure),
+        }
+      : null,
+    isPressure
+      ? {
+          label: "Test Pressure",
+          value:
+            val(cert.test_pressure) ||
+            val(cert.extracted_data?.test_pressure) ||
+            val(asset.test_pressure),
+        }
+      : null,
+    isPressure
+      ? { label: "Design Temperature", value: val(asset.design_temperature) }
+      : null,
     isPressure ? { label: "Shell Material", value: val(asset.shell_material) } : null,
     isPressure ? { label: "Fluid Type", value: val(asset.fluid_type) } : null,
 
-    !isPressure ? { label: "Safe Working Load (SWL)", value: val(cert.swl) || val(asset.safe_working_load) } : null,
-    !isPressure ? { label: "Proof Load", value: val(cert.proof_load) || val(asset.proof_load) } : null,
-    !isPressure ? { label: "Lifting Height", value: val(cert.lifting_height) || val(asset.lifting_height) } : null,
-    !isPressure ? { label: "Sling Length", value: val(cert.sling_length) || val(asset.sling_length) } : null,
-    !isPressure ? { label: "Chain Size", value: val(cert.chain_size) || val(asset.chain_size) } : null,
-    !isPressure ? { label: "Rope Diameter", value: val(cert.rope_diameter) || val(asset.rope_diameter) } : null,
+    !isPressure
+      ? {
+          label: "Safe Working Load (SWL)",
+          value:
+            val(cert.swl) ||
+            val(cert.extracted_data?.swl) ||
+            val(cert.extracted_data?.safe_working_load) ||
+            val(cert.extracted_data?.working_load_limit) ||
+            val(asset.safe_working_load),
+        }
+      : null,
+    !isPressure
+      ? {
+          label: "Proof Load",
+          value:
+            val(cert.proof_load) ||
+            val(cert.extracted_data?.proof_load) ||
+            val(asset.proof_load),
+        }
+      : null,
+    !isPressure
+      ? {
+          label: "Lifting Height",
+          value:
+            val(cert.lifting_height) ||
+            val(cert.extracted_data?.lifting_height) ||
+            val(asset.lifting_height),
+        }
+      : null,
+    !isPressure
+      ? {
+          label: "Sling Length",
+          value:
+            val(cert.sling_length) ||
+            val(cert.extracted_data?.sling_length) ||
+            val(asset.sling_length),
+        }
+      : null,
+    !isPressure
+      ? {
+          label: "Chain Size",
+          value:
+            val(cert.chain_size) ||
+            val(cert.extracted_data?.chain_size) ||
+            val(asset.chain_size),
+        }
+      : null,
+    !isPressure
+      ? {
+          label: "Rope Diameter",
+          value:
+            val(cert.rope_diameter) ||
+            val(cert.extracted_data?.rope_diameter) ||
+            val(asset.rope_diameter),
+        }
+      : null,
   ]
     .filter(Boolean)
     .filter((r) => r.value);
+
+  const dynamicRows = renderDynamicRows(cert.extracted_data);
+  const allRows = [...equipmentRows, ...dynamicRows];
 
   const statusColor =
     cert.equipment_status === "PASS"
@@ -449,6 +645,34 @@ export default function PrintCertificatePage() {
             in a safe and serviceable condition.
           </p>
 
+          {cert.extracted_data?.plate_text && (
+            <div
+              style={{
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                borderRadius: 8,
+                padding: "12px 16px",
+                marginBottom: 24,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 9,
+                  fontWeight: 800,
+                  color: "#64748b",
+                  letterSpacing: "0.15em",
+                  textTransform: "uppercase",
+                  marginBottom: 6,
+                }}
+              >
+                Nameplate Text
+              </div>
+              <div style={{ fontSize: 11, color: "#334155", whiteSpace: "pre-wrap" }}>
+                {cert.extracted_data.plate_text}
+              </div>
+            </div>
+          )}
+
           <div
             style={{
               border: "1.5px solid #e2e8f0",
@@ -471,7 +695,7 @@ export default function PrintCertificatePage() {
               Equipment Details
             </div>
 
-            {equipmentRows.map((row, i) => (
+            {allRows.map((row, i) => (
               <div
                 key={`${row.label}-${i}`}
                 style={{
@@ -500,6 +724,7 @@ export default function PrintCertificatePage() {
                     fontSize: 12,
                     color: "#1e293b",
                     fontWeight: 500,
+                    wordBreak: "break-word",
                   }}
                 >
                   {row.value}
