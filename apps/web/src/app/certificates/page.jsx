@@ -242,6 +242,7 @@ export default function CertificatesPage() {
     const url = getCertificateViewLink(cert);
     const win = window.open(url, "_blank", "noopener,noreferrer");
     if (!win) return;
+
     setTimeout(() => {
       try {
         win.focus();
@@ -266,7 +267,9 @@ export default function CertificatesPage() {
           }}
         >
           <div>
-            <h1 style={{ fontSize: 48, fontWeight: 800, marginBottom: 10 }}>Certificates Register</h1>
+            <h1 style={{ fontSize: 48, fontWeight: 800, marginBottom: 10 }}>
+              Certificates Register
+            </h1>
             <p style={{ color: C.sub }}>
               ISO-style grouping by company, equipment type, and equipment description.
             </p>
@@ -649,4 +652,4 @@ function resultBadge(result) {
     fontSize: 13,
     ...style,
   };
-} this is on jsconfig json file. correct it 
+}
