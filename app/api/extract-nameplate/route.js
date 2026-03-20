@@ -1,12 +1,24 @@
 import OpenAI from "openai";
 
-export async function POST(req) {
+export async function POST(request) {
   try {
-    const formData = await req.formData();
+    const formData = await request.formData();
     const file = formData.get("file");
 
+    if (!file) {
+      return new Response(
+        JSON.stringify({ error: "No file uploaded." }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
     const bytes = await file.arrayBuffer();
+    const mimeType = file.type || "image/jpeg";
     const base64 = Buffer.from(bytes).toString("base64");
+    const dataUrl = `data:${mimeType};base64,${base64}`;
 
     const client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
@@ -21,43 +33,70 @@ export async function POST(req) {
             {
               type: "input_text",
               text: `
-You are an industrial inspection AI.
+You are an industrial equipment nameplate extraction assistant.
 
-Extract ALL readable nameplate data from this image.
+Read the uploaded image and extract important visible nameplate data.
 
-Return ONLY JSON.
+Return ONLY valid JSON.
+Do not include markdown.
+Do not include explanation text.
 
-Fields to extract (if present):
-- manufacturer
-- model
-- serial_number
-- year_built
-- pressure
-- capacity
-- country_of_origin
-- any_other_visible_data
+Use this flexible structure:
+{
+  "equipment_type": "",
+  "manufacturer": "",
+  "model": "",
+  "serial_number": "",
+  "identification_number": "",
+  "year_built": "",
+  "country_of_origin": "",
+  "capacity": "",
+  "capacity_volume": "",
+  "pressure": "",
+  "working_pressure": "",
+  "design_pressure": "",
+  "test_pressure": "",
+  "safe_working_load": "",
+  "proof_load": "",
+  "lifting_height": "",
+  "sling_length": "",
+  "chain_size": "",
+  "rope_diameter": "",
+  "plate_text": "",
+  "other_visible_data": {}
+}
 
-If unsure, still include best guess.
+Rules:
+- Fill any field you can infer from the image.
+- Leave missing fields as empty strings.
+- Put extra useful values under "other_visible_data".
+- "plate_text" should contain a compact readable transcription of the visible nameplate.
               `,
             },
             {
               type: "input_image",
-              image_base64: base64,
+              image_url: dataUrl,
             },
           ],
         },
       ],
     });
 
-    const text = response.output_text;
+    const output = response.output_text?.trim();
 
-    return new Response(text, {
+    return new Response(output || "{}", {
       status: 200,
+      headers: { "Content-Type": "application/json" },
     });
-  } catch (err) {
+  } catch (error) {
     return new Response(
-      JSON.stringify({ error: err.message }),
-      { status: 500 }
+      JSON.stringify({
+        error: error.message || "Failed to extract nameplate data.",
+      }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
     );
   }
 }
