@@ -1,343 +1,315 @@
+// FILE: /apps/web/src/app/certificates/page.jsx
+
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
+import { expiryBucketFromDate } from "@/lib/equipmentDetection";
 
-const STATUS_COLOR = {
-  PASS:        { bg: "rgba(16,185,129,0.12)",  color: "#86efac", border: "rgba(16,185,129,0.35)" },
-  FAIL:        { bg: "rgba(244,63,94,0.1)",    color: "#fda4af", border: "rgba(244,63,94,0.35)" },
-  CONDITIONAL: { bg: "rgba(251,191,36,0.12)",  color: "#fde68a", border: "rgba(251,191,36,0.35)" },
-  ACTIVE:      { bg: "rgba(16,185,129,0.12)",  color: "#86efac", border: "rgba(16,185,129,0.35)" },
-  ISSUED:      { bg: "rgba(16,185,129,0.12)",  color: "#86efac", border: "rgba(16,185,129,0.35)" },
+const C = {
+  text: "#e2e8f0",
+  muted: "rgba(226,232,240,0.65)",
+  border: "rgba(255,255,255,0.10)",
+  card: "rgba(255,255,255,0.04)",
+  green: "#00f5c4",
+  pink: "#f472b6",
+  yellow: "#fbbf24",
+  blue: "#4fc3f7",
 };
 
-function normalizeStatus(val) {
-  if (!val) return "PASS";
-  const up = val.toUpperCase();
-  if (up === "ACTIVE" || up === "ISSUED") return "PASS";
-  return up;
+const inputStyle = {
+  width: "100%",
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: `1px solid ${C.border}`,
+  background: "rgba(255,255,255,0.04)",
+  color: C.text,
+  outline: "none",
+  boxSizing: "border-box",
+};
+
+function statusColor(status) {
+  if (status === "PASS") return "#86efac";
+  if (status === "FAIL") return "#f472b6";
+  return "#fbbf24";
 }
 
-function Badge({ rawStatus }) {
-  const key = normalizeStatus(rawStatus);
-  const s   = STATUS_COLOR[key] || { bg: "rgba(148,163,184,0.1)", color: "#94a3b8", border: "rgba(148,163,184,0.3)" };
-  return (
-    <span style={{
-      display: "inline-block", padding: "3px 10px", borderRadius: 20,
-      fontSize: 11, fontWeight: 700,
-      background: s.bg, color: s.color, border: `1px solid ${s.border}`,
-    }}>
-      {key}
-    </span>
-  );
-}
+export default function CertificatesRegisterPage() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-function formatDate(val) {
-  if (!val) return "—";
-  return new Date(val).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-}
+  const [search, setSearch] = useState("");
+  const [resultFilter, setResultFilter] = useState("ALL");
+  const [expiryFilter, setExpiryFilter] = useState("ALL");
+  const [clientFilter, setClientFilter] = useState("ALL");
+  const [equipmentTypeFilter, setEquipmentTypeFilter] = useState("ALL");
 
-function isExpired(val) {
-  if (!val) return false;
-  return new Date(val) < new Date();
-}
+  useEffect(() => {
+    let mounted = true;
 
-function DeleteModal({ cert, onCancel, onConfirm, deleting }) {
-  return (
-    <div style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)",
-      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
-    }}>
-      <div style={{
-        background: "#0f172a", border: "1px solid rgba(244,63,94,0.4)",
-        borderRadius: 16, padding: 28, maxWidth: 420, width: "90%",
-      }}>
-        <h3 style={{ color: "#fda4af", margin: "0 0 12px 0", fontSize: 17 }}>⚠️ Delete Certificate</h3>
-        <p style={{ color: "#94a3b8", fontSize: 13, margin: "0 0 8px 0" }}>
-          This will permanently delete:
-        </p>
-        <ul style={{ color: "#e2e8f0", fontSize: 13, margin: "0 0 16px 0", paddingLeft: 18 }}>
-          <li>Certificate <strong style={{ color: "#7c5cfc" }}>{cert.certificate_number}</strong></li>
-          <li>Equipment record <strong style={{ color: "#4fc3f7" }}>
-            {cert.equipment_description || cert.assets?.asset_type || "—"}
-          </strong> ({cert.assets?.asset_tag})</li>
-        </ul>
-        <p style={{ color: "#fda4af", fontSize: 12, marginBottom: 20 }}>
-          This cannot be undone. The client record will be kept.
-        </p>
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button onClick={onCancel} disabled={deleting}
-            style={{ padding: "9px 20px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 13 }}>
-            Cancel
-          </button>
-          <button onClick={onConfirm} disabled={deleting}
-            style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#ef4444,#dc2626)", color: "#fff", fontWeight: 700, cursor: deleting ? "not-allowed" : "pointer", fontSize: 13, opacity: deleting ? 0.7 : 1 }}>
-            {deleting ? "Deleting…" : "Delete Both"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+    async function load() {
+      try {
+        setLoading(true);
+        const { data, error } = await supabase
+          .from("v_certificate_register")
+          .select("*")
+          .order("created_at", { ascending: false });
 
-export default function CertificatesPage() {
-  const router = useRouter();
-  const [certs,    setCerts]    = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState("");
-  const [search,   setSearch]   = useState("");
-  const [toDelete, setToDelete] = useState(null);
-  const [deleting, setDeleting] = useState(false);
-
-  useEffect(() => { load(); }, []);
-
-  async function load() {
-    try {
-      setLoading(true);
-      setError("");
-      const { data, error } = await supabase
-        .from("certificates")
-        .select(`
-          id, certificate_number, certificate_type,
-          company, equipment_description, equipment_location,
-          equipment_id, equipment_status, issued_at, valid_to,
-          status, inspector_name, inspector_id,
-          lanyard_serial_no, capacity, country_of_origin,
-          year_built, manufacturer, model, swl, mawp,
-          assets (
-            id, asset_tag, asset_type, serial_number,
-            clients ( company_name )
-          )
-        `)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      setCerts(data || []);
-    } catch (err) {
-      setError(err.message || "Failed to load certificates.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleDelete() {
-    if (!toDelete) return;
-    setDeleting(true);
-    try {
-      const { error: certErr } = await supabase
-        .from("certificates")
-        .delete()
-        .eq("id", toDelete.id);
-      if (certErr) throw certErr;
-
-      if (toDelete.assets?.id) {
-        const { error: assetErr } = await supabase
-          .from("assets")
-          .delete()
-          .eq("id", toDelete.assets.id);
-        if (assetErr) throw assetErr;
+        if (error) throw error;
+        if (mounted) setRows(data || []);
+      } catch (err) {
+        if (mounted) setError(err.message || "Failed to load certificates.");
+      } finally {
+        if (mounted) setLoading(false);
       }
-
-      setCerts((prev) => prev.filter((c) => c.id !== toDelete.id));
-      setToDelete(null);
-    } catch (err) {
-      setError("Delete failed: " + err.message);
-      setToDelete(null);
-    } finally {
-      setDeleting(false);
     }
-  }
 
-  const filtered = certs.filter((c) => {
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (
-      (c.certificate_number || "").toLowerCase().includes(q) ||
-      (c.company || "").toLowerCase().includes(q) ||
-      (c.equipment_description || "").toLowerCase().includes(q) ||
-      (c.equipment_id || "").toLowerCase().includes(q) ||
-      (c.assets?.asset_tag || "").toLowerCase().includes(q) ||
-      (c.assets?.clients?.company_name || "").toLowerCase().includes(q) ||
-      (c.certificate_type || "").toLowerCase().includes(q) ||
-      (c.manufacturer || "").toLowerCase().includes(q) ||
-      (c.model || "").toLowerCase().includes(q) ||
-      (c.country_of_origin || "").toLowerCase().includes(q)
-    );
-  });
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
-  const total    = certs.length;
-  const passed   = certs.filter((c) => ["PASS","ACTIVE","ISSUED"].includes((c.equipment_status||"").toUpperCase())).length;
-  const expiring = certs.filter((c) => isExpired(c.valid_to)).length;
-  const drafts   = certs.filter((c) => c.status === "draft").length;
+  const clients = useMemo(() => {
+    return [...new Set(rows.map((r) => r.client_name).filter(Boolean))].sort();
+  }, [rows]);
+
+  const equipmentTypes = useMemo(() => {
+    return [...new Set(rows.map((r) => r.equipment_type).filter(Boolean))].sort();
+  }, [rows]);
+
+  const filtered = useMemo(() => {
+    return rows.filter((row) => {
+      const haystack = [
+        row.certificate_number,
+        row.client_name,
+        row.asset_tag,
+        row.equipment_type,
+        row.equipment_description,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      const q = search.trim().toLowerCase();
+      if (q && !haystack.includes(q)) return false;
+
+      if (resultFilter !== "ALL" && row.equipment_status !== resultFilter) return false;
+
+      const bucket = row.expiry_bucket || expiryBucketFromDate(row.expiry_date || row.next_inspection_date);
+      if (expiryFilter !== "ALL" && bucket !== expiryFilter) return false;
+
+      if (clientFilter !== "ALL" && row.client_name !== clientFilter) return false;
+      if (equipmentTypeFilter !== "ALL" && row.equipment_type !== equipmentTypeFilter) return false;
+
+      return true;
+    });
+  }, [rows, search, resultFilter, expiryFilter, clientFilter, equipmentTypeFilter]);
+
+  const grouped = useMemo(() => {
+    const map = new Map();
+
+    for (const row of filtered) {
+      const client = row.client_name || "Unknown Client";
+      const type = row.equipment_type || "General Equipment";
+      const desc = row.equipment_description || "Unnamed Equipment";
+
+      if (!map.has(client)) map.set(client, new Map());
+      if (!map.get(client).has(type)) map.get(client).set(type, new Map());
+      if (!map.get(client).get(type).has(desc)) map.get(client).get(type).set(desc, []);
+
+      map.get(client).get(type).get(desc).push(row);
+    }
+
+    return map;
+  }, [filtered]);
+
+  const stats = useMemo(() => {
+    const expiring = rows.filter((r) => (r.expiry_bucket || expiryBucketFromDate(r.expiry_date || r.next_inspection_date)) === "EXPIRING_30_DAYS").length;
+    return {
+      total: rows.length,
+      pass: rows.filter((r) => r.equipment_status === "PASS").length,
+      fail: rows.filter((r) => r.equipment_status === "FAIL").length,
+      expiring,
+    };
+  }, [rows]);
 
   return (
-    <AppLayout title="Certificates">
-      <div style={{ maxWidth: 1200 }}>
-
-        {toDelete && (
-          <DeleteModal
-            cert={toDelete}
-            onCancel={() => setToDelete(null)}
-            onConfirm={handleDelete}
-            deleting={deleting}
-          />
-        )}
-
-        {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 24 }}>
+    <AppLayout title="Certificates Register">
+      <div style={{ maxWidth: 1400 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 20 }}>
           <div>
-            <h1 style={{ color: "#fff", margin: 0, fontSize: 28 }}>Certificates</h1>
-            <p style={{ color: "#94a3b8", marginTop: 6, fontSize: 13 }}>
-              Manage all inspection and test certificates.
+            <h1 style={{ color: "#fff", marginBottom: 8 }}>Certificates Register</h1>
+            <p style={{ color: C.muted }}>
+              ISO-style grouping by client, equipment type, and equipment description.
             </p>
           </div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button onClick={() => router.push("/certificates/import")}
-              style={{ padding: "10px 18px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.05)", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>
-              📥 Bulk Import
-            </button>
-            <button onClick={() => router.push("/certificates/create")}
-              style={{ padding: "10px 20px", borderRadius: 8, border: "none", background: "linear-gradient(135deg,#667eea,#764ba2)", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>
-              + New Certificate
-            </button>
-          </div>
+
+          <Link
+            href="/certificates/create"
+            style={{
+              textDecoration: "none",
+              alignSelf: "center",
+              padding: "12px 16px",
+              borderRadius: 10,
+              background: "linear-gradient(135deg,#00f5c4,#4fc3f7)",
+              color: "#05202e",
+              fontWeight: 800,
+            }}
+          >
+            + Create Certificate
+          </Link>
         </div>
 
-        {/* Stats */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 24 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(180px,1fr))", gap: 14, marginBottom: 18 }}>
           {[
-            { label: "Total",   value: total,    color: "#4fc3f7" },
-            { label: "Passed",  value: passed,   color: "#86efac" },
-            { label: "Expired", value: expiring, color: "#fda4af" },
-            { label: "Drafts",  value: drafts,   color: "#fde68a" },
-          ].map((s) => (
-            <div key={s.label} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "14px 18px" }}>
-              <div style={{ color: "#94a3b8", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>{s.label}</div>
-              <div style={{ color: s.color, fontSize: 28, fontWeight: 800, marginTop: 4 }}>{s.value}</div>
+            ["Total", stats.total, C.blue],
+            ["Passed", stats.pass, C.green],
+            ["Failed", stats.fail, C.pink],
+            ["Expiring 30 Days", stats.expiring, C.yellow],
+          ].map(([label, value, color]) => (
+            <div key={label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 18 }}>
+              <div style={{ color: C.muted, fontSize: 12 }}>{label}</div>
+              <div style={{ color, fontSize: 28, fontWeight: 800, marginTop: 8 }}>{value}</div>
             </div>
           ))}
         </div>
 
-        {/* Search */}
-        <div style={{ marginBottom: 16 }}>
-          <input value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by company, equipment, certificate no, manufacturer, country…"
-            style={{ width: "100%", padding: "11px 16px", borderRadius: 10, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(102,126,234,0.25)", color: "#e2e8f0", fontSize: 13, outline: "none", boxSizing: "border-box" }}
-          />
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: 18, marginBottom: 18 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr", gap: 12 }}>
+            <input
+              style={inputStyle}
+              placeholder="Search certificate, client, equipment..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+
+            <select style={inputStyle} value={resultFilter} onChange={(e) => setResultFilter(e.target.value)}>
+              <option value="ALL">All Results</option>
+              <option value="PASS">Passed</option>
+              <option value="FAIL">Failed</option>
+              <option value="REPAIR REQUIRED">Repair Required</option>
+              <option value="OUT OF SERVICE">Out of Service</option>
+            </select>
+
+            <select style={inputStyle} value={expiryFilter} onChange={(e) => setExpiryFilter(e.target.value)}>
+              <option value="ALL">All Expiry</option>
+              <option value="EXPIRING_30_DAYS">Expiring in 30 Days</option>
+              <option value="EXPIRED">Expired</option>
+              <option value="ACTIVE">Active</option>
+              <option value="NO_EXPIRY">No Expiry</option>
+            </select>
+
+            <select style={inputStyle} value={clientFilter} onChange={(e) => setClientFilter(e.target.value)}>
+              <option value="ALL">All Clients</option>
+              {clients.map((client) => (
+                <option key={client} value={client}>
+                  {client}
+                </option>
+              ))}
+            </select>
+
+            <select style={inputStyle} value={equipmentTypeFilter} onChange={(e) => setEquipmentTypeFilter(e.target.value)}>
+              <option value="ALL">All Equipment Types</option>
+              {equipmentTypes.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        {error && (
-          <div style={{ background: "rgba(244,114,182,0.1)", border: "1px solid rgba(244,114,182,0.3)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, color: "#f472b6", fontSize: 13 }}>
-            ⚠️ {error}
-          </div>
-        )}
+        {loading ? (
+          <div style={{ color: C.text }}>Loading certificates...</div>
+        ) : error ? (
+          <div style={{ color: C.pink }}>{error}</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            {[...grouped.entries()].map(([clientName, typesMap]) => (
+              <div key={clientName} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 20, padding: 18 }}>
+                <h2 style={{ color: "#fff", marginTop: 0 }}>{clientName}</h2>
 
-        {loading && (
-          <div style={{ color: "#94a3b8", padding: "40px 0", textAlign: "center", fontSize: 14 }}>
-            Loading certificates…
-          </div>
-        )}
+                {[...typesMap.entries()].map(([equipmentType, descriptionsMap]) => (
+                  <div key={equipmentType} style={{ marginBottom: 18 }}>
+                    <div style={{ color: C.blue, fontWeight: 800, marginBottom: 10 }}>
+                      {equipmentType}
+                    </div>
 
-        {!loading && !error && filtered.length === 0 && (
-          <div style={{ color: "#64748b", padding: "40px 0", textAlign: "center", fontSize: 14 }}>
-            {search ? "No certificates match your search." : "No certificates yet. Create your first one!"}
-          </div>
-        )}
+                    {[...descriptionsMap.entries()].map(([description, certs]) => (
+                      <div
+                        key={description}
+                        style={{
+                          background: "rgba(255,255,255,0.03)",
+                          border: `1px solid ${C.border}`,
+                          borderRadius: 14,
+                          padding: 14,
+                          marginBottom: 12,
+                        }}
+                      >
+                        <div style={{ color: "#fff", fontWeight: 700, marginBottom: 10 }}>
+                          {description}
+                        </div>
 
-        {/* Table */}
-        {!loading && filtered.length > 0 && (
-          <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, overflow: "hidden" }}>
-            {/* Header */}
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "180px 1fr 1fr 110px 110px 100px 160px",
-              padding: "10px 16px",
-              background: "rgba(255,255,255,0.04)",
-              borderBottom: "1px solid rgba(255,255,255,0.08)",
-              fontSize: 10, fontWeight: 800, color: "#64748b",
-              textTransform: "uppercase", letterSpacing: "0.1em", gap: 8,
-            }}>
-              <div>Cert No.</div>
-              <div>Company / Equipment</div>
-              <div>Type</div>
-              <div>Issue Date</div>
-              <div>Expiry</div>
-              <div>Result</div>
-              <div>Actions</div>
-            </div>
-
-            {filtered.map((c) => {
-              const expired = isExpired(c.valid_to);
-              const company = c.company || c.assets?.clients?.company_name || "—";
-              const equip   = c.equipment_description || c.assets?.asset_type || "—";
-              const certNo  = c.certificate_number || c.equipment_id || c.assets?.asset_tag || c.id?.slice(0,8).toUpperCase();
-
-              return (
-                <div key={c.id}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "180px 1fr 1fr 110px 110px 100px 160px",
-                    padding: "12px 16px",
-                    borderBottom: "1px solid rgba(255,255,255,0.05)",
-                    alignItems: "center", gap: 8, cursor: "pointer",
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.04)"}
-                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                  onClick={() => router.push(`/certificates/${c.id}`)}
-                >
-                  <div style={{ color: "#7c5cfc", fontWeight: 700, fontSize: 12, wordBreak: "break-all" }}>
-                    {certNo}
+                        <div style={{ overflowX: "auto" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+                            <thead>
+                              <tr>
+                                {[
+                                  "Certificate No",
+                                  "Asset Tag",
+                                  "Category",
+                                  "Result",
+                                  "Issue Date",
+                                  "Expiry Date",
+                                  "Expiry Bucket",
+                                  "Status",
+                                ].map((head) => (
+                                  <th
+                                    key={head}
+                                    style={{
+                                      textAlign: "left",
+                                      color: C.muted,
+                                      fontSize: 11,
+                                      padding: "10px 8px",
+                                      borderBottom: `1px solid ${C.border}`,
+                                      textTransform: "uppercase",
+                                    }}
+                                  >
+                                    {head}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {certs.map((row) => (
+                                <tr key={row.id}>
+                                  <td style={{ padding: "12px 8px", color: "#fff" }}>{row.certificate_number}</td>
+                                  <td style={{ padding: "12px 8px", color: C.text }}>{row.asset_tag || "-"}</td>
+                                  <td style={{ padding: "12px 8px", color: C.text }}>{row.document_category || "-"}</td>
+                                  <td style={{ padding: "12px 8px", color: statusColor(row.equipment_status), fontWeight: 700 }}>
+                                    {row.equipment_status || "-"}
+                                  </td>
+                                  <td style={{ padding: "12px 8px", color: C.text }}>{row.issue_date || "-"}</td>
+                                  <td style={{ padding: "12px 8px", color: C.text }}>{row.expiry_date || row.next_inspection_date || "-"}</td>
+                                  <td style={{ padding: "12px 8px", color: C.text }}>
+                                    {row.expiry_bucket || expiryBucketFromDate(row.expiry_date || row.next_inspection_date)}
+                                  </td>
+                                  <td style={{ padding: "12px 8px", color: C.text }}>{row.document_status || "-"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-
-                  <div>
-                    <div style={{ color: "#e2e8f0", fontWeight: 600, fontSize: 13 }}>{company}</div>
-                    <div style={{ color: "#64748b", fontSize: 11, marginTop: 2 }}>{equip}</div>
-                    {c.manufacturer && (
-                      <div style={{ color: "#475569", fontSize: 10, marginTop: 1 }}>🏭 {c.manufacturer}{c.model ? ` · ${c.model}` : ""}</div>
-                    )}
-                    {c.equipment_location && (
-                      <div style={{ color: "#475569", fontSize: 10, marginTop: 1 }}>📍 {c.equipment_location}</div>
-                    )}
-                    {c.country_of_origin && (
-                      <div style={{ color: "#475569", fontSize: 10, marginTop: 1 }}>🌍 {c.country_of_origin}{c.year_built ? ` · ${c.year_built}` : ""}</div>
-                    )}
-                  </div>
-
-                  <div style={{ color: "#94a3b8", fontSize: 12 }}>{c.certificate_type || "—"}</div>
-
-                  <div style={{ color: "#94a3b8", fontSize: 12 }}>{formatDate(c.issued_at)}</div>
-
-                  <div style={{ color: expired ? "#fda4af" : "#94a3b8", fontSize: 12, fontWeight: expired ? 700 : 400 }}>
-                    {formatDate(c.valid_to)}
-                    {expired && <div style={{ fontSize: 9, color: "#fda4af", fontWeight: 700 }}>EXPIRED</div>}
-                  </div>
-
-                  <div><Badge rawStatus={c.equipment_status || c.status} /></div>
-
-                  <div style={{ display: "flex", gap: 5 }} onClick={(e) => e.stopPropagation()}>
-                    <button onClick={() => router.push(`/certificates/${c.id}`)}
-                      style={{ padding: "5px 9px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: "#e2e8f0", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
-                      View
-                    </button>
-                    <button onClick={() => window.open(`/certificates/print/${c.id}`, "_blank")}
-                      style={{ padding: "5px 9px", borderRadius: 6, border: "none", background: "linear-gradient(135deg,#667eea,#764ba2)", color: "#fff", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
-                      🖨
-                    </button>
-                    <button onClick={() => setToDelete(c)}
-                      style={{ padding: "5px 9px", borderRadius: 6, border: "1px solid rgba(244,63,94,0.3)", background: "rgba(244,63,94,0.08)", color: "#fda4af", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
-                      🗑
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {!loading && filtered.length > 0 && (
-          <div style={{ color: "#475569", fontSize: 12, marginTop: 12, textAlign: "right" }}>
-            Showing {filtered.length} of {total} certificate{total !== 1 ? "s" : ""}
+                ))}
+              </div>
+            ))}
           </div>
         )}
       </div>
