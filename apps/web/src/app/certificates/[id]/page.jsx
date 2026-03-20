@@ -1,146 +1,88 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import AppLayout from "@/components/AppLayout";
+import { useEffect, useRef, useState } from "react";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 
-const cardStyle = {
-  background: "rgba(255,255,255,0.03)",
-  border: "1px solid rgba(255,255,255,0.08)",
-  borderRadius: 16,
-  padding: 24,
-  marginBottom: 20,
-};
+const DEFAULT_INSPECTOR_NAME = "Moemedi Masupe";
+const DEFAULT_INSPECTOR_ID = "700117910";
+const DEFAULT_LEGAL_FRAMEWORK =
+  "Mines, Quarries, Works and Machinery Act Cap 44:02";
+const CONTACT_DETAILS = "+267 77906461 / +267 71450610";
 
-const sectionTitleStyle = {
-  color: "#fff",
-  fontSize: 14,
-  fontWeight: 700,
-  margin: "0 0 18px 0",
-};
+function resolveCertTitle(certType = "", assetType = "") {
+  const ct = String(certType).toLowerCase();
+  const at = String(assetType).toLowerCase();
+  const pressureWords = [
+    "pressure",
+    "boiler",
+    "air receiver",
+    "air compressor",
+    "oil separator",
+  ];
+  const isPressure = pressureWords.some(
+    (w) => ct.includes(w) || at.includes(w)
+  );
+  return isPressure
+    ? "Pressure Test Certificate"
+    : "Load Test Certificate – Lifting Equipment";
+}
 
-const labelStyle = {
-  fontSize: 10,
-  fontWeight: 800,
-  color: "rgba(255,255,255,0.45)",
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  marginBottom: 4,
-};
+function buildCertNumber(cert, asset) {
+  if (cert?.certificate_number) return cert.certificate_number;
+  const serial = (asset?.serial_number || asset?.asset_tag || "XX")
+    .replace(/\s+/g, "-")
+    .toUpperCase();
+  const seq = cert?.sequence_number
+    ? String(cert.sequence_number).padStart(2, "0")
+    : "01";
+  return `CERT-${serial}-${seq}`;
+}
 
-const valueStyle = {
-  fontSize: 13,
-  color: "#e2e8f0",
-  fontWeight: 500,
-  wordBreak: "break-word",
-};
+function val(v) {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  return s === "" || s === "Unknown" ? null : s;
+}
 
-function formatDate(value) {
-  if (!value) return "";
+function dateLabel(value) {
+  if (!value) return null;
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return String(value);
   return d.toLocaleDateString("en-GB", {
     day: "2-digit",
-    month: "short",
+    month: "long",
     year: "numeric",
   });
 }
 
-function val(v) {
-  if (v === undefined || v === null) return "";
-  const s = String(v).trim();
-  return s;
-}
-
-function StatusBadge({ value }) {
-  const status = String(value || "").toUpperCase();
-  const color =
-    status === "PASS"
-      ? "#16a34a"
-      : status === "FAIL"
-      ? "#dc2626"
-      : status === "CONDITIONAL"
-      ? "#d97706"
-      : "#64748b";
-
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "5px 12px",
-        borderRadius: 999,
-        border: `1px solid ${color}`,
-        background: `${color}15`,
-        color,
-        fontSize: 11,
-        fontWeight: 800,
-        letterSpacing: "0.06em",
-      }}
-    >
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: "50%",
-          background: color,
-          display: "inline-block",
-        }}
-      />
-      {status || "N/A"}
-    </span>
-  );
-}
-
-function InfoGrid({ items }) {
-  const filtered = items.filter((item) => val(item.value));
-  if (!filtered.length) {
-    return <div style={{ color: "#64748b", fontSize: 13 }}>No data available.</div>;
-  }
-
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
-        gap: 16,
-      }}
-    >
-      {filtered.map((item) => (
-        <div key={item.label}>
-          <div style={labelStyle}>{item.label}</div>
-          <div style={valueStyle}>{item.value}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-export default function CertificateViewPage() {
+export default function PrintCertificatePage() {
   const params = useParams();
-  const router = useRouter();
   const id = params?.id;
+  const pageRef = useRef(null);
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [cert, setCert] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    async function loadCertificate() {
-      if (!id) return;
+    async function load() {
+      if (!id) {
+        setError("No certificate ID provided.");
+        setLoading(false);
+        return;
+      }
 
       try {
-        setLoading(true);
-        setError("");
-
-        const { data, error: err } = await supabase
+        const { data, error } = await supabase
           .from("certificates")
-          .select(`
+          .select(
+            `
             *,
             assets (
-              id,
               asset_tag,
               asset_name,
               asset_type,
@@ -152,359 +94,814 @@ export default function CertificateViewPage() {
               manufacturer,
               model,
               year_built,
-              country_of_origin,
-              capacity_volume,
               location,
               department,
-              design_standard,
-              fluid_type,
-              design_pressure,
-              working_pressure,
-              test_pressure,
-              design_temperature,
+              country_of_origin,
               safe_working_load,
+              working_pressure,
+              design_pressure,
+              test_pressure,
               proof_load,
               lifting_height,
               sling_length,
               chain_size,
               rope_diameter,
+              capacity_volume,
+              design_temperature,
+              shell_material,
+              fluid_type,
               inspector_name,
               inspector_id,
-              next_inspection_date,
               clients (
                 company_name,
                 company_code
               )
             )
-          `)
+          `
+          )
           .eq("id", id)
           .single();
 
-        if (err || !data) {
-          throw new Error(err?.message || "Certificate not found.");
-        }
+        if (error) throw new Error(error.message || "Certificate not found.");
+        if (!data) throw new Error("Certificate not found.");
 
         setCert(data);
       } catch (err) {
-        setError(err?.message || "Failed to load certificate.");
+        setError(err.message || "Failed to load certificate.");
       } finally {
         setLoading(false);
       }
     }
 
-    loadCertificate();
+    load();
   }, [id]);
 
-  const asset = cert?.assets || {};
-  const client = asset?.clients || {};
+  async function handleDownloadPdf() {
+    if (!pageRef.current || !cert) return;
 
-  const certificateData = useMemo(() => {
-    if (!cert) return null;
+    try {
+      setDownloading(true);
 
-    return {
-      certificate_number: val(cert.certificate_number),
-      certificate_type: val(cert.certificate_type),
-      company: val(cert.company) || val(client.company_name),
-      equipment_description: val(cert.equipment_description) || val(asset.asset_type) || val(asset.asset_name),
-      equipment_location: val(cert.equipment_location) || val(asset.location),
-      equipment_id: val(cert.equipment_id) || val(asset.equipment_id) || val(asset.serial_number) || val(asset.asset_tag),
-      identification_number: val(cert.identification_number) || val(asset.identification_number),
-      inspection_no: val(cert.inspection_no) || val(asset.inspection_no),
-      lanyard_serial_no: val(cert.lanyard_serial_no) || val(asset.lanyard_serial_no),
-      swl: val(cert.swl) || val(asset.safe_working_load),
-      mawp: val(cert.mawp) || val(asset.working_pressure),
-      design_pressure: val(cert.design_pressure) || val(asset.design_pressure),
-      test_pressure: val(cert.test_pressure) || val(asset.test_pressure),
-      capacity: val(cert.capacity) || val(asset.capacity_volume),
-      year_built: val(cert.year_built) || val(asset.year_built),
-      manufacturer: val(cert.manufacturer) || val(asset.manufacturer),
-      model: val(cert.model) || val(asset.model),
-      country_of_origin: val(cert.country_of_origin) || val(asset.country_of_origin),
-      equipment_status: val(cert.equipment_status),
-      issued_at: formatDate(cert.issued_at),
-      valid_to: formatDate(cert.valid_to),
-      status: val(cert.status),
-      legal_framework: val(cert.legal_framework) || val(asset.design_standard),
-      inspector_name: val(cert.inspector_name) || val(asset.inspector_name),
-      inspector_id: val(cert.inspector_id) || val(asset.inspector_id),
-      signature_url: val(cert.signature_url),
-      logo_url: val(cert.logo_url),
-      pdf_url: val(cert.pdf_url),
-      asset_tag: val(asset.asset_tag),
-      asset_type: val(asset.asset_type),
-      department: val(asset.department),
-      fluid_type: val(asset.fluid_type),
-      design_temperature: val(asset.design_temperature),
-      proof_load: val(asset.proof_load),
-      lifting_height: val(asset.lifting_height),
-      sling_length: val(asset.sling_length),
-      chain_size: val(asset.chain_size),
-      rope_diameter: val(asset.rope_diameter),
-      company_code: val(client.company_code),
-    };
-  }, [cert, asset, client]);
+      const asset = cert.assets || {};
+      const certNumber = buildCertNumber(cert, asset);
+
+      const canvas = await html2canvas(pageRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        scrollX: 0,
+        scrollY: -window.scrollY,
+      });
+
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
+
+      const pdfWidth = 210;
+      const pdfHeight = 297;
+      const imgWidth = pdfWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pdfHeight;
+
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+        heightLeft -= pdfHeight;
+      }
+
+      pdf.save(`${certNumber}.pdf`);
+    } catch (err) {
+      console.error("PDF download failed:", err);
+      alert("Failed to download PDF. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  function handlePrint() {
+    window.print();
+  }
 
   if (loading) {
     return (
-      <AppLayout title="Certificate">
-        <div style={{ color: "#64748b", padding: 40, textAlign: "center", fontSize: 14 }}>
-          Loading certificate…
-        </div>
-      </AppLayout>
+      <div style={{ padding: 40, fontFamily: "Inter, sans-serif", color: "#334155" }}>
+        Loading certificate...
+      </div>
     );
   }
 
-  if (error || !certificateData) {
+  if (error) {
     return (
-      <AppLayout title="Certificate">
-        <div style={{ maxWidth: 960 }}>
-          <button
-            onClick={() => router.push("/certificates")}
-            style={{
-              marginBottom: 20,
-              padding: "9px 18px",
-              borderRadius: 8,
-              border: "1px solid rgba(255,255,255,0.1)",
-              background: "rgba(255,255,255,0.05)",
-              color: "#fff",
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            ← Back to Certificates
-          </button>
-
-          <div
-            style={{
-              background: "rgba(244,114,182,0.1)",
-              border: "1px solid rgba(244,114,182,0.3)",
-              borderRadius: 12,
-              padding: "12px 16px",
-              color: "#f472b6",
-              fontSize: 13,
-            }}
-          >
-            ⚠️ {error || "Certificate not found."}
-          </div>
-        </div>
-      </AppLayout>
+      <div style={{ padding: 40, color: "red", fontFamily: "Inter, sans-serif" }}>
+        {error}
+      </div>
     );
   }
 
-  const isPressure = ["pressure vessel", "boiler", "air receiver", "air compressor", "oil separator"].includes(
-    String(certificateData.equipment_description || certificateData.asset_type || "").toLowerCase()
-  );
+  if (!cert) {
+    return (
+      <div style={{ padding: 40, color: "#64748b", fontFamily: "Inter, sans-serif" }}>
+        Certificate not found.
+      </div>
+    );
+  }
+
+  const asset = cert.assets || {};
+  const client = asset.clients || {};
+
+  const certTitle = resolveCertTitle(cert.certificate_type, asset.asset_type);
+  const certNumber = buildCertNumber(cert, asset);
+
+  const inspectorName =
+    val(cert.inspector_name) ||
+    val(asset.inspector_name) ||
+    DEFAULT_INSPECTOR_NAME;
+
+  const inspectorId =
+    val(cert.inspector_id) || val(asset.inspector_id) || DEFAULT_INSPECTOR_ID;
+
+  const legalFramework = val(cert.legal_framework) || DEFAULT_LEGAL_FRAMEWORK;
+
+  const issueDate = dateLabel(cert.issued_at);
+  const expiryDate = dateLabel(cert.valid_to);
+
+  const isPressure = certTitle.toLowerCase().includes("pressure");
+
+  const equipmentRows = [
+    {
+      label: "Company / Client",
+      value: val(cert.company) || val(client.company_name),
+    },
+    {
+      label: "Equipment Description",
+      value:
+        val(cert.equipment_description) ||
+        val(asset.asset_type) ||
+        val(asset.asset_name),
+    },
+    {
+      label: "Equipment Location",
+      value: val(cert.equipment_location) || val(asset.location),
+    },
+    { label: "Department", value: val(asset.department) },
+    {
+      label: "Equipment ID / Serial",
+      value:
+        val(cert.equipment_id) ||
+        val(asset.equipment_id) ||
+        val(asset.serial_number) ||
+        val(asset.asset_tag),
+    },
+    {
+      label: "Identification Number",
+      value: val(cert.identification_number) || val(asset.identification_number),
+    },
+    {
+      label: "Inspection No.",
+      value: val(cert.inspection_no) || val(asset.inspection_no),
+    },
+    {
+      label: "Lanyard Serial No.",
+      value: val(cert.lanyard_serial_no) || val(asset.lanyard_serial_no),
+    },
+    { label: "Manufacturer", value: val(cert.manufacturer) || val(asset.manufacturer) },
+    { label: "Model", value: val(cert.model) || val(asset.model) },
+    { label: "Year Built", value: val(cert.year_built) || val(asset.year_built) },
+    {
+      label: "Country of Origin",
+      value: val(cert.country_of_origin) || val(asset.country_of_origin),
+    },
+    {
+      label: "Capacity / Volume",
+      value: val(cert.capacity) || val(asset.capacity_volume),
+    },
+
+    isPressure
+      ? { label: "MAWP", value: val(cert.mawp) || val(asset.working_pressure) }
+      : null,
+    isPressure
+      ? {
+          label: "Design Pressure",
+          value: val(cert.design_pressure) || val(asset.design_pressure),
+        }
+      : null,
+    isPressure
+      ? {
+          label: "Test Pressure",
+          value: val(cert.test_pressure) || val(asset.test_pressure),
+        }
+      : null,
+    isPressure
+      ? { label: "Design Temperature", value: val(asset.design_temperature) }
+      : null,
+    isPressure ? { label: "Shell Material", value: val(asset.shell_material) } : null,
+    isPressure ? { label: "Fluid Type", value: val(asset.fluid_type) } : null,
+
+    !isPressure
+      ? {
+          label: "Safe Working Load (SWL)",
+          value: val(cert.swl) || val(asset.safe_working_load),
+        }
+      : null,
+    !isPressure ? { label: "Proof Load", value: val(cert.proof_load) || val(asset.proof_load) } : null,
+    !isPressure
+      ? { label: "Lifting Height", value: val(cert.lifting_height) || val(asset.lifting_height) }
+      : null,
+    !isPressure
+      ? { label: "Sling Length", value: val(cert.sling_length) || val(asset.sling_length) }
+      : null,
+    !isPressure ? { label: "Chain Size", value: val(cert.chain_size) || val(asset.chain_size) } : null,
+    !isPressure
+      ? { label: "Rope Diameter", value: val(cert.rope_diameter) || val(asset.rope_diameter) }
+      : null,
+  ]
+    .filter(Boolean)
+    .filter((r) => r.value);
+
+  const statusColor =
+    cert.equipment_status === "PASS"
+      ? "#16a34a"
+      : cert.equipment_status === "FAIL"
+      ? "#dc2626"
+      : "#d97706";
 
   return (
-    <AppLayout title="Certificate">
-      <div style={{ maxWidth: 1000 }}>
+    <>
+      <style jsx global>{`
+        * {
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+        }
+
+        html,
+        body {
+          font-family: Inter, Arial, sans-serif;
+          background: #f0f4f8;
+        }
+
+        * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+          color-adjust: exact !important;
+        }
+
+        @media print {
+          html,
+          body {
+            background: white !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+
+          .no-print {
+            display: none !important;
+          }
+
+          @page {
+            size: A4 portrait;
+            margin: 0;
+          }
+
+          .page {
+            box-shadow: none !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            width: 794px !important;
+            min-height: 1123px !important;
+          }
+        }
+      `}</style>
+
+      <div
+        className="no-print"
+        style={{
+          background: "#1e293b",
+          padding: "12px 24px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <span style={{ color: "#94a3b8", fontSize: 13 }}>Certificate Preview</span>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button
+            onClick={handlePrint}
+            style={{
+              padding: "9px 24px",
+              borderRadius: 8,
+              border: "none",
+              background: "linear-gradient(135deg,#667eea,#764ba2)",
+              color: "#fff",
+              fontWeight: 700,
+              cursor: "pointer",
+              fontSize: 13,
+            }}
+          >
+            🖨 Print / Save PDF
+          </button>
+
+          <button
+            onClick={handleDownloadPdf}
+            disabled={downloading}
+            style={{
+              padding: "9px 24px",
+              borderRadius: 8,
+              border: "none",
+              background: downloading
+                ? "#94a3b8"
+                : "linear-gradient(135deg,#0f766e,#14b8a6)",
+              color: "#fff",
+              fontWeight: 700,
+              cursor: downloading ? "not-allowed" : "pointer",
+              fontSize: 13,
+            }}
+          >
+            {downloading ? "Generating PDF..." : "⬇ Download PDF"}
+          </button>
+        </div>
+      </div>
+
+      <div
+        ref={pageRef}
+        className="page"
+        style={{
+          width: 794,
+          minHeight: 1123,
+          margin: "24px auto",
+          background: "#fff",
+          borderRadius: 4,
+          boxShadow: "0 4px 40px rgba(0,0,0,0.18)",
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
         <div
           style={{
+            height: 8,
+            background: "linear-gradient(90deg,#1e3a5f,#2563eb,#00b4d8)",
+            flexShrink: 0,
+          }}
+        />
+
+        <div
+          style={{
+            padding: "28px 48px 20px",
+            flexShrink: 0,
+            background:
+              "linear-gradient(135deg,#1e3a5f 0%,#1e40af 60%,#0ea5e9 100%)",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            flexWrap: "wrap",
-            gap: 12,
-            marginBottom: 24,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <button
-              onClick={() => router.push("/certificates")}
+          <div>
+            {val(cert.logo_url) && (
+              <img
+                src={cert.logo_url}
+                alt="Logo"
+                crossOrigin="anonymous"
+                style={{ height: 52, marginBottom: 10, objectFit: "contain" }}
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
+              />
+            )}
+            <div
+              style={{
+                color: "#bfdbfe",
+                fontSize: 10,
+                letterSpacing: "0.2em",
+                textTransform: "uppercase",
+                fontWeight: 600,
+              }}
+            >
+              Quality Management System
+            </div>
+          </div>
+
+          <div style={{ textAlign: "right" }}>
+            <div
+              style={{
+                background: "rgba(255,255,255,0.12)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                borderRadius: 8,
+                padding: "10px 18px",
+              }}
+            >
+              <div
+                style={{
+                  color: "#bfdbfe",
+                  fontSize: 9,
+                  letterSpacing: "0.15em",
+                  textTransform: "uppercase",
+                  marginBottom: 4,
+                }}
+              >
+                Certificate No.
+              </div>
+              <div
+                style={{
+                  color: "#fff",
+                  fontSize: 15,
+                  fontWeight: 800,
+                  letterSpacing: "0.05em",
+                }}
+              >
+                {certNumber}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: "#f8fafc",
+            borderBottom: "2px solid #e2e8f0",
+            padding: "20px 48px",
+            textAlign: "center",
+            flexShrink: 0,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 22,
+              fontWeight: 900,
+              color: "#1e3a5f",
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+            }}
+          >
+            {certTitle}
+          </div>
+
+          <div
+            style={{
+              marginTop: 6,
+              display: "flex",
+              justifyContent: "center",
+              gap: 8,
+            }}
+          >
+            <div style={{ height: 3, width: 60, background: "#2563eb", borderRadius: 2 }} />
+            <div style={{ height: 3, width: 20, background: "#00b4d8", borderRadius: 2 }} />
+          </div>
+        </div>
+
+        <div style={{ padding: "28px 48px", flex: 1 }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 20 }}>
+            <div
               style={{
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 6,
-                padding: "7px 14px",
-                borderRadius: 8,
-                cursor: "pointer",
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.1)",
-                color: "#94a3b8",
-                fontSize: 12,
-                fontWeight: 600,
-                fontFamily: "inherit",
+                background: `${statusColor}18`,
+                border: `1.5px solid ${statusColor}`,
+                borderRadius: 20,
+                padding: "5px 16px",
               }}
             >
-              ← Certificates
-            </button>
-            <span style={{ color: "#334155" }}>›</span>
-            <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>View</span>
+              <div
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: statusColor,
+                }}
+              />
+              <span
+                style={{
+                  color: statusColor,
+                  fontWeight: 800,
+                  fontSize: 12,
+                  letterSpacing: "0.1em",
+                }}
+              >
+                {cert.equipment_status || "PASS"}
+              </span>
+            </div>
           </div>
 
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button
-              onClick={() => router.push(`/certificates/edit/${id}`)}
-              style={{
-                padding: "10px 20px",
-                borderRadius: 8,
-                background: "rgba(255,255,255,0.06)",
-                color: "#fff",
-                border: "1px solid rgba(255,255,255,0.1)",
-                fontWeight: 700,
-                cursor: "pointer",
-                fontSize: 13,
-              }}
-            >
-              ✏️ Edit Certificate
-            </button>
-
-            <button
-              onClick={() => window.open(`/certificates/print/${id}`, "_blank")}
-              style={{
-                padding: "10px 20px",
-                borderRadius: 8,
-                background: "linear-gradient(135deg,#00f5c4,#4fc3f7)",
-                color: "#0d1117",
-                border: "none",
-                fontWeight: 700,
-                cursor: "pointer",
-                fontSize: 13,
-              }}
-            >
-              🖨 Print Certificate
-            </button>
-          </div>
-        </div>
-
-        <h1 style={{ color: "#fff", margin: "0 0 4px" }}>Certificate Details</h1>
-        <div
-          style={{
-            width: 60,
-            height: 3,
-            borderRadius: 999,
-            background: "linear-gradient(90deg,#667eea,#764ba2,#4fc3f7)",
-            marginBottom: 28,
-          }}
-        />
-
-        <div style={cardStyle}>
-          <div
+          <p
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "flex-start",
-              gap: 16,
-              flexWrap: "wrap",
-              marginBottom: 20,
+              fontSize: 12,
+              color: "#475569",
+              lineHeight: 1.7,
+              marginBottom: 24,
             }}
           >
-            <div>
-              <div style={labelStyle}>Certificate Number</div>
-              <div style={{ ...valueStyle, fontSize: 18, fontWeight: 800 }}>
-                {certificateData.certificate_number || "Auto Generated"}
-              </div>
-              <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 6 }}>
-                {certificateData.certificate_type || "Certificate"}
-              </div>
-            </div>
+            This is to certify that the equipment described below has been inspected and
+            tested in accordance with the applicable standards and regulations, and is
+            hereby declared to be in a safe and serviceable condition.
+          </p>
 
-            <div style={{ textAlign: "right" }}>
-              <div style={labelStyle}>Equipment Status</div>
-              <StatusBadge value={certificateData.equipment_status} />
-            </div>
-          </div>
-
-          <InfoGrid
-            items={[
-              { label: "Client / Company", value: certificateData.company },
-              { label: "Company Code", value: certificateData.company_code },
-              { label: "Issued At", value: certificateData.issued_at },
-              { label: "Expiry Date", value: certificateData.valid_to },
-              { label: "Record Status", value: certificateData.status },
-              { label: "Legal Framework", value: certificateData.legal_framework },
-            ]}
-          />
-        </div>
-
-        <div style={cardStyle}>
-          <h3 style={sectionTitleStyle}>Equipment Details</h3>
-          <InfoGrid
-            items={[
-              { label: "Asset Tag", value: certificateData.asset_tag },
-              { label: "Equipment Description", value: certificateData.equipment_description },
-              { label: "Asset Type", value: certificateData.asset_type },
-              { label: "Equipment Location", value: certificateData.equipment_location },
-              { label: "Department", value: certificateData.department },
-              { label: "Equipment ID / Serial", value: certificateData.equipment_id },
-              { label: "Identification Number", value: certificateData.identification_number },
-              { label: "Inspection No.", value: certificateData.inspection_no },
-              { label: "Lanyard Serial No.", value: certificateData.lanyard_serial_no },
-              { label: "Manufacturer", value: certificateData.manufacturer },
-              { label: "Model", value: certificateData.model },
-              { label: "Year Built", value: certificateData.year_built },
-              { label: "Country of Origin", value: certificateData.country_of_origin },
-              { label: "Capacity / Volume", value: certificateData.capacity },
-            ]}
-          />
-        </div>
-
-        <div style={cardStyle}>
-          <h3 style={sectionTitleStyle}>Technical Parameters</h3>
-          <InfoGrid
-            items={
-              isPressure
-                ? [
-                    { label: "MAWP / Working Pressure", value: certificateData.mawp },
-                    { label: "Design Pressure", value: certificateData.design_pressure },
-                    { label: "Test Pressure", value: certificateData.test_pressure },
-                    { label: "Design Temperature", value: certificateData.design_temperature },
-                    { label: "Fluid Type", value: certificateData.fluid_type },
-                  ]
-                : [
-                    { label: "SWL", value: certificateData.swl },
-                    { label: "Proof Load", value: certificateData.proof_load },
-                    { label: "Lifting Height", value: certificateData.lifting_height },
-                    { label: "Sling Length", value: certificateData.sling_length },
-                    { label: "Chain Size", value: certificateData.chain_size },
-                    { label: "Rope Diameter", value: certificateData.rope_diameter },
-                  ]
-            }
-          />
-        </div>
-
-        <div style={cardStyle}>
-          <h3 style={sectionTitleStyle}>Inspector Details</h3>
-          <InfoGrid
-            items={[
-              { label: "Inspector Name", value: certificateData.inspector_name },
-              { label: "Inspector ID", value: certificateData.inspector_id },
-              { label: "Logo URL", value: certificateData.logo_url },
-              { label: "PDF URL", value: certificateData.pdf_url },
-            ]}
-          />
-
-          <div style={{ marginTop: 20 }}>
-            <div style={labelStyle}>Signature Preview</div>
+          <div
+            style={{
+              border: "1.5px solid #e2e8f0",
+              borderRadius: 10,
+              overflow: "hidden",
+              marginBottom: 24,
+            }}
+          >
             <div
               style={{
-                background: "#fff",
-                borderRadius: 10,
-                minHeight: 110,
-                border: "1px solid #e2e8f0",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 16,
+                background: "#1e3a5f",
+                padding: "10px 18px",
+                fontSize: 10,
+                fontWeight: 800,
+                color: "#bfdbfe",
+                letterSpacing: "0.15em",
+                textTransform: "uppercase",
               }}
             >
-              {certificateData.signature_url ? (
-                <img
-                  src={certificateData.signature_url}
-                  alt="Signature"
-                  style={{ maxHeight: 80, maxWidth: "100%", objectFit: "contain" }}
-                  onError={(e) => {
-                    e.currentTarget.style.display = "none";
+              Equipment Details
+            </div>
+
+            {equipmentRows.map((row, i) => (
+              <div
+                key={`${row.label}-${i}`}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "200px 1fr",
+                  background: i % 2 === 0 ? "#f8fafc" : "#fff",
+                  borderTop: i > 0 ? "1px solid #f1f5f9" : "none",
+                }}
+              >
+                <div
+                  style={{
+                    padding: "9px 18px",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: "#64748b",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                    borderRight: "1px solid #e2e8f0",
                   }}
-                />
-              ) : (
-                <span style={{ color: "#94a3b8", fontSize: 13 }}>No signature uploaded</span>
-              )}
+                >
+                  {row.label}
+                </div>
+                <div
+                  style={{
+                    padding: "9px 18px",
+                    fontSize: 12,
+                    color: "#1e293b",
+                    fontWeight: 500,
+                  }}
+                >
+                  {row.value}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 16,
+              marginBottom: 24,
+            }}
+          >
+            {issueDate && (
+              <div
+                style={{
+                  border: "1.5px solid #dbeafe",
+                  borderRadius: 10,
+                  padding: "14px 18px",
+                  background: "#eff6ff",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 800,
+                    color: "#3b82f6",
+                    letterSpacing: "0.15em",
+                    textTransform: "uppercase",
+                    marginBottom: 6,
+                  }}
+                >
+                  Date of Issue
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#1e3a5f" }}>
+                  {issueDate}
+                </div>
+              </div>
+            )}
+
+            {expiryDate && (
+              <div
+                style={{
+                  border: "1.5px solid #fecaca",
+                  borderRadius: 10,
+                  padding: "14px 18px",
+                  background: "#fef2f2",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 800,
+                    color: "#ef4444",
+                    letterSpacing: "0.15em",
+                    textTransform: "uppercase",
+                    marginBottom: 6,
+                  }}
+                >
+                  Expiry Date
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#7f1d1d" }}>
+                  {expiryDate}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div
+            style={{
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              borderRadius: 8,
+              padding: "12px 16px",
+              marginBottom: 24,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 9,
+                fontWeight: 800,
+                color: "#64748b",
+                letterSpacing: "0.15em",
+                textTransform: "uppercase",
+                marginBottom: 4,
+              }}
+            >
+              Legal Framework
+            </div>
+            <div style={{ fontSize: 11, color: "#334155" }}>{legalFramework}</div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginTop: 8 }}>
+            <div>
+              <div
+                style={{
+                  fontSize: 9,
+                  fontWeight: 800,
+                  color: "#64748b",
+                  letterSpacing: "0.15em",
+                  textTransform: "uppercase",
+                  marginBottom: 10,
+                }}
+              >
+                Inspector
+              </div>
+
+              <div
+                style={{
+                  height: 70,
+                  borderBottom: "1.5px solid #334155",
+                  display: "flex",
+                  alignItems: "flex-end",
+                  paddingBottom: 4,
+                  marginBottom: 6,
+                }}
+              >
+                {val(cert.signature_url) && (
+                  <img
+                    src={cert.signature_url}
+                    alt="Signature"
+                    crossOrigin="anonymous"
+                    style={{ maxHeight: 65, maxWidth: "80%", objectFit: "contain" }}
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
+                )}
+              </div>
+
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b" }}>
+                {inspectorName}
+              </div>
+              <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
+                ID: {inspectorId}
+              </div>
+              <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>
+                Contact: {CONTACT_DETAILS}
+              </div>
+            </div>
+
+            <div>
+              <div
+                style={{
+                  fontSize: 9,
+                  fontWeight: 800,
+                  color: "#64748b",
+                  letterSpacing: "0.15em",
+                  textTransform: "uppercase",
+                  marginBottom: 10,
+                }}
+              >
+                Customer Acknowledgement
+              </div>
+              <div
+                style={{
+                  height: 70,
+                  borderBottom: "1.5px solid #334155",
+                  marginBottom: 6,
+                }}
+              />
+              <div style={{ fontSize: 10, color: "#94a3b8" }}>Signature &amp; Date</div>
             </div>
           </div>
         </div>
+
+        <div style={{ flexShrink: 0 }}>
+          <div
+            style={{
+              background: "linear-gradient(135deg,#1e3a5f,#1e40af)",
+              padding: "10px 48px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <div style={{ color: "#bfdbfe", fontSize: 9, letterSpacing: "0.1em" }}>
+              This certificate is valid only for the equipment and period described above.
+            </div>
+            <div style={{ color: "#93c5fd", fontSize: 9, fontWeight: 700 }}>
+              MONROY QMS PLATFORM
+            </div>
+          </div>
+
+          <div
+            style={{
+              background:
+                "linear-gradient(135deg,#1e3a5f 0%,#1e40af 60%,#0ea5e9 100%)",
+              padding: "14px 48px 14px 80px",
+              position: "relative",
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: 60,
+                background: "#0ea5e9",
+                clipPath: "polygon(0 0,100% 0,60% 100%,0 100%)",
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                left: 40,
+                top: 0,
+                bottom: 0,
+                width: 30,
+                background: "rgba(255,255,255,0.15)",
+                clipPath: "polygon(0 0,100% 0,60% 100%,0 100%)",
+              }}
+            />
+            <p
+              style={{
+                color: "#fff",
+                fontSize: 10,
+                fontWeight: 600,
+                lineHeight: 1.8,
+                letterSpacing: "0.02em",
+              }}
+            >
+              Mobile Crane Hire | <strong>Rigging</strong> | NDT Test |{" "}
+              <strong>Scaffolding</strong> | Painting |{" "}
+              <strong>
+                Inspection of Lifting Equipment and Machinery, Pressure Vessels &amp; Air
+                Receiver
+              </strong>{" "}
+              | Inspection of Lifting Equipment Steel Fabricating and Structural |{" "}
+              <strong>Mechanical Engineering</strong> | Fencing | <strong>Maintenance</strong>
+            </p>
+          </div>
+
+          <div
+            style={{
+              height: 6,
+              background: "linear-gradient(90deg,#00b4d8,#2563eb,#1e3a5f)",
+            }}
+          />
+        </div>
       </div>
-    </AppLayout>
+    </>
   );
 }
