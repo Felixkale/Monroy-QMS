@@ -1,330 +1,108 @@
 import { supabase } from "@/lib/supabaseClient";
+import { saveCertificateFromInspection } from "@/services/certificates";
 
-function notConfigured(defaultData) {
-  return { data: defaultData, error: "Supabase not configured" };
+function clean(value, fallback = null) {
+  if (value === undefined || value === null) return fallback;
+  const text = String(value).trim();
+  return text === "" ? fallback : text;
 }
 
-function normalizeInspection(row) {
-  const certificates = Array.isArray(row?.certificates) ? row.certificates : [];
+function toIsoOrNull(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
 
-  const latestCertificate =
-    certificates.length > 0
-      ? [...certificates].sort((a, b) => {
-          const aTime = new Date(a?.issued_at || 0).getTime();
-          const bTime = new Date(b?.issued_at || 0).getTime();
-          return bTime - aTime;
-        })[0]
-      : null;
-
+function buildInspectionPayload(form = {}) {
   return {
-    ...row,
-    certificates,
-    certificate_count: certificates.length,
-    has_certificate: certificates.length > 0,
-    latest_certificate: latestCertificate || null,
-    certificate_id: latestCertificate?.id || null,
-    certificate_number: latestCertificate?.certificate_number || null,
-    certificate_type: latestCertificate?.certificate_type || null,
-    certificate_status: latestCertificate?.equipment_status || null,
-    certificate_issued_at: latestCertificate?.issued_at || null,
-    certificate_valid_to: latestCertificate?.valid_to || null,
-  };
-}
-
-export async function getInspections(clientId = null) {
-  if (!supabase) return notConfigured([]);
-
-  let query = supabase
-    .from("inspections")
-    .select(`
-      id,
-      asset_id,
-      inspection_number,
-      inspection_date,
-      inspector_name,
-      result,
-      status,
-      notes,
-      created_at,
-      updated_at,
-      assets (
-        id,
-        asset_tag,
-        asset_name,
-        asset_type,
-        serial_number,
-        manufacturer,
-        model,
-        client_id,
-        clients (
-          id,
-          company_name
-        )
-      ),
-      certificates (
-        id,
-        inspection_id,
-        certificate_number,
-        certificate_type,
-        equipment_status,
-        issued_at,
-        valid_to
-      )
-    `)
-    .order("inspection_date", { ascending: false })
-    .order("created_at", { ascending: false });
-
-  const { data, error } = await query;
-
-  if (error) {
-    return { data: [], error };
-  }
-
-  let rows = (data || []).map(normalizeInspection);
-
-  if (clientId) {
-    rows = rows.filter((row) => row.assets?.client_id === clientId);
-  }
-
-  return { data: rows, error: null };
-}
-
-export async function getInspectionById(id) {
-  if (!supabase) return notConfigured(null);
-  if (!id) return { data: null, error: "Inspection id is required" };
-
-  const { data, error } = await supabase
-    .from("inspections")
-    .select(`
-      id,
-      asset_id,
-      inspection_number,
-      inspection_date,
-      inspector_name,
-      result,
-      status,
-      notes,
-      created_at,
-      updated_at,
-      assets (
-        id,
-        asset_tag,
-        asset_name,
-        asset_type,
-        serial_number,
-        manufacturer,
-        model,
-        client_id,
-        clients (
-          id,
-          company_name
-        )
-      ),
-      certificates (
-        id,
-        inspection_id,
-        certificate_number,
-        certificate_type,
-        equipment_status,
-        issued_at,
-        valid_to
-      )
-    `)
-    .eq("id", id)
-    .single();
-
-  if (error) {
-    return { data: null, error };
-  }
-
-  return { data: normalizeInspection(data), error: null };
-}
-
-export async function getInspectionStats(clientId = null) {
-  const { data, error } = await getInspections(clientId);
-
-  if (error || !data) {
-    return {
-      total: 0,
-      pass: 0,
-      fail: 0,
-      conditional: 0,
-      withCertificate: 0,
-      withoutCertificate: 0,
-    };
-  }
-
-  return {
-    total: data.length,
-    pass: data.filter((item) => item.result === "pass").length,
-    fail: data.filter((item) => item.result === "fail").length,
-    conditional: data.filter((item) => item.result === "conditional").length,
-    withCertificate: data.filter((item) => item.has_certificate).length,
-    withoutCertificate: data.filter((item) => !item.has_certificate).length,
-  };
-}
-
-export async function createInspection(payload = {}) {
-  if (!supabase) return notConfigured(null);
-
-  const cleanPayload = {
-    asset_id: payload.asset_id || null,
-    inspection_number: payload.inspection_number?.trim() || null,
-    inspection_date: payload.inspection_date || null,
-    inspector_name: payload.inspector_name?.trim() || null,
-    result: payload.result || "pass",
-    status: payload.status || "completed",
-    notes: payload.notes?.trim() || null,
-  };
-
-  const { data, error } = await supabase
-    .from("inspections")
-    .insert(cleanPayload)
-    .select(`
-      id,
-      asset_id,
-      inspection_number,
-      inspection_date,
-      inspector_name,
-      result,
-      status,
-      notes,
-      created_at,
-      updated_at
-    `)
-    .single();
-
-  if (error) {
-    return { data: null, error };
-  }
-
-  return { data, error: null };
-}
-
-export async function updateInspection(id, payload = {}) {
-  if (!supabase) return notConfigured(null);
-  if (!id) return { data: null, error: "Inspection id is required" };
-
-  const cleanPayload = {
-    ...(payload.asset_id !== undefined ? { asset_id: payload.asset_id || null } : {}),
-    ...(payload.inspection_number !== undefined
-      ? { inspection_number: payload.inspection_number?.trim() || null }
-      : {}),
-    ...(payload.inspection_date !== undefined
-      ? { inspection_date: payload.inspection_date || null }
-      : {}),
-    ...(payload.inspector_name !== undefined
-      ? { inspector_name: payload.inspector_name?.trim() || null }
-      : {}),
-    ...(payload.result !== undefined ? { result: payload.result || "pass" } : {}),
-    ...(payload.status !== undefined ? { status: payload.status || "completed" } : {}),
-    ...(payload.notes !== undefined ? { notes: payload.notes?.trim() || null } : {}),
+    asset_id: clean(form.asset_id),
+    inspection_date:
+      toIsoOrNull(form.inspection_date) || new Date().toISOString(),
+    inspection_type: clean(form.inspection_type),
+    status: clean(form.status, "PASS"),
+    equipment_status: clean(form.equipment_status, clean(form.status, "PASS")),
+    result: clean(form.result),
+    company: clean(form.company),
+    equipment_description: clean(form.equipment_description),
+    equipment_location: clean(form.equipment_location),
+    equipment_id: clean(form.equipment_id),
+    identification_number: clean(form.identification_number),
+    inspection_no: clean(form.inspection_no),
+    lanyard_serial_no: clean(form.lanyard_serial_no),
+    manufacturer: clean(form.manufacturer),
+    model: clean(form.model),
+    year_built: clean(form.year_built),
+    country_of_origin: clean(form.country_of_origin),
+    capacity: clean(form.capacity),
+    mawp: clean(form.mawp),
+    design_pressure: clean(form.design_pressure),
+    test_pressure: clean(form.test_pressure),
+    swl: clean(form.swl),
+    proof_load: clean(form.proof_load),
+    lifting_height: clean(form.lifting_height),
+    sling_length: clean(form.sling_length),
+    chain_size: clean(form.chain_size),
+    rope_diameter: clean(form.rope_diameter),
+    legal_framework: clean(form.legal_framework),
+    inspector_name: clean(form.inspector_name),
+    inspector_id: clean(form.inspector_id),
+    logo_url: clean(form.logo_url),
+    signature_url: clean(form.signature_url),
+    issued_at: toIsoOrNull(form.issued_at),
+    valid_to: toIsoOrNull(form.valid_to),
     updated_at: new Date().toISOString(),
   };
+}
 
-  const { data, error } = await supabase
+export async function createInspectionWithCertificate(form = {}) {
+  const payload = buildInspectionPayload(form);
+
+  if (!payload.asset_id) {
+    throw new Error("Asset is required.");
+  }
+
+  const { data: inspection, error } = await supabase
     .from("inspections")
-    .update(cleanPayload)
+    .insert({
+      ...payload,
+      created_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(error.message || "Failed to create inspection.");
+  }
+
+  const certificate = await saveCertificateFromInspection({
+    inspection,
+    assetId: inspection.asset_id,
+  });
+
+  return { inspection, certificate };
+}
+
+export async function updateInspectionWithCertificate(id, form = {}) {
+  if (!id) throw new Error("Inspection ID is required.");
+
+  const payload = buildInspectionPayload(form);
+
+  const { data: inspection, error } = await supabase
+    .from("inspections")
+    .update(payload)
     .eq("id", id)
-    .select(`
-      id,
-      asset_id,
-      inspection_number,
-      inspection_date,
-      inspector_name,
-      result,
-      status,
-      notes,
-      created_at,
-      updated_at
-    `)
+    .select()
     .single();
 
   if (error) {
-    return { data: null, error };
+    throw new Error(error.message || "Failed to update inspection.");
   }
 
-  return { data, error: null };
-}
+  const certificate = await saveCertificateFromInspection({
+    inspection,
+    assetId: inspection.asset_id,
+  });
 
-export async function deleteInspection(id) {
-  if (!supabase) return { error: "Supabase not configured" };
-  if (!id) return { error: "Inspection id is required" };
-
-  const { error } = await supabase.from("inspections").delete().eq("id", id);
-  return { error: error || null };
-}
-
-export async function getCertificatesForInspection(inspectionId) {
-  if (!supabase) return notConfigured([]);
-  if (!inspectionId) return { data: [], error: "Inspection id is required" };
-
-  const { data, error } = await supabase
-    .from("certificates")
-    .select(`
-      id,
-      inspection_id,
-      certificate_number,
-      certificate_type,
-      equipment_status,
-      issued_at,
-      valid_to
-    `)
-    .eq("inspection_id", inspectionId)
-    .order("issued_at", { ascending: false });
-
-  return { data: data || [], error: error || null };
-}
-
-export async function linkCertificateToInspection({ inspectionId, certificateId }) {
-  if (!supabase) return notConfigured(null);
-  if (!inspectionId) return { data: null, error: "Inspection id is required" };
-  if (!certificateId) return { data: null, error: "Certificate id is required" };
-
-  const { data, error } = await supabase
-    .from("certificates")
-    .update({ inspection_id: inspectionId })
-    .eq("id", certificateId)
-    .select(`
-      id,
-      inspection_id,
-      certificate_number,
-      certificate_type,
-      equipment_status,
-      issued_at,
-      valid_to
-    `)
-    .single();
-
-  if (error) {
-    return { data: null, error };
-  }
-
-  return { data, error: null };
-}
-
-export async function unlinkCertificateFromInspection(certificateId) {
-  if (!supabase) return notConfigured(null);
-  if (!certificateId) return { data: null, error: "Certificate id is required" };
-
-  const { data, error } = await supabase
-    .from("certificates")
-    .update({ inspection_id: null })
-    .eq("id", certificateId)
-    .select(`
-      id,
-      inspection_id,
-      certificate_number,
-      certificate_type,
-      equipment_status,
-      issued_at,
-      valid_to
-    `)
-    .single();
-
-  if (error) {
-    return { data: null, error };
-  }
-
-  return { data, error: null };
+  return { inspection, certificate };
 }
