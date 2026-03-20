@@ -51,6 +51,8 @@ function buildInspectionPayload(form = {}) {
     signature_url: clean(form.signature_url),
     issued_at: toIsoOrNull(form.issued_at),
     valid_to: toIsoOrNull(form.valid_to),
+    extracted_data: form.extracted_data || null,
+    source_nameplate_image_url: clean(form.source_nameplate_image_url),
     updated_at: new Date().toISOString(),
   };
 }
