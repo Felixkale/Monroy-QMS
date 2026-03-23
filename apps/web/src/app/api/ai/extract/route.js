@@ -4,21 +4,14 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
 const EXTRACTION_PROMPT = `
-You are an industrial inspection certificate extraction assistant for a Quality Management System.
+Read this industrial certificate or inspection document and return ONLY valid JSON.
 
-Read the uploaded certificate and extract as much structured data as possible.
-
-Return ONLY a valid JSON object.
-No markdown.
-No explanation.
-No code fences.
-
-Use this shape exactly:
+Use this exact shape:
 {
   "certificate_number": null,
   "inspection_number": null,
@@ -73,12 +66,8 @@ function normalizeResult(value) {
   if (!raw) return "UNKNOWN";
   if (["PASS", "PASSED", "OK", "SATISFACTORY"].includes(raw)) return "PASS";
   if (["FAIL", "FAILED", "UNSATISFACTORY"].includes(raw)) return "FAIL";
-  if (["REPAIR REQUIRED", "REPAIR_REQUIRED", "REPAIRS REQUIRED"].includes(raw)) {
-    return "REPAIR_REQUIRED";
-  }
-  if (["OUT OF SERVICE", "OUT_OF_SERVICE", "REMOVE FROM SERVICE"].includes(raw)) {
-    return "OUT_OF_SERVICE";
-  }
+  if (["REPAIR REQUIRED", "REPAIR_REQUIRED", "REPAIRS REQUIRED"].includes(raw)) return "REPAIR_REQUIRED";
+  if (["OUT OF SERVICE", "OUT_OF_SERVICE", "REMOVE FROM SERVICE"].includes(raw)) return "OUT_OF_SERVICE";
   return "UNKNOWN";
 }
 
@@ -86,7 +75,7 @@ function normalizeDate(value) {
   if (!value) return null;
   const s = String(value).trim();
   if (!s) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return s;
 
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
@@ -145,6 +134,8 @@ export async function POST(req) {
       );
     }
 
+    console.log("Gemini key loaded:", Boolean(GEMINI_API_KEY), "length:", GEMINI_API_KEY.length);
+
     const body = await req.json();
     const files = Array.isArray(body?.files) ? body.files : [];
 
@@ -171,7 +162,7 @@ export async function POST(req) {
         continue;
       }
 
-      const geminiResponse = await fetch(GEMINI_URL, {
+      const response = await fetch(GEMINI_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -195,28 +186,23 @@ export async function POST(req) {
           generationConfig: {
             temperature: 0.1,
             maxOutputTokens: 4096,
-            responseMimeType: "application/json",
           },
         }),
       });
 
-      const geminiJson = await geminiResponse.json();
+      const data = await response.json();
 
-      if (!geminiResponse.ok) {
+      if (!response.ok) {
         results.push({
           fileName,
           ok: false,
-          error:
-            geminiJson?.error?.message ||
-            `Gemini request failed with status ${geminiResponse.status}.`,
-          details: geminiJson,
+          error: data?.error?.message || `Gemini request failed with status ${response.status}.`,
+          details: data,
         });
         continue;
       }
 
-      const rawText =
-        geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
       const cleaned = cleanText(rawText);
 
       try {
@@ -230,7 +216,7 @@ export async function POST(req) {
         results.push({
           fileName,
           ok: false,
-          error: "Gemini returned invalid JSON.",
+          error: "Gemini returned text that was not valid JSON.",
           raw: rawText,
         });
       }
@@ -239,10 +225,7 @@ export async function POST(req) {
     return NextResponse.json({ ok: true, results });
   } catch (error) {
     return NextResponse.json(
-      {
-        ok: false,
-        error: error?.message || "Unexpected server error.",
-      },
+      { ok: false, error: error?.message || "Unexpected server error." },
       { status: 500 }
     );
   }
