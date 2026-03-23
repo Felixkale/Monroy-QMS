@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const MODEL = "gemini-2.5-flash";
-const URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
 const RESPONSE_SCHEMA = {
   type: "OBJECT",
@@ -51,40 +51,62 @@ const RESPONSE_SCHEMA = {
   },
 };
 
-const PROMPT = `
+// ── Attempt 1 prompt — strict JSON schema mode ────────────────────────────────
+const PROMPT_STRICT = `
 Extract industrial inspection certificate data from this document.
 
-Rules:
-- Return JSON only.
-- No markdown.
-- No code fences.
-- No explanation.
-- Use empty string when a field is missing.
-- Merge facts across all pages.
-- Do not assume a fixed layout.
+CRITICAL: Return ONLY a valid JSON object. No markdown. No code fences. No explanation. No text before or after the JSON.
 
-Aliases:
+Use empty string "" for any field that is missing or not found. Read all pages.
+
+Field name aliases — look for these labels in the document:
 - certificate_number: Certificate No, Report No, Report Number
 - inspection_number: Inspection No, Job No, Job Number
 - serial_number: Serial No, Serial Number, Pressure Vessel No
-- equipment_description: Description, Vessel Description, Plant/Section No
-- client_name: Client, Customer
-- location: Area, Section, Site, Plant Type
-- inspection_date: Inspection Date, Date of Pressure Test
-- issue_date: Date Issued to Client, Issue Date
-- next_inspection_due: Next Due Date, Next Inspection Due
-- manufacturer: Manufacturer, Name of Manufacturer
-- standard_code: Code of Construction, Module, Standard
-- year_built: Year of Manufacture
-- capacity_volume: Capacity, Volume
+- equipment_description: Description, Vessel Description, Plant/Section
+- client_name: Client, Customer, Company
+- location: Area, Section, Site, Plant
+- inspection_date: Inspection Date, Date of Test, Date of Pressure Test
+- issue_date: Date Issued, Issue Date, Date Issued to Client
+- next_inspection_due: Next Due Date, Next Inspection Due, Retest Date
+- manufacturer: Manufacturer, Name of Manufacturer, Made By
+- standard_code: Code of Construction, Standard, Module, Design Code
+- year_built: Year of Manufacture, Date of Manufacture
+- capacity_volume: Capacity, Volume, Internal Volume
+- swl: SWL, Safe Working Load, WLL, Working Load Limit
+- raw_text_summary: write 1-2 sentences summarising the certificate
 
-For result field:
-- Use "PASS" for: compliant, passed, acceptable, satisfactory, no leaks, no defects
-- Use "FAIL" for: failed, rejected, unsafe, non-compliant, defects found
-- Use "UNKNOWN" when result cannot be determined
+For the "result" field:
+- "PASS" = compliant, passed, satisfactory, no leaks, no defects, acceptable
+- "FAIL" = failed, rejected, unsafe, non-compliant, defects found
+- "UNKNOWN" = cannot determine from document
 `.trim();
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ── Attempt 2 prompt — plain text mode (no schema enforcement) ────────────────
+const PROMPT_PLAIN = `
+You are reading an industrial inspection certificate document.
+Extract the data and return ONLY a JSON object — nothing else, no markdown, no explanation.
+
+Start your response with { and end with }
+
+Extract these exact field names (use "" if not found):
+certificate_number, inspection_number, certificate_type, equipment_type,
+equipment_description, asset_tag, serial_number, manufacturer, model,
+year_built, country_of_origin, capacity_volume, swl, proof_load,
+lift_height, sling_length, working_pressure, design_pressure, test_pressure,
+pressure_unit, temperature_range, material, standard_code, client_name,
+location, inspection_date, issue_date, expiry_date, next_inspection_due,
+inspector_name, inspection_body, result, status, defects_found,
+recommendations, comments, nameplate_data, raw_text_summary
+
+Rules:
+- result must be exactly: PASS, FAIL, or UNKNOWN
+- raw_text_summary: 1-2 sentences about the certificate
+- All values must be strings
+- No nested objects or arrays
+`.trim();
+
+// ─── Normalisation helpers ────────────────────────────────────────────────────
 
 function clean(v) {
   if (v === undefined || v === null) return null;
@@ -95,12 +117,8 @@ function clean(v) {
 function parseDate(v) {
   const s = clean(v);
   if (!s) return null;
-
-  // Already ISO
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-
-  // DD/MM/YYYY or DD-MM-YYYY
-  const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  const m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
   if (m) {
     let [, dd, mm, yy] = m;
     dd = dd.padStart(2, "0");
@@ -108,11 +126,8 @@ function parseDate(v) {
     if (yy.length === 2) yy = `20${yy}`;
     return `${yy}-${mm}-${dd}`;
   }
-
-  // Try native Date parse as fallback
   const d = new Date(s);
   if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-
   return s;
 }
 
@@ -125,33 +140,11 @@ function splitPressure(v) {
 }
 
 function normalizeResult(value, obj = {}) {
-  const text = [
-    value,
-    obj.comments,
-    obj.defects_found,
-    obj.recommendations,
-    obj.raw_text_summary,
-  ]
+  const text = [value, obj.comments, obj.defects_found, obj.recommendations, obj.raw_text_summary]
     .map((x) => String(x || "").toUpperCase())
     .join(" ");
-
-  if (
-    text.includes("PASSED") ||
-    text.includes("PASS") ||
-    text.includes("COMPLIANT") ||
-    text.includes("SATISFACTORY") ||
-    text.includes("NO LEAKS") ||
-    text.includes("ACCEPTABLE")
-  ) return "PASS";
-
-  if (
-    text.includes("FAILED") ||
-    text.includes("FAIL") ||
-    text.includes("REJECTED") ||
-    text.includes("UNSAFE") ||
-    text.includes("NON-COMPLIANT YES")
-  ) return "FAIL";
-
+  if (/PASS(ED)?|COMPLIANT|SATISFACTORY|NO[\s_]LEAKS|ACCEPTABLE/.test(text)) return "PASS";
+  if (/FAIL(ED)?|REJECTED|UNSAFE|NON[\s_-]COMPLIANT/.test(text)) return "FAIL";
   return "UNKNOWN";
 }
 
@@ -159,7 +152,6 @@ function normalizeData(obj = {}) {
   const wp = splitPressure(obj.working_pressure);
   const dp = splitPressure(obj.design_pressure);
   const tp = splitPressure(obj.test_pressure);
-
   return {
     certificate_number:    clean(obj.certificate_number),
     inspection_number:     clean(obj.inspection_number),
@@ -202,67 +194,85 @@ function normalizeData(obj = {}) {
   };
 }
 
-function extractText(data) {
-  const parts = data?.candidates?.[0]?.content?.parts;
-  if (!Array.isArray(parts)) return "";
-  return parts
-    .map((p) => (typeof p?.text === "string" ? p.text : ""))
-    .join("\n")
-    .trim();
+// ── Pull text + finish reason from Gemini response ────────────────────────────
+function extractRawText(data) {
+  const candidate  = data?.candidates?.[0];
+  const finishReason = candidate?.finishReason;
+  const parts = candidate?.content?.parts;
+  if (!Array.isArray(parts)) return { text: "", truncated: false };
+  const text = parts.map((p) => (typeof p?.text === "string" ? p.text : "")).join("\n").trim();
+  return { text, truncated: finishReason === "MAX_TOKENS" };
 }
 
-function parseJsonLoose(text) {
-  const raw = String(text || "").trim();
+// ── Aggressive JSON parser with truncation repair ─────────────────────────────
+function parseJsonAggressive(raw) {
   if (!raw) return null;
+  const text = String(raw).trim();
 
-  // Direct parse
-  try { return JSON.parse(raw); } catch {}
+  // 1. Direct parse
+  try { return JSON.parse(text); } catch {}
 
-  // Strip markdown fences
-  const unfenced = raw
+  // 2. Strip markdown fences
+  const stripped = text
     .replace(/^```json\s*/i, "")
     .replace(/^```\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
-  try { return JSON.parse(unfenced); } catch {}
+  try { return JSON.parse(stripped); } catch {}
 
-  // Extract first {...} block
-  const start = unfenced.indexOf("{");
-  const end = unfenced.lastIndexOf("}");
+  // 3. Extract { ... } block
+  const start = stripped.indexOf("{");
+  const end   = stripped.lastIndexOf("}");
   if (start !== -1 && end > start) {
-    try { return JSON.parse(unfenced.slice(start, end + 1)); } catch {}
+    const slice = stripped.slice(start, end + 1);
+    try { return JSON.parse(slice); } catch {}
+  }
+
+  // 4. Try to repair truncated JSON — response was cut mid-string value
+  if (start !== -1) {
+    const partial = stripped.slice(start);
+
+    // Close open string + object
+    const repairs = [
+      partial + '"}',
+      partial + '""}'  ,
+      partial + '"}}'  ,
+    ];
+    for (const attempt of repairs) {
+      try { return JSON.parse(attempt); } catch {}
+    }
+
+    // Strip last incomplete key-value pair then close
+    const lastComma = partial.lastIndexOf(",");
+    if (lastComma > 0) {
+      const trimmed = partial.slice(0, lastComma) + "}";
+      try { return JSON.parse(trimmed); } catch {}
+    }
   }
 
   return null;
 }
 
-// ─── Gemini call ─────────────────────────────────────────────────────────────
-
-async function askGemini(base64Data, mimeType) {
-  const response = await fetch(URL, {
+// ── Single Gemini request ─────────────────────────────────────────────────────
+async function callGemini(base64Data, mimeType, prompt, useSchema) {
+  const response = await fetch(GEMINI_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [
         {
           parts: [
-            { text: PROMPT },
-            {
-              inline_data: {
-                mime_type: mimeType || "application/pdf",
-                data: base64Data,
-              },
-            },
+            { text: prompt },
+            { inline_data: { mime_type: mimeType || "application/pdf", data: base64Data } },
           ],
         },
       ],
       generationConfig: {
-        response_mime_type: "application/json",
-        response_schema: RESPONSE_SCHEMA,
-        // FIX 1: temperature 0 gives more deterministic JSON output
         temperature: 0,
-        // FIX 2: 2200 was too low — large PDFs truncated mid-JSON causing parse failures
-        maxOutputTokens: 4096,
+        maxOutputTokens: 8192,
+        ...(useSchema
+          ? { response_mime_type: "application/json", response_schema: RESPONSE_SCHEMA }
+          : {}),
       },
     }),
   });
@@ -272,7 +282,6 @@ async function askGemini(base64Data, mimeType) {
 }
 
 // ─── POST handler ─────────────────────────────────────────────────────────────
-
 export async function POST(req) {
   try {
     if (!GEMINI_API_KEY) {
@@ -282,21 +291,18 @@ export async function POST(req) {
       );
     }
 
-    const body = await req.json();
+    const body  = await req.json();
     const files = Array.isArray(body?.files) ? body.files : [];
 
     if (!files.length) {
-      return NextResponse.json(
-        { ok: false, error: "No files provided." },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "No files provided." }, { status: 400 });
     }
 
     const results = [];
 
     for (const file of files) {
-      const fileName  = file?.fileName  || "unnamed-file";
-      const mimeType  = file?.mimeType  || "application/pdf";
+      const fileName   = file?.fileName   || "unnamed-file";
+      const mimeType   = file?.mimeType   || "application/pdf";
       const base64Data = file?.base64Data;
 
       if (!base64Data) {
@@ -304,48 +310,65 @@ export async function POST(req) {
         continue;
       }
 
-      let gemini;
+      let parsed    = null;
+      let lastError = null;
+      const debug   = {};
+
+      // ── Attempt 1: JSON schema enforced ──────────────────────────────────
       try {
-        gemini = await askGemini(base64Data, mimeType);
-      } catch (networkErr) {
-        results.push({
-          fileName,
-          ok: false,
-          error: `Network error calling Gemini: ${networkErr?.message || "unknown"}`,
-        });
-        continue;
+        const g1 = await callGemini(base64Data, mimeType, PROMPT_STRICT, true);
+
+        if (g1.ok) {
+          const { text, truncated } = extractRawText(g1.data);
+          debug.a1_len       = text.length;
+          debug.a1_truncated = truncated;
+          parsed = parseJsonAggressive(text);
+          if (parsed) {
+            debug.a1_ok = true;
+          } else {
+            debug.a1_raw_preview = text.slice(0, 400);
+          }
+        } else {
+          lastError        = g1.data?.error?.message || `Gemini HTTP ${g1.status}`;
+          debug.a1_api_err = lastError;
+        }
+      } catch (e) {
+        lastError      = e?.message;
+        debug.a1_throw = lastError;
       }
 
-      if (!gemini.ok) {
-        results.push({
-          fileName,
-          ok: false,
-          error:
-            gemini.data?.error?.message ||
-            `Gemini request failed with status ${gemini.status}.`,
-          details: gemini.data,
-        });
-        continue;
-      }
+      // ── Attempt 2: plain text, no schema ─────────────────────────────────
+      if (!parsed) {
+        try {
+          const g2 = await callGemini(base64Data, mimeType, PROMPT_PLAIN, false);
 
-      const rawText = extractText(gemini.data);
-      const parsed  = parseJsonLoose(rawText);
+          if (g2.ok) {
+            const { text, truncated } = extractRawText(g2.data);
+            debug.a2_len       = text.length;
+            debug.a2_truncated = truncated;
+            parsed = parseJsonAggressive(text);
+            if (parsed) {
+              debug.a2_ok = true;
+            } else {
+              debug.a2_raw_preview = text.slice(0, 400);
+              lastError = "Both attempts failed — Gemini did not return valid JSON.";
+            }
+          } else {
+            lastError        = g2.data?.error?.message || `Gemini HTTP ${g2.status}`;
+            debug.a2_api_err = lastError;
+          }
+        } catch (e) {
+          lastError      = e?.message;
+          debug.a2_throw = lastError;
+        }
+      }
 
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        results.push({
-          fileName,
-          ok: false,
-          error: "Gemini returned invalid or incomplete JSON. Try increasing maxOutputTokens if this PDF is large.",
-          raw_preview: rawText.slice(0, 500),
-        });
+        results.push({ fileName, ok: false, error: lastError || "Extraction failed.", debug });
         continue;
       }
 
-      results.push({
-        fileName,
-        ok: true,
-        data: normalizeData(parsed),
-      });
+      results.push({ fileName, ok: true, data: normalizeData(parsed), debug });
     }
 
     return NextResponse.json({ ok: true, results });
