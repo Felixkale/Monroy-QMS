@@ -1,3 +1,4 @@
+// apps/web/src/app/certificates/page.jsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -275,19 +276,15 @@ export default function CertificatesPage() {
             </p>
           </div>
 
-          <Link
-            href="/certificates/create"
-            style={{
-              textDecoration: "none",
-              padding: "12px 16px",
-              borderRadius: 12,
-              background: "linear-gradient(135deg,#00f5c4,#4fc3f7)",
-              color: "#05202e",
-              fontWeight: 800,
-            }}
-          >
-            + Create Certificate
-          </Link>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <Link href="/certificates/import" style={ghostLink}>
+              ✦ Extract with AI
+            </Link>
+
+            <Link href="/certificates/create" style={primaryLink}>
+              + Create Certificate
+            </Link>
+          </div>
         </div>
 
         <div
@@ -568,6 +565,25 @@ const emptyStyle = {
   borderRadius: 18,
   padding: 24,
   color: "rgba(255,255,255,0.70)",
+};
+
+const ghostLink = {
+  textDecoration: "none",
+  padding: "12px 16px",
+  borderRadius: 12,
+  border: "1px solid rgba(255,255,255,0.10)",
+  color: "#ffffff",
+  fontWeight: 800,
+  background: "#111827",
+};
+
+const primaryLink = {
+  textDecoration: "none",
+  padding: "12px 16px",
+  borderRadius: 12,
+  background: "linear-gradient(135deg,#00f5c4,#4fc3f7)",
+  color: "#05202e",
+  fontWeight: 800,
 };
 
 const actionLinkBlue = {
