@@ -50,7 +50,7 @@ function toCertificatePayload(data = {}, fileName = "") {
     asset_name:            data.equipment_description || fileName || null,
     asset_type:            data.equipment_type        || null,
     client_name:           data.client_name           || null,
-    status:                data.status                || "Active",
+    status:                data.status                || "active",
     manufacturer:          data.manufacturer          || null,
     model:                 data.model                 || null,
     serial_number:         data.serial_number         || null,
