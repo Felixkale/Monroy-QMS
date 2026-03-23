@@ -1,81 +1,94 @@
 "use client";
 
-import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
-import {
-  extractCertificateData,
-  sanitizeParsed,
-  validateParsed,
-} from "@/lib/certificateParser";
+function toBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
 
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("Failed to read file."));
+        return;
+      }
 
-function normalizeText(text = "") {
-  return String(text)
-    .replace(/\r/g, "\n")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+      const base64 = result.split(",")[1];
+      resolve(base64);
+    };
+
+    reader.onerror = () => reject(new Error("Failed to convert file to base64."));
+    reader.readAsDataURL(file);
+  });
 }
 
 export async function extractTextFromPdf(file) {
-  const arrayBuffer = await file.arrayBuffer();
+  const base64Data = await toBase64(file);
 
-  const pdf = await pdfjsLib.getDocument({
-    data: arrayBuffer,
-    useWorkerFetch: true,
-    isEvalSupported: false,
-  }).promise;
+  const response = await fetch("/api/ai/extract", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      files: [
+        {
+          fileName: file.name,
+          mimeType: file.type || "application/pdf",
+          base64Data,
+        },
+      ],
+    }),
+  });
 
-  let fullText = "";
+  const json = await response.json();
 
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-    const page = await pdf.getPage(pageNumber);
-    const content = await page.getTextContent();
-
-    const lineMap = new Map();
-
-    for (const item of content.items) {
-      if (!("str" in item) || !item.str) continue;
-
-      const y = Math.round(item.transform?.[5] || 0);
-      const x = item.transform?.[4] || 0;
-
-      if (!lineMap.has(y)) lineMap.set(y, []);
-      lineMap.get(y).push({ x, str: item.str });
-    }
-
-    const sortedYs = [...lineMap.keys()].sort((a, b) => b - a);
-
-    let pageText = "";
-    for (const y of sortedYs) {
-      const lineText = lineMap
-        .get(y)
-        .sort((a, b) => a.x - b.x)
-        .map((i) => i.str)
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
-
-      if (lineText) pageText += lineText + "\n";
-    }
-
-    fullText += `\n\n--- PAGE ${pageNumber} ---\n${pageText}`;
+  if (!response.ok || !json?.ok) {
+    throw new Error(json?.error || "Failed to extract PDF.");
   }
 
-  return normalizeText(fullText);
+  const result = Array.isArray(json?.results) ? json.results[0] : null;
+
+  if (!result?.ok) {
+    throw new Error(result?.error || "Extraction failed.");
+  }
+
+  return result?.extracted_pages_text || result?.data?.raw_text_summary || "";
 }
 
 export async function extractPdfCertificateFields(file) {
-  const text = await extractTextFromPdf(file);
-  const raw = extractCertificateData(text);
-  const parsed = sanitizeParsed(raw);
-  const errors = validateParsed(parsed);
+  const base64Data = await toBase64(file);
+
+  const response = await fetch("/api/ai/extract", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      files: [
+        {
+          fileName: file.name,
+          mimeType: file.type || "application/pdf",
+          base64Data,
+        },
+      ],
+    }),
+  });
+
+  const json = await response.json();
+
+  if (!response.ok || !json?.ok) {
+    throw new Error(json?.error || "Failed to extract certificate fields.");
+  }
+
+  const result = Array.isArray(json?.results) ? json.results[0] : null;
+
+  if (!result?.ok) {
+    throw new Error(result?.error || "Extraction failed.");
+  }
 
   return {
-    ...parsed,
-    raw_text: text,
-    parse_errors: errors,
-    is_valid: errors.length === 0,
+    ...result.data,
+    raw_text: result?.extracted_pages_text || null,
+    parse_errors: [],
+    is_valid: true,
   };
 }
