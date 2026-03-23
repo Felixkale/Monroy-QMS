@@ -9,7 +9,6 @@ const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
 const OUTPUT_SCHEMA_TEXT = `
-Return ONLY one valid JSON object with this exact shape:
 {
   "certificate_number": null,
   "inspection_number": null,
@@ -52,94 +51,43 @@ Return ONLY one valid JSON object with this exact shape:
 }
 `.trim();
 
-const EXTRACTION_PROMPT = `
-You are an expert industrial certificate extraction assistant for Monroy QMS.
+const FAST_EXTRACTION_PROMPT = `
+You extract industrial certificate data for Monroy QMS.
 
-IMPORTANT:
-This is NOT a fixed-layout document task.
-Inspection packs may span many pages and place the key data in different sections.
+This is a flexible multi-page extraction task.
+Documents may include cover pages, signatures, annexures, stickers, nameplate sheets, pressure test sheets, thickness sheets, and remarks pages.
 
-Your job is to intelligently combine relevant fields from all pages into ONE final JSON record.
+Your job:
+- Scan the full uploaded document.
+- Ignore boilerplate or irrelevant pages.
+- Combine relevant facts across all pages into ONE final record.
+- Do NOT assume a fixed layout.
 
-SEARCH STRATEGY:
-1. Search all pages for identity fields:
-   - Report No
-   - Job No
-   - Certificate of Pressure Test
-   - Pressure vessel No
-   - Serial Number
-   - Manufacturer's Serial No
-   - Client
-   - Area
-   - Plant Type
-   - Description
-   - Vessel Description
+Field aliases:
+- certificate_number: Report No, Report Number, Certificate No
+- inspection_number: Job No, Job Number, Inspection No
+- serial_number: Serial Number, Pressure Vessel No, Manufacturer Serial No
+- equipment_description: Description, Vessel Description, Plant/Section No
+- client_name: Client, Customer
+- location: Area, Plant Type, Section, Site
+- inspection_date: Inspection Date, Date of Pressure Test
+- issue_date: Issue Date, Date issued to Client
+- next_inspection_due: Next Due Date, Next Inspection Due
+- manufacturer: Manufacturer, Name of Manufacturer
+- standard_code: Code of Construction, Module, Standard
+- result: PASS if compliant yes / non-compliant no / no leaks / good condition / acceptable
+- result: FAIL if failed / non-compliant yes / rejected / unsafe
 
-2. Search all pages for technical/nameplate fields:
-   - Name of Manufacturer
-   - Country of origin
-   - Year of Manufacture
-   - Code of Construction / Module
-   - Design Pressure
-   - Initial Test Pressure
-   - Capacity
-   - Design temperature
-   - Material
+Rules:
+- Return ONLY one strict JSON object.
+- No markdown.
+- No explanation.
+- Use null for missing fields.
+- Dates should be YYYY-MM-DD where possible.
+- Keep extracted engineering values concise.
+- pressure_unit should hold units like KPa, bar, MPa if found.
 
-3. Search all pages for inspection/result fields:
-   - Inspector
-   - Inspection Date
-   - Date of Pressure Test
-   - Compliant / Non-compliant
-   - Recommendations
-   - Remarks
-   - Pressure Test Remarks
-   - comments
-
-4. Search photo/sticker pages too.
-   If the final page contains stickers or labels with clearer dates, next due date, MAP, result tick boxes, or serial numbers, use them.
-
-FLEXIBLE FIELD MAPPING RULES:
-- certificate_number can come from:
-  Report No, Report Number, Certificate No
-- inspection_number can come from:
-  Job No, Job Number, Inspection No
-- serial_number can come from:
-  Serial Number, Manufacturer's Serial No, Pressure vessel No
-- equipment_description can come from:
-  Description, Vessel Description, Plant/Section No
-- location can combine:
-  Area + Plant Type
-- inspection_date can come from:
-  Inspection Date or Date of Pressure test
-- issue_date can come from:
-  Date issue to Client, issue date, or certificate issue sticker date
-- next_inspection_due can come from:
-  Next due date, Next inspection due, sticker next due date
-- result:
-  PASS if compliant yes / non-compliant no / no leaks / good condition / acceptable / compliant
-  FAIL if non-compliant yes / failed / defects causing rejection
-- design_pressure must be the normal rated/design pressure
-- test_pressure must be the actual test pressure used during hydro/pneumatic test
-- pressure_unit should be extracted separately when possible
-- comments should summarize useful findings across multiple pages, not just one sentence
-
-NORMALIZATION RULES:
-- Use YYYY-MM-DD for dates where possible.
-- Preserve engineering values like 1600 KPa, 2400 KPa, 40M3, (-20 +60)°C if useful.
-- If numeric value and unit are separable, put the number in the field and unit in pressure_unit when appropriate.
-- If no field is found, use null.
-- Return ONLY strict JSON, no markdown, no explanation.
-
-HEURISTICS FOR THIS DOCUMENT FAMILY:
-- Pressure test certificates often put certificate identity on page 1,
-  nameplate details on page 2,
-  wall thickness/material on pages 4-5,
-  compliance classification on page 6,
-  and test certificate details on page 7,
-  with stickers/photos on the last page.
-- Combine them all.
-
+Output shape:
 ${OUTPUT_SCHEMA_TEXT}
 `.trim();
 
@@ -156,6 +104,12 @@ function extractJsonObject(text) {
   const lastBrace = cleaned.lastIndexOf("}");
   if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) return null;
   return cleaned.slice(firstBrace, lastBrace + 1);
+}
+
+function cleanValue(value) {
+  if (value === undefined || value === null) return null;
+  const s = String(value).trim();
+  return s || null;
 }
 
 function parseDateFlexible(value) {
@@ -178,48 +132,6 @@ function parseDateFlexible(value) {
   return s;
 }
 
-function normalizeResult(value, obj = {}) {
-  const raw = String(value || "").trim().toUpperCase();
-  const comments = String(obj.comments || "").toUpperCase();
-  const defects = String(obj.defects_found || "").toUpperCase();
-  const recommendations = String(obj.recommendations || "").toUpperCase();
-  const summary = String(obj.raw_text_summary || "").toUpperCase();
-
-  const bag = `${raw} ${comments} ${defects} ${recommendations} ${summary}`;
-
-  if (
-    bag.includes("COMPLIANT YES") ||
-    bag.includes("NON-COMPLIANT NO") ||
-    bag.includes("NO LEAKS") ||
-    bag.includes("GOOD CONDITION") ||
-    bag.includes("WITHIN ACCEPTABLE STRUCTURAL LIMITS") ||
-    bag.includes("COMPLIANT")
-  ) {
-    return "PASS";
-  }
-
-  if (
-    bag.includes("NON-COMPLIANT YES") ||
-    bag.includes("FAILED") ||
-    bag.includes("FAIL") ||
-    bag.includes("OUT OF SERVICE")
-  ) {
-    return "FAIL";
-  }
-
-  if (bag.includes("REPAIR REQUIRED") || bag.includes("REPAIRS REQUIRED")) {
-    return "REPAIR_REQUIRED";
-  }
-
-  return "UNKNOWN";
-}
-
-function cleanValue(value) {
-  if (value === undefined || value === null) return null;
-  const s = String(value).trim();
-  return s || null;
-}
-
 function splitPressure(value) {
   const s = cleanValue(value);
   if (!s) return { number: null, unit: null };
@@ -233,17 +145,59 @@ function splitPressure(value) {
   };
 }
 
+function normalizeResult(value, obj = {}) {
+  const bag = [
+    value,
+    obj.comments,
+    obj.defects_found,
+    obj.recommendations,
+    obj.raw_text_summary,
+  ]
+    .map((x) => String(x || "").toUpperCase())
+    .join(" ");
+
+  if (
+    bag.includes("COMPLIANT YES") ||
+    bag.includes("NON-COMPLIANT NO") ||
+    bag.includes("NO LEAKS") ||
+    bag.includes("GOOD CONDITION") ||
+    bag.includes("ACCEPTABLE") ||
+    bag.includes("WITHIN ACCEPTABLE STRUCTURAL LIMITS") ||
+    bag.includes("PASSED")
+  ) {
+    return "PASS";
+  }
+
+  if (
+    bag.includes("FAILED") ||
+    bag.includes("FAIL") ||
+    bag.includes("NON-COMPLIANT YES") ||
+    bag.includes("REJECTED")
+  ) {
+    return "FAIL";
+  }
+
+  if (bag.includes("REPAIR REQUIRED") || bag.includes("REPAIRS REQUIRED")) {
+    return "REPAIR_REQUIRED";
+  }
+
+  if (bag.includes("OUT OF SERVICE") || bag.includes("REMOVE FROM SERVICE")) {
+    return "OUT_OF_SERVICE";
+  }
+
+  return "UNKNOWN";
+}
+
 function mergeLocation(obj) {
   const parts = [
     cleanValue(obj.location),
     cleanValue(obj.area),
     cleanValue(obj.plant_type),
-    cleanValue(obj.plant),
+    cleanValue(obj.site),
     cleanValue(obj.section),
   ].filter(Boolean);
 
   if (!parts.length) return null;
-
   return [...new Set(parts)].join(", ");
 }
 
@@ -261,8 +215,8 @@ function normalizePayload(obj = {}) {
 
   const commentsParts = [
     cleanValue(obj.comments),
-    cleanValue(obj.pressure_test_remarks),
     cleanValue(obj.remarks),
+    cleanValue(obj.pressure_test_remarks),
   ].filter(Boolean);
 
   return {
@@ -284,7 +238,12 @@ function normalizePayload(obj = {}) {
 
     equipment_type:
       cleanValue(obj.equipment_type) ||
-      (String(obj.equipment_description || "").toUpperCase().includes("AIR RECEIVER")
+      (String(
+        obj.equipment_description ||
+          obj.description ||
+          obj.vessel_description ||
+          ""
+      ).toUpperCase().includes("AIR RECEIVER")
         ? "PRESSURE_VESSEL"
         : "UNKNOWN"),
 
@@ -301,12 +260,15 @@ function normalizePayload(obj = {}) {
       cleanValue(obj.pressure_vessel_no) ||
       cleanValue(obj.manufacturer_serial_no),
 
-    manufacturer: cleanValue(obj.manufacturer) || cleanValue(obj.name_of_manufacturer),
+    manufacturer:
+      cleanValue(obj.manufacturer) || cleanValue(obj.name_of_manufacturer),
+
     model: cleanValue(obj.model),
     year_built: cleanValue(obj.year_built) || cleanValue(obj.year_of_manufacture),
     country_of_origin: cleanValue(obj.country_of_origin),
 
-    capacity_volume: cleanValue(obj.capacity_volume) || cleanValue(obj.capacity),
+    capacity_volume:
+      cleanValue(obj.capacity_volume) || cleanValue(obj.capacity),
 
     swl: cleanValue(obj.swl),
     proof_load: cleanValue(obj.proof_load),
@@ -324,6 +286,7 @@ function normalizePayload(obj = {}) {
       cleanValue(obj.design_temperature_min_max),
 
     material: cleanValue(obj.material),
+
     standard_code:
       cleanValue(obj.standard_code) ||
       cleanValue(obj.code_of_construction) ||
@@ -347,33 +310,32 @@ function normalizePayload(obj = {}) {
       parseDateFlexible(obj.next_inspection_due) ||
       parseDateFlexible(obj.next_due_date),
 
-    inspector_name: cleanValue(obj.inspector_name) || cleanValue(obj.inspector),
-    inspection_body: cleanValue(obj.inspection_body) || "Monroy (Pty) Ltd",
+    inspector_name:
+      cleanValue(obj.inspector_name) || cleanValue(obj.inspector),
+
+    inspection_body:
+      cleanValue(obj.inspection_body) || "Monroy (Pty) Ltd",
 
     result: normalizeResult(obj.result, obj),
     status: cleanValue(obj.status) || "Active",
 
     defects_found: cleanValue(obj.defects_found),
-
     recommendations: cleanValue(obj.recommendations),
-
     comments: commentsParts.length ? commentsParts.join(" | ") : null,
-
     nameplate_data: cleanValue(obj.nameplate_data),
-
     raw_text_summary: cleanValue(obj.raw_text_summary),
   };
 }
 
-async function callGemini(parts) {
+async function callGemini(parts, maxOutputTokens = 2600) {
   const response = await fetch(GEMINI_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts }],
       generationConfig: {
-        temperature: 0.15,
-        maxOutputTokens: 3500,
+        temperature: 0.1,
+        maxOutputTokens,
       },
     }),
   });
@@ -388,25 +350,24 @@ async function callGemini(parts) {
 }
 
 async function repairJson(rawText) {
-  const prompt = `
+  const repairPrompt = `
 Convert the following extraction output into ONE strict valid JSON object.
 
 Rules:
 - Output JSON only.
 - No markdown.
 - No prose.
-- Keep flexible aliases but map them into the target schema.
-- Do not drop fields just because the layout is unusual.
-- If a field appears on another page under another label, use it.
+- Keep only the target fields.
 - Missing fields must be null.
 
+Target shape:
 ${OUTPUT_SCHEMA_TEXT}
 
 Text:
 ${rawText}
   `.trim();
 
-  const repaired = await callGemini([{ text: prompt }]);
+  const repaired = await callGemini([{ text: repairPrompt }], 1800);
   if (!repaired.ok) return null;
 
   return repaired.data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
@@ -443,17 +404,20 @@ export async function POST(req) {
         continue;
       }
 
-      const firstPass = await callGemini([
-        {
-          inline_data: {
-            mime_type: mimeType,
-            data: base64Data,
+      const firstPass = await callGemini(
+        [
+          {
+            inline_data: {
+              mime_type: mimeType,
+              data: base64Data,
+            },
           },
-        },
-        {
-          text: EXTRACTION_PROMPT,
-        },
-      ]);
+          {
+            text: FAST_EXTRACTION_PROMPT,
+          },
+        ],
+        2600
+      );
 
       if (!firstPass.ok) {
         results.push({
