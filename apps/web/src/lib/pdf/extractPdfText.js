@@ -6,6 +6,7 @@ function toBase64(file) {
 
     reader.onload = () => {
       const result = reader.result;
+
       if (typeof result !== "string") {
         reject(new Error("Failed to read file."));
         return;
