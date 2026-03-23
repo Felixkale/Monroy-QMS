@@ -7,13 +7,11 @@ import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 
 const C = {
-  bg: "#08101d",
-  bg2: "#0c1628",
-  panel: "rgba(15,23,42,0.92)",
-  panel2: "rgba(22,33,49,0.96)",
-  panel3: "rgba(11,18,32,0.88)",
-  border: "rgba(148,163,184,0.16)",
-  borderStrong: "rgba(34,211,238,0.22)",
+  bg: "#07101d",
+  panel: "rgba(10,16,29,0.96)",
+  panel2: "rgba(14,23,39,0.96)",
+  panel3: "rgba(20,30,48,0.96)",
+  border: "rgba(148,163,184,0.14)",
   text: "#f8fafc",
   sub: "rgba(226,232,240,0.72)",
   dim: "rgba(148,163,184,0.72)",
@@ -23,7 +21,6 @@ const C = {
   yellow: "#fbbf24",
   blue: "#60a5fa",
   purple: "#a78bfa",
-  white: "#ffffff",
 };
 
 const MAX_FILES = 20;
@@ -146,7 +143,9 @@ function prettyLabel(label) {
 }
 
 function nonEmptyCount(data = {}) {
-  return Object.values(data).filter((v) => v !== null && v !== undefined && String(v).trim() !== "").length;
+  return Object.values(data).filter(
+    (v) => v !== null && v !== undefined && String(v).trim() !== ""
+  ).length;
 }
 
 export default function CertificateImportPage() {
@@ -201,7 +200,6 @@ export default function CertificateImportPage() {
             file: f,
             name: f.name,
             size: f.size,
-            status: "ready",
           });
         }
       }
@@ -246,7 +244,7 @@ export default function CertificateImportPage() {
           base64Data,
         });
 
-        const pct = Math.round(((i + 1) / files.length) * 24);
+        const pct = Math.round(((i + 1) / files.length) * 22);
         setProgress(6 + pct);
       }
 
@@ -255,9 +253,7 @@ export default function CertificateImportPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          files: payloadFiles,
-        }),
+        body: JSON.stringify({ files: payloadFiles }),
       });
 
       const json = await res.json();
@@ -299,8 +295,7 @@ export default function CertificateImportPage() {
 
   async function saveOne(index) {
     const row = results[index];
-    if (!row?.ok || !row?.data) return;
-    if (row.saved || row.saving) return;
+    if (!row?.ok || !row?.data || row.saved || row.saving) return;
 
     setResults((prev) =>
       prev.map((item, i) =>
@@ -422,29 +417,22 @@ export default function CertificateImportPage() {
           minHeight: "100vh",
           padding: 24,
           background:
-            "radial-gradient(circle at top right, rgba(34,211,238,0.12), transparent 22%), radial-gradient(circle at top left, rgba(96,165,250,0.10), transparent 18%), linear-gradient(180deg,#08101d 0%,#09111f 100%)",
+            "radial-gradient(circle at top right, rgba(34,211,238,0.12), transparent 22%), radial-gradient(circle at top left, rgba(96,165,250,0.10), transparent 18%), linear-gradient(180deg,#07101d 0%,#08111f 100%)",
           color: C.text,
         }}
       >
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1.4fr 0.9fr",
-            gap: 18,
-            marginBottom: 20,
-          }}
-        >
+        <div style={{ display: "grid", gridTemplateColumns: "1.35fr 0.95fr", gap: 18, marginBottom: 20 }}>
           <div style={heroCard}>
             <div style={heroGlow} />
             <div style={{ position: "relative", zIndex: 1 }}>
-              <div style={eyebrow}>AI CERTIFICATE IMPORT</div>
-              <h1 style={{ margin: "8px 0 10px", fontSize: 42, lineHeight: 1.05, fontWeight: 900 }}>
-                Faster review.
+              <div style={eyebrow}>MONROY QMS</div>
+              <h1 style={{ margin: "8px 0 10px", fontSize: 42, lineHeight: 1.04, fontWeight: 900 }}>
+                Import certificates
                 <br />
-                Cleaner import.
+                with faster review.
               </h1>
               <p style={{ color: C.sub, maxWidth: 760, fontSize: 15, lineHeight: 1.7 }}>
-                Upload inspection PDFs or photos, extract structured certificate data, review the important fields first, then save accepted results into your register.
+                Upload PDFs or images, extract structured fields, review the important details first, then save accepted results into your certificates register.
               </p>
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 18 }}>
@@ -468,14 +456,7 @@ export default function CertificateImportPage() {
           </div>
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "0.95fr 1.35fr",
-            gap: 18,
-            alignItems: "start",
-          }}
-        >
+        <div style={{ display: "grid", gridTemplateColumns: "0.96fr 1.34fr", gap: 18, alignItems: "start" }}>
           <div style={{ display: "grid", gap: 18 }}>
             <div
               onDragOver={(e) => {
@@ -494,21 +475,17 @@ export default function CertificateImportPage() {
               style={{
                 ...panelCard,
                 padding: 22,
-                border: dragActive
-                  ? `1px solid ${C.cyan}`
-                  : `1px solid ${C.border}`,
-                boxShadow: dragActive
-                  ? "0 0 0 1px rgba(34,211,238,0.18), 0 12px 34px rgba(34,211,238,0.10)"
-                  : "0 12px 30px rgba(2,8,23,0.22)",
+                border: dragActive ? `1px solid ${C.cyan}` : `1px solid ${C.border}`,
               }}
             >
               <div style={sectionHeader}>
                 <div>
-                  <div style={sectionTitle}>Drop zone</div>
+                  <div style={sectionTitle}>Upload zone</div>
                   <div style={sectionSub}>
                     PDF, PNG, JPG, WEBP · Max {MAX_FILES} files · Max {MAX_FILE_MB} MB each
                   </div>
                 </div>
+
                 <label style={primaryButton}>
                   Select Files
                   <input
@@ -523,11 +500,11 @@ export default function CertificateImportPage() {
 
               <div style={dropArea}>
                 <div style={dropIcon}>⬆</div>
-                <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 6 }}>
-                  Drag & drop files here
+                <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 6 }}>
+                  Drag & drop certificate files here
                 </div>
                 <div style={{ color: C.sub, fontSize: 14 }}>
-                  Use this for multi-page certificates, photos, and nameplate captures
+                  Multi-page packs, sticker pages, photos, and nameplates supported
                 </div>
               </div>
 
@@ -554,10 +531,8 @@ export default function CertificateImportPage() {
             <div style={panelCard}>
               <div style={sectionHeader}>
                 <div>
-                  <div style={sectionTitle}>Queued files</div>
-                  <div style={sectionSub}>
-                    {files.length}/{MAX_FILES} selected
-                  </div>
+                  <div style={sectionTitle}>Queue</div>
+                  <div style={sectionSub}>{files.length}/{MAX_FILES} selected</div>
                 </div>
               </div>
 
@@ -585,16 +560,10 @@ export default function CertificateImportPage() {
                         >
                           {item.name}
                         </div>
-                        <div style={{ color: C.dim, fontSize: 12 }}>
-                          {formatBytes(item.size)}
-                        </div>
+                        <div style={{ color: C.dim, fontSize: 12 }}>{formatBytes(item.size)}</div>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => removeFile(item.id)}
-                        style={removeButton}
-                      >
+                      <button type="button" onClick={() => removeFile(item.id)} style={removeButton}>
                         Remove
                       </button>
                     </div>
@@ -607,25 +576,18 @@ export default function CertificateImportPage() {
               <div style={panelCard}>
                 <div style={sectionHeader}>
                   <div>
-                    <div style={sectionTitle}>
-                      {extracting ? "Extraction in progress" : "Extraction complete"}
-                    </div>
+                    <div style={sectionTitle}>{extracting ? "Extraction in progress" : "Extraction complete"}</div>
                     <div style={sectionSub}>
                       {extracting
-                        ? "Processing uploaded files and building structured results"
+                        ? "Processing your uploaded files"
                         : "Results are ready for review"}
                     </div>
                   </div>
-                  <div style={{ color: C.white, fontWeight: 800 }}>{progress}%</div>
+                  <div style={{ color: C.text, fontWeight: 900 }}>{progress}%</div>
                 </div>
 
                 <div style={progressTrack}>
-                  <div
-                    style={{
-                      ...progressBar,
-                      width: `${progress}%`,
-                    }}
-                  />
+                  <div style={{ ...progressBar, width: `${progress}%` }} />
                 </div>
               </div>
             )}
@@ -636,9 +598,7 @@ export default function CertificateImportPage() {
               <div style={sectionHeader}>
                 <div>
                   <div style={sectionTitle}>Extracted results</div>
-                  <div style={sectionSub}>
-                    Review the top fields first, then expand details only when needed
-                  </div>
+                  <div style={sectionSub}>Review core fields first, expand only when needed</div>
                 </div>
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -677,7 +637,7 @@ export default function CertificateImportPage() {
                       <div
                         key={`${item.fileName}-${index}`}
                         style={{
-                          background: "linear-gradient(180deg, rgba(13,20,36,0.92), rgba(10,16,30,0.92))",
+                          background: "linear-gradient(180deg, rgba(13,20,36,0.94), rgba(10,16,30,0.94))",
                           border: `1px solid ${
                             item.ok ? "rgba(34,211,238,0.14)" : "rgba(255,107,129,0.24)"
                           }`,
@@ -715,12 +675,8 @@ export default function CertificateImportPage() {
 
                               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                                 <span style={metaPill}>{item.ok ? `${filled} fields captured` : "Extraction failed"}</span>
-                                {item.ok && data.equipment_type ? (
-                                  <span style={metaPill}>{data.equipment_type}</span>
-                                ) : null}
-                                {item.ok && data.certificate_number ? (
-                                  <span style={metaPill}>{data.certificate_number}</span>
-                                ) : null}
+                                {item.ok && data.equipment_type ? <span style={metaPill}>{data.equipment_type}</span> : null}
+                                {item.ok && data.certificate_number ? <span style={metaPill}>{data.certificate_number}</span> : null}
                               </div>
                             </div>
 
@@ -752,7 +708,7 @@ export default function CertificateImportPage() {
                                   alignItems: "center",
                                   padding: "7px 12px",
                                   borderRadius: 999,
-                                  fontWeight: 800,
+                                  fontWeight: 900,
                                   fontSize: 12,
                                   color: item.ok ? C.green : C.red,
                                   background: item.ok
@@ -808,16 +764,20 @@ export default function CertificateImportPage() {
                                 <KeyStat label="Location" value={data.location} />
                               </div>
 
-                              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 14, flexWrap: "wrap" }}>
-                                <div style={{ color: C.sub, fontSize: 13 }}>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  gap: 12,
+                                  marginTop: 14,
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                <div style={{ color: C.sub, fontSize: 13, flex: 1, minWidth: 260 }}>
                                   {data.raw_text_summary || "No summary captured."}
                                 </div>
 
-                                <button
-                                  type="button"
-                                  onClick={() => toggleExpanded(index)}
-                                  style={expandButton}
-                                >
+                                <button type="button" onClick={() => toggleExpanded(index)} style={expandButton}>
                                   {expanded ? "Hide Details" : "Show Details"}
                                 </button>
                               </div>
@@ -929,7 +889,7 @@ const eyebrow = {
   background: "rgba(34,211,238,0.12)",
   border: "1px solid rgba(34,211,238,0.18)",
   color: C.cyan,
-  fontWeight: 800,
+  fontWeight: 900,
   fontSize: 11,
   letterSpacing: 1,
 };
@@ -957,8 +917,7 @@ const sectionSub = {
 const dropArea = {
   borderRadius: 18,
   border: "1px dashed rgba(34,211,238,0.18)",
-  background:
-    "linear-gradient(180deg, rgba(8,16,29,0.85), rgba(11,18,32,0.78))",
+  background: "linear-gradient(180deg, rgba(8,16,29,0.85), rgba(11,18,32,0.78))",
   minHeight: 180,
   display: "flex",
   flexDirection: "column",
@@ -1102,7 +1061,7 @@ const detailLabel = {
 };
 
 const detailValue = {
-  color: C.white,
+  color: C.text,
   fontSize: 14,
   fontWeight: 800,
   lineHeight: 1.5,
