@@ -1,3 +1,4 @@
+// apps/web/src/app/api/ai/extract/route.js
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -210,7 +211,7 @@ export async function POST(req) {
           generationConfig: {
             temperature: 0.1,
             maxOutputTokens: 4096,
-            responseMimeType: "application/json",
+            response_mime_type: "application/json",
           },
         }),
       });
