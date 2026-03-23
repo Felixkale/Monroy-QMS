@@ -7,18 +7,23 @@ import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 
 const C = {
-  bg: "#0b1220",
-  panel: "#111827",
-  panel2: "#172131",
-  border: "rgba(255,255,255,0.10)",
-  text: "#ffffff",
-  sub: "rgba(255,255,255,0.70)",
+  bg: "#08101d",
+  bg2: "#0c1628",
+  panel: "rgba(15,23,42,0.92)",
+  panel2: "rgba(22,33,49,0.96)",
+  panel3: "rgba(11,18,32,0.88)",
+  border: "rgba(148,163,184,0.16)",
+  borderStrong: "rgba(34,211,238,0.22)",
+  text: "#f8fafc",
+  sub: "rgba(226,232,240,0.72)",
+  dim: "rgba(148,163,184,0.72)",
   cyan: "#22d3ee",
   green: "#00f5c4",
   red: "#ff6b81",
   yellow: "#fbbf24",
   blue: "#60a5fa",
   purple: "#a78bfa",
+  white: "#ffffff",
 };
 
 const MAX_FILES = 20;
@@ -57,7 +62,7 @@ function resultTone(result) {
     return {
       color: C.green,
       background: "rgba(0,245,196,0.12)",
-      border: "1px solid rgba(0,245,196,0.25)",
+      border: "1px solid rgba(0,245,196,0.28)",
     };
   }
 
@@ -65,7 +70,7 @@ function resultTone(result) {
     return {
       color: C.red,
       background: "rgba(255,107,129,0.12)",
-      border: "1px solid rgba(255,107,129,0.25)",
+      border: "1px solid rgba(255,107,129,0.28)",
     };
   }
 
@@ -73,7 +78,7 @@ function resultTone(result) {
     return {
       color: C.yellow,
       background: "rgba(251,191,36,0.12)",
-      border: "1px solid rgba(251,191,36,0.25)",
+      border: "1px solid rgba(251,191,36,0.28)",
     };
   }
 
@@ -81,14 +86,14 @@ function resultTone(result) {
     return {
       color: C.purple,
       background: "rgba(167,139,250,0.12)",
-      border: "1px solid rgba(167,139,250,0.25)",
+      border: "1px solid rgba(167,139,250,0.28)",
     };
   }
 
   return {
     color: "#cbd5e1",
-    background: "rgba(203,213,225,0.12)",
-    border: "1px solid rgba(203,213,225,0.25)",
+    background: "rgba(203,213,225,0.10)",
+    border: "1px solid rgba(203,213,225,0.22)",
   };
 }
 
@@ -136,6 +141,14 @@ function toCertificateInsertPayload(data = {}, fileName = "") {
   };
 }
 
+function prettyLabel(label) {
+  return label.replace(/_/g, " ");
+}
+
+function nonEmptyCount(data = {}) {
+  return Object.values(data).filter((v) => v !== null && v !== undefined && String(v).trim() !== "").length;
+}
+
 export default function CertificateImportPage() {
   const [files, setFiles] = useState([]);
   const [extracting, setExtracting] = useState(false);
@@ -143,6 +156,7 @@ export default function CertificateImportPage() {
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState([]);
   const [dragActive, setDragActive] = useState(false);
+  const [expandedMap, setExpandedMap] = useState({});
 
   const stats = useMemo(() => {
     const total = results.length;
@@ -151,6 +165,10 @@ export default function CertificateImportPage() {
     const passed = results.filter((x) => x.ok && x.data?.result === "PASS").length;
     return { total, success, errors, passed };
   }, [results]);
+
+  function toggleExpanded(index) {
+    setExpandedMap((prev) => ({ ...prev, [index]: !prev[index] }));
+  }
 
   function pushFiles(list) {
     const incoming = Array.from(list || []);
@@ -204,6 +222,7 @@ export default function CertificateImportPage() {
     setFiles([]);
     setResults([]);
     setProgress(0);
+    setExpandedMap({});
   }
 
   async function extractAll() {
@@ -211,7 +230,8 @@ export default function CertificateImportPage() {
 
     setExtracting(true);
     setResults([]);
-    setProgress(8);
+    setExpandedMap({});
+    setProgress(6);
 
     try {
       const payloadFiles = [];
@@ -226,8 +246,8 @@ export default function CertificateImportPage() {
           base64Data,
         });
 
-        const pct = Math.round(((i + 1) / files.length) * 22);
-        setProgress(8 + pct);
+        const pct = Math.round(((i + 1) / files.length) * 24);
+        setProgress(6 + pct);
       }
 
       const res = await fetch("/api/ai/extract", {
@@ -397,479 +417,434 @@ export default function CertificateImportPage() {
 
   return (
     <AppLayout>
-      <div style={{ padding: 24, background: C.bg, minHeight: "100vh", color: C.text }}>
+      <div
+        style={{
+          minHeight: "100vh",
+          padding: 24,
+          background:
+            "radial-gradient(circle at top right, rgba(34,211,238,0.12), transparent 22%), radial-gradient(circle at top left, rgba(96,165,250,0.10), transparent 18%), linear-gradient(180deg,#08101d 0%,#09111f 100%)",
+          color: C.text,
+        }}
+      >
         <div
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: 16,
-            flexWrap: "wrap",
+            display: "grid",
+            gridTemplateColumns: "1.4fr 0.9fr",
+            gap: 18,
             marginBottom: 20,
           }}
         >
-          <div>
-            <h1 style={{ fontSize: 48, fontWeight: 800, marginBottom: 10 }}>
-              Certificates AI Import
-            </h1>
-            <p style={{ color: C.sub }}>
-              Flexible multi-page extraction with review and save to certificates register.
-            </p>
+          <div style={heroCard}>
+            <div style={heroGlow} />
+            <div style={{ position: "relative", zIndex: 1 }}>
+              <div style={eyebrow}>AI CERTIFICATE IMPORT</div>
+              <h1 style={{ margin: "8px 0 10px", fontSize: 42, lineHeight: 1.05, fontWeight: 900 }}>
+                Faster review.
+                <br />
+                Cleaner import.
+              </h1>
+              <p style={{ color: C.sub, maxWidth: 760, fontSize: 15, lineHeight: 1.7 }}>
+                Upload inspection PDFs or photos, extract structured certificate data, review the important fields first, then save accepted results into your register.
+              </p>
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 18 }}>
+                <Link href="/certificates" style={ghostLink}>
+                  Back to Register
+                </Link>
+                <Link href="/certificates/create" style={primaryLink}>
+                  + Create Manually
+                </Link>
+              </div>
+            </div>
           </div>
 
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <Link href="/certificates" style={ghostLink}>
-              Back to Register
-            </Link>
-            <Link href="/certificates/create" style={primaryLink}>
-              + Create Certificate
-            </Link>
+          <div style={panelCard}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <StatCard label="Processed" value={stats.total} color={C.blue} />
+              <StatCard label="Success" value={stats.success} color={C.green} />
+              <StatCard label="Errors" value={stats.errors} color={C.red} />
+              <StatCard label="Passed" value={stats.passed} color={C.yellow} />
+            </div>
           </div>
         </div>
 
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-            gap: 14,
-            marginBottom: 20,
+            gridTemplateColumns: "0.95fr 1.35fr",
+            gap: 18,
+            alignItems: "start",
           }}
         >
-          <StatCard label="Files Processed" value={stats.total} color={C.blue} />
-          <StatCard label="Successful" value={stats.success} color={C.green} />
-          <StatCard label="Errors" value={stats.errors} color={C.red} />
-          <StatCard label="Passed" value={stats.passed} color={C.yellow} />
-        </div>
-
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragActive(true);
-          }}
-          onDragLeave={(e) => {
-            e.preventDefault();
-            setDragActive(false);
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragActive(false);
-            pushFiles(e.dataTransfer.files);
-          }}
-          style={{
-            background: dragActive ? "#162338" : C.panel,
-            border: `1px dashed ${dragActive ? C.cyan : "rgba(255,255,255,0.15)"}`,
-            borderRadius: 22,
-            padding: 28,
-            marginBottom: 20,
-            transition: "0.2s ease",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 16,
-              flexWrap: "wrap",
-              alignItems: "center",
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>
-                Upload certificate files
-              </div>
-              <div style={{ color: C.sub }}>
-                PDF, PNG, JPG, WEBP · Max {MAX_FILES} files · Max {MAX_FILE_MB} MB each
-              </div>
-            </div>
-
-            <label style={primaryButton}>
-              Select Files
-              <input
-                type="file"
-                accept=".pdf,image/png,image/jpeg,image/jpg,image/webp"
-                multiple
-                onChange={onInputChange}
-                style={{ display: "none" }}
-              />
-            </label>
-          </div>
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 12,
-            flexWrap: "wrap",
-            marginBottom: 14,
-          }}
-        >
-          <div style={{ fontSize: 22, fontWeight: 800 }}>
-            Selected Files ({files.length}/{MAX_FILES})
-          </div>
-
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button type="button" onClick={clearAll} style={secondaryButton}>
-              Clear All
-            </button>
-
-            <button
-              type="button"
-              onClick={extractAll}
-              disabled={!files.length || extracting}
+          <div style={{ display: "grid", gap: 18 }}>
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragActive(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setDragActive(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragActive(false);
+                pushFiles(e.dataTransfer.files);
+              }}
               style={{
-                ...primaryButtonButton,
-                opacity: !files.length || extracting ? 0.6 : 1,
-                cursor: !files.length || extracting ? "not-allowed" : "pointer",
+                ...panelCard,
+                padding: 22,
+                border: dragActive
+                  ? `1px solid ${C.cyan}`
+                  : `1px solid ${C.border}`,
+                boxShadow: dragActive
+                  ? "0 0 0 1px rgba(34,211,238,0.18), 0 12px 34px rgba(34,211,238,0.10)"
+                  : "0 12px 30px rgba(2,8,23,0.22)",
               }}
             >
-              {extracting ? "Extracting..." : "✦ Extract with AI"}
-            </button>
-          </div>
-        </div>
+              <div style={sectionHeader}>
+                <div>
+                  <div style={sectionTitle}>Drop zone</div>
+                  <div style={sectionSub}>
+                    PDF, PNG, JPG, WEBP · Max {MAX_FILES} files · Max {MAX_FILE_MB} MB each
+                  </div>
+                </div>
+                <label style={primaryButton}>
+                  Select Files
+                  <input
+                    type="file"
+                    accept=".pdf,image/png,image/jpeg,image/jpg,image/webp"
+                    multiple
+                    onChange={onInputChange}
+                    style={{ display: "none" }}
+                  />
+                </label>
+              </div>
 
-        {files.length > 0 && (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-              gap: 14,
-              marginBottom: 20,
-            }}
-          >
-            {files.map((item) => (
-              <div
-                key={item.id}
-                style={{
-                  background: C.panel2,
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 16,
-                  overflow: "hidden",
-                  position: "relative",
-                  minHeight: 180,
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => removeFile(item.id)}
-                  style={{
-                    position: "absolute",
-                    top: 10,
-                    right: 10,
-                    width: 28,
-                    height: 28,
-                    borderRadius: 999,
-                    border: "none",
-                    background: C.red,
-                    color: "#fff",
-                    cursor: "pointer",
-                    fontWeight: 800,
-                  }}
-                >
-                  ×
+              <div style={dropArea}>
+                <div style={dropIcon}>⬆</div>
+                <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 6 }}>
+                  Drag & drop files here
+                </div>
+                <div style={{ color: C.sub, fontSize: 14 }}>
+                  Use this for multi-page certificates, photos, and nameplate captures
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
+                <button type="button" onClick={clearAll} style={secondaryButton}>
+                  Clear All
                 </button>
 
-                <div
+                <button
+                  type="button"
+                  onClick={extractAll}
+                  disabled={!files.length || extracting}
                   style={{
-                    height: 120,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 42,
+                    ...primaryButtonButton,
+                    opacity: !files.length || extracting ? 0.6 : 1,
+                    cursor: !files.length || extracting ? "not-allowed" : "pointer",
                   }}
                 >
-                  {item.file.type === "application/pdf" ? "📄" : "🖼️"}
-                </div>
-
-                <div
-                  style={{
-                    borderTop: `1px solid ${C.border}`,
-                    padding: 12,
-                    background: "rgba(255,255,255,0.02)",
-                  }}
-                >
-                  <div
-                    title={item.name}
-                    style={{
-                      fontWeight: 800,
-                      fontSize: 12,
-                      lineHeight: 1.4,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      marginBottom: 4,
-                    }}
-                  >
-                    {item.name}
-                  </div>
-                  <div style={{ color: C.sub, fontSize: 12 }}>{formatBytes(item.size)}</div>
-                </div>
+                  {extracting ? "Extracting..." : "✦ Extract with AI"}
+                </button>
               </div>
-            ))}
-          </div>
-        )}
-
-        {(extracting || progress > 0) && (
-          <div
-            style={{
-              background: C.panel,
-              border: `1px solid ${C.border}`,
-              borderRadius: 18,
-              padding: 18,
-              marginBottom: 20,
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 10,
-                marginBottom: 12,
-              }}
-            >
-              <div style={{ color: C.sub }}>
-                {extracting ? "Extraction in progress..." : "Extraction complete ✓"}
-              </div>
-              <div style={{ color: C.sub }}>{progress}%</div>
             </div>
 
-            <div
-              style={{
-                height: 8,
-                background: "rgba(255,255,255,0.08)",
-                borderRadius: 999,
-                overflow: "hidden",
-              }}
-            >
-              <div
-                style={{
-                  width: `${progress}%`,
-                  height: "100%",
-                  background: "linear-gradient(90deg,#22d3ee,#a78bfa)",
-                  transition: "width 0.3s ease",
-                }}
-              />
-            </div>
-          </div>
-        )}
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
-            alignItems: "center",
-            flexWrap: "wrap",
-            marginBottom: 12,
-          }}
-        >
-          <div style={{ fontSize: 22, fontWeight: 800 }}>Extracted Certificate Data</div>
-
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button type="button" onClick={exportCsv} style={secondaryButton}>
-              ↓ Export CSV
-            </button>
-
-            <button
-              type="button"
-              onClick={saveAllSuccessful}
-              disabled={savingAll || !results.some((x) => x.ok && !x.saved)}
-              style={{
-                ...primaryButtonButton,
-                opacity: savingAll || !results.some((x) => x.ok && !x.saved) ? 0.6 : 1,
-                cursor:
-                  savingAll || !results.some((x) => x.ok && !x.saved)
-                    ? "not-allowed"
-                    : "pointer",
-              }}
-            >
-              {savingAll ? "Saving..." : "Save All Successful"}
-            </button>
-          </div>
-        </div>
-
-        {results.length === 0 ? (
-          <div style={emptyStyle}>No extraction results yet.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 14 }}>
-            {results.map((item, index) => (
-              <div
-                key={`${item.fileName}-${index}`}
-                style={{
-                  background: C.panel,
-                  border: `1px solid ${
-                    item.ok ? "rgba(0,245,196,0.18)" : "rgba(255,107,129,0.24)"
-                  }`,
-                  borderRadius: 18,
-                  padding: 18,
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                    marginBottom: 14,
-                  }}
-                >
-                  <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 0 }}>
-                    <div
-                      style={{
-                        width: 30,
-                        height: 30,
-                        borderRadius: 999,
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: item.ok
-                          ? "rgba(0,245,196,0.15)"
-                          : "rgba(255,107,129,0.15)",
-                        color: item.ok ? C.green : C.red,
-                        fontWeight: 800,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {index + 1}
-                    </div>
-
-                    <div
-                      style={{
-                        fontSize: 20,
-                        fontWeight: 800,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                      title={item.fileName}
-                    >
-                      {item.fileName}
-                    </div>
+            <div style={panelCard}>
+              <div style={sectionHeader}>
+                <div>
+                  <div style={sectionTitle}>Queued files</div>
+                  <div style={sectionSub}>
+                    {files.length}/{MAX_FILES} selected
                   </div>
+                </div>
+              </div>
 
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    {item.saved && item.savedId ? (
-                      <Link href={`/certificates/${item.savedId}`} style={savedLink}>
-                        Open Saved
-                      </Link>
-                    ) : null}
+              {files.length === 0 ? (
+                <div style={emptyBlock}>No files added yet.</div>
+              ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {files.map((item) => (
+                    <div key={item.id} style={queueRow}>
+                      <div style={queueIcon}>
+                        {item.file.type === "application/pdf" ? "PDF" : "IMG"}
+                      </div>
 
-                    {item.ok ? (
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div
+                          title={item.name}
+                          style={{
+                            fontWeight: 800,
+                            fontSize: 14,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            marginBottom: 4,
+                          }}
+                        >
+                          {item.name}
+                        </div>
+                        <div style={{ color: C.dim, fontSize: 12 }}>
+                          {formatBytes(item.size)}
+                        </div>
+                      </div>
+
                       <button
                         type="button"
-                        onClick={() => saveOne(index)}
-                        disabled={item.saved || item.saving}
-                        style={{
-                          ...saveButton,
-                          opacity: item.saved || item.saving ? 0.6 : 1,
-                          cursor: item.saved || item.saving ? "not-allowed" : "pointer",
-                        }}
+                        onClick={() => removeFile(item.id)}
+                        style={removeButton}
                       >
-                        {item.saved ? "Saved" : item.saving ? "Saving..." : "Save to Register"}
+                        Remove
                       </button>
-                    ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        padding: "6px 12px",
-                        borderRadius: 999,
-                        fontWeight: 700,
-                        fontSize: 12,
-                        color: item.ok ? C.green : C.red,
-                        background: item.ok
-                          ? "rgba(0,245,196,0.12)"
-                          : "rgba(255,107,129,0.12)",
-                        border: item.ok
-                          ? "1px solid rgba(0,245,196,0.25)"
-                          : "1px solid rgba(255,107,129,0.25)",
-                      }}
-                    >
-                      {item.ok ? "Success" : "Error"}
-                    </span>
+            {(extracting || progress > 0) && (
+              <div style={panelCard}>
+                <div style={sectionHeader}>
+                  <div>
+                    <div style={sectionTitle}>
+                      {extracting ? "Extraction in progress" : "Extraction complete"}
+                    </div>
+                    <div style={sectionSub}>
+                      {extracting
+                        ? "Processing uploaded files and building structured results"
+                        : "Results are ready for review"}
+                    </div>
+                  </div>
+                  <div style={{ color: C.white, fontWeight: 800 }}>{progress}%</div>
+                </div>
+
+                <div style={progressTrack}>
+                  <div
+                    style={{
+                      ...progressBar,
+                      width: `${progress}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: "grid", gap: 18 }}>
+            <div style={panelCard}>
+              <div style={sectionHeader}>
+                <div>
+                  <div style={sectionTitle}>Extracted results</div>
+                  <div style={sectionSub}>
+                    Review the top fields first, then expand details only when needed
                   </div>
                 </div>
 
-                {item.saveError ? (
-                  <div style={{ color: C.red, fontSize: 14, marginBottom: 10 }}>
-                    {item.saveError}
-                  </div>
-                ) : null}
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button type="button" onClick={exportCsv} style={secondaryButton}>
+                    ↓ Export CSV
+                  </button>
 
-                {!item.ok ? (
-                  <div style={{ color: C.red, fontSize: 14 }}>
-                    {item.error || "Extraction error."}
-                  </div>
-                ) : (
-                  <>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                        gap: 12,
-                        marginBottom: 16,
-                      }}
-                    >
-                      <DataMini label="Certificate No" value={item.data?.certificate_number} />
-                      <DataMini label="Equipment Type" value={item.data?.equipment_type} />
-                      <DataMini
-                        label="Result"
-                        value={
-                          <span style={{ ...badgeBase, ...resultTone(item.data?.result) }}>
-                            {item.data?.result || "UNKNOWN"}
-                          </span>
-                        }
-                      />
-                      <DataMini label="Inspection Date" value={item.data?.inspection_date} />
-                    </div>
-
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
-                        <tbody>
-                          <TableRow label="Equipment Description" value={item.data?.equipment_description} />
-                          <TableRow label="Client Name" value={item.data?.client_name} />
-                          <TableRow label="Asset Tag" value={item.data?.asset_tag} />
-                          <TableRow label="Serial Number" value={item.data?.serial_number} />
-                          <TableRow label="Manufacturer" value={item.data?.manufacturer} />
-                          <TableRow label="Model" value={item.data?.model} />
-                          <TableRow label="Year Built" value={item.data?.year_built} />
-                          <TableRow label="Country of Origin" value={item.data?.country_of_origin} />
-                          <TableRow label="Working Pressure" value={item.data?.working_pressure} />
-                          <TableRow label="Design Pressure" value={item.data?.design_pressure} />
-                          <TableRow label="Test Pressure" value={item.data?.test_pressure} />
-                          <TableRow label="Pressure Unit" value={item.data?.pressure_unit} />
-                          <TableRow label="Capacity / Volume" value={item.data?.capacity_volume} />
-                          <TableRow label="SWL" value={item.data?.swl} />
-                          <TableRow label="Proof Load" value={item.data?.proof_load} />
-                          <TableRow label="Lift Height" value={item.data?.lift_height} />
-                          <TableRow label="Sling Length" value={item.data?.sling_length} />
-                          <TableRow label="Material" value={item.data?.material} />
-                          <TableRow label="Standard Code" value={item.data?.standard_code} />
-                          <TableRow label="Issue Date" value={item.data?.issue_date} />
-                          <TableRow label="Expiry Date" value={item.data?.expiry_date} />
-                          <TableRow label="Next Inspection Due" value={item.data?.next_inspection_due} />
-                          <TableRow label="Inspection Number" value={item.data?.inspection_number} />
-                          <TableRow label="Inspector Name" value={item.data?.inspector_name} />
-                          <TableRow label="Inspection Body" value={item.data?.inspection_body} />
-                          <TableRow label="Location" value={item.data?.location} />
-                          <TableRow label="Status" value={item.data?.status} />
-                          <TableRow label="Defects Found" value={item.data?.defects_found} />
-                          <TableRow label="Recommendations" value={item.data?.recommendations} />
-                          <TableRow label="Comments" value={item.data?.comments} />
-                          <TableRow label="Nameplate Data" value={item.data?.nameplate_data} />
-                          <TableRow label="Summary" value={item.data?.raw_text_summary} />
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                )}
+                  <button
+                    type="button"
+                    onClick={saveAllSuccessful}
+                    disabled={savingAll || !results.some((x) => x.ok && !x.saved)}
+                    style={{
+                      ...primaryButtonButton,
+                      opacity: savingAll || !results.some((x) => x.ok && !x.saved) ? 0.6 : 1,
+                      cursor:
+                        savingAll || !results.some((x) => x.ok && !x.saved)
+                          ? "not-allowed"
+                          : "pointer",
+                    }}
+                  >
+                    {savingAll ? "Saving..." : "Save All Successful"}
+                  </button>
+                </div>
               </div>
-            ))}
+
+              {results.length === 0 ? (
+                <div style={emptyBlock}>No extraction results yet.</div>
+              ) : (
+                <div style={{ display: "grid", gap: 14 }}>
+                  {results.map((item, index) => {
+                    const expanded = !!expandedMap[index];
+                    const data = item.data || {};
+                    const filled = item.ok ? nonEmptyCount(data) : 0;
+
+                    return (
+                      <div
+                        key={`${item.fileName}-${index}`}
+                        style={{
+                          background: "linear-gradient(180deg, rgba(13,20,36,0.92), rgba(10,16,30,0.92))",
+                          border: `1px solid ${
+                            item.ok ? "rgba(34,211,238,0.14)" : "rgba(255,107,129,0.24)"
+                          }`,
+                          borderRadius: 20,
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div style={{ padding: 18 }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: 12,
+                              alignItems: "flex-start",
+                              flexWrap: "wrap",
+                              marginBottom: 14,
+                            }}
+                          >
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 8 }}>
+                                <div style={indexBadge}>{index + 1}</div>
+                                <div
+                                  title={item.fileName}
+                                  style={{
+                                    fontSize: 20,
+                                    fontWeight: 900,
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                  }}
+                                >
+                                  {item.fileName}
+                                </div>
+                              </div>
+
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                <span style={metaPill}>{item.ok ? `${filled} fields captured` : "Extraction failed"}</span>
+                                {item.ok && data.equipment_type ? (
+                                  <span style={metaPill}>{data.equipment_type}</span>
+                                ) : null}
+                                {item.ok && data.certificate_number ? (
+                                  <span style={metaPill}>{data.certificate_number}</span>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                              {item.saved && item.savedId ? (
+                                <Link href={`/certificates/${item.savedId}`} style={savedLink}>
+                                  Open Saved
+                                </Link>
+                              ) : null}
+
+                              {item.ok ? (
+                                <button
+                                  type="button"
+                                  onClick={() => saveOne(index)}
+                                  disabled={item.saved || item.saving}
+                                  style={{
+                                    ...saveButton,
+                                    opacity: item.saved || item.saving ? 0.6 : 1,
+                                    cursor: item.saved || item.saving ? "not-allowed" : "pointer",
+                                  }}
+                                >
+                                  {item.saved ? "Saved" : item.saving ? "Saving..." : "Save"}
+                                </button>
+                              ) : null}
+
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  padding: "7px 12px",
+                                  borderRadius: 999,
+                                  fontWeight: 800,
+                                  fontSize: 12,
+                                  color: item.ok ? C.green : C.red,
+                                  background: item.ok
+                                    ? "rgba(0,245,196,0.12)"
+                                    : "rgba(255,107,129,0.12)",
+                                  border: item.ok
+                                    ? "1px solid rgba(0,245,196,0.25)"
+                                    : "1px solid rgba(255,107,129,0.25)",
+                                }}
+                              >
+                                {item.ok ? "Success" : "Error"}
+                              </span>
+                            </div>
+                          </div>
+
+                          {item.saveError ? (
+                            <div style={{ color: C.red, fontSize: 14, marginBottom: 12 }}>
+                              {item.saveError}
+                            </div>
+                          ) : null}
+
+                          {!item.ok ? (
+                            <div style={{ color: C.red, fontSize: 14 }}>
+                              {item.error || "Extraction error."}
+                            </div>
+                          ) : (
+                            <>
+                              <div
+                                style={{
+                                  display: "grid",
+                                  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                                  gap: 12,
+                                  marginBottom: 14,
+                                }}
+                              >
+                                <MiniInfo label="Certificate No" value={data.certificate_number} />
+                                <MiniInfo label="Equipment Type" value={data.equipment_type} />
+                                <MiniInfo
+                                  label="Result"
+                                  value={
+                                    <span style={{ ...badgeBase, ...resultTone(data.result) }}>
+                                      {data.result || "UNKNOWN"}
+                                    </span>
+                                  }
+                                />
+                                <MiniInfo label="Inspection Date" value={data.inspection_date} />
+                              </div>
+
+                              <div style={summaryPanel}>
+                                <KeyStat label="Equipment" value={data.equipment_description} />
+                                <KeyStat label="Client" value={data.client_name} />
+                                <KeyStat label="Serial" value={data.serial_number} />
+                                <KeyStat label="Location" value={data.location} />
+                              </div>
+
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 14, flexWrap: "wrap" }}>
+                                <div style={{ color: C.sub, fontSize: 13 }}>
+                                  {data.raw_text_summary || "No summary captured."}
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => toggleExpanded(index)}
+                                  style={expandButton}
+                                >
+                                  {expanded ? "Hide Details" : "Show Details"}
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        {item.ok && expanded ? (
+                          <div style={detailDrawer}>
+                            <div style={detailGrid}>
+                              {Object.entries(item.data || {}).map(([key, value]) => (
+                                <div key={key} style={detailField}>
+                                  <div style={detailLabel}>{prettyLabel(key)}</div>
+                                  <div style={detailValue}>{value || "-"}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
-        )}
+        </div>
       </div>
     </AppLayout>
   );
@@ -879,72 +854,268 @@ function StatCard({ label, value, color }) {
   return (
     <div
       style={{
-        background: "#111827",
-        border: "1px solid rgba(255,255,255,0.10)",
+        background: "linear-gradient(180deg, rgba(14,23,39,0.98), rgba(10,16,29,0.98))",
+        border: "1px solid rgba(148,163,184,0.12)",
         borderRadius: 18,
-        padding: 18,
+        padding: 16,
       }}
     >
-      <div style={{ color: "rgba(255,255,255,0.70)", marginBottom: 10 }}>{label}</div>
-      <div style={{ fontSize: 30, fontWeight: 800, color }}>{value}</div>
+      <div style={{ color: "rgba(226,232,240,0.70)", marginBottom: 8, fontSize: 13 }}>{label}</div>
+      <div style={{ fontSize: 28, fontWeight: 900, color }}>{value}</div>
     </div>
   );
 }
 
-function DataMini({ label, value }) {
+function MiniInfo({ label, value }) {
   return (
     <div
       style={{
-        background: C.panel2,
-        border: `1px solid ${C.border}`,
+        background: "rgba(15,23,42,0.72)",
+        border: "1px solid rgba(148,163,184,0.10)",
         borderRadius: 14,
         padding: 14,
       }}
     >
-      <div style={{ color: C.sub, fontSize: 12, marginBottom: 8 }}>{label}</div>
-      <div style={{ fontSize: 15, fontWeight: 800 }}>{value || "-"}</div>
+      <div style={{ color: C.sub, fontSize: 12, marginBottom: 7 }}>{label}</div>
+      <div style={{ fontSize: 15, fontWeight: 800, minHeight: 22 }}>{value || "-"}</div>
     </div>
   );
 }
 
-function TableRow({ label, value }) {
+function KeyStat({ label, value }) {
   return (
-    <tr>
-      <th
-        style={{
-          width: 240,
-          textAlign: "left",
-          padding: "12px 10px",
-          fontSize: 13,
-          color: "rgba(255,255,255,0.65)",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
-          verticalAlign: "top",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {label}
-      </th>
-      <td
-        style={{
-          padding: "12px 10px",
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
-          color: "#ffffff",
-          fontSize: 14,
-          verticalAlign: "top",
-        }}
-      >
-        {value || "-"}
-      </td>
-    </tr>
+    <div>
+      <div style={{ color: C.dim, fontSize: 12, marginBottom: 5 }}>{label}</div>
+      <div style={{ fontSize: 14, fontWeight: 800 }}>{value || "-"}</div>
+    </div>
   );
 }
 
-const emptyStyle = {
-  background: "#111827",
-  border: "1px solid rgba(255,255,255,0.10)",
-  borderRadius: 18,
+const heroCard = {
+  position: "relative",
+  overflow: "hidden",
+  background:
+    "linear-gradient(135deg, rgba(10,18,32,0.95), rgba(14,23,39,0.96) 55%, rgba(9,16,29,0.98))",
+  border: "1px solid rgba(148,163,184,0.12)",
+  borderRadius: 24,
   padding: 24,
-  color: "rgba(255,255,255,0.70)",
+  minHeight: 210,
+};
+
+const heroGlow = {
+  position: "absolute",
+  top: -80,
+  right: -40,
+  width: 260,
+  height: 260,
+  borderRadius: "50%",
+  background: "radial-gradient(circle, rgba(34,211,238,0.18) 0%, rgba(34,211,238,0.02) 58%, transparent 72%)",
+  pointerEvents: "none",
+};
+
+const panelCard = {
+  background: "linear-gradient(180deg, rgba(10,16,29,0.96), rgba(10,16,29,0.92))",
+  border: "1px solid rgba(148,163,184,0.12)",
+  borderRadius: 24,
+  padding: 20,
+  boxShadow: "0 12px 30px rgba(2,8,23,0.18)",
+};
+
+const eyebrow = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "6px 10px",
+  borderRadius: 999,
+  background: "rgba(34,211,238,0.12)",
+  border: "1px solid rgba(34,211,238,0.18)",
+  color: C.cyan,
+  fontWeight: 800,
+  fontSize: 11,
+  letterSpacing: 1,
+};
+
+const sectionHeader = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 14,
+  alignItems: "center",
+  flexWrap: "wrap",
+  marginBottom: 16,
+};
+
+const sectionTitle = {
+  fontSize: 18,
+  fontWeight: 900,
+  marginBottom: 4,
+};
+
+const sectionSub = {
+  color: C.sub,
+  fontSize: 13,
+};
+
+const dropArea = {
+  borderRadius: 18,
+  border: "1px dashed rgba(34,211,238,0.18)",
+  background:
+    "linear-gradient(180deg, rgba(8,16,29,0.85), rgba(11,18,32,0.78))",
+  minHeight: 180,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  textAlign: "center",
+  padding: 22,
+};
+
+const dropIcon = {
+  width: 58,
+  height: 58,
+  borderRadius: 18,
+  display: "grid",
+  placeItems: "center",
+  background: "rgba(34,211,238,0.10)",
+  border: "1px solid rgba(34,211,238,0.18)",
+  color: C.cyan,
+  fontWeight: 900,
+  fontSize: 24,
+  marginBottom: 12,
+};
+
+const queueRow = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  padding: 12,
+  borderRadius: 16,
+  background: "rgba(15,23,42,0.72)",
+  border: "1px solid rgba(148,163,184,0.10)",
+};
+
+const queueIcon = {
+  minWidth: 48,
+  height: 48,
+  borderRadius: 14,
+  display: "grid",
+  placeItems: "center",
+  background: "linear-gradient(135deg, rgba(34,211,238,0.14), rgba(96,165,250,0.14))",
+  border: "1px solid rgba(34,211,238,0.18)",
+  fontWeight: 900,
+  fontSize: 12,
+  color: C.cyan,
+};
+
+const removeButton = {
+  border: "1px solid rgba(255,107,129,0.18)",
+  background: "rgba(255,107,129,0.10)",
+  color: C.red,
+  fontWeight: 800,
+  padding: "9px 12px",
+  borderRadius: 10,
+  cursor: "pointer",
+};
+
+const progressTrack = {
+  height: 10,
+  borderRadius: 999,
+  overflow: "hidden",
+  background: "rgba(255,255,255,0.07)",
+};
+
+const progressBar = {
+  height: "100%",
+  borderRadius: 999,
+  background: "linear-gradient(90deg,#22d3ee,#60a5fa,#a78bfa)",
+  transition: "width 0.3s ease",
+};
+
+const indexBadge = {
+  width: 32,
+  height: 32,
+  borderRadius: 999,
+  display: "grid",
+  placeItems: "center",
+  background: "rgba(34,211,238,0.10)",
+  border: "1px solid rgba(34,211,238,0.18)",
+  color: C.cyan,
+  fontWeight: 900,
+  flexShrink: 0,
+};
+
+const metaPill = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "6px 10px",
+  borderRadius: 999,
+  background: "rgba(148,163,184,0.10)",
+  border: "1px solid rgba(148,163,184,0.14)",
+  color: C.sub,
+  fontSize: 12,
+  fontWeight: 700,
+};
+
+const summaryPanel = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gap: 12,
+  padding: 14,
+  borderRadius: 16,
+  background: "rgba(8,15,27,0.55)",
+  border: "1px solid rgba(148,163,184,0.08)",
+};
+
+const expandButton = {
+  border: "1px solid rgba(96,165,250,0.16)",
+  background: "rgba(96,165,250,0.10)",
+  color: C.blue,
+  fontWeight: 800,
+  padding: "10px 14px",
+  borderRadius: 12,
+  cursor: "pointer",
+};
+
+const detailDrawer = {
+  borderTop: "1px solid rgba(148,163,184,0.10)",
+  background: "rgba(7,12,22,0.86)",
+  padding: 18,
+};
+
+const detailGrid = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: 12,
+};
+
+const detailField = {
+  background: "rgba(15,23,42,0.68)",
+  border: "1px solid rgba(148,163,184,0.10)",
+  borderRadius: 14,
+  padding: 12,
+  minHeight: 78,
+};
+
+const detailLabel = {
+  color: C.sub,
+  fontSize: 12,
+  marginBottom: 8,
+  textTransform: "capitalize",
+};
+
+const detailValue = {
+  color: C.white,
+  fontSize: 14,
+  fontWeight: 800,
+  lineHeight: 1.5,
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+};
+
+const emptyBlock = {
+  borderRadius: 16,
+  padding: 20,
+  background: "rgba(15,23,42,0.52)",
+  border: "1px solid rgba(148,163,184,0.10)",
+  color: C.sub,
 };
 
 const primaryLink = {
@@ -953,17 +1124,17 @@ const primaryLink = {
   borderRadius: 12,
   background: "linear-gradient(135deg,#00f5c4,#4fc3f7)",
   color: "#05202e",
-  fontWeight: 800,
+  fontWeight: 900,
 };
 
 const ghostLink = {
   textDecoration: "none",
   padding: "12px 16px",
   borderRadius: 12,
-  border: "1px solid rgba(255,255,255,0.10)",
+  border: "1px solid rgba(148,163,184,0.16)",
   color: "#ffffff",
   fontWeight: 800,
-  background: "#111827",
+  background: "rgba(15,23,42,0.65)",
 };
 
 const primaryButton = {
@@ -974,7 +1145,7 @@ const primaryButton = {
   borderRadius: 12,
   background: "linear-gradient(135deg,#00f5c4,#4fc3f7)",
   color: "#05202e",
-  fontWeight: 800,
+  fontWeight: 900,
   cursor: "pointer",
   border: "none",
 };
@@ -984,37 +1155,37 @@ const primaryButtonButton = {
   borderRadius: 12,
   background: "linear-gradient(135deg,#00f5c4,#4fc3f7)",
   color: "#05202e",
-  fontWeight: 800,
+  fontWeight: 900,
   border: "none",
 };
 
 const secondaryButton = {
   padding: "12px 16px",
   borderRadius: 12,
-  border: "1px solid rgba(255,255,255,0.10)",
+  border: "1px solid rgba(148,163,184,0.16)",
   color: "#ffffff",
   fontWeight: 800,
-  background: "#111827",
+  background: "rgba(15,23,42,0.65)",
   cursor: "pointer",
 };
 
 const saveButton = {
   padding: "10px 14px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,245,196,0.25)",
+  borderRadius: 12,
+  border: "1px solid rgba(0,245,196,0.22)",
   background: "rgba(0,245,196,0.12)",
   color: "#00f5c4",
-  fontWeight: 800,
+  fontWeight: 900,
 };
 
 const savedLink = {
   textDecoration: "none",
   padding: "10px 14px",
-  borderRadius: 10,
-  border: "1px solid rgba(79,195,247,0.25)",
+  borderRadius: 12,
+  border: "1px solid rgba(79,195,247,0.22)",
   background: "rgba(79,195,247,0.12)",
   color: "#4fc3f7",
-  fontWeight: 800,
+  fontWeight: 900,
 };
 
 const badgeBase = {
@@ -1022,6 +1193,6 @@ const badgeBase = {
   alignItems: "center",
   padding: "6px 10px",
   borderRadius: 999,
-  fontWeight: 700,
+  fontWeight: 800,
   fontSize: 13,
 };
