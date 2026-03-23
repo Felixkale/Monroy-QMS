@@ -8,7 +8,53 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
-const OUTPUT_SCHEMA_TEXT = `
+const PAGE_KEYWORDS = [
+  "report no",
+  "report number",
+  "certificate no",
+  "job no",
+  "job number",
+  "inspection no",
+  "client",
+  "customer",
+  "description",
+  "vessel description",
+  "plant/section",
+  "plant type",
+  "area",
+  "site",
+  "serial number",
+  "manufacturer’s serial no",
+  "manufacturer's serial no",
+  "pressure vessel no",
+  "name of manufacturer",
+  "manufacturer",
+  "country of origin",
+  "year of manufacture",
+  "code of construction",
+  "module",
+  "design pressure",
+  "test pressure",
+  "initial test pressure",
+  "working pressure",
+  "capacity",
+  "inspection date",
+  "date of pressure test",
+  "issue date",
+  "next due date",
+  "next inspection due",
+  "inspected by",
+  "tested by",
+  "recommendations",
+  "remarks",
+  "comments",
+  "compliant yes",
+  "non-compliant no",
+  "compliant",
+  "pressure testing"
+];
+
+const OUTPUT_SCHEMA = `
 {
   "certificate_number": null,
   "inspection_number": null,
@@ -51,17 +97,18 @@ const OUTPUT_SCHEMA_TEXT = `
 }
 `.trim();
 
-const FAST_EXTRACTION_PROMPT = `
-You extract industrial certificate data for Monroy QMS.
+const TEXT_PROMPT = `
+You extract industrial inspection certificate data for Monroy QMS.
 
-This is a flexible multi-page extraction task.
-Documents may include cover pages, signatures, annexures, stickers, nameplate sheets, pressure test sheets, thickness sheets, and remarks pages.
+This is a flexible extraction task.
+Documents may be multi-page and place important fields on different pages.
 
-Your job:
-- Scan the full uploaded document.
-- Ignore boilerplate or irrelevant pages.
-- Combine relevant facts across all pages into ONE final record.
-- Do NOT assume a fixed layout.
+Instructions:
+- Use the supplied page text only.
+- Ignore indexes, boilerplate, duplicated headers/footers, generic terms, and irrelevant annexures.
+- Merge relevant facts across the provided pages into ONE final record.
+- Do not assume a fixed layout.
+- Be alias-aware.
 
 Field aliases:
 - certificate_number: Report No, Report Number, Certificate No
@@ -71,24 +118,27 @@ Field aliases:
 - client_name: Client, Customer
 - location: Area, Plant Type, Section, Site
 - inspection_date: Inspection Date, Date of Pressure Test
-- issue_date: Issue Date, Date issued to Client
+- issue_date: Issue Date, Date Issued to Client
 - next_inspection_due: Next Due Date, Next Inspection Due
 - manufacturer: Manufacturer, Name of Manufacturer
 - standard_code: Code of Construction, Module, Standard
-- result: PASS if compliant yes / non-compliant no / no leaks / good condition / acceptable
-- result: FAIL if failed / non-compliant yes / rejected / unsafe
+- year_built: Year of Manufacture
+- capacity_volume: Capacity
+- result:
+  PASS if compliant yes / non-compliant no / no leaks / good condition / acceptable
+  FAIL if failed / non-compliant yes / rejected / unsafe
 
 Rules:
-- Return ONLY one strict JSON object.
+- Output ONE strict JSON object only.
 - No markdown.
 - No explanation.
-- Use null for missing fields.
+- Use null if missing.
 - Dates should be YYYY-MM-DD where possible.
-- Keep extracted engineering values concise.
-- pressure_unit should hold units like KPa, bar, MPa if found.
+- Keep engineering values concise.
+- Split pressures from units where sensible.
 
-Output shape:
-${OUTPUT_SCHEMA_TEXT}
+JSON shape:
+${OUTPUT_SCHEMA}
 `.trim();
 
 function cleanText(text) {
@@ -100,10 +150,10 @@ function cleanText(text) {
 
 function extractJsonObject(text) {
   const cleaned = cleanText(text);
-  const firstBrace = cleaned.indexOf("{");
-  const lastBrace = cleaned.lastIndexOf("}");
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) return null;
-  return cleaned.slice(firstBrace, lastBrace + 1);
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  return cleaned.slice(start, end + 1);
 }
 
 function cleanValue(value) {
@@ -113,10 +163,8 @@ function cleanValue(value) {
 }
 
 function parseDateFlexible(value) {
-  if (!value) return null;
-  const s = String(value).trim();
+  const s = cleanValue(value);
   if (!s) return null;
-
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
   const dmy = s.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{2,4})$/);
@@ -126,8 +174,8 @@ function parseDateFlexible(value) {
     return `${yy}-${mm}-${dd}`;
   }
 
-  const d = new Date(s);
-  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  const dt = new Date(s);
+  if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
 
   return s;
 }
@@ -143,6 +191,19 @@ function splitPressure(value) {
     number: m[1] || s,
     unit: m[2] || null,
   };
+}
+
+function mergeLocation(obj) {
+  const parts = [
+    cleanValue(obj.location),
+    cleanValue(obj.area),
+    cleanValue(obj.plant_type),
+    cleanValue(obj.site),
+    cleanValue(obj.section),
+  ].filter(Boolean);
+
+  if (!parts.length) return null;
+  return [...new Set(parts)].join(", ");
 }
 
 function normalizeResult(value, obj = {}) {
@@ -186,19 +247,6 @@ function normalizeResult(value, obj = {}) {
   }
 
   return "UNKNOWN";
-}
-
-function mergeLocation(obj) {
-  const parts = [
-    cleanValue(obj.location),
-    cleanValue(obj.area),
-    cleanValue(obj.plant_type),
-    cleanValue(obj.site),
-    cleanValue(obj.section),
-  ].filter(Boolean);
-
-  if (!parts.length) return null;
-  return [...new Set(parts)].join(", ");
 }
 
 function normalizePayload(obj = {}) {
@@ -327,15 +375,146 @@ function normalizePayload(obj = {}) {
   };
 }
 
-async function callGemini(parts, maxOutputTokens = 2600) {
+async function parsePdfPagesFromBase64(base64Data) {
+  const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const buffer = Buffer.from(base64Data, "base64");
+  const pdf = await pdfjsLib.getDocument({
+    data: new Uint8Array(buffer),
+    disableWorker: true,
+    isEvalSupported: false,
+    useWorkerFetch: false,
+    disableFontFace: true,
+  }).promise;
+
+  const pages = [];
+
+  for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
+    const page = await pdf.getPage(pageNo);
+    const content = await page.getTextContent();
+    const lineMap = new Map();
+
+    for (const item of content.items || []) {
+      if (!item?.str) continue;
+      const y = Math.round(item.transform[5]);
+      if (!lineMap.has(y)) lineMap.set(y, []);
+      lineMap.get(y).push({ x: item.transform[4], str: item.str });
+    }
+
+    const sortedYs = [...lineMap.keys()].sort((a, b) => b - a);
+    const lines = [];
+
+    for (const y of sortedYs) {
+      const lineText = lineMap
+        .get(y)
+        .sort((a, b) => a.x - b.x)
+        .map((i) => i.str)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (lineText) lines.push(lineText);
+    }
+
+    pages.push({
+      page: pageNo,
+      text: lines.join("\n").trim(),
+    });
+  }
+
+  return pages;
+}
+
+function scorePage(text) {
+  const t = String(text || "").toLowerCase();
+  if (!t) return 0;
+
+  let score = 0;
+
+  for (const keyword of PAGE_KEYWORDS) {
+    if (t.includes(keyword)) score += 4;
+  }
+
+  if (t.includes("report no")) score += 10;
+  if (t.includes("job no")) score += 10;
+  if (t.includes("serial number")) score += 8;
+  if (t.includes("pressure vessel no")) score += 8;
+  if (t.includes("name of manufacturer")) score += 8;
+  if (t.includes("design pressure")) score += 8;
+  if (t.includes("initial test pressure")) score += 8;
+  if (t.includes("capacity")) score += 6;
+  if (t.includes("compliant yes")) score += 10;
+  if (t.includes("non-compliant no")) score += 10;
+  if (t.includes("next due date")) score += 10;
+  if (t.includes("inspected by")) score += 6;
+  if (t.includes("tested by")) score += 6;
+
+  score += Math.min(10, Math.floor(t.length / 500));
+
+  return score;
+}
+
+function selectRelevantPages(pages) {
+  const scored = pages
+    .map((p) => ({ ...p, score: scorePage(p.text) }))
+    .sort((a, b) => b.score - a.score);
+
+  const picked = scored.filter((p) => p.score > 0).slice(0, 5);
+
+  if (!picked.length) return pages.slice(0, Math.min(4, pages.length));
+
+  return picked.sort((a, b) => a.page - b.page);
+}
+
+async function callGeminiWithText(compiledText) {
   const response = await fetch(GEMINI_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      contents: [{ parts }],
+      contents: [
+        {
+          parts: [
+            { text: TEXT_PROMPT },
+            { text: compiledText },
+          ],
+        },
+      ],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens,
+        maxOutputTokens: 2200,
+      },
+    }),
+  });
+
+  const data = await response.json();
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    data,
+  };
+}
+
+async function callGeminiWithImage(base64Data, mimeType) {
+  const response = await fetch(GEMINI_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            { text: TEXT_PROMPT },
+            {
+              inline_data: {
+                mime_type: mimeType,
+                data: base64Data,
+              },
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 2200,
       },
     }),
   });
@@ -350,27 +529,36 @@ async function callGemini(parts, maxOutputTokens = 2600) {
 }
 
 async function repairJson(rawText) {
-  const repairPrompt = `
-Convert the following extraction output into ONE strict valid JSON object.
+  const response = await fetch(GEMINI_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            {
+              text: `Convert the following into ONE strict valid JSON object only.
 
-Rules:
-- Output JSON only.
-- No markdown.
-- No prose.
-- Keep only the target fields.
-- Missing fields must be null.
-
-Target shape:
-${OUTPUT_SCHEMA_TEXT}
+Use this shape exactly:
+${OUTPUT_SCHEMA}
 
 Text:
-${rawText}
-  `.trim();
+${rawText}`,
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0,
+        maxOutputTokens: 1800,
+      },
+    }),
+  });
 
-  const repaired = await callGemini([{ text: repairPrompt }], 1800);
-  if (!repaired.ok) return null;
+  const data = await response.json();
 
-  return repaired.data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
+  if (!response.ok) return null;
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
 }
 
 export async function POST(req) {
@@ -404,39 +592,38 @@ export async function POST(req) {
         continue;
       }
 
-      const firstPass = await callGemini(
-        [
-          {
-            inline_data: {
-              mime_type: mimeType,
-              data: base64Data,
-            },
-          },
-          {
-            text: FAST_EXTRACTION_PROMPT,
-          },
-        ],
-        2600
-      );
+      let gemini;
+      let compiledText = null;
 
-      if (!firstPass.ok) {
+      if (mimeType === "application/pdf") {
+        const pages = await parsePdfPagesFromBase64(base64Data);
+        const relevantPages = selectRelevantPages(pages);
+
+        compiledText = relevantPages
+          .map((p) => `--- PAGE ${p.page} ---\n${p.text}`)
+          .join("\n\n");
+
+        gemini = await callGeminiWithText(compiledText);
+      } else {
+        gemini = await callGeminiWithImage(base64Data, mimeType);
+      }
+
+      if (!gemini.ok) {
         results.push({
           fileName,
           ok: false,
           error:
-            firstPass.data?.error?.message ||
-            `Gemini request failed with status ${firstPass.status}.`,
-          details: firstPass.data,
+            gemini.data?.error?.message ||
+            `Gemini request failed with status ${gemini.status}.`,
+          details: gemini.data,
         });
         continue;
       }
 
-      const rawText =
-        firstPass.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
+      const rawText = gemini.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
       let parsed = null;
-      const firstJson = extractJsonObject(rawText);
 
+      const firstJson = extractJsonObject(rawText);
       if (firstJson) {
         try {
           parsed = JSON.parse(firstJson);
@@ -448,7 +635,6 @@ export async function POST(req) {
       if (!parsed) {
         const repairedText = await repairJson(rawText);
         const repairedJson = extractJsonObject(repairedText || "");
-
         if (repairedJson) {
           try {
             parsed = JSON.parse(repairedJson);
@@ -464,6 +650,7 @@ export async function POST(req) {
           ok: false,
           error: "Gemini returned text that was not valid JSON.",
           raw: rawText,
+          extracted_pages_text: compiledText,
         });
         continue;
       }
