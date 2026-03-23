@@ -5,74 +5,78 @@ export const dynamic = "force-dynamic";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = "gemini-2.5-flash";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_URL =
+  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
-const OUTPUT_SCHEMA = {
-  type: "OBJECT",
+const S = { type: ["string", "null"] };
+
+const RESPONSE_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
   properties: {
-    certificate_number: { type: "STRING", nullable: true },
-    inspection_number: { type: "STRING", nullable: true },
-    certificate_type: { type: "STRING", nullable: true },
-    equipment_type: { type: "STRING", nullable: true },
-    equipment_description: { type: "STRING", nullable: true },
-    asset_tag: { type: "STRING", nullable: true },
-    serial_number: { type: "STRING", nullable: true },
-    manufacturer: { type: "STRING", nullable: true },
-    model: { type: "STRING", nullable: true },
-    year_built: { type: "STRING", nullable: true },
-    country_of_origin: { type: "STRING", nullable: true },
-    capacity_volume: { type: "STRING", nullable: true },
-    swl: { type: "STRING", nullable: true },
-    proof_load: { type: "STRING", nullable: true },
-    lift_height: { type: "STRING", nullable: true },
-    sling_length: { type: "STRING", nullable: true },
-    working_pressure: { type: "STRING", nullable: true },
-    design_pressure: { type: "STRING", nullable: true },
-    test_pressure: { type: "STRING", nullable: true },
-    pressure_unit: { type: "STRING", nullable: true },
-    temperature_range: { type: "STRING", nullable: true },
-    material: { type: "STRING", nullable: true },
-    standard_code: { type: "STRING", nullable: true },
-    client_name: { type: "STRING", nullable: true },
-    location: { type: "STRING", nullable: true },
-    inspection_date: { type: "STRING", nullable: true },
-    issue_date: { type: "STRING", nullable: true },
-    expiry_date: { type: "STRING", nullable: true },
-    next_inspection_due: { type: "STRING", nullable: true },
-    inspector_name: { type: "STRING", nullable: true },
-    inspection_body: { type: "STRING", nullable: true },
-    result: { type: "STRING", nullable: true },
-    status: { type: "STRING", nullable: true },
-    defects_found: { type: "STRING", nullable: true },
-    recommendations: { type: "STRING", nullable: true },
-    comments: { type: "STRING", nullable: true },
-    nameplate_data: { type: "STRING", nullable: true },
-    raw_text_summary: { type: "STRING", nullable: true },
+    certificate_number: S,
+    inspection_number: S,
+    certificate_type: S,
+    equipment_type: S,
+    equipment_description: S,
+    asset_tag: S,
+    serial_number: S,
+    manufacturer: S,
+    model: S,
+    year_built: S,
+    country_of_origin: S,
+    capacity_volume: S,
+    swl: S,
+    proof_load: S,
+    lift_height: S,
+    sling_length: S,
+    working_pressure: S,
+    design_pressure: S,
+    test_pressure: S,
+    pressure_unit: S,
+    temperature_range: S,
+    material: S,
+    standard_code: S,
+    client_name: S,
+    location: S,
+    inspection_date: S,
+    issue_date: S,
+    expiry_date: S,
+    next_inspection_due: S,
+    inspector_name: S,
+    inspection_body: S,
+    result: S,
+    status: S,
+    defects_found: S,
+    recommendations: S,
+    comments: S,
+    nameplate_data: S,
+    raw_text_summary: S,
   },
+  required: [],
 };
 
 const TEXT_PROMPT = `
 You extract industrial inspection certificate data for Monroy QMS.
 
-This is a flexible extraction task.
-Documents may be multi-page and place important fields on different pages.
+Read the uploaded PDF directly.
 Do not assume a fixed layout.
+Merge relevant facts across all pages into one final record.
 
-Instructions:
-- Read the uploaded file directly.
-- Merge relevant facts across all relevant pages into ONE final record.
-- Be alias-aware.
-- Prefer exact values from the document.
-- Return null for anything not found.
+Rules:
+- Return exactly one JSON object.
+- No markdown.
+- No code fences.
+- No commentary.
+- Use null when a field is not found.
 - Dates should be YYYY-MM-DD where possible.
 - Keep engineering values concise.
-- Split pressures from units where sensible.
 - For result:
-  - PASS if compliant yes / non-compliant no / no leaks / acceptable / satisfactory
-  - FAIL if failed / rejected / non-compliant yes / unsafe
-  - otherwise UNKNOWN
+  PASS = compliant yes / non-compliant no / no leaks / acceptable / satisfactory
+  FAIL = failed / rejected / non-compliant yes / unsafe
+  otherwise UNKNOWN
 
-Field aliases:
+Useful aliases:
 - certificate_number: Report No, Report Number, Certificate No
 - inspection_number: Job No, Job Number, Inspection No
 - serial_number: Serial Number, Pressure Vessel No, Manufacturer Serial No
@@ -86,8 +90,6 @@ Field aliases:
 - standard_code: Code of Construction, Module, Standard
 - year_built: Year of Manufacture
 - capacity_volume: Capacity
-
-Return one strict JSON object only.
 `.trim();
 
 function cleanValue(value) {
@@ -99,11 +101,14 @@ function cleanValue(value) {
 function parseDateFlexible(value) {
   const s = cleanValue(value);
   if (!s) return null;
-  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return s;
 
-  const dmy = s.match(/^(\\d{2})[\\/\\-](\\d{2})[\\/\\-](\\d{2,4})$/);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
   if (dmy) {
     let [, dd, mm, yy] = dmy;
+    dd = dd.padStart(2, "0");
+    mm = mm.padStart(2, "0");
     if (yy.length === 2) yy = `20${yy}`;
     return `${yy}-${mm}-${dd}`;
   }
@@ -120,7 +125,7 @@ function splitPressure(value) {
   const s = cleanValue(value);
   if (!s) return { number: null, unit: null };
 
-  const m = s.match(/(-?\\d+(?:\\.\\d+)?)\\s*([A-Za-z°\\/0-9\\-\\+\\(\\)]+)?/);
+  const m = s.match(/(-?\d+(?:\.\d+)?)\s*([A-Za-z°\/0-9\-\+\(\)]+)?/);
   if (!m) return { number: s, unit: null };
 
   return {
@@ -154,7 +159,9 @@ function normalizeResult(value, obj = {}) {
 
   if (
     bag.includes("FAILED") ||
-    bag.includes("FAIL") ||
+    bag.includes(" FAIL ") ||
+    bag.startsWith("FAIL ") ||
+    bag.endsWith(" FAIL") ||
     bag.includes("NON-COMPLIANT YES") ||
     bag.includes("REJECTED") ||
     bag.includes("UNSAFE")
@@ -227,6 +234,46 @@ function normalizePayload(obj = {}) {
   };
 }
 
+function extractTextParts(apiData) {
+  const parts = apiData?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return "";
+  return parts
+    .map((part) => (typeof part?.text === "string" ? part.text : ""))
+    .join("\n")
+    .trim();
+}
+
+function safeParseGeminiJson(text) {
+  if (!text) return null;
+
+  const trimmed = String(text).trim();
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {}
+
+  const unfenced = trimmed
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  try {
+    return JSON.parse(unfenced);
+  } catch {}
+
+  const start = unfenced.indexOf("{");
+  const end = unfenced.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && end > start) {
+    const sliced = unfenced.slice(start, end + 1);
+    try {
+      return JSON.parse(sliced);
+    } catch {}
+  }
+
+  return null;
+}
+
 async function callGemini({ base64Data, mimeType }) {
   const response = await fetch(GEMINI_URL, {
     method: "POST",
@@ -248,10 +295,10 @@ async function callGemini({ base64Data, mimeType }) {
         },
       ],
       generationConfig: {
+        responseMimeType: "application/json",
+        responseJsonSchema: RESPONSE_JSON_SCHEMA,
         temperature: 0.1,
         maxOutputTokens: 2200,
-        response_mime_type: "application/json",
-        response_schema: OUTPUT_SCHEMA,
       },
     }),
   });
@@ -300,10 +347,7 @@ export async function POST(req) {
         continue;
       }
 
-      const gemini = await callGemini({
-        base64Data,
-        mimeType,
-      });
+      const gemini = await callGemini({ base64Data, mimeType });
 
       if (!gemini.ok) {
         results.push({
@@ -317,23 +361,16 @@ export async function POST(req) {
         continue;
       }
 
-      const rawText =
-        gemini.data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+      const rawText = extractTextParts(gemini.data);
+      const parsed = safeParseGeminiJson(rawText);
 
-      let parsed = null;
-
-      try {
-        parsed = JSON.parse(rawText);
-      } catch {
-        parsed = null;
-      }
-
-      if (!parsed || typeof parsed !== "object") {
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         results.push({
           fileName,
           ok: false,
           error: "Gemini returned invalid JSON.",
-          raw: rawText,
+          raw_preview: rawText.slice(0, 1500),
+          candidate: gemini.data?.candidates?.[0] || null,
         });
         continue;
       }
