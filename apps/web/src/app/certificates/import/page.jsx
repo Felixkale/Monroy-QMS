@@ -1,826 +1,719 @@
+// apps/web/src/app/certificates/import/page.jsx
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import Link from "next/link";
 import AppLayout from "@/components/AppLayout";
-import { supabase } from "@/lib/supabaseClient";
-import { registerEquipment } from "@/services/equipment";
-import {
-  sanitizeParsed,
-  validateParsed,
-  extractCertificateData,
-  mapParsedToEquipment,
-  mapParsedToCertificate,
-  normalizeText,
-} from "@/lib/certificateParser";
+
+const C = {
+  bg: "#0b1220",
+  panel: "#111827",
+  panel2: "#172131",
+  border: "rgba(255,255,255,0.10)",
+  text: "#ffffff",
+  sub: "rgba(255,255,255,0.70)",
+  cyan: "#22d3ee",
+  green: "#00f5c4",
+  red: "#ff6b81",
+  yellow: "#fbbf24",
+  blue: "#60a5fa",
+  purple: "#a78bfa",
+};
 
 const MAX_FILES = 20;
 const MAX_FILE_MB = 10;
 
-const STATUS_STYLE = {
-  pending: {
-    bg: "rgba(148,163,184,0.1)",
-    color: "#94a3b8",
-    border: "rgba(148,163,184,0.3)",
-  },
-  extracting: {
-    bg: "rgba(251,191,36,0.1)",
-    color: "#fbbf24",
-    border: "rgba(251,191,36,0.3)",
-  },
-  extracted: {
-    bg: "rgba(99,102,241,0.1)",
-    color: "#818cf8",
-    border: "rgba(99,102,241,0.3)",
-  },
-  registering: {
-    bg: "rgba(251,191,36,0.1)",
-    color: "#fbbf24",
-    border: "rgba(251,191,36,0.3)",
-  },
-  done: {
-    bg: "rgba(16,185,129,0.1)",
-    color: "#86efac",
-    border: "rgba(16,185,129,0.3)",
-  },
-  error: {
-    bg: "rgba(244,114,182,0.1)",
-    color: "#f472b6",
-    border: "rgba(244,114,182,0.3)",
-  },
-};
-
-const inputStyle = {
-  width: "100%",
-  padding: "10px 14px",
-  background: "rgba(255,255,255,0.04)",
-  border: "1px solid rgba(124,92,252,0.3)",
-  borderRadius: 8,
-  color: "#e2e8f0",
-  fontSize: 13,
-  fontFamily: "inherit",
-  outline: "none",
-  boxSizing: "border-box",
-};
-
-const labelStyle = {
-  fontSize: 11,
-  fontWeight: 700,
-  color: "rgba(255,255,255,0.5)",
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  marginBottom: 6,
-  display: "block",
-};
-
-const sectionHead = {
-  fontSize: 11,
-  fontWeight: 800,
-  color: "#7c5cfc",
-  textTransform: "uppercase",
-  letterSpacing: "0.12em",
-  borderBottom: "1px solid rgba(124,92,252,0.2)",
-  paddingBottom: 8,
-  marginBottom: 16,
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-};
-
-function StatusBadge({ status, message }) {
-  const s = STATUS_STYLE[status] || STATUS_STYLE.pending;
-  const labels = {
-    pending: "Pending",
-    extracting: "Extracting…",
-    extracted: "Extracted",
-    registering: "Registering…",
-    done: "Done ✓",
-    error: "Error",
-  };
-
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        padding: "3px 10px",
-        borderRadius: 20,
-        fontSize: 11,
-        fontWeight: 700,
-        background: s.bg,
-        color: s.color,
-        border: `1px solid ${s.border}`,
-      }}
-      title={message || ""}
-    >
-      {labels[status] || status}
-    </span>
-  );
+function normalizeText(value, fallback = "") {
+  if (value === null || value === undefined) return fallback;
+  const v = String(value).trim();
+  return v || fallback;
 }
 
-async function extractTextFromPdf(file) {
-  const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
-
-  const buffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-
-  let text = "";
-
-  for (let p = 1; p <= pdf.numPages; p += 1) {
-    const page = await pdf.getPage(p);
-    const content = await page.getTextContent();
-    const lineMap = new Map();
-
-    for (const item of content.items) {
-      if (!item.str) continue;
-      const y = Math.round(item.transform[5]);
-      if (!lineMap.has(y)) lineMap.set(y, []);
-      lineMap.get(y).push({ x: item.transform[4], str: item.str });
-    }
-
-    const sortedYs = [...lineMap.keys()].sort((a, b) => b - a);
-
-    for (const y of sortedYs) {
-      const lineText = lineMap
-        .get(y)
-        .sort((a, b) => a.x - b.x)
-        .map((i) => i.str)
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
-
-      if (lineText) text += lineText + "\n";
-    }
-
-    text += "\n";
-  }
-
-  return text;
+function formatBytes(bytes) {
+  if (!bytes && bytes !== 0) return "-";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-async function uploadSignature(file) {
-  const ext = file.name.split(".").pop();
-  const path = `signatures/shared-${Date.now()}.${ext}`;
-
-  const { error } = await supabase.storage
-    .from("certificates")
-    .upload(path, file, { upsert: true });
-
-  if (error) throw new Error("Signature upload failed: " + error.message);
-
-  const { data } = supabase.storage.from("certificates").getPublicUrl(path);
-  return data.publicUrl;
-}
-
-async function getOrCreateClient(companyName) {
-  const cleanName = normalizeText(companyName);
-  if (!cleanName) throw new Error("Company name missing");
-
-  const { data: existing } = await supabase
-    .from("clients")
-    .select("id,company_name,company_code")
-    .ilike("company_name", cleanName)
-    .limit(1)
-    .maybeSingle();
-
-  if (existing) return existing;
-
-  const { data: created, error } = await supabase
-    .from("clients")
-    .insert([{ company_name: cleanName, status: "active" }])
-    .select("id,company_name,company_code")
-    .single();
-
-  if (error) throw error;
-  return created;
-}
-
-async function getOrCreateEquipment(clientId, parsed) {
-  const lookupSerial =
-    parsed.serial_number || parsed.identification_number || parsed.equipment_id;
-
-  if (lookupSerial) {
-    const { data: existing } = await supabase
-      .from("assets")
-      .select("id,asset_tag,asset_name,serial_number")
-      .eq("client_id", clientId)
-      .eq("serial_number", lookupSerial)
-      .limit(1)
-      .maybeSingle();
-
-    if (existing) {
-      const assetUpdate = mapParsedToEquipment(parsed, clientId);
-      await supabase.from("assets").update(assetUpdate).eq("id", existing.id);
-      return existing;
-    }
-  }
-
-  const payload = mapParsedToEquipment(parsed, clientId);
-  const { data: created, error } = await registerEquipment(payload);
-
-  if (error) throw error;
-  return created;
-}
-
-async function generateCertNumber(serialNumber, assetId) {
-  const base = serialNumber
-    ? serialNumber.replace(/[\s\-\/]+/g, "").toUpperCase()
-    : `ASSET${assetId}`;
-
-  const prefix = `CERT-${base}-`;
-
-  const { data: existing } = await supabase
-    .from("certificates")
-    .select("certificate_number")
-    .like("certificate_number", `${prefix}%`)
-    .order("certificate_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  let nextSeq = 1;
-
-  if (existing?.certificate_number) {
-    const parts = existing.certificate_number.split("-");
-    const last = parseInt(parts[parts.length - 1], 10);
-    if (!Number.isNaN(last)) nextSeq = last + 1;
-  }
-
-  return `${prefix}${String(nextSeq).padStart(2, "0")}`;
-}
-
-async function registerCertificate(assetId, clientName, parsed) {
-  const issuedAtIso = parsed.issued_at
-    ? new Date(parsed.issued_at).toISOString()
-    : null;
-
-  if (issuedAtIso) {
-    const { data: existing } = await supabase
-      .from("certificates")
-      .select("id")
-      .eq("asset_id", assetId)
-      .eq("issued_at", issuedAtIso)
-      .limit(1)
-      .maybeSingle();
-
-    if (existing) return existing;
-  }
-
-  const certNumber = await generateCertNumber(
-    parsed.serial_number || parsed.identification_number || parsed.equipment_id,
-    assetId
-  );
-
-  const payload = {
-    ...mapParsedToCertificate(parsed, assetId, clientName),
-    certificate_number: certNumber,
-    signature_url: parsed.signature_url || null,
-    logo_url: "/logo.png",
-    pdf_url: parsed.pdf_url || null,
-  };
-
-  const { data, error } = await supabase
-    .from("certificates")
-    .insert([payload])
-    .select("id")
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
-export default function BulkImportPage() {
-  const [files, setFiles] = useState([]);
-  const [running, setRunning] = useState(false);
-  const [globalError, setGlobalError] = useState("");
-  const [globalSuccess, setGlobalSuccess] = useState("");
-
-  const [inspectorName, setInspectorName] = useState("");
-  const [inspectorId, setInspectorId] = useState("");
-  const [signatureFile, setSignatureFile] = useState(null);
-  const [signaturePreview, setSignaturePreview] = useState("");
-  const [signatureUrl, setSignatureUrl] = useState("");
-
-  function handleSignatureSelect(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setSignatureFile(file);
-
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = (ev) => setSignaturePreview(ev.target.result);
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const base64 = result.includes(",") ? result.split(",")[1] : result;
+      resolve(base64);
+    };
+    reader.onerror = reject;
     reader.readAsDataURL(file);
+  });
+}
 
-    setSignatureUrl("");
+function resultTone(result) {
+  const value = normalizeText(result, "UNKNOWN").toUpperCase();
+
+  if (value === "PASS") {
+    return {
+      color: C.green,
+      background: "rgba(0,245,196,0.12)",
+      border: "1px solid rgba(0,245,196,0.25)",
+    };
   }
 
-  function handleFileSelect(e) {
-    const all = Array.from(e.target.files || []).filter(
-      (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf")
-    );
-
-    const selected = all.slice(0, MAX_FILES);
-
-    if (all.length > MAX_FILES) {
-      setGlobalError(`Max ${MAX_FILES} files. Only first ${MAX_FILES} loaded.`);
-    } else {
-      setGlobalError("");
-    }
-
-    const tooBig = selected.filter((f) => f.size > MAX_FILE_MB * 1024 * 1024);
-    if (tooBig.length) {
-      setGlobalError(`${tooBig.length} file(s) exceed ${MAX_FILE_MB}MB and were skipped.`);
-    }
-
-    const valid = selected.filter((f) => f.size <= MAX_FILE_MB * 1024 * 1024);
-
-    setFiles(
-      valid.map((file) => ({
-        file,
-        status: "pending",
-        parsed: null,
-        error: "",
-      }))
-    );
-
-    setGlobalSuccess("");
+  if (value === "FAIL") {
+    return {
+      color: C.red,
+      background: "rgba(255,107,129,0.12)",
+      border: "1px solid rgba(255,107,129,0.25)",
+    };
   }
 
-  function updateFile(index, patch) {
-    setFiles((prev) => prev.map((f, i) => (i === index ? { ...f, ...patch } : f)));
+  if (value === "REPAIR_REQUIRED") {
+    return {
+      color: C.yellow,
+      background: "rgba(251,191,36,0.12)",
+      border: "1px solid rgba(251,191,36,0.25)",
+    };
   }
 
-  async function handleExtractAll() {
+  if (value === "OUT_OF_SERVICE") {
+    return {
+      color: C.purple,
+      background: "rgba(167,139,250,0.12)",
+      border: "1px solid rgba(167,139,250,0.25)",
+    };
+  }
+
+  return {
+    color: "#cbd5e1",
+    background: "rgba(203,213,225,0.12)",
+    border: "1px solid rgba(203,213,225,0.25)",
+  };
+}
+
+export default function CertificateImportPage() {
+  const [files, setFiles] = useState([]);
+  const [extracting, setExtracting] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [results, setResults] = useState([]);
+  const [dragActive, setDragActive] = useState(false);
+
+  const stats = useMemo(() => {
+    const total = results.length;
+    const success = results.filter((x) => x.ok).length;
+    const errors = results.filter((x) => !x.ok).length;
+    const passed = results.filter((x) => x.ok && x.data?.result === "PASS").length;
+
+    return { total, success, errors, passed };
+  }, [results]);
+
+  function pushFiles(list) {
+    const incoming = Array.from(list || []);
+    if (!incoming.length) return;
+
+    const allowed = incoming.filter((file) => {
+      const isPdf = file.type === "application/pdf";
+      const isImage =
+        file.type === "image/png" ||
+        file.type === "image/jpeg" ||
+        file.type === "image/jpg" ||
+        file.type === "image/webp";
+
+      const underSize = file.size <= MAX_FILE_MB * 1024 * 1024;
+      return (isPdf || isImage) && underSize;
+    });
+
+    setFiles((prev) => {
+      const merged = [...prev];
+      for (const f of allowed) {
+        const exists = merged.some(
+          (x) => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified
+        );
+        if (!exists && merged.length < MAX_FILES) {
+          merged.push({
+            id:
+              typeof crypto !== "undefined" && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `${f.name}-${f.size}-${f.lastModified}-${Math.random()}`,
+            file: f,
+            name: f.name,
+            size: f.size,
+            status: "ready",
+          });
+        }
+      }
+      return merged;
+    });
+  }
+
+  function onInputChange(e) {
+    pushFiles(e.target.files);
+    e.target.value = "";
+  }
+
+  function removeFile(id) {
+    setFiles((prev) => prev.filter((x) => x.id !== id));
+  }
+
+  function clearAll() {
+    setFiles([]);
+    setResults([]);
+    setProgress(0);
+  }
+
+  async function extractAll() {
     if (!files.length) return;
 
-    setRunning(true);
-    setGlobalError("");
-    setGlobalSuccess("");
+    setExtracting(true);
+    setResults([]);
+    setProgress(5);
 
-    for (let i = 0; i < files.length; i += 1) {
-      updateFile(i, { status: "extracting", error: "" });
+    try {
+      const payloadFiles = [];
 
-      try {
-        const text = await extractTextFromPdf(files[i].file);
-        const raw = extractCertificateData(text);
-        const parsed = sanitizeParsed(raw);
-        const errs = validateParsed(parsed);
+      for (let i = 0; i < files.length; i += 1) {
+        const item = files[i];
+        const base64Data = await fileToBase64(item.file);
 
-        if (errs.length) throw new Error(errs.join("; "));
-
-        updateFile(i, { status: "extracted", parsed });
-      } catch (err) {
-        updateFile(i, {
-          status: "error",
-          error: err.message || "Extraction failed",
+        payloadFiles.push({
+          fileName: item.name,
+          mimeType: item.file.type || "application/pdf",
+          base64Data,
         });
+
+        const pct = Math.round(((i + 1) / files.length) * 35);
+        setProgress(5 + pct);
       }
-    }
 
-    setRunning(false);
-  }
+      const res = await fetch("/api/ai/extract", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          files: payloadFiles,
+        }),
+      });
 
-  async function handleRegisterAll() {
-    setRunning(true);
-    setGlobalError("");
-    setGlobalSuccess("");
+      const json = await res.json();
 
-    let successCount = 0;
-
-    let resolvedSigUrl = signatureUrl;
-    if (signatureFile && !resolvedSigUrl) {
-      try {
-        resolvedSigUrl = await uploadSignature(signatureFile);
-        setSignatureUrl(resolvedSigUrl);
-      } catch (err) {
-        setGlobalError("Signature upload failed: " + err.message);
-        setRunning(false);
-        return;
+      if (!res.ok) {
+        throw new Error(json?.error || "Extraction failed.");
       }
-    }
 
-    for (let i = 0; i < files.length; i += 1) {
-      if (files[i].status !== "extracted") continue;
-
-      updateFile(i, { status: "registering" });
-
-      try {
-        const parsed = {
-          ...files[i].parsed,
-          inspector_name: inspectorName.trim() || files[i].parsed.inspector_name,
-          inspector_id: inspectorId.trim() || files[i].parsed.inspector_id,
-          signature_url: resolvedSigUrl || null,
-        };
-
-        const client = await getOrCreateClient(parsed.company);
-        const equipment = await getOrCreateEquipment(client.id, parsed);
-        await registerCertificate(equipment.id, client.company_name, parsed);
-
-        updateFile(i, { status: "done", parsed });
-        successCount += 1;
-      } catch (err) {
-        updateFile(i, {
-          status: "error",
-          error: err.message || "Registration failed",
-        });
-      }
-    }
-
-    setRunning(false);
-
-    if (successCount > 0) {
-      setGlobalSuccess(
-        `${successCount} certificate${successCount > 1 ? "s" : ""} registered successfully and synced to equipment register!`
-      );
+      setProgress(90);
+      setResults(Array.isArray(json?.results) ? json.results : []);
+      setProgress(100);
+    } catch (error) {
+      setResults([
+        {
+          fileName: "Extraction request",
+          ok: false,
+          error: error?.message || "Unexpected extraction error.",
+        },
+      ]);
+      setProgress(100);
+    } finally {
+      setExtracting(false);
     }
   }
 
-  const anyExtracted = files.some((f) => f.status === "extracted");
-  const doneCount = files.filter((f) => f.status === "done").length;
-  const errorCount = files.filter((f) => f.status === "error").length;
+  function exportCsv() {
+    if (!results.length) return;
+
+    const successRows = results
+      .filter((x) => x.ok && x.data)
+      .map((x) => ({
+        file_name: x.fileName,
+        ...x.data,
+      }));
+
+    const errorRows = results
+      .filter((x) => !x.ok)
+      .map((x) => ({
+        file_name: x.fileName,
+        error: x.error,
+      }));
+
+    const rows = successRows.length ? successRows : errorRows;
+    if (!rows.length) return;
+
+    const headers = Array.from(
+      rows.reduce((set, row) => {
+        Object.keys(row).forEach((k) => set.add(k));
+        return set;
+      }, new Set())
+    );
+
+    const csv = [
+      headers.join(","),
+      ...rows.map((row) =>
+        headers
+          .map((header) => {
+            const value = row[header] ?? "";
+            const str = String(value).replace(/"/g, '""');
+            return `"${str}"`;
+          })
+          .join(",")
+      ),
+    ].join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "certificate-extraction-results.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
-    <AppLayout title="Bulk Import Certificates">
-      <div style={{ maxWidth: 1000 }}>
-        <h1 style={{ color: "#fff", marginBottom: 6 }}>Bulk Import Certificates</h1>
-        <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 28 }}>
-          Upload multiple certificate PDFs at once (max {MAX_FILES} files, {MAX_FILE_MB}MB
-          each). Inspector details and signature entered here are applied to all
-          certificates. Imported certificate data also updates the equipment register
-          automatically.
-        </p>
-
-        {globalError && (
-          <div
-            style={{
-              background: "rgba(244,114,182,0.1)",
-              border: "1px solid rgba(244,114,182,0.3)",
-              borderRadius: 12,
-              padding: "12px 16px",
-              marginBottom: 20,
-              color: "#f472b6",
-              fontSize: 13,
-            }}
-          >
-            ⚠️ {globalError}
-          </div>
-        )}
-
-        {globalSuccess && (
-          <div
-            style={{
-              background: "rgba(16,185,129,0.12)",
-              border: "1px solid rgba(16,185,129,0.35)",
-              borderRadius: 12,
-              padding: "12px 16px",
-              marginBottom: 20,
-              color: "#86efac",
-              fontSize: 13,
-            }}
-          >
-            ✅ {globalSuccess}
-          </div>
-        )}
-
+    <AppLayout>
+      <div style={{ padding: 24, background: C.bg, minHeight: "100vh", color: C.text }}>
         <div
           style={{
-            background: "rgba(124,92,252,0.06)",
-            border: "1px solid rgba(124,92,252,0.25)",
-            borderRadius: 16,
-            padding: 24,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 16,
+            flexWrap: "wrap",
             marginBottom: 20,
           }}
         >
-          <div style={sectionHead}>✍️ Inspector & Signature applied to all certificates</div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
-              gap: 16,
-              marginBottom: 20,
-            }}
-          >
-            <div>
-              <label style={labelStyle}>Inspector Name</label>
-              <input
-                style={inputStyle}
-                type="text"
-                placeholder="e.g. Moemedi Masupe"
-                value={inspectorName}
-                onChange={(e) => setInspectorName(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <label style={labelStyle}>Inspector ID No.</label>
-              <input
-                style={inputStyle}
-                type="text"
-                placeholder="e.g. 700117910"
-                value={inspectorId}
-                onChange={(e) => setInspectorId(e.target.value)}
-              />
-            </div>
+          <div>
+            <h1 style={{ fontSize: 48, fontWeight: 800, marginBottom: 10 }}>
+              Certificates AI Import
+            </h1>
+            <p style={{ color: C.sub }}>
+              Upload PDF or image certificates and extract structured data securely from the
+              backend.
+            </p>
           </div>
 
-          <div>
-            <label style={labelStyle}>Signature Image</label>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-              <label
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "9px 18px",
-                  borderRadius: 8,
-                  cursor: "pointer",
-                  background: "rgba(124,92,252,0.12)",
-                  border: "1px solid rgba(124,92,252,0.35)",
-                  color: "#c4b5fd",
-                  fontSize: 13,
-                  fontWeight: 600,
-                }}
-              >
-                📁 Choose Signature
-                <input
-                  type="file"
-                  accept="image/*"
-                  style={{ display: "none" }}
-                  onChange={handleSignatureSelect}
-                />
-              </label>
-
-              {signaturePreview ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <img
-                    src={signaturePreview}
-                    alt="Signature preview"
-                    style={{
-                      height: 48,
-                      maxWidth: 180,
-                      objectFit: "contain",
-                      background: "rgba(255,255,255,0.05)",
-                      borderRadius: 8,
-                      border: "1px solid rgba(124,92,252,0.3)",
-                      padding: 4,
-                    }}
-                  />
-                  <div>
-                    <div style={{ fontSize: 11, color: "#86efac", fontWeight: 700 }}>
-                      ✓ Signature ready
-                    </div>
-                    <div style={{ fontSize: 10, color: "#64748b" }}>
-                      Will upload on Register All
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setSignatureFile(null);
-                      setSignaturePreview("");
-                      setSignatureUrl("");
-                    }}
-                    style={{
-                      padding: "4px 10px",
-                      borderRadius: 6,
-                      border: "1px solid rgba(244,114,182,0.3)",
-                      background: "rgba(244,114,182,0.08)",
-                      color: "#f472b6",
-                      fontSize: 11,
-                      cursor: "pointer",
-                      fontWeight: 700,
-                    }}
-                  >
-                    ✕ Remove
-                  </button>
-                </div>
-              ) : (
-                <span style={{ fontSize: 12, color: "#475569" }}>
-                  No signature selected, certificates will have no signature image
-                </span>
-              )}
-            </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <Link href="/certificates" style={ghostLink}>
+              Back to Register
+            </Link>
+            <Link href="/certificates/create" style={primaryLink}>
+              + Create Certificate
+            </Link>
           </div>
         </div>
 
         <div
           style={{
-            background: "rgba(255,255,255,0.03)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 16,
-            padding: 20,
+            display: "grid",
+            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+            gap: 14,
             marginBottom: 20,
           }}
         >
-          <label style={labelStyle}>Select Certificate PDFs (max {MAX_FILES} files)</label>
+          <StatCard label="Files Processed" value={stats.total} color={C.blue} />
+          <StatCard label="Successful" value={stats.success} color={C.green} />
+          <StatCard label="Errors" value={stats.errors} color={C.red} />
+          <StatCard label="Passed" value={stats.passed} color={C.yellow} />
+        </div>
 
-          <input
-            type="file"
-            accept=".pdf"
-            multiple
-            onChange={handleFileSelect}
-            disabled={running}
-            style={{ color: "#e2e8f0", marginBottom: 16, display: "block" }}
-          />
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            setDragActive(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragActive(false);
+            pushFiles(e.dataTransfer.files);
+          }}
+          style={{
+            background: dragActive ? "#162338" : C.panel,
+            border: `1px dashed ${dragActive ? C.cyan : "rgba(255,255,255,0.15)"}`,
+            borderRadius: 22,
+            padding: 28,
+            marginBottom: 20,
+            transition: "0.2s ease",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 16,
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>
+                Upload certificate files
+              </div>
+              <div style={{ color: C.sub }}>
+                PDF, PNG, JPG, WEBP · Max {MAX_FILES} files · Max {MAX_FILE_MB} MB each
+              </div>
+            </div>
 
-          {files.length > 0 && (
-            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginBottom: 16 }}>
-              {files.length} file{files.length > 1 ? "s" : ""} selected
-              {doneCount > 0 ? ` · ${doneCount} done` : ""}
-              {errorCount > 0 ? ` · ${errorCount} failed` : ""}
-            </p>
-          )}
+            <label style={primaryButton}>
+              Select Files
+              <input
+                type="file"
+                accept=".pdf,image/png,image/jpeg,image/jpg,image/webp"
+                multiple
+                onChange={onInputChange}
+                style={{ display: "none" }}
+              />
+            </label>
+          </div>
+        </div>
 
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              onClick={handleExtractAll}
-              disabled={running || !files.length}
-              style={{
-                padding: "11px 24px",
-                borderRadius: 8,
-                border: "none",
-                background: "linear-gradient(135deg,#667eea,#764ba2)",
-                color: "#fff",
-                fontWeight: 700,
-                cursor: running || !files.length ? "not-allowed" : "pointer",
-                opacity: running || !files.length ? 0.6 : 1,
-              }}
-            >
-              {running && !anyExtracted ? "Extracting…" : "1. Extract All"}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+            marginBottom: 14,
+          }}
+        >
+          <div style={{ fontSize: 22, fontWeight: 800 }}>
+            Selected Files ({files.length}/{MAX_FILES})
+          </div>
+
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button type="button" onClick={clearAll} style={secondaryButton}>
+              Clear All
             </button>
-
             <button
               type="button"
-              onClick={handleRegisterAll}
-              disabled={running || !anyExtracted}
+              onClick={extractAll}
+              disabled={!files.length || extracting}
               style={{
-                padding: "11px 24px",
-                borderRadius: 8,
-                border: "none",
-                background: "linear-gradient(135deg,#00f5c4,#4fc3f7)",
-                color: "#111827",
-                fontWeight: 700,
-                cursor: running || !anyExtracted ? "not-allowed" : "pointer",
-                opacity: running || !anyExtracted ? 0.6 : 1,
+                ...primaryButtonButton,
+                opacity: !files.length || extracting ? 0.6 : 1,
+                cursor: !files.length || extracting ? "not-allowed" : "pointer",
               }}
             >
-              {running && anyExtracted ? "Registering…" : "2. Register All"}
+              {extracting ? "Extracting..." : "✦ Extract with AI"}
             </button>
           </div>
         </div>
 
         {files.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {files.map((item, i) => (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+              gap: 14,
+              marginBottom: 20,
+            }}
+          >
+            {files.map((item) => (
               <div
-                key={i}
+                key={item.id}
                 style={{
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  borderRadius: 12,
-                  padding: 16,
+                  background: C.panel2,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 16,
+                  overflow: "hidden",
+                  position: "relative",
+                  minHeight: 180,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => removeFile(item.id)}
+                  style={{
+                    position: "absolute",
+                    top: 10,
+                    right: 10,
+                    width: 28,
+                    height: 28,
+                    borderRadius: 999,
+                    border: "none",
+                    background: C.red,
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontWeight: 800,
+                  }}
+                >
+                  ×
+                </button>
+
+                <div
+                  style={{
+                    height: 120,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 42,
+                  }}
+                >
+                  {item.file.type === "application/pdf" ? "📄" : "🖼️"}
+                </div>
+
+                <div
+                  style={{
+                    borderTop: `1px solid ${C.border}`,
+                    padding: 12,
+                    background: "rgba(255,255,255,0.02)",
+                  }}
+                >
+                  <div
+                    title={item.name}
+                    style={{
+                      fontWeight: 800,
+                      fontSize: 12,
+                      lineHeight: 1.4,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      marginBottom: 4,
+                    }}
+                  >
+                    {item.name}
+                  </div>
+                  <div style={{ color: C.sub, fontSize: 12 }}>{formatBytes(item.size)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {(extracting || progress > 0) && (
+          <div
+            style={{
+              background: C.panel,
+              border: `1px solid ${C.border}`,
+              borderRadius: 18,
+              padding: 18,
+              marginBottom: 20,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 10,
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ color: C.sub }}>
+                {extracting ? "Extraction in progress..." : "Extraction complete ✓"}
+              </div>
+              <div style={{ color: C.sub }}>{progress}%</div>
+            </div>
+
+            <div
+              style={{
+                height: 8,
+                background: "rgba(255,255,255,0.08)",
+                borderRadius: 999,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${progress}%`,
+                  height: "100%",
+                  background: "linear-gradient(90deg,#22d3ee,#a78bfa)",
+                  transition: "width 0.3s ease",
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            alignItems: "center",
+            flexWrap: "wrap",
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ fontSize: 22, fontWeight: 800 }}>Extracted Certificate Data</div>
+
+          <button type="button" onClick={exportCsv} style={secondaryButton}>
+            ↓ Export CSV
+          </button>
+        </div>
+
+        {results.length === 0 ? (
+          <div style={emptyStyle}>No extraction results yet.</div>
+        ) : (
+          <div style={{ display: "grid", gap: 14 }}>
+            {results.map((item, index) => (
+              <div
+                key={`${item.fileName}-${index}`}
+                style={{
+                  background: C.panel,
+                  border: `1px solid ${
+                    item.ok ? "rgba(0,245,196,0.18)" : "rgba(255,107,129,0.24)"
+                  }`,
+                  borderRadius: 18,
+                  padding: 18,
                 }}
               >
                 <div
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
-                    alignItems: "flex-start",
                     gap: 12,
+                    alignItems: "center",
                     flexWrap: "wrap",
+                    marginBottom: 14,
                   }}
                 >
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 0 }}>
                     <div
                       style={{
-                        color: "#fff",
-                        fontWeight: 600,
-                        fontSize: 13,
-                        marginBottom: 4,
-                        wordBreak: "break-word",
+                        width: 30,
+                        height: 30,
+                        borderRadius: 999,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: item.ok
+                          ? "rgba(0,245,196,0.15)"
+                          : "rgba(255,107,129,0.15)",
+                        color: item.ok ? C.green : C.red,
+                        fontWeight: 800,
+                        flexShrink: 0,
                       }}
                     >
-                      📄 {item.file.name}
+                      {index + 1}
                     </div>
 
-                    <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>
-                      {(item.file.size / 1024).toFixed(1)} KB
+                    <div
+                      style={{
+                        fontSize: 20,
+                        fontWeight: 800,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={item.fileName}
+                    >
+                      {item.fileName}
                     </div>
-
-                    {item.error && (
-                      <div style={{ color: "#f472b6", fontSize: 11, marginTop: 6 }}>
-                        ⚠️ {item.error}
-                      </div>
-                    )}
                   </div>
 
-                  <StatusBadge status={item.status} message={item.error} />
-                </div>
-
-                {item.parsed && (item.status === "extracted" || item.status === "done") && (
-                  <div
+                  <span
                     style={{
-                      marginTop: 12,
-                      padding: 12,
-                      background: "rgba(255,255,255,0.03)",
-                      borderRadius: 8,
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))",
-                      gap: 8,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      padding: "6px 12px",
+                      borderRadius: 999,
+                      fontWeight: 700,
+                      fontSize: 12,
+                      color: item.ok ? C.green : C.red,
+                      background: item.ok
+                        ? "rgba(0,245,196,0.12)"
+                        : "rgba(255,107,129,0.12)",
+                      border: item.ok
+                        ? "1px solid rgba(0,245,196,0.25)"
+                        : "1px solid rgba(255,107,129,0.25)",
                     }}
                   >
-                    {[
-                      ["Client", item.parsed.company],
-                      ["Asset Type", item.parsed.asset_type],
-                      ["Location", item.parsed.location],
-                      ["Equipment Location", item.parsed.equipment_location],
-                      ["Serial Number", item.parsed.serial_number],
-                      ["Equipment ID", item.parsed.equipment_id],
-                      ["Identification Number", item.parsed.identification_number],
-                      ["Inspection No", item.parsed.inspection_no],
-                      ["Lanyard Serial No", item.parsed.lanyard_serial_no],
-                      ["Manufacturer", item.parsed.manufacturer],
-                      ["Model", item.parsed.model],
-                      ["Year Built", item.parsed.year_built],
-                      ["Capacity", item.parsed.capacity],
-                      ["Country of Origin", item.parsed.country_of_origin],
-                      ["SWL", item.parsed.swl],
-                      ["Working Pressure", item.parsed.mawp],
-                      ["Design Pressure", item.parsed.design_pressure],
-                      ["Test Pressure", item.parsed.test_pressure],
-                      ["Certificate Type", item.parsed.certificate_type],
-                      ["Equipment Status", item.parsed.equipment_status],
-                      ["Inspector", inspectorName.trim() || item.parsed.inspector_name],
-                      ["Inspector ID", inspectorId.trim() || item.parsed.inspector_id],
-                      ["Inspection Date", item.parsed.last_inspection_date],
-                      ["Expiry Date", item.parsed.next_inspection_date],
-                    ]
-                      .filter(([, v]) => v)
-                      .map(([label, value]) => (
-                        <div key={label}>
-                          <div
-                            style={{
-                              fontSize: 9,
-                              fontWeight: 700,
-                              color: "rgba(255,255,255,0.4)",
-                              textTransform: "uppercase",
-                              letterSpacing: "0.08em",
-                              marginBottom: 2,
-                            }}
-                          >
-                            {label}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: 12,
-                              fontWeight: label === "Equipment Status" ? 700 : 500,
-                              color:
-                                label === "Equipment Status"
-                                  ? value === "PASS"
-                                    ? "#86efac"
-                                    : value === "FAIL"
-                                      ? "#f472b6"
-                                      : "#fbbf24"
-                                  : "#e2e8f0",
-                            }}
-                          >
-                            {value}
-                          </div>
-                        </div>
-                      ))}
+                    {item.ok ? "Success" : "Error"}
+                  </span>
+                </div>
 
-                    {signaturePreview && (
-                      <div>
-                        <div
-                          style={{
-                            fontSize: 9,
-                            fontWeight: 700,
-                            color: "rgba(255,255,255,0.4)",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.08em",
-                            marginBottom: 2,
-                          }}
-                        >
-                          Signature
-                        </div>
-                        <img
-                          src={signaturePreview}
-                          alt="sig"
-                          style={{
-                            height: 28,
-                            maxWidth: 100,
-                            objectFit: "contain",
-                            background: "rgba(255,255,255,0.04)",
-                            borderRadius: 4,
-                            border: "1px solid rgba(0,245,196,0.2)",
-                            padding: 2,
-                          }}
-                        />
-                      </div>
-                    )}
+                {!item.ok ? (
+                  <div style={{ color: C.red, fontSize: 14 }}>
+                    {item.error || "Extraction error."}
                   </div>
+                ) : (
+                  <>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                        gap: 12,
+                        marginBottom: 16,
+                      }}
+                    >
+                      <DataMini label="Certificate No" value={item.data?.certificate_number} />
+                      <DataMini label="Equipment Type" value={item.data?.equipment_type} />
+                      <DataMini
+                        label="Result"
+                        value={
+                          <span style={{ ...badgeBase, ...resultTone(item.data?.result) }}>
+                            {item.data?.result || "UNKNOWN"}
+                          </span>
+                        }
+                      />
+                      <DataMini label="Inspection Date" value={item.data?.inspection_date} />
+                    </div>
+
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
+                        <tbody>
+                          <TableRow
+                            label="Equipment Description"
+                            value={item.data?.equipment_description}
+                          />
+                          <TableRow label="Client Name" value={item.data?.client_name} />
+                          <TableRow label="Asset Tag" value={item.data?.asset_tag} />
+                          <TableRow label="Serial Number" value={item.data?.serial_number} />
+                          <TableRow label="Manufacturer" value={item.data?.manufacturer} />
+                          <TableRow label="Model" value={item.data?.model} />
+                          <TableRow label="Year Built" value={item.data?.year_built} />
+                          <TableRow
+                            label="Country of Origin"
+                            value={item.data?.country_of_origin}
+                          />
+                          <TableRow
+                            label="Working Pressure"
+                            value={item.data?.working_pressure}
+                          />
+                          <TableRow label="Design Pressure" value={item.data?.design_pressure} />
+                          <TableRow label="Test Pressure" value={item.data?.test_pressure} />
+                          <TableRow label="Pressure Unit" value={item.data?.pressure_unit} />
+                          <TableRow
+                            label="Capacity / Volume"
+                            value={item.data?.capacity_volume}
+                          />
+                          <TableRow label="SWL" value={item.data?.swl} />
+                          <TableRow label="Proof Load" value={item.data?.proof_load} />
+                          <TableRow label="Lift Height" value={item.data?.lift_height} />
+                          <TableRow label="Sling Length" value={item.data?.sling_length} />
+                          <TableRow label="Material" value={item.data?.material} />
+                          <TableRow label="Standard Code" value={item.data?.standard_code} />
+                          <TableRow label="Issue Date" value={item.data?.issue_date} />
+                          <TableRow label="Expiry Date" value={item.data?.expiry_date} />
+                          <TableRow
+                            label="Next Inspection Due"
+                            value={item.data?.next_inspection_due}
+                          />
+                          <TableRow
+                            label="Inspection Number"
+                            value={item.data?.inspection_number}
+                          />
+                          <TableRow label="Inspector Name" value={item.data?.inspector_name} />
+                          <TableRow
+                            label="Inspection Body"
+                            value={item.data?.inspection_body}
+                          />
+                          <TableRow label="Location" value={item.data?.location} />
+                          <TableRow label="Status" value={item.data?.status} />
+                          <TableRow label="Defects Found" value={item.data?.defects_found} />
+                          <TableRow
+                            label="Recommendations"
+                            value={item.data?.recommendations}
+                          />
+                          <TableRow label="Comments" value={item.data?.comments} />
+                          <TableRow label="Nameplate Data" value={item.data?.nameplate_data} />
+                          <TableRow label="Summary" value={item.data?.raw_text_summary} />
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 )}
               </div>
             ))}
@@ -830,3 +723,135 @@ export default function BulkImportPage() {
     </AppLayout>
   );
 }
+
+function StatCard({ label, value, color }) {
+  return (
+    <div
+      style={{
+        background: "#111827",
+        border: "1px solid rgba(255,255,255,0.10)",
+        borderRadius: 18,
+        padding: 18,
+      }}
+    >
+      <div style={{ color: "rgba(255,255,255,0.70)", marginBottom: 10 }}>{label}</div>
+      <div style={{ fontSize: 30, fontWeight: 800, color }}>{value}</div>
+    </div>
+  );
+}
+
+function DataMini({ label, value }) {
+  return (
+    <div
+      style={{
+        background: C.panel2,
+        border: `1px solid ${C.border}`,
+        borderRadius: 14,
+        padding: 14,
+      }}
+    >
+      <div style={{ color: C.sub, fontSize: 12, marginBottom: 8 }}>{label}</div>
+      <div style={{ fontSize: 15, fontWeight: 800 }}>{value || "-"}</div>
+    </div>
+  );
+}
+
+function TableRow({ label, value }) {
+  return (
+    <tr>
+      <th
+        style={{
+          width: 240,
+          textAlign: "left",
+          padding: "12px 10px",
+          fontSize: 13,
+          color: "rgba(255,255,255,0.65)",
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
+          verticalAlign: "top",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {label}
+      </th>
+      <td
+        style={{
+          padding: "12px 10px",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+          color: "#ffffff",
+          fontSize: 14,
+          verticalAlign: "top",
+        }}
+      >
+        {value || "-"}
+      </td>
+    </tr>
+  );
+}
+
+const emptyStyle = {
+  background: "#111827",
+  border: "1px solid rgba(255,255,255,0.10)",
+  borderRadius: 18,
+  padding: 24,
+  color: "rgba(255,255,255,0.70)",
+};
+
+const primaryLink = {
+  textDecoration: "none",
+  padding: "12px 16px",
+  borderRadius: 12,
+  background: "linear-gradient(135deg,#00f5c4,#4fc3f7)",
+  color: "#05202e",
+  fontWeight: 800,
+};
+
+const ghostLink = {
+  textDecoration: "none",
+  padding: "12px 16px",
+  borderRadius: 12,
+  border: "1px solid rgba(255,255,255,0.10)",
+  color: "#ffffff",
+  fontWeight: 800,
+  background: "#111827",
+};
+
+const primaryButton = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "12px 16px",
+  borderRadius: 12,
+  background: "linear-gradient(135deg,#00f5c4,#4fc3f7)",
+  color: "#05202e",
+  fontWeight: 800,
+  cursor: "pointer",
+  border: "none",
+};
+
+const primaryButtonButton = {
+  padding: "12px 16px",
+  borderRadius: 12,
+  background: "linear-gradient(135deg,#00f5c4,#4fc3f7)",
+  color: "#05202e",
+  fontWeight: 800,
+  border: "none",
+};
+
+const secondaryButton = {
+  padding: "12px 16px",
+  borderRadius: 12,
+  border: "1px solid rgba(255,255,255,0.10)",
+  color: "#ffffff",
+  fontWeight: 800,
+  background: "#111827",
+  cursor: "pointer",
+};
+
+const badgeBase = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "6px 10px",
+  borderRadius: 999,
+  fontWeight: 700,
+  fontSize: 13,
+};
