@@ -1,4 +1,3 @@
-// apps/web/src/app/api/ai/extract/route.js
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -6,109 +5,72 @@ export const dynamic = "force-dynamic";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = "gemini-2.5-flash";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
-const PAGE_KEYWORDS = [
-  "report no",
-  "report number",
-  "certificate no",
-  "job no",
-  "job number",
-  "inspection no",
-  "client",
-  "customer",
-  "description",
-  "vessel description",
-  "plant/section",
-  "plant type",
-  "area",
-  "site",
-  "serial number",
-  "manufacturer’s serial no",
-  "manufacturer's serial no",
-  "pressure vessel no",
-  "name of manufacturer",
-  "manufacturer",
-  "country of origin",
-  "year of manufacture",
-  "code of construction",
-  "module",
-  "design pressure",
-  "test pressure",
-  "initial test pressure",
-  "working pressure",
-  "capacity",
-  "inspection date",
-  "date of pressure test",
-  "issue date",
-  "next due date",
-  "next inspection due",
-  "inspected by",
-  "tested by",
-  "recommendations",
-  "remarks",
-  "comments",
-  "compliant yes",
-  "non-compliant no",
-  "compliant",
-  "pressure testing"
-];
-
-const OUTPUT_SCHEMA = `
-{
-  "certificate_number": null,
-  "inspection_number": null,
-  "certificate_type": null,
-  "equipment_type": null,
-  "equipment_description": null,
-  "asset_tag": null,
-  "serial_number": null,
-  "manufacturer": null,
-  "model": null,
-  "year_built": null,
-  "country_of_origin": null,
-  "capacity_volume": null,
-  "swl": null,
-  "proof_load": null,
-  "lift_height": null,
-  "sling_length": null,
-  "working_pressure": null,
-  "design_pressure": null,
-  "test_pressure": null,
-  "pressure_unit": null,
-  "temperature_range": null,
-  "material": null,
-  "standard_code": null,
-  "client_name": null,
-  "location": null,
-  "inspection_date": null,
-  "issue_date": null,
-  "expiry_date": null,
-  "next_inspection_due": null,
-  "inspector_name": null,
-  "inspection_body": null,
-  "result": null,
-  "status": null,
-  "defects_found": null,
-  "recommendations": null,
-  "comments": null,
-  "nameplate_data": null,
-  "raw_text_summary": null
-}
-`.trim();
+const OUTPUT_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    certificate_number: { type: "STRING", nullable: true },
+    inspection_number: { type: "STRING", nullable: true },
+    certificate_type: { type: "STRING", nullable: true },
+    equipment_type: { type: "STRING", nullable: true },
+    equipment_description: { type: "STRING", nullable: true },
+    asset_tag: { type: "STRING", nullable: true },
+    serial_number: { type: "STRING", nullable: true },
+    manufacturer: { type: "STRING", nullable: true },
+    model: { type: "STRING", nullable: true },
+    year_built: { type: "STRING", nullable: true },
+    country_of_origin: { type: "STRING", nullable: true },
+    capacity_volume: { type: "STRING", nullable: true },
+    swl: { type: "STRING", nullable: true },
+    proof_load: { type: "STRING", nullable: true },
+    lift_height: { type: "STRING", nullable: true },
+    sling_length: { type: "STRING", nullable: true },
+    working_pressure: { type: "STRING", nullable: true },
+    design_pressure: { type: "STRING", nullable: true },
+    test_pressure: { type: "STRING", nullable: true },
+    pressure_unit: { type: "STRING", nullable: true },
+    temperature_range: { type: "STRING", nullable: true },
+    material: { type: "STRING", nullable: true },
+    standard_code: { type: "STRING", nullable: true },
+    client_name: { type: "STRING", nullable: true },
+    location: { type: "STRING", nullable: true },
+    inspection_date: { type: "STRING", nullable: true },
+    issue_date: { type: "STRING", nullable: true },
+    expiry_date: { type: "STRING", nullable: true },
+    next_inspection_due: { type: "STRING", nullable: true },
+    inspector_name: { type: "STRING", nullable: true },
+    inspection_body: { type: "STRING", nullable: true },
+    result: { type: "STRING", nullable: true },
+    status: { type: "STRING", nullable: true },
+    defects_found: { type: "STRING", nullable: true },
+    recommendations: { type: "STRING", nullable: true },
+    comments: { type: "STRING", nullable: true },
+    nameplate_data: { type: "STRING", nullable: true },
+    raw_text_summary: { type: "STRING", nullable: true },
+  },
+};
 
 const TEXT_PROMPT = `
 You extract industrial inspection certificate data for Monroy QMS.
 
 This is a flexible extraction task.
 Documents may be multi-page and place important fields on different pages.
+Do not assume a fixed layout.
 
 Instructions:
-- Use the supplied page text only.
-- Ignore indexes, boilerplate, duplicated headers/footers, generic terms, and irrelevant annexures.
-- Merge relevant facts across the provided pages into ONE final record.
-- Do not assume a fixed layout.
+- Read the uploaded file directly.
+- Merge relevant facts across all relevant pages into ONE final record.
 - Be alias-aware.
+- Prefer exact values from the document.
+- Return null for anything not found.
+- Dates should be YYYY-MM-DD where possible.
+- Keep engineering values concise.
+- Split pressures from units where sensible.
+- For result:
+  - PASS if compliant yes / non-compliant no / no leaks / acceptable / satisfactory
+  - FAIL if failed / rejected / non-compliant yes / unsafe
+  - otherwise UNKNOWN
 
 Field aliases:
 - certificate_number: Report No, Report Number, Certificate No
@@ -124,37 +86,9 @@ Field aliases:
 - standard_code: Code of Construction, Module, Standard
 - year_built: Year of Manufacture
 - capacity_volume: Capacity
-- result:
-  PASS if compliant yes / non-compliant no / no leaks / good condition / acceptable
-  FAIL if failed / non-compliant yes / rejected / unsafe
 
-Rules:
-- Output ONE strict JSON object only.
-- No markdown.
-- No explanation.
-- Use null if missing.
-- Dates should be YYYY-MM-DD where possible.
-- Keep engineering values concise.
-- Split pressures from units where sensible.
-
-JSON shape:
-${OUTPUT_SCHEMA}
+Return one strict JSON object only.
 `.trim();
-
-function cleanText(text) {
-  return String(text || "")
-    .replace(/```json/gi, "")
-    .replace(/```/g, "")
-    .trim();
-}
-
-function extractJsonObject(text) {
-  const cleaned = cleanText(text);
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) return null;
-  return cleaned.slice(start, end + 1);
-}
 
 function cleanValue(value) {
   if (value === undefined || value === null) return null;
@@ -165,9 +99,9 @@ function cleanValue(value) {
 function parseDateFlexible(value) {
   const s = cleanValue(value);
   if (!s) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return s;
 
-  const dmy = s.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{2,4})$/);
+  const dmy = s.match(/^(\\d{2})[\\/\\-](\\d{2})[\\/\\-](\\d{2,4})$/);
   if (dmy) {
     let [, dd, mm, yy] = dmy;
     if (yy.length === 2) yy = `20${yy}`;
@@ -175,7 +109,9 @@ function parseDateFlexible(value) {
   }
 
   const dt = new Date(s);
-  if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
+  if (!Number.isNaN(dt.getTime())) {
+    return dt.toISOString().slice(0, 10);
+  }
 
   return s;
 }
@@ -184,26 +120,13 @@ function splitPressure(value) {
   const s = cleanValue(value);
   if (!s) return { number: null, unit: null };
 
-  const m = s.match(/(-?\d+(?:\.\d+)?)\s*([A-Za-z°\/0-9\-\+\(\)]+)?/);
+  const m = s.match(/(-?\\d+(?:\\.\\d+)?)\\s*([A-Za-z°\\/0-9\\-\\+\\(\\)]+)?/);
   if (!m) return { number: s, unit: null };
 
   return {
     number: m[1] || s,
     unit: m[2] || null,
   };
-}
-
-function mergeLocation(obj) {
-  const parts = [
-    cleanValue(obj.location),
-    cleanValue(obj.area),
-    cleanValue(obj.plant_type),
-    cleanValue(obj.site),
-    cleanValue(obj.section),
-  ].filter(Boolean);
-
-  if (!parts.length) return null;
-  return [...new Set(parts)].join(", ");
 }
 
 function normalizeResult(value, obj = {}) {
@@ -223,8 +146,8 @@ function normalizeResult(value, obj = {}) {
     bag.includes("NO LEAKS") ||
     bag.includes("GOOD CONDITION") ||
     bag.includes("ACCEPTABLE") ||
-    bag.includes("WITHIN ACCEPTABLE STRUCTURAL LIMITS") ||
-    bag.includes("PASSED")
+    bag.includes("PASSED") ||
+    bag.includes("SATISFACTORY")
   ) {
     return "PASS";
   }
@@ -233,7 +156,8 @@ function normalizeResult(value, obj = {}) {
     bag.includes("FAILED") ||
     bag.includes("FAIL") ||
     bag.includes("NON-COMPLIANT YES") ||
-    bag.includes("REJECTED")
+    bag.includes("REJECTED") ||
+    bag.includes("UNSAFE")
   ) {
     return "FAIL";
   }
@@ -261,243 +185,54 @@ function normalizePayload(obj = {}) {
     working.unit ||
     null;
 
-  const commentsParts = [
-    cleanValue(obj.comments),
-    cleanValue(obj.remarks),
-    cleanValue(obj.pressure_test_remarks),
-  ].filter(Boolean);
-
   return {
-    certificate_number:
-      cleanValue(obj.certificate_number) ||
-      cleanValue(obj.report_no) ||
-      cleanValue(obj.report_number),
-
-    inspection_number:
-      cleanValue(obj.inspection_number) ||
-      cleanValue(obj.job_no) ||
-      cleanValue(obj.job_number),
-
-    certificate_type:
-      cleanValue(obj.certificate_type) ||
-      (String(obj.raw_text_summary || "").toUpperCase().includes("PRESSURE TEST")
-        ? "PRESSURE TEST CERTIFICATE"
-        : null),
-
-    equipment_type:
-      cleanValue(obj.equipment_type) ||
-      (String(
-        obj.equipment_description ||
-          obj.description ||
-          obj.vessel_description ||
-          ""
-      ).toUpperCase().includes("AIR RECEIVER")
-        ? "PRESSURE_VESSEL"
-        : "UNKNOWN"),
-
-    equipment_description:
-      cleanValue(obj.equipment_description) ||
-      cleanValue(obj.description) ||
-      cleanValue(obj.vessel_description) ||
-      cleanValue(obj.plant_section_no),
-
+    certificate_number: cleanValue(obj.certificate_number),
+    inspection_number: cleanValue(obj.inspection_number),
+    certificate_type: cleanValue(obj.certificate_type),
+    equipment_type: cleanValue(obj.equipment_type) || "UNKNOWN",
+    equipment_description: cleanValue(obj.equipment_description),
     asset_tag: cleanValue(obj.asset_tag),
-
-    serial_number:
-      cleanValue(obj.serial_number) ||
-      cleanValue(obj.pressure_vessel_no) ||
-      cleanValue(obj.manufacturer_serial_no),
-
-    manufacturer:
-      cleanValue(obj.manufacturer) || cleanValue(obj.name_of_manufacturer),
-
+    serial_number: cleanValue(obj.serial_number),
+    manufacturer: cleanValue(obj.manufacturer),
     model: cleanValue(obj.model),
-    year_built: cleanValue(obj.year_built) || cleanValue(obj.year_of_manufacture),
+    year_built: cleanValue(obj.year_built),
     country_of_origin: cleanValue(obj.country_of_origin),
-
-    capacity_volume:
-      cleanValue(obj.capacity_volume) || cleanValue(obj.capacity),
-
+    capacity_volume: cleanValue(obj.capacity_volume),
     swl: cleanValue(obj.swl),
     proof_load: cleanValue(obj.proof_load),
     lift_height: cleanValue(obj.lift_height),
     sling_length: cleanValue(obj.sling_length),
-
     working_pressure: working.number,
     design_pressure: design.number,
     test_pressure: test.number,
     pressure_unit: pressureUnit,
-
-    temperature_range:
-      cleanValue(obj.temperature_range) ||
-      cleanValue(obj.design_temperature) ||
-      cleanValue(obj.design_temperature_min_max),
-
+    temperature_range: cleanValue(obj.temperature_range),
     material: cleanValue(obj.material),
-
-    standard_code:
-      cleanValue(obj.standard_code) ||
-      cleanValue(obj.code_of_construction) ||
-      cleanValue(obj.code_of_construction_module),
-
-    client_name: cleanValue(obj.client_name) || cleanValue(obj.client),
-
-    location: mergeLocation(obj),
-
-    inspection_date:
-      parseDateFlexible(obj.inspection_date) ||
-      parseDateFlexible(obj.date_of_pressure_test),
-
-    issue_date:
-      parseDateFlexible(obj.issue_date) ||
-      parseDateFlexible(obj.date_issued_to_client),
-
+    standard_code: cleanValue(obj.standard_code),
+    client_name: cleanValue(obj.client_name),
+    location: cleanValue(obj.location),
+    inspection_date: parseDateFlexible(obj.inspection_date),
+    issue_date: parseDateFlexible(obj.issue_date),
     expiry_date: parseDateFlexible(obj.expiry_date),
-
-    next_inspection_due:
-      parseDateFlexible(obj.next_inspection_due) ||
-      parseDateFlexible(obj.next_due_date),
-
-    inspector_name:
-      cleanValue(obj.inspector_name) || cleanValue(obj.inspector),
-
-    inspection_body:
-      cleanValue(obj.inspection_body) || "Monroy (Pty) Ltd",
-
+    next_inspection_due: parseDateFlexible(obj.next_inspection_due),
+    inspector_name: cleanValue(obj.inspector_name),
+    inspection_body: cleanValue(obj.inspection_body) || "Monroy (Pty) Ltd",
     result: normalizeResult(obj.result, obj),
     status: cleanValue(obj.status) || "Active",
-
     defects_found: cleanValue(obj.defects_found),
     recommendations: cleanValue(obj.recommendations),
-    comments: commentsParts.length ? commentsParts.join(" | ") : null,
+    comments: cleanValue(obj.comments),
     nameplate_data: cleanValue(obj.nameplate_data),
     raw_text_summary: cleanValue(obj.raw_text_summary),
   };
 }
 
-async function parsePdfPagesFromBase64(base64Data) {
-  const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const buffer = Buffer.from(base64Data, "base64");
-  const pdf = await pdfjsLib.getDocument({
-    data: new Uint8Array(buffer),
-    disableWorker: true,
-    isEvalSupported: false,
-    useWorkerFetch: false,
-    disableFontFace: true,
-  }).promise;
-
-  const pages = [];
-
-  for (let pageNo = 1; pageNo <= pdf.numPages; pageNo += 1) {
-    const page = await pdf.getPage(pageNo);
-    const content = await page.getTextContent();
-    const lineMap = new Map();
-
-    for (const item of content.items || []) {
-      if (!item?.str) continue;
-      const y = Math.round(item.transform[5]);
-      if (!lineMap.has(y)) lineMap.set(y, []);
-      lineMap.get(y).push({ x: item.transform[4], str: item.str });
-    }
-
-    const sortedYs = [...lineMap.keys()].sort((a, b) => b - a);
-    const lines = [];
-
-    for (const y of sortedYs) {
-      const lineText = lineMap
-        .get(y)
-        .sort((a, b) => a.x - b.x)
-        .map((i) => i.str)
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
-
-      if (lineText) lines.push(lineText);
-    }
-
-    pages.push({
-      page: pageNo,
-      text: lines.join("\n").trim(),
-    });
-  }
-
-  return pages;
-}
-
-function scorePage(text) {
-  const t = String(text || "").toLowerCase();
-  if (!t) return 0;
-
-  let score = 0;
-
-  for (const keyword of PAGE_KEYWORDS) {
-    if (t.includes(keyword)) score += 4;
-  }
-
-  if (t.includes("report no")) score += 10;
-  if (t.includes("job no")) score += 10;
-  if (t.includes("serial number")) score += 8;
-  if (t.includes("pressure vessel no")) score += 8;
-  if (t.includes("name of manufacturer")) score += 8;
-  if (t.includes("design pressure")) score += 8;
-  if (t.includes("initial test pressure")) score += 8;
-  if (t.includes("capacity")) score += 6;
-  if (t.includes("compliant yes")) score += 10;
-  if (t.includes("non-compliant no")) score += 10;
-  if (t.includes("next due date")) score += 10;
-  if (t.includes("inspected by")) score += 6;
-  if (t.includes("tested by")) score += 6;
-
-  score += Math.min(10, Math.floor(t.length / 500));
-
-  return score;
-}
-
-function selectRelevantPages(pages) {
-  const scored = pages
-    .map((p) => ({ ...p, score: scorePage(p.text) }))
-    .sort((a, b) => b.score - a.score);
-
-  const picked = scored.filter((p) => p.score > 0).slice(0, 5);
-
-  if (!picked.length) return pages.slice(0, Math.min(4, pages.length));
-
-  return picked.sort((a, b) => a.page - b.page);
-}
-
-async function callGeminiWithText(compiledText) {
+async function callGemini({ base64Data, mimeType }) {
   const response = await fetch(GEMINI_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            { text: TEXT_PROMPT },
-            { text: compiledText },
-          ],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 2200,
-      },
-    }),
-  });
-
-  const data = await response.json();
-
-  return {
-    ok: response.ok,
-    status: response.status,
-    data,
-  };
-}
-
-async function callGeminiWithImage(base64Data, mimeType) {
-  const response = await fetch(GEMINI_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({
       contents: [
         {
@@ -515,6 +250,8 @@ async function callGeminiWithImage(base64Data, mimeType) {
       generationConfig: {
         temperature: 0.1,
         maxOutputTokens: 2200,
+        response_mime_type: "application/json",
+        response_schema: OUTPUT_SCHEMA,
       },
     }),
   });
@@ -526,39 +263,6 @@ async function callGeminiWithImage(base64Data, mimeType) {
     status: response.status,
     data,
   };
-}
-
-async function repairJson(rawText) {
-  const response = await fetch(GEMINI_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            {
-              text: `Convert the following into ONE strict valid JSON object only.
-
-Use this shape exactly:
-${OUTPUT_SCHEMA}
-
-Text:
-${rawText}`,
-            },
-          ],
-        },
-      ],
-      generationConfig: {
-        temperature: 0,
-        maxOutputTokens: 1800,
-      },
-    }),
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) return null;
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
 }
 
 export async function POST(req) {
@@ -588,25 +292,18 @@ export async function POST(req) {
       const base64Data = file?.base64Data;
 
       if (!base64Data) {
-        results.push({ fileName, ok: false, error: "Missing base64 file data." });
+        results.push({
+          fileName,
+          ok: false,
+          error: "Missing base64 file data.",
+        });
         continue;
       }
 
-      let gemini;
-      let compiledText = null;
-
-      if (mimeType === "application/pdf") {
-        const pages = await parsePdfPagesFromBase64(base64Data);
-        const relevantPages = selectRelevantPages(pages);
-
-        compiledText = relevantPages
-          .map((p) => `--- PAGE ${p.page} ---\n${p.text}`)
-          .join("\n\n");
-
-        gemini = await callGeminiWithText(compiledText);
-      } else {
-        gemini = await callGeminiWithImage(base64Data, mimeType);
-      }
+      const gemini = await callGemini({
+        base64Data,
+        mimeType,
+      });
 
       if (!gemini.ok) {
         results.push({
@@ -620,37 +317,23 @@ export async function POST(req) {
         continue;
       }
 
-      const rawText = gemini.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const rawText =
+        gemini.data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+
       let parsed = null;
 
-      const firstJson = extractJsonObject(rawText);
-      if (firstJson) {
-        try {
-          parsed = JSON.parse(firstJson);
-        } catch {
-          parsed = null;
-        }
+      try {
+        parsed = JSON.parse(rawText);
+      } catch {
+        parsed = null;
       }
 
-      if (!parsed) {
-        const repairedText = await repairJson(rawText);
-        const repairedJson = extractJsonObject(repairedText || "");
-        if (repairedJson) {
-          try {
-            parsed = JSON.parse(repairedJson);
-          } catch {
-            parsed = null;
-          }
-        }
-      }
-
-      if (!parsed) {
+      if (!parsed || typeof parsed !== "object") {
         results.push({
           fileName,
           ok: false,
-          error: "Gemini returned text that was not valid JSON.",
+          error: "Gemini returned invalid JSON.",
           raw: rawText,
-          extracted_pages_text: compiledText,
         });
         continue;
       }
