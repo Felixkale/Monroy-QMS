@@ -11,15 +11,14 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1/models/${GEMINI
 const EXTRACTION_PROMPT = `
 You are an industrial inspection certificate extraction assistant for a Quality Management System.
 
-Your task:
-1. Read the uploaded certificate, report, nameplate, or inspection document.
-2. Extract as much structured data as possible.
-3. Infer the equipment_type from the certificate contents when possible.
-4. Normalize result values to one of:
-   PASS, FAIL, REPAIR_REQUIRED, OUT_OF_SERVICE, UNKNOWN
-5. Return ONLY raw JSON. No markdown. No explanation.
+Read the uploaded certificate and extract as much structured data as possible.
 
-Return this exact JSON shape:
+Return ONLY a valid JSON object.
+No markdown.
+No explanation.
+No code fences.
+
+Use this shape exactly:
 {
   "certificate_number": null,
   "inspection_number": null,
@@ -60,15 +59,6 @@ Return this exact JSON shape:
   "nameplate_data": null,
   "raw_text_summary": null
 }
-
-Rules:
-- Use null when unavailable.
-- Dates should be in YYYY-MM-DD where possible.
-- Keep values concise.
-- equipment_type examples may include:
-  PRESSURE_VESSEL, RECEIVER, BOILER, CRANE, CHAIN_BLOCK, SLING, SHACKLE,
-  HOIST, FORKLIFT, JACK, EXTINGUISHER, GAS_CYLINDER, TANK, UNKNOWN
-- If the document indicates pass/fail status, map it to the required result values.
 `.trim();
 
 function cleanText(text) {
@@ -80,7 +70,6 @@ function cleanText(text) {
 
 function normalizeResult(value) {
   const raw = String(value || "").trim().toUpperCase();
-
   if (!raw) return "UNKNOWN";
   if (["PASS", "PASSED", "OK", "SATISFACTORY"].includes(raw)) return "PASS";
   if (["FAIL", "FAILED", "UNSATISFACTORY"].includes(raw)) return "FAIL";
@@ -97,12 +86,10 @@ function normalizeDate(value) {
   if (!value) return null;
   const s = String(value).trim();
   if (!s) return null;
-
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
-
   return d.toISOString().slice(0, 10);
 }
 
@@ -153,10 +140,7 @@ export async function POST(req) {
   try {
     if (!GEMINI_API_KEY) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Server is missing GEMINI_API_KEY.",
-        },
+        { ok: false, error: "Server is missing GEMINI_API_KEY." },
         { status: 500 }
       );
     }
@@ -208,10 +192,10 @@ export async function POST(req) {
               ],
             },
           ],
-          generation_config: {
+          generationConfig: {
             temperature: 0.1,
             maxOutputTokens: 4096,
-            response_mime_type: "application/json",
+            responseMimeType: "application/json",
           },
         }),
       });
@@ -225,6 +209,7 @@ export async function POST(req) {
           error:
             geminiJson?.error?.message ||
             `Gemini request failed with status ${geminiResponse.status}.`,
+          details: geminiJson,
         });
         continue;
       }
@@ -241,7 +226,7 @@ export async function POST(req) {
           ok: true,
           data: normalizePayload(parsed),
         });
-      } catch (error) {
+      } catch {
         results.push({
           fileName,
           ok: false,
@@ -251,10 +236,7 @@ export async function POST(req) {
       }
     }
 
-    return NextResponse.json({
-      ok: true,
-      results,
-    });
+    return NextResponse.json({ ok: true, results });
   } catch (error) {
     return NextResponse.json(
       {
