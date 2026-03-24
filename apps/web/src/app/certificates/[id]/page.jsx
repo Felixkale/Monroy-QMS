@@ -1,387 +1,1186 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import Link from "next/link";
+import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 
-const DEFAULT_INSPECTOR_NAME = "Moemedi Masupe";
-const DEFAULT_INSPECTOR_ID = "700117910";
-const DEFAULT_LEGAL_FRAMEWORK =
-  "Mines, Quarries, Works and Machinery Act Cap 44:02";
-const CONTACT_DETAILS = "+267 77906461 / +267 71450610";
+const T = {
+  bg: "#080d14",
+  surface: "#0d1420",
+  panel: "#111b2a",
+  panel2: "#162030",
+  border: "rgba(255,255,255,0.08)",
+  borderMid: "rgba(255,255,255,0.14)",
+  text: "#f0f4f8",
+  textMid: "rgba(240,244,248,0.72)",
+  textDim: "rgba(240,244,248,0.42)",
+  accent: "#0ea5e9",
+  accentDim: "rgba(14,165,233,0.15)",
+  accentBrd: "rgba(14,165,233,0.30)",
+  green: "#10b981",
+  greenDim: "rgba(16,185,129,0.14)",
+  greenBrd: "rgba(16,185,129,0.28)",
+  red: "#ef4444",
+  redDim: "rgba(239,68,68,0.14)",
+  redBrd: "rgba(239,68,68,0.28)",
+  amber: "#f59e0b",
+  amberDim: "rgba(245,158,11,0.14)",
+  amberBrd: "rgba(245,158,11,0.28)",
+  purple: "#a78bfa",
+  purpleDim: "rgba(167,139,250,0.14)",
+  purpleBrd: "rgba(167,139,250,0.28)",
+  slate: "rgba(240,244,248,0.12)",
+  slateBrd: "rgba(240,244,248,0.18)",
+};
 
-function resolveCertTitle(certType = "", assetType = "") {
-  const ct = String(certType || "").toLowerCase();
-  const at = String(assetType || "").toLowerCase();
-  const pressureWords = [
-    "pressure",
-    "boiler",
-    "air receiver",
-    "air compressor",
-    "oil separator",
-    "vessel",
-  ];
-
-  const isPressure = pressureWords.some((word) => ct.includes(word) || at.includes(word));
-
-  return isPressure
-    ? "Pressure Test Certificate"
-    : "Load Test Certificate – Lifting Equipment";
+function nz(value, fallback = "") {
+  if (value === null || value === undefined) return fallback;
+  const s = String(value).trim();
+  return s || fallback;
 }
 
-function buildCertNumber(cert, asset) {
-  if (cleanInlineValue(cert?.certificate_number)) return cert.certificate_number;
-
-  const serial = String(asset?.serial_number || asset?.asset_tag || "XX")
-    .replace(/\s+/g, "-")
-    .toUpperCase();
-
-  const seq = cert?.sequence_number
-    ? String(cert.sequence_number).padStart(2, "0")
-    : "01";
-
-  return `CERT-${serial}-${seq}`;
+function normalizeResult(value) {
+  const v = nz(value).toUpperCase().replace(/\s+/g, "_");
+  if (!v) return "UNKNOWN";
+  return v;
 }
 
-function cleanInlineValue(value) {
-  if (value === null || value === undefined) return null;
-
-  if (typeof value === "object") {
-    const text = stringifyComplexValue(value);
-    return text || null;
-  }
-
-  const text = String(value)
-    .replace(/[\t ]+/g, " ")
-    .trim();
-
-  if (!text) return null;
-
-  const lowered = text.toLowerCase();
-  if (["unknown", "null", "undefined", "n/a", "na", "-"].includes(lowered)) {
-    return null;
-  }
-
-  return text;
-}
-
-function cleanBlockValue(value) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "object") return stringifyComplexValue(value) || null;
-
-  const text = String(value)
-    .replace(/\r/g, "\n")
-    .replace(/[\t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-
-  if (!text) return null;
-
-  const lowered = text.toLowerCase();
-  if (["unknown", "null", "undefined", "n/a", "na", "-"].includes(lowered)) {
-    return null;
-  }
-
-  return text;
-}
-
-function stringifyComplexValue(value) {
-  if (value === null || value === undefined) return null;
-
-  if (Array.isArray(value)) {
-    const items = value
-      .map((item) => cleanInlineValue(item))
-      .filter(Boolean);
-
-    return items.length ? items.join(", ") : null;
-  }
-
-  if (typeof value === "object") {
-    const parts = Object.entries(value)
-      .map(([key, item]) => {
-        const cleaned = cleanInlineValue(item);
-        return cleaned ? `${toLabel(key)}: ${cleaned}` : null;
-      })
-      .filter(Boolean);
-
-    return parts.length ? parts.join(" | ") : null;
-  }
-
-  return cleanInlineValue(value);
-}
-
-function pickInline(...values) {
-  for (const value of values) {
-    const cleaned = cleanInlineValue(value);
-    if (cleaned) return cleaned;
-  }
-  return null;
-}
-
-function pickBlock(...values) {
-  for (const value of values) {
-    const cleaned = cleanBlockValue(value);
-    if (cleaned) return cleaned;
-  }
-  return null;
-}
-
-function dateLabel(value) {
-  const text = cleanInlineValue(value);
-  if (!text) return null;
-
-  const date = new Date(text);
-  if (Number.isNaN(date.getTime())) return text;
-
-  return date.toLocaleDateString("en-GB", {
+function formatDate(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
 }
 
-function toLabel(key = "") {
-  return String(key)
-    .replace(/_/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+function getExpiryBucket(expiryDate) {
+  if (!expiryDate) return "NO_EXPIRY";
+  const diffDays = Math.ceil((new Date(expiryDate) - new Date()) / 86400000);
+  if (diffDays < 0) return "EXPIRED";
+  if (diffDays <= 30) return "EXPIRING_SOON";
+  if (diffDays <= 90) return "EXPIRING_90";
+  return "VALID";
 }
 
-function pushField(rows, label, ...values) {
-  const value = pickInline(...values);
-  if (!value) return;
-  rows.push({ label, value });
+function daysUntil(value) {
+  if (!value) return null;
+  return Math.ceil((new Date(value) - new Date()) / 86400000);
 }
 
-function buildDynamicRows(extractedData, usedKeys = new Set()) {
-  if (!extractedData || typeof extractedData !== "object") return [];
+const RESULT_CFG = {
+  PASS: {
+    label: "Pass",
+    color: T.green,
+    bg: T.greenDim,
+    brd: T.greenBrd,
+  },
+  FAIL: {
+    label: "Fail",
+    color: T.red,
+    bg: T.redDim,
+    brd: T.redBrd,
+  },
+  REPAIR_REQUIRED: {
+    label: "Repair Required",
+    color: T.amber,
+    bg: T.amberDim,
+    brd: T.amberBrd,
+  },
+  OUT_OF_SERVICE: {
+    label: "Out of Service",
+    color: T.purple,
+    bg: T.purpleDim,
+    brd: T.purpleBrd,
+  },
+  UNKNOWN: {
+    label: "Unknown",
+    color: T.textDim,
+    bg: T.slate,
+    brd: T.slateBrd,
+  },
+};
 
-  const ignoredKeys = new Set([
-    "manufacturer",
-    "model",
-    "serial_number",
-    "identification_number",
-    "inspection_number",
-    "inspection_no",
-    "asset_tag",
-    "year_built",
-    "country_of_origin",
-    "capacity",
-    "capacity_volume",
-    "pressure",
-    "working_pressure",
-    "design_pressure",
-    "test_pressure",
-    "pressure_unit",
-    "safe_working_load",
-    "working_load_limit",
-    "swl",
-    "proof_load",
-    "lift_height",
-    "lifting_height",
-    "sling_length",
-    "chain_size",
-    "rope_diameter",
-    "equipment_type",
-    "equipment_description",
-    "certificate_number",
-    "certificate_type",
-    "client_name",
-    "location",
-    "inspection_date",
-    "issue_date",
-    "expiry_date",
-    "next_inspection_due",
-    "result",
-    "status",
-    "comments",
-    "defects_found",
-    "recommendations",
-    "nameplate_data",
-    "raw_text_summary",
-    "plate_text",
-    "other_visible_data",
-  ]);
+const EXPIRY_CFG = {
+  EXPIRED: {
+    label: "Expired",
+    color: T.red,
+    bg: T.redDim,
+  },
+  EXPIRING_SOON: {
+    label: "Expiring ≤30d",
+    color: T.amber,
+    bg: T.amberDim,
+  },
+  EXPIRING_90: {
+    label: "Expiring ≤90d",
+    color: T.accent,
+    bg: T.accentDim,
+  },
+  VALID: {
+    label: "Valid",
+    color: T.green,
+    bg: T.greenDim,
+  },
+  NO_EXPIRY: {
+    label: "No Expiry",
+    color: T.textDim,
+    bg: T.slate,
+  },
+};
 
-  const rows = [];
-  const seenLabels = new Set();
+function resultCfg(value) {
+  return RESULT_CFG[value] || RESULT_CFG.UNKNOWN;
+}
 
-  const appendRow = (key, value) => {
-    if (ignoredKeys.has(key) || usedKeys.has(key)) return;
-    const cleaned = cleanInlineValue(value);
-    if (!cleaned) return;
+function expiryCfg(value) {
+  return EXPIRY_CFG[value] || EXPIRY_CFG.NO_EXPIRY;
+}
 
-    const label = toLabel(key);
-    const labelKey = label.toLowerCase();
-    if (seenLabels.has(labelKey)) return;
+function groupCertificates(rows) {
+  const grouped = {};
 
-    seenLabels.add(labelKey);
-    rows.push({ label, value: cleaned });
-  };
+  for (const row of rows) {
+    const client = nz(row.client_name, "UNASSIGNED CLIENT");
+    const type = nz(row.equipment_type || row.asset_type, "UNCATEGORIZED");
+    const desc = nz(
+      row.equipment_description || row.asset_name || row.asset_tag,
+      "UNNAMED EQUIPMENT"
+    );
 
-  Object.entries(extractedData).forEach(([key, value]) => appendRow(key, value));
-
-  if (
-    extractedData.other_visible_data &&
-    typeof extractedData.other_visible_data === "object"
-  ) {
-    Object.entries(extractedData.other_visible_data).forEach(([key, value]) => {
-      appendRow(key, value);
-    });
+    if (!grouped[client]) grouped[client] = {};
+    if (!grouped[client][type]) grouped[client][type] = {};
+    if (!grouped[client][type][desc]) grouped[client][type][desc] = [];
+    grouped[client][type][desc].push(row);
   }
 
-  return rows;
+  return Object.keys(grouped)
+    .sort()
+    .map((client) => ({
+      client,
+      types: Object.keys(grouped[client])
+        .sort()
+        .map((type) => ({
+          type,
+          items: Object.keys(grouped[client][type])
+            .sort()
+            .map((desc) => ({
+              desc,
+              certs: [...grouped[client][type][desc]].sort(
+                (a, b) =>
+                  new Date(b.issue_date || b.created_at || 0) -
+                  new Date(a.issue_date || a.created_at || 0)
+              ),
+            })),
+        })),
+    }));
 }
 
-function FieldGrid({ rows, columns = 2 }) {
-  if (!rows.length) return null;
+export default function CertificatesPage() {
+  const [certs, setCerts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [errorText, setErrorText] = useState("");
+  const [search, setSearch] = useState("");
+  const [fResult, setFResult] = useState("ALL");
+  const [fExpiry, setFExpiry] = useState("ALL");
+  const [fClient, setFClient] = useState("ALL");
+  const [fType, setFType] = useState("ALL");
+  const [fStatus, setFStatus] = useState("ALL");
+  const [view, setView] = useState("grouped");
+  const [expandedClients, setExpandedClients] = useState({});
+  const [expandedTypes, setExpandedTypes] = useState({});
+
+  useEffect(() => {
+    loadCertificates();
+  }, []);
+
+  async function loadCertificates() {
+    setLoading(true);
+    setErrorText("");
+
+    const { data, error } = await supabase
+      .from("certificates")
+      .select(`
+        id,
+        certificate_number,
+        result,
+        issue_date,
+        issued_at,
+        expiry_date,
+        valid_to,
+        created_at,
+        inspection_number,
+        asset_tag,
+        asset_name,
+        equipment_description,
+        equipment_type,
+        asset_type,
+        client_name,
+        status,
+        extracted_data
+      `)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Failed to load certificates:", error);
+      setCerts([]);
+      setErrorText(error.message || "Failed to load certificates.");
+      setLoading(false);
+      return;
+    }
+
+    const cleaned = (data || []).map((row) => {
+      const extracted = row.extracted_data || {};
+      const issueDate = row.issue_date || row.issued_at || extracted.issue_date || null;
+      const expiryDate = row.expiry_date || row.valid_to || extracted.expiry_date || null;
+
+      return {
+        ...row,
+        issue_date: issueDate,
+        expiry_date: expiryDate,
+        result: normalizeResult(row.result || extracted.result),
+        client_name: nz(row.client_name || extracted.client_name, "UNASSIGNED CLIENT"),
+        equipment_type: nz(
+          row.equipment_type || row.asset_type || extracted.equipment_type,
+          "UNCATEGORIZED"
+        ),
+        equipment_description: nz(
+          row.equipment_description ||
+            row.asset_name ||
+            row.asset_tag ||
+            extracted.equipment_description,
+          "UNNAMED EQUIPMENT"
+        ),
+        status: nz(row.status, "active"),
+        expiry_bucket: getExpiryBucket(expiryDate),
+      };
+    });
+
+    const openClients = {};
+    cleaned.forEach((row) => {
+      openClients[row.client_name] = true;
+    });
+
+    setExpandedClients(openClients);
+    setCerts(cleaned);
+    setLoading(false);
+  }
+
+  const clientOptions = useMemo(
+    () => [...new Set(certs.map((x) => x.client_name))].sort(),
+    [certs]
+  );
+
+  const typeOptions = useMemo(
+    () => [...new Set(certs.map((x) => x.equipment_type))].sort(),
+    [certs]
+  );
+
+  const statusOptions = useMemo(
+    () => [...new Set(certs.map((x) => nz(x.status, "active")))].sort(),
+    [certs]
+  );
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+
+    return certs.filter((row) => {
+      const haystack = [
+        row.certificate_number,
+        row.client_name,
+        row.asset_tag,
+        row.equipment_description,
+        row.equipment_type,
+        row.inspection_number,
+        row.status,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return (
+        (!q || haystack.includes(q)) &&
+        (fResult === "ALL" || row.result === fResult) &&
+        (fExpiry === "ALL" || row.expiry_bucket === fExpiry) &&
+        (fClient === "ALL" || row.client_name === fClient) &&
+        (fType === "ALL" || row.equipment_type === fType) &&
+        (fStatus === "ALL" || row.status === fStatus)
+      );
+    });
+  }, [certs, search, fResult, fExpiry, fClient, fType, fStatus]);
+
+  const grouped = useMemo(() => groupCertificates(filtered), [filtered]);
+
+  const stats = useMemo(
+    () => ({
+      total: certs.length,
+      pass: certs.filter((x) => x.result === "PASS").length,
+      fail: certs.filter((x) => x.result === "FAIL").length,
+      expiring: certs.filter((x) => x.expiry_bucket === "EXPIRING_SOON").length,
+      expired: certs.filter((x) => x.expiry_bucket === "EXPIRED").length,
+    }),
+    [certs]
+  );
+
+  const hasFilters =
+    !!search ||
+    fResult !== "ALL" ||
+    fExpiry !== "ALL" ||
+    fClient !== "ALL" ||
+    fType !== "ALL" ||
+    fStatus !== "ALL";
+
+  function clearFilters() {
+    setSearch("");
+    setFResult("ALL");
+    setFExpiry("ALL");
+    setFClient("ALL");
+    setFType("ALL");
+    setFStatus("ALL");
+  }
+
+  function toggleClient(client) {
+    setExpandedClients((prev) => ({ ...prev, [client]: !prev[client] }));
+  }
+
+  function toggleType(key) {
+    setExpandedTypes((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
 
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-        gap: 8,
-      }}
-    >
-      {rows.map((row) => (
+    <AppLayout>
+      <div
+        style={{
+          minHeight: "100vh",
+          background: T.bg,
+          color: T.text,
+          fontFamily: "'IBM Plex Mono', monospace",
+        }}
+      >
         <div
-          key={`${row.label}-${row.value}`}
           style={{
-            border: "1px solid #dbe3ee",
-            borderRadius: 8,
-            padding: "7px 9px",
-            background: "#fff",
-            minHeight: 48,
+            background: T.surface,
+            borderBottom: `1px solid ${T.border}`,
+            padding: "0 28px",
           }}
         >
           <div
             style={{
-              fontSize: 8.4,
-              fontWeight: 800,
-              color: "#64748b",
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              marginBottom: 4,
+              height: 56,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 16,
             }}
           >
-            {row.label}
-          </div>
-          <div
-            style={{
-              fontSize: 10.2,
-              lineHeight: 1.35,
-              color: "#0f172a",
-              wordBreak: "break-word",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {row.value}
+            <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div
+                  style={{
+                    width: 3,
+                    height: 18,
+                    borderRadius: 2,
+                    background: T.accent,
+                  }}
+                />
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    color: T.textMid,
+                  }}
+                >
+                  ISO 9001 · Document Register
+                </span>
+              </div>
+
+              <span style={{ fontSize: 11, color: T.textDim }}>
+                {filtered.length} of {certs.length} records
+              </span>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Link href="/certificates/import" style={btnGhost}>
+                ↑ AI Import
+              </Link>
+              <Link href="/certificates/create" style={btnAccent}>
+                + New Certificate
+              </Link>
+            </div>
           </div>
         </div>
-      ))}
+
+        <div style={{ padding: "24px 28px", display: "grid", gap: 20 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-end",
+              justifyContent: "space-between",
+              gap: 16,
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <h1
+                style={{
+                  margin: 0,
+                  fontSize: 28,
+                  fontWeight: 800,
+                  fontFamily: "'IBM Plex Sans', sans-serif",
+                }}
+              >
+                Certificates Register
+              </h1>
+              <p style={{ margin: "6px 0 0", fontSize: 13, color: T.textDim }}>
+                Grouped by client · equipment type · asset
+              </p>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                border: `1px solid ${T.border}`,
+                borderRadius: 8,
+                overflow: "hidden",
+                background: T.panel,
+              }}
+            >
+              {["grouped", "flat"].map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setView(v)}
+                  style={{
+                    border: "none",
+                    cursor: "pointer",
+                    padding: "7px 16px",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    fontFamily: "inherit",
+                    background: view === v ? T.accent : "transparent",
+                    color: view === v ? "#fff" : T.textMid,
+                  }}
+                >
+                  {v === "grouped" ? "⊞ Grouped" : "≡ Flat"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+              gap: 10,
+            }}
+          >
+            <StatCard label="Total" value={stats.total} color={T.accent} />
+            <StatCard label="Passed" value={stats.pass} color={T.green} />
+            <StatCard label="Failed" value={stats.fail} color={T.red} />
+            <StatCard label="Expiring ≤30d" value={stats.expiring} color={T.amber} />
+            <StatCard label="Expired" value={stats.expired} color={T.red} />
+          </div>
+
+          <div
+            style={{
+              background: T.surface,
+              border: `1px solid ${T.border}`,
+              borderRadius: 12,
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                padding: "10px 16px",
+                borderBottom: `1px solid ${T.border}`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: "0.1em",
+                  textTransform: "uppercase",
+                  color: T.textDim,
+                }}
+              >
+                Filters
+              </span>
+
+              {hasFilters && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: T.textDim,
+                    fontSize: 11,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  Clear all ×
+                </button>
+              )}
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr",
+              }}
+            >
+              <div style={{ padding: "10px 14px", borderRight: `1px solid ${T.border}` }}>
+                <div style={filterLabel}>Search</div>
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Certificate no., client, asset tag..."
+                  style={{
+                    ...inputBase,
+                    width: "100%",
+                    background: "transparent",
+                    border: "none",
+                    outline: "none",
+                  }}
+                />
+              </div>
+
+              <FilterCell
+                label="Result"
+                value={fResult}
+                onChange={setFResult}
+                options={[
+                  { v: "ALL", l: "All results" },
+                  { v: "PASS", l: "Pass" },
+                  { v: "FAIL", l: "Fail" },
+                  { v: "REPAIR_REQUIRED", l: "Repair required" },
+                  { v: "OUT_OF_SERVICE", l: "Out of service" },
+                  { v: "UNKNOWN", l: "Unknown" },
+                ]}
+              />
+
+              <FilterCell
+                label="Expiry"
+                value={fExpiry}
+                onChange={setFExpiry}
+                options={[
+                  { v: "ALL", l: "All expiry" },
+                  { v: "EXPIRED", l: "Expired" },
+                  { v: "EXPIRING_SOON", l: "Expiring ≤30d" },
+                  { v: "EXPIRING_90", l: "Expiring ≤90d" },
+                  { v: "VALID", l: "Valid" },
+                  { v: "NO_EXPIRY", l: "No expiry" },
+                ]}
+              />
+
+              <FilterCell
+                label="Client"
+                value={fClient}
+                onChange={setFClient}
+                options={[
+                  { v: "ALL", l: "All clients" },
+                  ...clientOptions.map((c) => ({ v: c, l: c })),
+                ]}
+              />
+
+              <FilterCell
+                label="Type"
+                value={fType}
+                onChange={setFType}
+                options={[
+                  { v: "ALL", l: "All types" },
+                  ...typeOptions.map((t) => ({ v: t, l: t })),
+                ]}
+              />
+
+              <FilterCell
+                label="Status"
+                value={fStatus}
+                onChange={setFStatus}
+                options={[
+                  { v: "ALL", l: "All status" },
+                  ...statusOptions.map((s) => ({ v: s, l: s })),
+                ]}
+                last
+              />
+            </div>
+          </div>
+
+          {errorText ? (
+            <div
+              style={{
+                padding: "12px 16px",
+                borderRadius: 10,
+                border: `1px solid ${T.redBrd}`,
+                background: T.redDim,
+                color: T.red,
+                fontSize: 13,
+              }}
+            >
+              {errorText}
+            </div>
+          ) : null}
+
+          {loading ? (
+            <LoadingState />
+          ) : filtered.length === 0 ? (
+            <EmptyState hasFilters={hasFilters} onClear={clearFilters} />
+          ) : view === "flat" ? (
+            <FlatView certs={filtered} />
+          ) : (
+            <GroupedView
+              grouped={grouped}
+              expandedClients={expandedClients}
+              expandedTypes={expandedTypes}
+              toggleClient={toggleClient}
+              toggleType={toggleType}
+            />
+          )}
+        </div>
+      </div>
+    </AppLayout>
+  );
+}
+
+function GroupedView({
+  grouped,
+  expandedClients,
+  expandedTypes,
+  toggleClient,
+  toggleType,
+}) {
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      {grouped.map((clientGroup) => {
+        const open = !!expandedClients[clientGroup.client];
+        const certCount = clientGroup.types.reduce(
+          (a, t) => a + t.items.reduce((b, i) => b + i.certs.length, 0),
+          0
+        );
+        const passCount = clientGroup.types.reduce(
+          (a, t) =>
+            a +
+            t.items.reduce(
+              (b, i) => b + i.certs.filter((c) => c.result === "PASS").length,
+              0
+            ),
+          0
+        );
+        const failCount = certCount - passCount;
+
+        return (
+          <div
+            key={clientGroup.client}
+            style={{
+              background: T.surface,
+              border: `1px solid ${T.border}`,
+              borderRadius: 12,
+              overflow: "hidden",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => toggleClient(clientGroup.client)}
+              style={{
+                width: "100%",
+                border: "none",
+                background: "none",
+                cursor: "pointer",
+                padding: "14px 20px",
+                display: "flex",
+                alignItems: "center",
+                gap: 14,
+                textAlign: "left",
+                fontFamily: "inherit",
+              }}
+            >
+              <Chevron open={open} />
+
+              <div
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 8,
+                  background: T.accentDim,
+                  border: `1px solid ${T.accentBrd}`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: T.accent,
+                  fontWeight: 800,
+                  fontFamily: "'IBM Plex Sans', sans-serif",
+                }}
+              >
+                {clientGroup.client.charAt(0)}
+              </div>
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    fontFamily: "'IBM Plex Sans', sans-serif",
+                  }}
+                >
+                  {clientGroup.client}
+                </div>
+                <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>
+                  {clientGroup.types.length} equipment type
+                  {clientGroup.types.length !== 1 ? "s" : ""} · {certCount} certificate
+                  {certCount !== 1 ? "s" : ""}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <MiniPill value={passCount} color={T.green} bg={T.greenDim} label="pass" />
+                {failCount > 0 ? (
+                  <MiniPill value={failCount} color={T.red} bg={T.redDim} label="fail" />
+                ) : null}
+              </div>
+            </button>
+
+            {open ? (
+              <div style={{ borderTop: `1px solid ${T.border}` }}>
+                {clientGroup.types.map((typeGroup, idx) => {
+                  const typeKey = `${clientGroup.client}::${typeGroup.type}`;
+                  const typeOpen = expandedTypes[typeKey] !== false;
+                  const typeCertCount = typeGroup.items.reduce(
+                    (a, i) => a + i.certs.length,
+                    0
+                  );
+
+                  return (
+                    <div
+                      key={typeGroup.type}
+                      style={{
+                        borderTop: idx > 0 ? `1px solid ${T.border}` : "none",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleType(typeKey)}
+                        style={{
+                          width: "100%",
+                          border: "none",
+                          background: "none",
+                          cursor: "pointer",
+                          padding: "10px 20px 10px 56px",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          textAlign: "left",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        <div
+                          style={{
+                            padding: "3px 10px",
+                            borderRadius: 4,
+                            fontSize: 10,
+                            fontWeight: 800,
+                            letterSpacing: "0.1em",
+                            textTransform: "uppercase",
+                            background: T.panel,
+                            border: `1px solid ${T.borderMid}`,
+                            color: T.textMid,
+                          }}
+                        >
+                          {typeGroup.type}
+                        </div>
+
+                        <span style={{ fontSize: 11, color: T.textDim }}>
+                          {typeGroup.items.length} asset
+                          {typeGroup.items.length !== 1 ? "s" : ""} · {typeCertCount} cert
+                          {typeCertCount !== 1 ? "s" : ""}
+                        </span>
+
+                        <div style={{ marginLeft: "auto" }}>
+                          <Chevron open={typeOpen} />
+                        </div>
+                      </button>
+
+                      {typeOpen ? (
+                        <div style={{ padding: "0 20px 14px 20px", display: "grid", gap: 8 }}>
+                          {typeGroup.items.map((item) => (
+                            <AssetBlock key={item.desc} item={item} />
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-function Section({ title, children }) {
-  if (!children) return null;
+function AssetBlock({ item }) {
+  const [open, setOpen] = useState(true);
+  const latestResult = item.certs[0]?.result || "UNKNOWN";
+  const rc = resultCfg(latestResult);
 
   return (
     <div
       style={{
-        border: "1px solid #d9e2ec",
+        background: T.panel,
+        border: `1px solid ${T.border}`,
         borderRadius: 10,
         overflow: "hidden",
-        marginBottom: 10,
-        pageBreakInside: "avoid",
       }}
     >
-      <div
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
         style={{
-          background: "#17365d",
-          color: "#dbeafe",
-          padding: "7px 12px",
-          fontSize: 8.8,
-          fontWeight: 800,
-          letterSpacing: "0.16em",
-          textTransform: "uppercase",
+          width: "100%",
+          border: "none",
+          background: "none",
+          cursor: "pointer",
+          padding: "10px 14px",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          textAlign: "left",
+          fontFamily: "inherit",
         }}
       >
-        {title}
-      </div>
-      <div style={{ padding: 10, background: "#f8fafc" }}>{children}</div>
+        <Chevron open={open} />
+
+        <div
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: 999,
+            background: rc.color,
+          }}
+        />
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: "'IBM Plex Sans', sans-serif",
+            }}
+          >
+            {item.desc}
+          </span>
+        </div>
+
+        <span style={{ fontSize: 11, color: T.textDim }}>
+          {item.certs.length} cert{item.certs.length !== 1 ? "s" : ""}
+        </span>
+
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 800,
+            padding: "2px 8px",
+            borderRadius: 4,
+            background: rc.bg,
+            color: rc.color,
+            border: `1px solid ${rc.brd}`,
+            letterSpacing: "0.06em",
+          }}
+        >
+          {rc.label}
+        </span>
+      </button>
+
+      {open ? (
+        <div style={{ borderTop: `1px solid ${T.border}`, overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
+            <thead>
+              <tr style={{ background: T.bg }}>
+                {[
+                  "Certificate No.",
+                  "Insp. No.",
+                  "Result",
+                  "Issue Date",
+                  "Expiry Date",
+                  "Days Left",
+                  "Status",
+                  "Actions",
+                ].map((heading) => (
+                  <td key={heading} style={headCell}>
+                    {heading}
+                  </td>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {item.certs.map((cert, index) => {
+                const result = resultCfg(cert.result);
+                const expiry = expiryCfg(cert.expiry_bucket);
+                const days = daysUntil(cert.expiry_date);
+                const latest = index === 0;
+
+                return (
+                  <tr
+                    key={cert.id}
+                    style={{
+                      background: latest ? "rgba(14,165,233,0.03)" : "transparent",
+                      borderLeft: latest ? `2px solid ${T.accent}` : "2px solid transparent",
+                    }}
+                  >
+                    <td style={tdStyle}>
+                      <span style={monoAccent}>{cert.certificate_number || "—"}</span>
+                    </td>
+                    <td style={tdStyle}>
+                      <span style={monoDim}>{cert.inspection_number || "—"}</span>
+                    </td>
+                    <td style={tdStyle}>
+                      <Badge label={result.label} color={result.color} bg={result.bg} brd={result.brd} />
+                    </td>
+                    <td style={tdStyle}>{formatDate(cert.issue_date)}</td>
+                    <td style={tdStyle}>{formatDate(cert.expiry_date)}</td>
+                    <td style={tdStyle}>
+                      {days !== null ? (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            padding: "2px 7px",
+                            borderRadius: 4,
+                            background: expiry.bg,
+                            color: expiry.color,
+                          }}
+                        >
+                          {days < 0 ? `${Math.abs(days)}d ago` : `${days}d`}
+                        </span>
+                      ) : (
+                        <span style={{ color: T.textDim }}>—</span>
+                      )}
+                    </td>
+                    <td style={tdStyle}>
+                      <span style={{ textTransform: "capitalize", color: T.textMid }}>
+                        {nz(cert.status, "active")}
+                      </span>
+                    </td>
+                    <td style={tdStyle}>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <Link href={`/certificates/${cert.id}`} style={actionBtn(T.accent, T.accentDim, T.accentBrd)}>
+                          View
+                        </Link>
+                        <a
+                          href={`/certificates/${cert.id}?download=1`}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={actionBtn(T.green, T.greenDim, T.greenBrd)}
+                        >
+                          PDF
+                        </a>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function NoteBlock({ title, value, tone = "neutral" }) {
-  if (!value) return null;
+function FlatView({ certs }) {
+  return (
+    <div
+      style={{
+        background: T.surface,
+        border: `1px solid ${T.border}`,
+        borderRadius: 12,
+        overflow: "hidden",
+      }}
+    >
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
+          <thead>
+            <tr style={{ background: T.bg }}>
+              {[
+                "Certificate No.",
+                "Client",
+                "Equipment",
+                "Type",
+                "Result",
+                "Issue",
+                "Expiry",
+                "Days Left",
+                "Status",
+                "Actions",
+              ].map((heading) => (
+                <td key={heading} style={headCell}>
+                  {heading}
+                </td>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {certs.map((cert) => {
+              const result = resultCfg(cert.result);
+              const expiry = expiryCfg(cert.expiry_bucket);
+              const days = daysUntil(cert.expiry_date);
 
-  const toneMap = {
-    neutral: {
-      background: "#f8fafc",
-      border: "#dbe3ee",
-      title: "#475569",
-      text: "#0f172a",
-    },
-    blue: {
-      background: "#eff6ff",
-      border: "#bfdbfe",
-      title: "#1d4ed8",
-      text: "#1e3a8a",
-    },
-    red: {
-      background: "#fef2f2",
-      border: "#fecaca",
-      title: "#dc2626",
-      text: "#7f1d1d",
-    },
-    amber: {
-      background: "#fffbeb",
-      border: "#fde68a",
-      title: "#b45309",
-      text: "#78350f",
-    },
-    green: {
-      background: "#ecfdf5",
-      border: "#a7f3d0",
-      title: "#047857",
-      text: "#065f46",
-    },
-  };
+              return (
+                <tr
+                  key={cert.id}
+                  style={{ borderBottom: `1px solid ${T.border}` }}
+                >
+                  <td style={tdStyle}>
+                    <span style={monoAccent}>{cert.certificate_number || "—"}</span>
+                  </td>
+                  <td style={tdStyle}>{cert.client_name}</td>
+                  <td style={tdStyle}>
+                    <div
+                      style={{
+                        maxWidth: 220,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {cert.equipment_description}
+                    </div>
+                  </td>
+                  <td style={tdStyle}>{cert.equipment_type}</td>
+                  <td style={tdStyle}>
+                    <Badge label={result.label} color={result.color} bg={result.bg} brd={result.brd} />
+                  </td>
+                  <td style={tdStyle}>{formatDate(cert.issue_date)}</td>
+                  <td style={tdStyle}>{formatDate(cert.expiry_date)}</td>
+                  <td style={tdStyle}>
+                    {days !== null ? (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          padding: "2px 7px",
+                          borderRadius: 4,
+                          background: expiry.bg,
+                          color: expiry.color,
+                        }}
+                      >
+                        {days < 0 ? `${Math.abs(days)}d ago` : `${days}d`}
+                      </span>
+                    ) : (
+                      <span style={{ color: T.textDim }}>—</span>
+                    )}
+                  </td>
+                  <td style={tdStyle}>
+                    <span style={{ textTransform: "capitalize", color: T.textMid }}>
+                      {nz(cert.status, "active")}
+                    </span>
+                  </td>
+                  <td style={tdStyle}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <Link href={`/certificates/${cert.id}`} style={actionBtn(T.accent, T.accentDim, T.accentBrd)}>
+                        View
+                      </Link>
+                      <a
+                        href={`/certificates/${cert.id}?download=1`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={actionBtn(T.green, T.greenDim, T.greenBrd)}
+                      >
+                        PDF
+                      </a>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
-  const palette = toneMap[tone] || toneMap.neutral;
+function FilterCell({ label, value, onChange, options, last }) {
+  const active = value !== "ALL";
 
   return (
     <div
       style={{
-        border: `1px solid ${palette.border}`,
-        borderRadius: 8,
-        padding: "8px 10px",
-        background: palette.background,
+        padding: "10px 14px",
+        borderRight: last ? "none" : `1px solid ${T.border}`,
       }}
     >
       <div
         style={{
-          fontSize: 8.2,
-          fontWeight: 800,
-          color: palette.title,
-          letterSpacing: "0.12em",
-          textTransform: "uppercase",
-          marginBottom: 4,
+          ...filterLabel,
+          color: active ? T.accent : T.textDim,
+          fontWeight: active ? 800 : 700,
         }}
       >
-        {title}
+        {label}
+      </div>
+
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          ...inputBase,
+          width: "100%",
+          background: "transparent",
+          border: "none",
+          outline: "none",
+          cursor: "pointer",
+          color: active ? T.text : T.textMid,
+        }}
+      >
+        {options.map((opt) => (
+          <option key={opt.v} value={opt.v} style={{ background: "#111b2a" }}>
+            {opt.l}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function StatCard({ label, value, color }) {
+  return (
+    <div
+      style={{
+        background: T.surface,
+        border: `1px solid ${T.border}`,
+        borderRadius: 10,
+        padding: "14px 16px",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          color: T.textDim,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          marginBottom: 8,
+        }}
+      >
+        {label}
       </div>
       <div
         style={{
-          fontSize: 10,
-          lineHeight: 1.4,
-          color: palette.text,
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
+          fontSize: 26,
+          fontWeight: 800,
+          color,
+          fontFamily: "'IBM Plex Sans', sans-serif",
         }}
       >
         {value}
@@ -390,829 +1189,251 @@ function NoteBlock({ title, value, tone = "neutral" }) {
   );
 }
 
-export default function PrintCertificatePage() {
-  const params = useParams();
-  const id = params?.id;
-
-  const [cert, setCert] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    async function load() {
-      if (!id) {
-        setError("No certificate ID provided.");
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const { data, error: fetchError } = await supabase
-          .from("certificates")
-          .select(
-            `
-            *,
-            extracted_data,
-            source_nameplate_image_url,
-            assets (
-              asset_tag,
-              asset_name,
-              asset_type,
-              serial_number,
-              equipment_id,
-              identification_number,
-              inspection_no,
-              lanyard_serial_no,
-              manufacturer,
-              model,
-              year_built,
-              location,
-              department,
-              country_of_origin,
-              safe_working_load,
-              working_pressure,
-              design_pressure,
-              test_pressure,
-              proof_load,
-              lifting_height,
-              sling_length,
-              chain_size,
-              rope_diameter,
-              capacity_volume,
-              design_temperature,
-              shell_material,
-              fluid_type,
-              inspector_name,
-              inspector_id,
-              clients (
-                company_name,
-                company_code
-              )
-            )
-          `
-          )
-          .eq("id", id)
-          .single();
-
-        if (fetchError) throw new Error(fetchError.message || "Certificate not found.");
-        if (!data) throw new Error("Certificate not found.");
-
-        setCert(data);
-      } catch (err) {
-        setError(err.message || "Failed to load certificate.");
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    load();
-  }, [id]);
-
-  const model = useMemo(() => {
-    if (!cert) return null;
-
-    const asset = cert.assets || {};
-    const client = asset.clients || {};
-    const extracted = cert.extracted_data || {};
-
-    const certTitle = resolveCertTitle(
-      pickInline(cert.certificate_type, extracted.certificate_type),
-      pickInline(cert.equipment_type, asset.asset_type, extracted.equipment_type)
-    );
-
-    const isPressure = certTitle.toLowerCase().includes("pressure");
-    const certNumber = buildCertNumber(cert, asset);
-
-    const inspectorName = pickInline(
-      cert.inspector_name,
-      extracted.inspector_name,
-      asset.inspector_name,
-      DEFAULT_INSPECTOR_NAME
-    );
-
-    const inspectorId = pickInline(cert.inspector_id, asset.inspector_id, DEFAULT_INSPECTOR_ID);
-
-    const legalFramework = pickBlock(
-      cert.legal_framework,
-      extracted.legal_framework,
-      DEFAULT_LEGAL_FRAMEWORK
-    );
-
-    const summaryRows = [];
-    pushField(
-      summaryRows,
-      "Company / Client",
-      cert.client_name,
-      cert.company,
-      client.company_name,
-      client.company_code,
-      extracted.client_name
-    );
-    pushField(summaryRows, "Certificate Number", certNumber);
-    pushField(
-      summaryRows,
-      "Certificate Type",
-      cert.certificate_type,
-      extracted.certificate_type,
-      certTitle
-    );
-    pushField(
-      summaryRows,
-      "Equipment Type",
-      cert.equipment_type,
-      cert.asset_type,
-      extracted.equipment_type,
-      asset.asset_type
-    );
-    pushField(
-      summaryRows,
-      "Equipment Description",
-      cert.equipment_description,
-      cert.asset_name,
-      extracted.equipment_description,
-      asset.asset_name,
-      asset.asset_type
-    );
-    pushField(summaryRows, "Result", cert.result, cert.equipment_status, extracted.result);
-    pushField(summaryRows, "Lifecycle Status", cert.status, extracted.status);
-    pushField(
-      summaryRows,
-      "Inspection Body",
-      cert.inspection_body,
-      extracted.inspection_body,
-      "Monroy (Pty) Ltd"
-    );
-
-    const identificationRows = [];
-    pushField(identificationRows, "Asset Tag", cert.asset_tag, asset.asset_tag, extracted.asset_tag);
-    pushField(
-      identificationRows,
-      "Equipment ID / Serial",
-      cert.equipment_id,
-      cert.serial_number,
-      asset.equipment_id,
-      asset.serial_number,
-      extracted.serial_number
-    );
-    pushField(
-      identificationRows,
-      "Identification Number",
-      cert.identification_number,
-      asset.identification_number,
-      extracted.identification_number
-    );
-    pushField(
-      identificationRows,
-      "Inspection No.",
-      cert.inspection_number,
-      cert.inspection_no,
-      asset.inspection_no,
-      extracted.inspection_number,
-      extracted.inspection_no
-    );
-    pushField(
-      identificationRows,
-      "Lanyard Serial No.",
-      cert.lanyard_serial_no,
-      asset.lanyard_serial_no,
-      extracted.lanyard_serial_no
-    );
-    pushField(
-      identificationRows,
-      "Manufacturer",
-      cert.manufacturer,
-      extracted.manufacturer,
-      asset.manufacturer
-    );
-    pushField(identificationRows, "Model", cert.model, extracted.model, asset.model);
-    pushField(
-      identificationRows,
-      "Year Built",
-      cert.year_built,
-      extracted.year_built,
-      asset.year_built
-    );
-    pushField(
-      identificationRows,
-      "Country of Origin",
-      cert.country_of_origin,
-      extracted.country_of_origin,
-      asset.country_of_origin
-    );
-    pushField(
-      identificationRows,
-      "Location",
-      cert.location,
-      cert.equipment_location,
-      extracted.location,
-      asset.location
-    );
-    pushField(identificationRows, "Department", cert.department, asset.department, extracted.department);
-
-    const technicalRows = [];
-    pushField(
-      technicalRows,
-      "Capacity / Volume",
-      cert.capacity_volume,
-      cert.capacity,
-      extracted.capacity_volume,
-      extracted.capacity,
-      asset.capacity_volume
-    );
-
-    if (isPressure) {
-      pushField(
-        technicalRows,
-        "MAWP / Working Pressure",
-        cert.working_pressure,
-        cert.mawp,
-        extracted.working_pressure,
-        extracted.mawp,
-        extracted.pressure,
-        asset.working_pressure
-      );
-      pushField(
-        technicalRows,
-        "Design Pressure",
-        cert.design_pressure,
-        extracted.design_pressure,
-        asset.design_pressure
-      );
-      pushField(
-        technicalRows,
-        "Test Pressure",
-        cert.test_pressure,
-        extracted.test_pressure,
-        asset.test_pressure
-      );
-      pushField(technicalRows, "Pressure Unit", cert.pressure_unit, extracted.pressure_unit);
-      pushField(
-        technicalRows,
-        "Design Temperature",
-        cert.design_temperature,
-        extracted.design_temperature,
-        asset.design_temperature
-      );
-      pushField(
-        technicalRows,
-        "Shell Material",
-        cert.material,
-        cert.shell_material,
-        extracted.material,
-        asset.shell_material
-      );
-      pushField(
-        technicalRows,
-        "Fluid Type",
-        cert.fluid_type,
-        extracted.fluid_type,
-        asset.fluid_type
-      );
-    } else {
-      pushField(
-        technicalRows,
-        "Safe Working Load (SWL)",
-        cert.swl,
-        extracted.swl,
-        extracted.safe_working_load,
-        extracted.working_load_limit,
-        asset.safe_working_load
-      );
-      pushField(technicalRows, "Proof Load", cert.proof_load, extracted.proof_load, asset.proof_load);
-      pushField(
-        technicalRows,
-        "Lift Height",
-        cert.lift_height,
-        cert.lifting_height,
-        extracted.lift_height,
-        extracted.lifting_height,
-        asset.lifting_height
-      );
-      pushField(
-        technicalRows,
-        "Sling Length",
-        cert.sling_length,
-        extracted.sling_length,
-        asset.sling_length
-      );
-      pushField(technicalRows, "Chain Size", cert.chain_size, extracted.chain_size, asset.chain_size);
-      pushField(
-        technicalRows,
-        "Rope Diameter",
-        cert.rope_diameter,
-        extracted.rope_diameter,
-        asset.rope_diameter
-      );
-    }
-
-    pushField(technicalRows, "Standard / Code", cert.standard_code, extracted.standard_code);
-
-    const dateRows = [];
-    pushField(
-      dateRows,
-      "Date of Inspection",
-      dateLabel(cert.inspection_date || extracted.inspection_date)
-    );
-    pushField(
-      dateRows,
-      "Date of Issue",
-      dateLabel(cert.issue_date || cert.issued_at || extracted.issue_date)
-    );
-    pushField(
-      dateRows,
-      "Expiry Date",
-      dateLabel(cert.expiry_date || cert.valid_to || extracted.expiry_date)
-    );
-    pushField(
-      dateRows,
-      "Next Inspection Due",
-      dateLabel(cert.next_inspection_due || extracted.next_inspection_due)
-    );
-
-    const noteBlocks = [
-      {
-        title: "Comments",
-        value: pickBlock(cert.comments, extracted.comments),
-        tone: "blue",
-      },
-      {
-        title: "Defects Found",
-        value: pickBlock(cert.defects_found, extracted.defects_found),
-        tone: "red",
-      },
-      {
-        title: "Recommendations",
-        value: pickBlock(cert.recommendations, extracted.recommendations),
-        tone: "amber",
-      },
-      {
-        title: "Nameplate Data",
-        value: pickBlock(cert.nameplate_data, extracted.nameplate_data, extracted.plate_text),
-        tone: "green",
-      },
-      {
-        title: "Raw Text Summary",
-        value: pickBlock(cert.raw_text_summary, extracted.raw_text_summary),
-        tone: "neutral",
-      },
-    ].filter((item) => item.value);
-
-    const usedExtractedKeys = new Set([
-      "certificate_number",
-      "certificate_type",
-      "equipment_type",
-      "equipment_description",
-      "result",
-      "status",
-      "inspection_body",
-      "asset_tag",
-      "serial_number",
-      "identification_number",
-      "inspection_number",
-      "inspection_no",
-      "lanyard_serial_no",
-      "manufacturer",
-      "model",
-      "year_built",
-      "country_of_origin",
-      "location",
-      "department",
-      "capacity",
-      "capacity_volume",
-      "working_pressure",
-      "mawp",
-      "design_pressure",
-      "test_pressure",
-      "pressure_unit",
-      "design_temperature",
-      "material",
-      "fluid_type",
-      "swl",
-      "safe_working_load",
-      "working_load_limit",
-      "proof_load",
-      "lift_height",
-      "lifting_height",
-      "sling_length",
-      "chain_size",
-      "rope_diameter",
-      "standard_code",
-      "inspection_date",
-      "issue_date",
-      "expiry_date",
-      "next_inspection_due",
-      "comments",
-      "defects_found",
-      "recommendations",
-      "nameplate_data",
-      "raw_text_summary",
-      "plate_text",
-      "client_name",
-      "legal_framework",
-      "inspector_name",
-    ]);
-
-    const additionalRows = buildDynamicRows(extracted, usedExtractedKeys);
-
-    const resultValue =
-      pickInline(cert.result, cert.equipment_status, extracted.result, "UNKNOWN") || "UNKNOWN";
-    const resultKey = String(resultValue).toUpperCase();
-    const resultPalette =
-      resultKey === "PASS"
-        ? { color: "#065f46", bg: "#ecfdf5", border: "#86efac" }
-        : resultKey === "FAIL"
-          ? { color: "#991b1b", bg: "#fef2f2", border: "#fca5a5" }
-          : { color: "#92400e", bg: "#fffbeb", border: "#fcd34d" };
-
-    return {
-      cert,
-      asset,
-      client,
-      extracted,
-      certTitle,
-      certNumber,
-      inspectorName,
-      inspectorId,
-      legalFramework,
-      summaryRows,
-      identificationRows,
-      technicalRows,
-      dateRows,
-      noteBlocks,
-      additionalRows,
-      resultValue,
-      resultPalette,
-    };
-  }, [cert]);
-
-  if (loading) {
-    return (
-      <div style={{ padding: 40, fontFamily: "Arial, sans-serif", color: "#334155" }}>
-        Loading certificate...
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div style={{ padding: 40, color: "#dc2626", fontFamily: "Arial, sans-serif" }}>
-        {error}
-      </div>
-    );
-  }
-
-  if (!model) {
-    return (
-      <div style={{ padding: 40, color: "#64748b", fontFamily: "Arial, sans-serif" }}>
-        Certificate not found.
-      </div>
-    );
-  }
-
-  const {
-    cert: certRecord,
-    certTitle,
-    certNumber,
-    inspectorName,
-    inspectorId,
-    legalFramework,
-    summaryRows,
-    identificationRows,
-    technicalRows,
-    dateRows,
-    noteBlocks,
-    additionalRows,
-    resultValue,
-    resultPalette,
-  } = model;
-
+function Badge({ label, color, bg, brd }) {
   return (
-    <>
-      <style>{`
-        html, body {
-          margin: 0;
-          padding: 0;
-          font-family: Arial, Helvetica, sans-serif;
-          background: #e2e8f0;
-        }
-
-        * {
-          box-sizing: border-box;
-          -webkit-print-color-adjust: exact !important;
-          print-color-adjust: exact !important;
-          color-adjust: exact !important;
-        }
-
-        @page {
-          size: A4 portrait;
-          margin: 0;
-        }
-
-        @media print {
-          html, body {
-            background: #ffffff;
-          }
-
-          .no-print {
-            display: none !important;
-          }
-
-          .page {
-            margin: 0 !important;
-            width: 210mm !important;
-            min-height: 297mm !important;
-            box-shadow: none !important;
-            border-radius: 0 !important;
-          }
-        }
-      `}</style>
-
-      <div
-        className="no-print"
-        style={{
-          background: "#0f172a",
-          color: "#cbd5e1",
-          padding: "12px 22px",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <div style={{ fontSize: 13 }}>Certificate Preview</div>
-        <button
-          type="button"
-          onClick={() => window.print()}
-          style={{
-            border: "none",
-            borderRadius: 8,
-            padding: "9px 18px",
-            background: "linear-gradient(135deg,#2563eb,#0ea5e9)",
-            color: "#ffffff",
-            fontWeight: 700,
-            cursor: "pointer",
-          }}
-        >
-          Print / Save PDF
-        </button>
-      </div>
-
-      <div
-        className="page"
-        style={{
-          width: "210mm",
-          minHeight: "297mm",
-          margin: "14px auto",
-          background: "#ffffff",
-          boxShadow: "0 10px 40px rgba(15,23,42,0.18)",
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-        }}
-      >
-        <div style={{ height: 6, background: "linear-gradient(90deg,#17365d,#2563eb,#06b6d4)" }} />
-
-        <div
-          style={{
-            padding: "10mm 12mm 7mm",
-            background: "linear-gradient(135deg,#17365d 0%,#1d4ed8 70%,#0ea5e9 100%)",
-            color: "#ffffff",
-            display: "grid",
-            gridTemplateColumns: "1.3fr 0.7fr",
-            gap: 12,
-            alignItems: "center",
-          }}
-        >
-          <div>
-            {cleanInlineValue(certRecord.logo_url) && (
-              <img
-                src={certRecord.logo_url}
-                alt="Monroy logo"
-                style={{ height: 42, objectFit: "contain", marginBottom: 6 }}
-                onError={(e) => {
-                  e.currentTarget.style.display = "none";
-                }}
-              />
-            )}
-            <div
-              style={{
-                fontSize: 8.5,
-                letterSpacing: "0.18em",
-                textTransform: "uppercase",
-                color: "#dbeafe",
-                fontWeight: 700,
-              }}
-            >
-              Quality Management System
-            </div>
-            <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.1, marginTop: 4 }}>
-              {certTitle}
-            </div>
-            <div
-              style={{
-                fontSize: 10,
-                lineHeight: 1.45,
-                color: "#dbeafe",
-                marginTop: 6,
-                maxWidth: 430,
-              }}
-            >
-              This is to certify that the equipment described below has been inspected and
-              tested in accordance with the applicable standards and regulations.
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gap: 8 }}>
-            <div
-              style={{
-                background: "rgba(255,255,255,0.12)",
-                border: "1px solid rgba(255,255,255,0.24)",
-                borderRadius: 8,
-                padding: "8px 10px",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 8,
-                  letterSpacing: "0.12em",
-                  textTransform: "uppercase",
-                  color: "#dbeafe",
-                  marginBottom: 3,
-                  fontWeight: 700,
-                }}
-              >
-                Certificate No.
-              </div>
-              <div style={{ fontSize: 12.2, fontWeight: 800 }}>{certNumber}</div>
-            </div>
-
-            <div
-              style={{
-                background: resultPalette.bg,
-                color: resultPalette.color,
-                border: `1px solid ${resultPalette.border}`,
-                borderRadius: 8,
-                padding: "8px 10px",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 8,
-                  letterSpacing: "0.12em",
-                  textTransform: "uppercase",
-                  marginBottom: 3,
-                  fontWeight: 700,
-                }}
-              >
-                Result
-              </div>
-              <div style={{ fontSize: 12.5, fontWeight: 800 }}>{resultValue}</div>
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            padding: "7mm 12mm 8mm",
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
-          <Section title="Certificate Summary">
-            <FieldGrid rows={summaryRows} columns={2} />
-          </Section>
-
-          {!!dateRows.length && (
-            <Section title="Inspection & Validity Dates">
-              <FieldGrid rows={dateRows} columns={4} />
-            </Section>
-          )}
-
-          <Section title="Equipment Identification">
-            <FieldGrid rows={identificationRows} columns={2} />
-          </Section>
-
-          {!!technicalRows.length && (
-            <Section title="Technical Details">
-              <FieldGrid rows={technicalRows} columns={2} />
-            </Section>
-          )}
-
-          {!!additionalRows.length && (
-            <Section title="Additional Extracted Information">
-              <FieldGrid rows={additionalRows} columns={2} />
-            </Section>
-          )}
-
-          {!!noteBlocks.length && (
-            <Section title="Comments, Findings & Remarks">
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                {noteBlocks.map((item) => (
-                  <NoteBlock
-                    key={item.title}
-                    title={item.title}
-                    value={item.value}
-                    tone={item.tone}
-                  />
-                ))}
-              </div>
-            </Section>
-          )}
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1.2fr 0.8fr",
-              gap: 10,
-              marginTop: "auto",
-              pageBreakInside: "avoid",
-            }}
-          >
-            <div
-              style={{
-                border: "1px solid #dbe3ee",
-                borderRadius: 10,
-                padding: "9px 10px",
-                background: "#f8fafc",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 8.2,
-                  fontWeight: 800,
-                  color: "#64748b",
-                  letterSpacing: "0.12em",
-                  textTransform: "uppercase",
-                  marginBottom: 4,
-                }}
-              >
-                Legal Framework
-              </div>
-              <div style={{ fontSize: 9.6, lineHeight: 1.45, color: "#0f172a", marginBottom: 8 }}>
-                {legalFramework}
-              </div>
-              <div style={{ fontSize: 8.8, lineHeight: 1.45, color: "#475569" }}>
-                This certificate is valid only for the equipment and period described above.
-              </div>
-            </div>
-
-            <div
-              style={{
-                border: "1px solid #dbe3ee",
-                borderRadius: 10,
-                padding: "9px 10px",
-                background: "#ffffff",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 8.2,
-                  fontWeight: 800,
-                  color: "#64748b",
-                  letterSpacing: "0.12em",
-                  textTransform: "uppercase",
-                  marginBottom: 5,
-                }}
-              >
-                Inspector Authorization
-              </div>
-
-              {cleanInlineValue(certRecord.signature_url) && (
-                <img
-                  src={certRecord.signature_url}
-                  alt="Inspector signature"
-                  style={{ height: 28, objectFit: "contain", marginBottom: 4 }}
-                  onError={(e) => {
-                    e.currentTarget.style.display = "none";
-                  }}
-                />
-              )}
-
-              <div style={{ fontSize: 11, fontWeight: 800, color: "#0f172a" }}>
-                {inspectorName}
-              </div>
-              <div style={{ fontSize: 9.2, color: "#475569", marginTop: 2 }}>ID: {inspectorId}</div>
-              <div style={{ fontSize: 9.2, color: "#475569", marginTop: 2 }}>
-                Contact: {CONTACT_DETAILS}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            background: "#0f172a",
-            color: "#cbd5e1",
-            padding: "5mm 12mm",
-            fontSize: 8,
-            lineHeight: 1.45,
-          }}
-        >
-          MONROY QMS PLATFORM • Mobile Crane Hire • Rigging • NDT Test • Scaffolding • Painting •
-          Inspection of Lifting Equipment and Machinery • Pressure Vessels & Air Receivers •
-          Mechanical Engineering • Maintenance
-        </div>
-      </div>
-    </>
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "3px 8px",
+        borderRadius: 4,
+        background: bg,
+        color,
+        border: `1px solid ${brd}`,
+        fontSize: 10,
+        fontWeight: 800,
+        letterSpacing: "0.06em",
+      }}
+    >
+      {label}
+    </span>
   );
 }
+
+function MiniPill({ value, color, bg, label }) {
+  return (
+    <span
+      style={{
+        fontSize: 11,
+        fontWeight: 800,
+        padding: "2px 8px",
+        borderRadius: 4,
+        background: bg,
+        color,
+      }}
+    >
+      {value} {label}
+    </span>
+  );
+}
+
+function Chevron({ open }) {
+  return (
+    <svg
+      style={{
+        flexShrink: 0,
+        transform: open ? "rotate(90deg)" : "rotate(0deg)",
+        transition: "transform .2s",
+        color: T.textDim,
+      }}
+      width="14"
+      height="14"
+      viewBox="0 0 14 14"
+      fill="none"
+    >
+      <path
+        d="M5 3l4 4-4 4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function LoadingState() {
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      {[1, 2, 3].map((i) => (
+        <div
+          key={i}
+          style={{
+            background: T.surface,
+            border: `1px solid ${T.border}`,
+            borderRadius: 12,
+            padding: "18px 20px",
+            opacity: 1 - i * 0.15,
+          }}
+        >
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <div
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: 8,
+                background: T.panel,
+              }}
+            />
+            <div style={{ flex: 1 }}>
+              <div
+                style={{
+                  width: 180,
+                  height: 13,
+                  borderRadius: 4,
+                  background: T.panel,
+                  marginBottom: 6,
+                }}
+              />
+              <div
+                style={{
+                  width: 120,
+                  height: 10,
+                  borderRadius: 4,
+                  background: T.panel,
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EmptyState({ hasFilters, onClear }) {
+  return (
+    <div
+      style={{
+        background: T.surface,
+        border: `1px solid ${T.border}`,
+        borderRadius: 12,
+        padding: "48px 24px",
+        textAlign: "center",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          color: T.textDim,
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          marginBottom: 12,
+        }}
+      >
+        No records found
+      </div>
+      <div style={{ fontSize: 13, color: T.textMid, marginBottom: hasFilters ? 20 : 0 }}>
+        {hasFilters
+          ? "No certificates match the active filters."
+          : "No certificates have been added yet."}
+      </div>
+
+      {hasFilters ? (
+        <button
+          type="button"
+          onClick={onClear}
+          style={{
+            ...btnGhost,
+            border: `1px solid ${T.borderMid}`,
+            cursor: "pointer",
+            fontFamily: "inherit",
+          }}
+        >
+          Clear filters
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+const filterLabel = {
+  fontSize: 10,
+  letterSpacing: "0.1em",
+  textTransform: "uppercase",
+  marginBottom: 6,
+};
+
+const inputBase = {
+  fontSize: 13,
+  color: T.text,
+  fontFamily: "'IBM Plex Mono', monospace",
+  padding: "2px 0",
+};
+
+const headCell = {
+  padding: "8px 12px",
+  fontSize: 10,
+  color: T.textDim,
+  fontWeight: 800,
+  letterSpacing: "0.1em",
+  textTransform: "uppercase",
+  borderBottom: `1px solid ${T.border}`,
+  whiteSpace: "nowrap",
+};
+
+const tdStyle = {
+  padding: "10px 12px",
+  borderBottom: `1px solid ${T.border}`,
+  verticalAlign: "middle",
+  fontSize: 12,
+  color: T.textMid,
+};
+
+const monoAccent = {
+  fontFamily: "'IBM Plex Mono', monospace",
+  fontSize: 12,
+  color: T.accent,
+};
+
+const monoDim = {
+  fontFamily: "'IBM Plex Mono', monospace",
+  fontSize: 11,
+  color: T.textMid,
+};
+
+function actionBtn(color, bg, brd) {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "5px 10px",
+    borderRadius: 6,
+    background: bg,
+    border: `1px solid ${brd}`,
+    color,
+    fontSize: 11,
+    fontWeight: 700,
+    textDecoration: "none",
+    letterSpacing: "0.04em",
+    fontFamily: "'IBM Plex Mono', monospace",
+  };
+}
+
+const btnGhost = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "8px 14px",
+  borderRadius: 8,
+  background: "transparent",
+  color: T.textMid,
+  fontSize: 12,
+  fontWeight: 700,
+  textDecoration: "none",
+  letterSpacing: "0.04em",
+  fontFamily: "'IBM Plex Sans', sans-serif",
+};
+
+const btnAccent = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "8px 14px",
+  borderRadius: 8,
+  background: T.accent,
+  color: "#fff",
+  fontSize: 12,
+  fontWeight: 700,
+  textDecoration: "none",
+  letterSpacing: "0.04em",
+  fontFamily: "'IBM Plex Sans', sans-serif",
+};
