@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -11,52 +11,150 @@ const DEFAULT_LEGAL_FRAMEWORK =
 const CONTACT_DETAILS = "+267 77906461 / +267 71450610";
 
 function resolveCertTitle(certType = "", assetType = "") {
-  const ct = String(certType).toLowerCase();
-  const at = String(assetType).toLowerCase();
+  const ct = String(certType || "").toLowerCase();
+  const at = String(assetType || "").toLowerCase();
   const pressureWords = [
     "pressure",
     "boiler",
     "air receiver",
     "air compressor",
     "oil separator",
+    "vessel",
   ];
-  const isPressure = pressureWords.some(
-    (w) => ct.includes(w) || at.includes(w)
-  );
+
+  const isPressure = pressureWords.some((word) => ct.includes(word) || at.includes(word));
+
   return isPressure
     ? "Pressure Test Certificate"
     : "Load Test Certificate – Lifting Equipment";
 }
 
 function buildCertNumber(cert, asset) {
-  if (cert?.certificate_number) return cert.certificate_number;
-  const serial = (asset?.serial_number || asset?.asset_tag || "XX")
+  if (cleanInlineValue(cert?.certificate_number)) return cert.certificate_number;
+
+  const serial = String(asset?.serial_number || asset?.asset_tag || "XX")
     .replace(/\s+/g, "-")
     .toUpperCase();
+
   const seq = cert?.sequence_number
     ? String(cert.sequence_number).padStart(2, "0")
     : "01";
+
   return `CERT-${serial}-${seq}`;
 }
 
-function val(v) {
-  if (v === null || v === undefined) return null;
-  const s = String(v).trim();
-  return s === "" || s === "Unknown" ? null : s;
+function cleanInlineValue(value) {
+  if (value === null || value === undefined) return null;
+
+  if (typeof value === "object") {
+    const text = stringifyComplexValue(value);
+    return text || null;
+  }
+
+  const text = String(value)
+    .replace(/[\t ]+/g, " ")
+    .trim();
+
+  if (!text) return null;
+
+  const lowered = text.toLowerCase();
+  if (["unknown", "null", "undefined", "n/a", "na", "-"].includes(lowered)) {
+    return null;
+  }
+
+  return text;
+}
+
+function cleanBlockValue(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "object") return stringifyComplexValue(value) || null;
+
+  const text = String(value)
+    .replace(/\r/g, "\n")
+    .replace(/[\t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (!text) return null;
+
+  const lowered = text.toLowerCase();
+  if (["unknown", "null", "undefined", "n/a", "na", "-"].includes(lowered)) {
+    return null;
+  }
+
+  return text;
+}
+
+function stringifyComplexValue(value) {
+  if (value === null || value === undefined) return null;
+
+  if (Array.isArray(value)) {
+    const items = value
+      .map((item) => cleanInlineValue(item))
+      .filter(Boolean);
+
+    return items.length ? items.join(", ") : null;
+  }
+
+  if (typeof value === "object") {
+    const parts = Object.entries(value)
+      .map(([key, item]) => {
+        const cleaned = cleanInlineValue(item);
+        return cleaned ? `${toLabel(key)}: ${cleaned}` : null;
+      })
+      .filter(Boolean);
+
+    return parts.length ? parts.join(" | ") : null;
+  }
+
+  return cleanInlineValue(value);
+}
+
+function pickInline(...values) {
+  for (const value of values) {
+    const cleaned = cleanInlineValue(value);
+    if (cleaned) return cleaned;
+  }
+  return null;
+}
+
+function pickBlock(...values) {
+  for (const value of values) {
+    const cleaned = cleanBlockValue(value);
+    if (cleaned) return cleaned;
+  }
+  return null;
 }
 
 function dateLabel(value) {
-  if (!value) return null;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value);
-  return d.toLocaleDateString("en-GB", {
+  const text = cleanInlineValue(value);
+  if (!text) return null;
+
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return text;
+
+  return date.toLocaleDateString("en-GB", {
     day: "2-digit",
-    month: "long",
+    month: "short",
     year: "numeric",
   });
 }
 
-function renderDynamicRows(extractedData) {
+function toLabel(key = "") {
+  return String(key)
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function pushField(rows, label, ...values) {
+  const value = pickInline(...values);
+  if (!value) return;
+  rows.push({ label, value });
+}
+
+function buildDynamicRows(extractedData, usedKeys = new Set()) {
   if (!extractedData || typeof extractedData !== "object") return [];
 
   const ignoredKeys = new Set([
@@ -64,6 +162,9 @@ function renderDynamicRows(extractedData) {
     "model",
     "serial_number",
     "identification_number",
+    "inspection_number",
+    "inspection_no",
+    "asset_tag",
     "year_built",
     "country_of_origin",
     "capacity",
@@ -72,44 +173,221 @@ function renderDynamicRows(extractedData) {
     "working_pressure",
     "design_pressure",
     "test_pressure",
+    "pressure_unit",
     "safe_working_load",
+    "working_load_limit",
+    "swl",
     "proof_load",
+    "lift_height",
     "lifting_height",
     "sling_length",
     "chain_size",
     "rope_diameter",
     "equipment_type",
+    "equipment_description",
+    "certificate_number",
+    "certificate_type",
+    "client_name",
+    "location",
+    "inspection_date",
+    "issue_date",
+    "expiry_date",
+    "next_inspection_due",
+    "result",
+    "status",
+    "comments",
+    "defects_found",
+    "recommendations",
+    "nameplate_data",
+    "raw_text_summary",
     "plate_text",
     "other_visible_data",
   ]);
 
   const rows = [];
+  const seenLabels = new Set();
 
-  Object.entries(extractedData).forEach(([key, value]) => {
-    if (ignoredKeys.has(key)) return;
-    if (value === undefined || value === null || String(value).trim() === "") return;
+  const appendRow = (key, value) => {
+    if (ignoredKeys.has(key) || usedKeys.has(key)) return;
+    const cleaned = cleanInlineValue(value);
+    if (!cleaned) return;
 
-    rows.push({
-      label: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-      value: typeof value === "object" ? JSON.stringify(value) : String(value),
-    });
-  });
+    const label = toLabel(key);
+    const labelKey = label.toLowerCase();
+    if (seenLabels.has(labelKey)) return;
+
+    seenLabels.add(labelKey);
+    rows.push({ label, value: cleaned });
+  };
+
+  Object.entries(extractedData).forEach(([key, value]) => appendRow(key, value));
 
   if (
     extractedData.other_visible_data &&
     typeof extractedData.other_visible_data === "object"
   ) {
     Object.entries(extractedData.other_visible_data).forEach(([key, value]) => {
-      if (value === undefined || value === null || String(value).trim() === "") return;
-
-      rows.push({
-        label: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-        value: typeof value === "object" ? JSON.stringify(value) : String(value),
-      });
+      appendRow(key, value);
     });
   }
 
   return rows;
+}
+
+function FieldGrid({ rows, columns = 2 }) {
+  if (!rows.length) return null;
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+        gap: 8,
+      }}
+    >
+      {rows.map((row) => (
+        <div
+          key={`${row.label}-${row.value}`}
+          style={{
+            border: "1px solid #dbe3ee",
+            borderRadius: 8,
+            padding: "7px 9px",
+            background: "#fff",
+            minHeight: 48,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 8.4,
+              fontWeight: 800,
+              color: "#64748b",
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              marginBottom: 4,
+            }}
+          >
+            {row.label}
+          </div>
+          <div
+            style={{
+              fontSize: 10.2,
+              lineHeight: 1.35,
+              color: "#0f172a",
+              wordBreak: "break-word",
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {row.value}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Section({ title, children }) {
+  if (!children) return null;
+
+  return (
+    <div
+      style={{
+        border: "1px solid #d9e2ec",
+        borderRadius: 10,
+        overflow: "hidden",
+        marginBottom: 10,
+        pageBreakInside: "avoid",
+      }}
+    >
+      <div
+        style={{
+          background: "#17365d",
+          color: "#dbeafe",
+          padding: "7px 12px",
+          fontSize: 8.8,
+          fontWeight: 800,
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+        }}
+      >
+        {title}
+      </div>
+      <div style={{ padding: 10, background: "#f8fafc" }}>{children}</div>
+    </div>
+  );
+}
+
+function NoteBlock({ title, value, tone = "neutral" }) {
+  if (!value) return null;
+
+  const toneMap = {
+    neutral: {
+      background: "#f8fafc",
+      border: "#dbe3ee",
+      title: "#475569",
+      text: "#0f172a",
+    },
+    blue: {
+      background: "#eff6ff",
+      border: "#bfdbfe",
+      title: "#1d4ed8",
+      text: "#1e3a8a",
+    },
+    red: {
+      background: "#fef2f2",
+      border: "#fecaca",
+      title: "#dc2626",
+      text: "#7f1d1d",
+    },
+    amber: {
+      background: "#fffbeb",
+      border: "#fde68a",
+      title: "#b45309",
+      text: "#78350f",
+    },
+    green: {
+      background: "#ecfdf5",
+      border: "#a7f3d0",
+      title: "#047857",
+      text: "#065f46",
+    },
+  };
+
+  const palette = toneMap[tone] || toneMap.neutral;
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${palette.border}`,
+        borderRadius: 8,
+        padding: "8px 10px",
+        background: palette.background,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 8.2,
+          fontWeight: 800,
+          color: palette.title,
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          marginBottom: 4,
+        }}
+      >
+        {title}
+      </div>
+      <div
+        style={{
+          fontSize: 10,
+          lineHeight: 1.4,
+          color: palette.text,
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
 }
 
 export default function PrintCertificatePage() {
@@ -129,7 +407,7 @@ export default function PrintCertificatePage() {
       }
 
       try {
-        const { data, error } = await supabase
+        const { data, error: fetchError } = await supabase
           .from("certificates")
           .select(
             `
@@ -176,7 +454,7 @@ export default function PrintCertificatePage() {
           .eq("id", id)
           .single();
 
-        if (error) throw new Error(error.message || "Certificate not found.");
+        if (fetchError) throw new Error(fetchError.message || "Certificate not found.");
         if (!data) throw new Error("Certificate not found.");
 
         setCert(data);
@@ -190,9 +468,386 @@ export default function PrintCertificatePage() {
     load();
   }, [id]);
 
+  const model = useMemo(() => {
+    if (!cert) return null;
+
+    const asset = cert.assets || {};
+    const client = asset.clients || {};
+    const extracted = cert.extracted_data || {};
+
+    const certTitle = resolveCertTitle(
+      pickInline(cert.certificate_type, extracted.certificate_type),
+      pickInline(cert.equipment_type, asset.asset_type, extracted.equipment_type)
+    );
+
+    const isPressure = certTitle.toLowerCase().includes("pressure");
+    const certNumber = buildCertNumber(cert, asset);
+
+    const inspectorName = pickInline(
+      cert.inspector_name,
+      extracted.inspector_name,
+      asset.inspector_name,
+      DEFAULT_INSPECTOR_NAME
+    );
+
+    const inspectorId = pickInline(cert.inspector_id, asset.inspector_id, DEFAULT_INSPECTOR_ID);
+
+    const legalFramework = pickBlock(
+      cert.legal_framework,
+      extracted.legal_framework,
+      DEFAULT_LEGAL_FRAMEWORK
+    );
+
+    const summaryRows = [];
+    pushField(
+      summaryRows,
+      "Company / Client",
+      cert.client_name,
+      cert.company,
+      client.company_name,
+      client.company_code,
+      extracted.client_name
+    );
+    pushField(summaryRows, "Certificate Number", certNumber);
+    pushField(
+      summaryRows,
+      "Certificate Type",
+      cert.certificate_type,
+      extracted.certificate_type,
+      certTitle
+    );
+    pushField(
+      summaryRows,
+      "Equipment Type",
+      cert.equipment_type,
+      cert.asset_type,
+      extracted.equipment_type,
+      asset.asset_type
+    );
+    pushField(
+      summaryRows,
+      "Equipment Description",
+      cert.equipment_description,
+      cert.asset_name,
+      extracted.equipment_description,
+      asset.asset_name,
+      asset.asset_type
+    );
+    pushField(summaryRows, "Result", cert.result, cert.equipment_status, extracted.result);
+    pushField(summaryRows, "Lifecycle Status", cert.status, extracted.status);
+    pushField(
+      summaryRows,
+      "Inspection Body",
+      cert.inspection_body,
+      extracted.inspection_body,
+      "Monroy (Pty) Ltd"
+    );
+
+    const identificationRows = [];
+    pushField(identificationRows, "Asset Tag", cert.asset_tag, asset.asset_tag, extracted.asset_tag);
+    pushField(
+      identificationRows,
+      "Equipment ID / Serial",
+      cert.equipment_id,
+      cert.serial_number,
+      asset.equipment_id,
+      asset.serial_number,
+      extracted.serial_number
+    );
+    pushField(
+      identificationRows,
+      "Identification Number",
+      cert.identification_number,
+      asset.identification_number,
+      extracted.identification_number
+    );
+    pushField(
+      identificationRows,
+      "Inspection No.",
+      cert.inspection_number,
+      cert.inspection_no,
+      asset.inspection_no,
+      extracted.inspection_number,
+      extracted.inspection_no
+    );
+    pushField(
+      identificationRows,
+      "Lanyard Serial No.",
+      cert.lanyard_serial_no,
+      asset.lanyard_serial_no,
+      extracted.lanyard_serial_no
+    );
+    pushField(
+      identificationRows,
+      "Manufacturer",
+      cert.manufacturer,
+      extracted.manufacturer,
+      asset.manufacturer
+    );
+    pushField(identificationRows, "Model", cert.model, extracted.model, asset.model);
+    pushField(
+      identificationRows,
+      "Year Built",
+      cert.year_built,
+      extracted.year_built,
+      asset.year_built
+    );
+    pushField(
+      identificationRows,
+      "Country of Origin",
+      cert.country_of_origin,
+      extracted.country_of_origin,
+      asset.country_of_origin
+    );
+    pushField(
+      identificationRows,
+      "Location",
+      cert.location,
+      cert.equipment_location,
+      extracted.location,
+      asset.location
+    );
+    pushField(identificationRows, "Department", cert.department, asset.department, extracted.department);
+
+    const technicalRows = [];
+    pushField(
+      technicalRows,
+      "Capacity / Volume",
+      cert.capacity_volume,
+      cert.capacity,
+      extracted.capacity_volume,
+      extracted.capacity,
+      asset.capacity_volume
+    );
+
+    if (isPressure) {
+      pushField(
+        technicalRows,
+        "MAWP / Working Pressure",
+        cert.working_pressure,
+        cert.mawp,
+        extracted.working_pressure,
+        extracted.mawp,
+        extracted.pressure,
+        asset.working_pressure
+      );
+      pushField(
+        technicalRows,
+        "Design Pressure",
+        cert.design_pressure,
+        extracted.design_pressure,
+        asset.design_pressure
+      );
+      pushField(
+        technicalRows,
+        "Test Pressure",
+        cert.test_pressure,
+        extracted.test_pressure,
+        asset.test_pressure
+      );
+      pushField(technicalRows, "Pressure Unit", cert.pressure_unit, extracted.pressure_unit);
+      pushField(
+        technicalRows,
+        "Design Temperature",
+        cert.design_temperature,
+        extracted.design_temperature,
+        asset.design_temperature
+      );
+      pushField(
+        technicalRows,
+        "Shell Material",
+        cert.material,
+        cert.shell_material,
+        extracted.material,
+        asset.shell_material
+      );
+      pushField(
+        technicalRows,
+        "Fluid Type",
+        cert.fluid_type,
+        extracted.fluid_type,
+        asset.fluid_type
+      );
+    } else {
+      pushField(
+        technicalRows,
+        "Safe Working Load (SWL)",
+        cert.swl,
+        extracted.swl,
+        extracted.safe_working_load,
+        extracted.working_load_limit,
+        asset.safe_working_load
+      );
+      pushField(technicalRows, "Proof Load", cert.proof_load, extracted.proof_load, asset.proof_load);
+      pushField(
+        technicalRows,
+        "Lift Height",
+        cert.lift_height,
+        cert.lifting_height,
+        extracted.lift_height,
+        extracted.lifting_height,
+        asset.lifting_height
+      );
+      pushField(
+        technicalRows,
+        "Sling Length",
+        cert.sling_length,
+        extracted.sling_length,
+        asset.sling_length
+      );
+      pushField(technicalRows, "Chain Size", cert.chain_size, extracted.chain_size, asset.chain_size);
+      pushField(
+        technicalRows,
+        "Rope Diameter",
+        cert.rope_diameter,
+        extracted.rope_diameter,
+        asset.rope_diameter
+      );
+    }
+
+    pushField(technicalRows, "Standard / Code", cert.standard_code, extracted.standard_code);
+
+    const dateRows = [];
+    pushField(
+      dateRows,
+      "Date of Inspection",
+      dateLabel(cert.inspection_date || extracted.inspection_date)
+    );
+    pushField(
+      dateRows,
+      "Date of Issue",
+      dateLabel(cert.issue_date || cert.issued_at || extracted.issue_date)
+    );
+    pushField(
+      dateRows,
+      "Expiry Date",
+      dateLabel(cert.expiry_date || cert.valid_to || extracted.expiry_date)
+    );
+    pushField(
+      dateRows,
+      "Next Inspection Due",
+      dateLabel(cert.next_inspection_due || extracted.next_inspection_due)
+    );
+
+    const noteBlocks = [
+      {
+        title: "Comments",
+        value: pickBlock(cert.comments, extracted.comments),
+        tone: "blue",
+      },
+      {
+        title: "Defects Found",
+        value: pickBlock(cert.defects_found, extracted.defects_found),
+        tone: "red",
+      },
+      {
+        title: "Recommendations",
+        value: pickBlock(cert.recommendations, extracted.recommendations),
+        tone: "amber",
+      },
+      {
+        title: "Nameplate Data",
+        value: pickBlock(cert.nameplate_data, extracted.nameplate_data, extracted.plate_text),
+        tone: "green",
+      },
+      {
+        title: "Raw Text Summary",
+        value: pickBlock(cert.raw_text_summary, extracted.raw_text_summary),
+        tone: "neutral",
+      },
+    ].filter((item) => item.value);
+
+    const usedExtractedKeys = new Set([
+      "certificate_number",
+      "certificate_type",
+      "equipment_type",
+      "equipment_description",
+      "result",
+      "status",
+      "inspection_body",
+      "asset_tag",
+      "serial_number",
+      "identification_number",
+      "inspection_number",
+      "inspection_no",
+      "lanyard_serial_no",
+      "manufacturer",
+      "model",
+      "year_built",
+      "country_of_origin",
+      "location",
+      "department",
+      "capacity",
+      "capacity_volume",
+      "working_pressure",
+      "mawp",
+      "design_pressure",
+      "test_pressure",
+      "pressure_unit",
+      "design_temperature",
+      "material",
+      "fluid_type",
+      "swl",
+      "safe_working_load",
+      "working_load_limit",
+      "proof_load",
+      "lift_height",
+      "lifting_height",
+      "sling_length",
+      "chain_size",
+      "rope_diameter",
+      "standard_code",
+      "inspection_date",
+      "issue_date",
+      "expiry_date",
+      "next_inspection_due",
+      "comments",
+      "defects_found",
+      "recommendations",
+      "nameplate_data",
+      "raw_text_summary",
+      "plate_text",
+      "client_name",
+      "legal_framework",
+      "inspector_name",
+    ]);
+
+    const additionalRows = buildDynamicRows(extracted, usedExtractedKeys);
+
+    const resultValue =
+      pickInline(cert.result, cert.equipment_status, extracted.result, "UNKNOWN") || "UNKNOWN";
+    const resultKey = String(resultValue).toUpperCase();
+    const resultPalette =
+      resultKey === "PASS"
+        ? { color: "#065f46", bg: "#ecfdf5", border: "#86efac" }
+        : resultKey === "FAIL"
+          ? { color: "#991b1b", bg: "#fef2f2", border: "#fca5a5" }
+          : { color: "#92400e", bg: "#fffbeb", border: "#fcd34d" };
+
+    return {
+      cert,
+      asset,
+      client,
+      extracted,
+      certTitle,
+      certNumber,
+      inspectorName,
+      inspectorId,
+      legalFramework,
+      summaryRows,
+      identificationRows,
+      technicalRows,
+      dateRows,
+      noteBlocks,
+      additionalRows,
+      resultValue,
+      resultPalette,
+    };
+  }, [cert]);
+
   if (loading) {
     return (
-      <div style={{ padding: 40, fontFamily: "sans-serif", color: "#334155" }}>
+      <div style={{ padding: 40, fontFamily: "Arial, sans-serif", color: "#334155" }}>
         Loading certificate...
       </div>
     );
@@ -200,256 +855,74 @@ export default function PrintCertificatePage() {
 
   if (error) {
     return (
-      <div style={{ padding: 40, color: "red", fontFamily: "sans-serif" }}>
+      <div style={{ padding: 40, color: "#dc2626", fontFamily: "Arial, sans-serif" }}>
         {error}
       </div>
     );
   }
 
-  if (!cert) {
+  if (!model) {
     return (
-      <div style={{ padding: 40, color: "#64748b", fontFamily: "sans-serif" }}>
+      <div style={{ padding: 40, color: "#64748b", fontFamily: "Arial, sans-serif" }}>
         Certificate not found.
       </div>
     );
   }
 
-  const asset = cert.assets || {};
-  const client = asset.clients || {};
-
-  const certTitle = resolveCertTitle(cert.certificate_type, asset.asset_type);
-  const certNumber = buildCertNumber(cert, asset);
-
-  const inspectorName =
-    val(cert.inspector_name) ||
-    val(asset.inspector_name) ||
-    DEFAULT_INSPECTOR_NAME;
-
-  const inspectorId =
-    val(cert.inspector_id) ||
-    val(asset.inspector_id) ||
-    DEFAULT_INSPECTOR_ID;
-
-  const legalFramework =
-    val(cert.legal_framework) ||
-    DEFAULT_LEGAL_FRAMEWORK;
-
-  const issueDate = dateLabel(cert.issued_at);
-  const expiryDate = dateLabel(cert.valid_to);
-
-  const isPressure = certTitle.toLowerCase().includes("pressure");
-
-  const equipmentRows = [
-    {
-      label: "Company / Client",
-      value: val(cert.company) || val(client.company_name),
-    },
-    {
-      label: "Equipment Description",
-      value:
-        val(cert.equipment_description) ||
-        val(cert.extracted_data?.equipment_type) ||
-        val(asset.asset_type) ||
-        val(asset.asset_name),
-    },
-    {
-      label: "Equipment Location",
-      value: val(cert.equipment_location) || val(asset.location),
-    },
-    { label: "Department", value: val(asset.department) },
-    {
-      label: "Equipment ID / Serial",
-      value:
-        val(cert.equipment_id) ||
-        val(cert.extracted_data?.serial_number) ||
-        val(asset.equipment_id) ||
-        val(asset.serial_number) ||
-        val(asset.asset_tag),
-    },
-    {
-      label: "Identification Number",
-      value:
-        val(cert.identification_number) ||
-        val(cert.extracted_data?.identification_number) ||
-        val(asset.identification_number),
-    },
-    {
-      label: "Inspection No.",
-      value: val(cert.inspection_no) || val(asset.inspection_no),
-    },
-    {
-      label: "Lanyard Serial No.",
-      value: val(cert.lanyard_serial_no) || val(asset.lanyard_serial_no),
-    },
-    {
-      label: "Manufacturer",
-      value:
-        val(cert.manufacturer) ||
-        val(cert.extracted_data?.manufacturer) ||
-        val(asset.manufacturer),
-    },
-    {
-      label: "Model",
-      value:
-        val(cert.model) ||
-        val(cert.extracted_data?.model) ||
-        val(asset.model),
-    },
-    {
-      label: "Year Built",
-      value:
-        val(cert.year_built) ||
-        val(cert.extracted_data?.year_built) ||
-        val(asset.year_built),
-    },
-    {
-      label: "Country of Origin",
-      value:
-        val(cert.country_of_origin) ||
-        val(cert.extracted_data?.country_of_origin) ||
-        val(asset.country_of_origin),
-    },
-    {
-      label: "Capacity / Volume",
-      value:
-        val(cert.capacity) ||
-        val(cert.extracted_data?.capacity) ||
-        val(cert.extracted_data?.capacity_volume) ||
-        val(asset.capacity_volume),
-    },
-
-    isPressure
-      ? {
-          label: "MAWP",
-          value:
-            val(cert.mawp) ||
-            val(cert.extracted_data?.mawp) ||
-            val(cert.extracted_data?.working_pressure) ||
-            val(cert.extracted_data?.pressure) ||
-            val(asset.working_pressure),
-        }
-      : null,
-    isPressure
-      ? {
-          label: "Design Pressure",
-          value:
-            val(cert.design_pressure) ||
-            val(cert.extracted_data?.design_pressure) ||
-            val(asset.design_pressure),
-        }
-      : null,
-    isPressure
-      ? {
-          label: "Test Pressure",
-          value:
-            val(cert.test_pressure) ||
-            val(cert.extracted_data?.test_pressure) ||
-            val(asset.test_pressure),
-        }
-      : null,
-    isPressure
-      ? { label: "Design Temperature", value: val(asset.design_temperature) }
-      : null,
-    isPressure ? { label: "Shell Material", value: val(asset.shell_material) } : null,
-    isPressure ? { label: "Fluid Type", value: val(asset.fluid_type) } : null,
-
-    !isPressure
-      ? {
-          label: "Safe Working Load (SWL)",
-          value:
-            val(cert.swl) ||
-            val(cert.extracted_data?.swl) ||
-            val(cert.extracted_data?.safe_working_load) ||
-            val(cert.extracted_data?.working_load_limit) ||
-            val(asset.safe_working_load),
-        }
-      : null,
-    !isPressure
-      ? {
-          label: "Proof Load",
-          value:
-            val(cert.proof_load) ||
-            val(cert.extracted_data?.proof_load) ||
-            val(asset.proof_load),
-        }
-      : null,
-    !isPressure
-      ? {
-          label: "Lifting Height",
-          value:
-            val(cert.lifting_height) ||
-            val(cert.extracted_data?.lifting_height) ||
-            val(asset.lifting_height),
-        }
-      : null,
-    !isPressure
-      ? {
-          label: "Sling Length",
-          value:
-            val(cert.sling_length) ||
-            val(cert.extracted_data?.sling_length) ||
-            val(asset.sling_length),
-        }
-      : null,
-    !isPressure
-      ? {
-          label: "Chain Size",
-          value:
-            val(cert.chain_size) ||
-            val(cert.extracted_data?.chain_size) ||
-            val(asset.chain_size),
-        }
-      : null,
-    !isPressure
-      ? {
-          label: "Rope Diameter",
-          value:
-            val(cert.rope_diameter) ||
-            val(cert.extracted_data?.rope_diameter) ||
-            val(asset.rope_diameter),
-        }
-      : null,
-  ]
-    .filter(Boolean)
-    .filter((r) => r.value);
-
-  const dynamicRows = renderDynamicRows(cert.extracted_data);
-  const allRows = [...equipmentRows, ...dynamicRows];
-
-  const statusColor =
-    cert.equipment_status === "PASS"
-      ? "#16a34a"
-      : cert.equipment_status === "FAIL"
-      ? "#dc2626"
-      : "#d97706";
+  const {
+    cert: certRecord,
+    certTitle,
+    certNumber,
+    inspectorName,
+    inspectorId,
+    legalFramework,
+    summaryRows,
+    identificationRows,
+    technicalRows,
+    dateRows,
+    noteBlocks,
+    additionalRows,
+    resultValue,
+    resultPalette,
+  } = model;
 
   return (
     <>
       <style>{`
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Inter', sans-serif; background: #f0f4f8; }
+        html, body {
+          margin: 0;
+          padding: 0;
+          font-family: Arial, Helvetica, sans-serif;
+          background: #e2e8f0;
+        }
 
         * {
+          box-sizing: border-box;
           -webkit-print-color-adjust: exact !important;
           print-color-adjust: exact !important;
           color-adjust: exact !important;
         }
 
-        @media print {
-          body { background: white; margin: 0; padding: 0; }
-          .no-print { display: none !important; }
+        @page {
+          size: A4 portrait;
+          margin: 0;
+        }
 
-          @page {
-            size: A4 portrait;
-            margin: 0;
+        @media print {
+          html, body {
+            background: #ffffff;
+          }
+
+          .no-print {
+            display: none !important;
           }
 
           .page {
-            box-shadow: none !important;
             margin: 0 !important;
+            width: 210mm !important;
+            min-height: 297mm !important;
+            box-shadow: none !important;
             border-radius: 0 !important;
-            width: 100% !important;
-            min-height: 100vh !important;
           }
         }
       `}</style>
@@ -457,69 +930,64 @@ export default function PrintCertificatePage() {
       <div
         className="no-print"
         style={{
-          background: "#1e293b",
-          padding: "12px 24px",
+          background: "#0f172a",
+          color: "#cbd5e1",
+          padding: "12px 22px",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
         }}
       >
-        <span style={{ color: "#94a3b8", fontSize: 13 }}>Certificate Preview</span>
+        <div style={{ fontSize: 13 }}>Certificate Preview</div>
         <button
+          type="button"
           onClick={() => window.print()}
           style={{
-            padding: "9px 24px",
-            borderRadius: 8,
             border: "none",
-            background: "linear-gradient(135deg,#667eea,#764ba2)",
-            color: "#fff",
+            borderRadius: 8,
+            padding: "9px 18px",
+            background: "linear-gradient(135deg,#2563eb,#0ea5e9)",
+            color: "#ffffff",
             fontWeight: 700,
             cursor: "pointer",
-            fontSize: 13,
           }}
         >
-          🖨 Print / Save PDF
+          Print / Save PDF
         </button>
       </div>
 
       <div
         className="page"
         style={{
-          width: 794,
-          minHeight: 1123,
-          margin: "24px auto",
-          background: "#fff",
-          borderRadius: 4,
-          boxShadow: "0 4px 40px rgba(0,0,0,0.18)",
-          overflow: "hidden",
+          width: "210mm",
+          minHeight: "297mm",
+          margin: "14px auto",
+          background: "#ffffff",
+          boxShadow: "0 10px 40px rgba(15,23,42,0.18)",
           display: "flex",
           flexDirection: "column",
+          overflow: "hidden",
         }}
       >
-        <div
-          style={{
-            height: 8,
-            background: "linear-gradient(90deg,#1e3a5f,#2563eb,#00b4d8)",
-            flexShrink: 0,
-          }}
-        />
+        <div style={{ height: 6, background: "linear-gradient(90deg,#17365d,#2563eb,#06b6d4)" }} />
 
         <div
           style={{
-            padding: "28px 48px 20px",
-            flexShrink: 0,
-            background: "linear-gradient(135deg,#1e3a5f 0%,#1e40af 60%,#0ea5e9 100%)",
-            display: "flex",
-            justifyContent: "space-between",
+            padding: "10mm 12mm 7mm",
+            background: "linear-gradient(135deg,#17365d 0%,#1d4ed8 70%,#0ea5e9 100%)",
+            color: "#ffffff",
+            display: "grid",
+            gridTemplateColumns: "1.3fr 0.7fr",
+            gap: 12,
             alignItems: "center",
           }}
         >
           <div>
-            {val(cert.logo_url) && (
+            {cleanInlineValue(certRecord.logo_url) && (
               <img
-                src={cert.logo_url}
-                alt="Logo"
-                style={{ height: 52, marginBottom: 10, objectFit: "contain" }}
+                src={certRecord.logo_url}
+                alt="Monroy logo"
+                style={{ height: 42, objectFit: "contain", marginBottom: 6 }}
                 onError={(e) => {
                   e.currentTarget.style.display = "none";
                 }}
@@ -527,46 +995,205 @@ export default function PrintCertificatePage() {
             )}
             <div
               style={{
-                color: "#bfdbfe",
-                fontSize: 10,
-                letterSpacing: "0.2em",
+                fontSize: 8.5,
+                letterSpacing: "0.18em",
                 textTransform: "uppercase",
-                fontWeight: 600,
+                color: "#dbeafe",
+                fontWeight: 700,
               }}
             >
               Quality Management System
             </div>
+            <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.1, marginTop: 4 }}>
+              {certTitle}
+            </div>
+            <div
+              style={{
+                fontSize: 10,
+                lineHeight: 1.45,
+                color: "#dbeafe",
+                marginTop: 6,
+                maxWidth: 430,
+              }}
+            >
+              This is to certify that the equipment described below has been inspected and
+              tested in accordance with the applicable standards and regulations.
+            </div>
           </div>
 
-          <div style={{ textAlign: "right" }}>
+          <div style={{ display: "grid", gap: 8 }}>
             <div
               style={{
                 background: "rgba(255,255,255,0.12)",
-                border: "1px solid rgba(255,255,255,0.2)",
+                border: "1px solid rgba(255,255,255,0.24)",
                 borderRadius: 8,
-                padding: "10px 18px",
+                padding: "8px 10px",
               }}
             >
               <div
                 style={{
-                  color: "#bfdbfe",
-                  fontSize: 9,
-                  letterSpacing: "0.15em",
+                  fontSize: 8,
+                  letterSpacing: "0.12em",
                   textTransform: "uppercase",
-                  marginBottom: 4,
+                  color: "#dbeafe",
+                  marginBottom: 3,
+                  fontWeight: 700,
                 }}
               >
                 Certificate No.
               </div>
+              <div style={{ fontSize: 12.2, fontWeight: 800 }}>{certNumber}</div>
+            </div>
+
+            <div
+              style={{
+                background: resultPalette.bg,
+                color: resultPalette.color,
+                border: `1px solid ${resultPalette.border}`,
+                borderRadius: 8,
+                padding: "8px 10px",
+              }}
+            >
               <div
                 style={{
-                  color: "#fff",
-                  fontSize: 15,
-                  fontWeight: 800,
-                  letterSpacing: "0.05em",
+                  fontSize: 8,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  marginBottom: 3,
+                  fontWeight: 700,
                 }}
               >
-                {certNumber}
+                Result
+              </div>
+              <div style={{ fontSize: 12.5, fontWeight: 800 }}>{resultValue}</div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            padding: "7mm 12mm 8mm",
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <Section title="Certificate Summary">
+            <FieldGrid rows={summaryRows} columns={2} />
+          </Section>
+
+          {!!dateRows.length && (
+            <Section title="Inspection & Validity Dates">
+              <FieldGrid rows={dateRows} columns={4} />
+            </Section>
+          )}
+
+          <Section title="Equipment Identification">
+            <FieldGrid rows={identificationRows} columns={2} />
+          </Section>
+
+          {!!technicalRows.length && (
+            <Section title="Technical Details">
+              <FieldGrid rows={technicalRows} columns={2} />
+            </Section>
+          )}
+
+          {!!additionalRows.length && (
+            <Section title="Additional Extracted Information">
+              <FieldGrid rows={additionalRows} columns={2} />
+            </Section>
+          )}
+
+          {!!noteBlocks.length && (
+            <Section title="Comments, Findings & Remarks">
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {noteBlocks.map((item) => (
+                  <NoteBlock
+                    key={item.title}
+                    title={item.title}
+                    value={item.value}
+                    tone={item.tone}
+                  />
+                ))}
+              </div>
+            </Section>
+          )}
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1.2fr 0.8fr",
+              gap: 10,
+              marginTop: "auto",
+              pageBreakInside: "avoid",
+            }}
+          >
+            <div
+              style={{
+                border: "1px solid #dbe3ee",
+                borderRadius: 10,
+                padding: "9px 10px",
+                background: "#f8fafc",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 8.2,
+                  fontWeight: 800,
+                  color: "#64748b",
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  marginBottom: 4,
+                }}
+              >
+                Legal Framework
+              </div>
+              <div style={{ fontSize: 9.6, lineHeight: 1.45, color: "#0f172a", marginBottom: 8 }}>
+                {legalFramework}
+              </div>
+              <div style={{ fontSize: 8.8, lineHeight: 1.45, color: "#475569" }}>
+                This certificate is valid only for the equipment and period described above.
+              </div>
+            </div>
+
+            <div
+              style={{
+                border: "1px solid #dbe3ee",
+                borderRadius: 10,
+                padding: "9px 10px",
+                background: "#ffffff",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 8.2,
+                  fontWeight: 800,
+                  color: "#64748b",
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  marginBottom: 5,
+                }}
+              >
+                Inspector Authorization
+              </div>
+
+              {cleanInlineValue(certRecord.signature_url) && (
+                <img
+                  src={certRecord.signature_url}
+                  alt="Inspector signature"
+                  style={{ height: 28, objectFit: "contain", marginBottom: 4 }}
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              )}
+
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#0f172a" }}>
+                {inspectorName}
+              </div>
+              <div style={{ fontSize: 9.2, color: "#475569", marginTop: 2 }}>ID: {inspectorId}</div>
+              <div style={{ fontSize: 9.2, color: "#475569", marginTop: 2 }}>
+                Contact: {CONTACT_DETAILS}
               </div>
             </div>
           </div>
@@ -574,394 +1201,16 @@ export default function PrintCertificatePage() {
 
         <div
           style={{
-            background: "#f8fafc",
-            borderBottom: "2px solid #e2e8f0",
-            padding: "20px 48px",
-            textAlign: "center",
-            flexShrink: 0,
+            background: "#0f172a",
+            color: "#cbd5e1",
+            padding: "5mm 12mm",
+            fontSize: 8,
+            lineHeight: 1.45,
           }}
         >
-          <div
-            style={{
-              fontSize: 22,
-              fontWeight: 900,
-              color: "#1e3a5f",
-              letterSpacing: "0.04em",
-              textTransform: "uppercase",
-            }}
-          >
-            {certTitle}
-          </div>
-          <div style={{ marginTop: 6, display: "flex", justifyContent: "center", gap: 8 }}>
-            <div style={{ height: 3, width: 60, background: "#2563eb", borderRadius: 2 }} />
-            <div style={{ height: 3, width: 20, background: "#00b4d8", borderRadius: 2 }} />
-          </div>
-        </div>
-
-        <div style={{ padding: "28px 48px", flex: 1 }}>
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 20 }}>
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                background: `${statusColor}18`,
-                border: `1.5px solid ${statusColor}`,
-                borderRadius: 20,
-                padding: "5px 16px",
-              }}
-            >
-              <div
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: statusColor,
-                }}
-              />
-              <span
-                style={{
-                  color: statusColor,
-                  fontWeight: 800,
-                  fontSize: 12,
-                  letterSpacing: "0.1em",
-                }}
-              >
-                {cert.equipment_status || "PASS"}
-              </span>
-            </div>
-          </div>
-
-          <p
-            style={{
-              fontSize: 12,
-              color: "#475569",
-              lineHeight: 1.7,
-              marginBottom: 24,
-            }}
-          >
-            This is to certify that the equipment described below has been inspected and tested in
-            accordance with the applicable standards and regulations, and is hereby declared to be
-            in a safe and serviceable condition.
-          </p>
-
-          {cert.extracted_data?.plate_text && (
-            <div
-              style={{
-                background: "#f8fafc",
-                border: "1px solid #e2e8f0",
-                borderRadius: 8,
-                padding: "12px 16px",
-                marginBottom: 24,
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 9,
-                  fontWeight: 800,
-                  color: "#64748b",
-                  letterSpacing: "0.15em",
-                  textTransform: "uppercase",
-                  marginBottom: 6,
-                }}
-              >
-                Nameplate Text
-              </div>
-              <div style={{ fontSize: 11, color: "#334155", whiteSpace: "pre-wrap" }}>
-                {cert.extracted_data.plate_text}
-              </div>
-            </div>
-          )}
-
-          <div
-            style={{
-              border: "1.5px solid #e2e8f0",
-              borderRadius: 10,
-              overflow: "hidden",
-              marginBottom: 24,
-            }}
-          >
-            <div
-              style={{
-                background: "#1e3a5f",
-                padding: "10px 18px",
-                fontSize: 10,
-                fontWeight: 800,
-                color: "#bfdbfe",
-                letterSpacing: "0.15em",
-                textTransform: "uppercase",
-              }}
-            >
-              Equipment Details
-            </div>
-
-            {allRows.map((row, i) => (
-              <div
-                key={`${row.label}-${i}`}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "200px 1fr",
-                  background: i % 2 === 0 ? "#f8fafc" : "#fff",
-                  borderTop: i > 0 ? "1px solid #f1f5f9" : "none",
-                }}
-              >
-                <div
-                  style={{
-                    padding: "9px 18px",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: "#64748b",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                    borderRight: "1px solid #e2e8f0",
-                  }}
-                >
-                  {row.label}
-                </div>
-                <div
-                  style={{
-                    padding: "9px 18px",
-                    fontSize: 12,
-                    color: "#1e293b",
-                    fontWeight: 500,
-                    wordBreak: "break-word",
-                  }}
-                >
-                  {row.value}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 16,
-              marginBottom: 24,
-            }}
-          >
-            {issueDate && (
-              <div
-                style={{
-                  border: "1.5px solid #dbeafe",
-                  borderRadius: 10,
-                  padding: "14px 18px",
-                  background: "#eff6ff",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 9,
-                    fontWeight: 800,
-                    color: "#3b82f6",
-                    letterSpacing: "0.15em",
-                    textTransform: "uppercase",
-                    marginBottom: 6,
-                  }}
-                >
-                  Date of Issue
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#1e3a5f" }}>
-                  {issueDate}
-                </div>
-              </div>
-            )}
-
-            {expiryDate && (
-              <div
-                style={{
-                  border: "1.5px solid #fecaca",
-                  borderRadius: 10,
-                  padding: "14px 18px",
-                  background: "#fef2f2",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 9,
-                    fontWeight: 800,
-                    color: "#ef4444",
-                    letterSpacing: "0.15em",
-                    textTransform: "uppercase",
-                    marginBottom: 6,
-                  }}
-                >
-                  Expiry Date
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#7f1d1d" }}>
-                  {expiryDate}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div
-            style={{
-              background: "#f8fafc",
-              border: "1px solid #e2e8f0",
-              borderRadius: 8,
-              padding: "12px 16px",
-              marginBottom: 24,
-            }}
-          >
-            <div
-              style={{
-                fontSize: 9,
-                fontWeight: 800,
-                color: "#64748b",
-                letterSpacing: "0.15em",
-                textTransform: "uppercase",
-                marginBottom: 4,
-              }}
-            >
-              Legal Framework
-            </div>
-            <div style={{ fontSize: 11, color: "#334155" }}>{legalFramework}</div>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginTop: 8 }}>
-            <div>
-              <div
-                style={{
-                  fontSize: 9,
-                  fontWeight: 800,
-                  color: "#64748b",
-                  letterSpacing: "0.15em",
-                  textTransform: "uppercase",
-                  marginBottom: 10,
-                }}
-              >
-                Inspector
-              </div>
-
-              <div
-                style={{
-                  height: 70,
-                  borderBottom: "1.5px solid #334155",
-                  display: "flex",
-                  alignItems: "flex-end",
-                  paddingBottom: 4,
-                  marginBottom: 6,
-                }}
-              >
-                {val(cert.signature_url) && (
-                  <img
-                    src={cert.signature_url}
-                    alt="Signature"
-                    style={{ maxHeight: 65, maxWidth: "80%", objectFit: "contain" }}
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
-                  />
-                )}
-              </div>
-
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b" }}>
-                {inspectorName}
-              </div>
-              <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
-                ID: {inspectorId}
-              </div>
-              <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>
-                Contact: {CONTACT_DETAILS}
-              </div>
-            </div>
-
-            <div>
-              <div
-                style={{
-                  fontSize: 9,
-                  fontWeight: 800,
-                  color: "#64748b",
-                  letterSpacing: "0.15em",
-                  textTransform: "uppercase",
-                  marginBottom: 10,
-                }}
-              >
-                Customer Acknowledgement
-              </div>
-              <div
-                style={{
-                  height: 70,
-                  borderBottom: "1.5px solid #334155",
-                  marginBottom: 6,
-                }}
-              />
-              <div style={{ fontSize: 10, color: "#94a3b8" }}>Signature &amp; Date</div>
-            </div>
-          </div>
-        </div>
-
-        <div style={{ flexShrink: 0 }}>
-          <div
-            style={{
-              background: "linear-gradient(135deg,#1e3a5f,#1e40af)",
-              padding: "10px 48px",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <div style={{ color: "#bfdbfe", fontSize: 9, letterSpacing: "0.1em" }}>
-              This certificate is valid only for the equipment and period described above.
-            </div>
-            <div style={{ color: "#93c5fd", fontSize: 9, fontWeight: 700 }}>
-              MONROY QMS PLATFORM
-            </div>
-          </div>
-
-          <div
-            style={{
-              background: "linear-gradient(135deg,#1e3a5f 0%,#1e40af 60%,#0ea5e9 100%)",
-              padding: "14px 48px 14px 80px",
-              position: "relative",
-              textAlign: "center",
-            }}
-          >
-            <div
-              style={{
-                position: "absolute",
-                left: 0,
-                top: 0,
-                bottom: 0,
-                width: 60,
-                background: "#0ea5e9",
-                clipPath: "polygon(0 0,100% 0,60% 100%,0 100%)",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                left: 40,
-                top: 0,
-                bottom: 0,
-                width: 30,
-                background: "rgba(255,255,255,0.15)",
-                clipPath: "polygon(0 0,100% 0,60% 100%,0 100%)",
-              }}
-            />
-            <p
-              style={{
-                color: "#fff",
-                fontSize: 10,
-                fontWeight: 600,
-                lineHeight: 1.8,
-                letterSpacing: "0.02em",
-              }}
-            >
-              Mobile Crane Hire | <strong>Rigging</strong> | NDT Test | <strong>Scaffolding</strong> | Painting |{" "}
-              <strong>Inspection of Lifting Equipment and Machinery, Pressure Vessels &amp; Air Receiver</strong> | Inspection of Lifting Equipment Steel Fabricating and Structural |{" "}
-              <strong>Mechanical Engineering</strong> | Fencing | <strong>Maintenance</strong>
-            </p>
-          </div>
-
-          <div
-            style={{
-              height: 6,
-              background: "linear-gradient(90deg,#00b4d8,#2563eb,#1e3a5f)",
-            }}
-          />
+          MONROY QMS PLATFORM • Mobile Crane Hire • Rigging • NDT Test • Scaffolding • Painting •
+          Inspection of Lifting Equipment and Machinery • Pressure Vessels & Air Receivers •
+          Mechanical Engineering • Maintenance
         </div>
       </div>
     </>
