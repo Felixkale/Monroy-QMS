@@ -1,3 +1,4 @@
+// apps/web/src/app/certificates/[id]/edit/page.jsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -5,56 +6,97 @@ import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 
-const inputStyle = {
-  width: "100%",
-  padding: "11px 14px",
-  background: "rgba(255,255,255,0.04)",
-  border: "1px solid rgba(102,126,234,0.25)",
-  borderRadius: 8,
-  color: "#e2e8f0",
-  fontSize: 13,
-  fontFamily: "inherit",
-  outline: "none",
-  boxSizing: "border-box",
+const C = {
+  bg: "#0b1120",
+  panel: "#111827",
+  panel2: "#182233",
+  border: "rgba(255,255,255,0.12)",
+  text: "#f8fafc",
+  textSoft: "#cbd5e1",
+  textDim: "#94a3b8",
+  cyan: "#22d3ee",
+  green: "#22c55e",
+  amber: "#f59e0b",
+  red: "#ef4444",
+  purple: "#8b5cf6",
 };
 
-const labelStyle = {
-  fontSize: 11,
-  fontWeight: 700,
-  color: "rgba(255,255,255,0.6)",
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  marginBottom: 6,
-  display: "block",
+const EMPTY_FORM = {
+  asset_id: "",
+  certificate_type: "",
+  company: "",
+  equipment_description: "",
+  equipment_location: "",
+  equipment_id: "",
+  identification_number: "",
+  inspection_no: "",
+  lanyard_serial_no: "",
+  swl: "",
+  mawp: "",
+  design_pressure: "",
+  test_pressure: "",
+  capacity: "",
+  year_built: "",
+  manufacturer: "",
+  model: "",
+  country_of_origin: "",
+  equipment_status: "PASS",
+  issued_at: "",
+  valid_to: "",
+  status: "issued",
+  legal_framework: "Mines, Quarries, Works and Machinery Act Cap 44:02",
+  inspector_name: "",
+  inspector_id: "",
+  signature_url: "",
+  logo_url: "/logo.png",
+  pdf_url: "",
+  folder_id: "",
+  folder_name: "",
+  folder_position: 1,
 };
 
-const sectionHeadStyle = {
-  fontSize: 11,
-  fontWeight: 800,
-  color: "#667eea",
-  textTransform: "uppercase",
-  letterSpacing: "0.12em",
-  borderBottom: "1px solid rgba(102,126,234,0.2)",
-  paddingBottom: 8,
-  marginBottom: 20,
-  marginTop: 28,
-};
+function normalizeId(value) {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
 
-const gridStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))",
-  gap: 16,
-  marginBottom: 16,
-};
+function sanitizeText(value, max = 250) {
+  if (value === undefined || value === null) return "";
+  return String(value)
+    .replace(/<[^>]*>/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+}
 
-function Field({
-  label,
-  name,
-  value,
-  onChange,
-  type = "text",
-  placeholder = "",
-}) {
+function normalizeDateForDb(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+function toDateInput(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
+}
+
+function detectEquipmentType(assetType = "") {
+  const t = String(assetType).toLowerCase();
+  return ["pressure vessel", "boiler", "air receiver", "air compressor", "oil separator"].includes(t)
+    ? "pv"
+    : "lift";
+}
+
+function defaultCertificateType(assetType = "") {
+  return detectEquipmentType(assetType) === "pv"
+    ? "Pressure Test Certificate"
+    : "Load Test Certificate";
+}
+
+function Field({ label, name, value, onChange, type = "text", placeholder = "" }) {
   return (
     <div>
       <label style={labelStyle}>{label}</label>
@@ -78,16 +120,11 @@ function SelectField({ label, name, value, onChange, options }) {
         name={name}
         value={value ?? ""}
         onChange={onChange}
-        style={{
-          ...inputStyle,
-          background: "#111827",
-          color: "#e5e7eb",
-          cursor: "pointer",
-        }}
+        style={{ ...inputStyle, background: "#0f172a", cursor: "pointer" }}
       >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
           </option>
         ))}
       </select>
@@ -95,318 +132,277 @@ function SelectField({ label, name, value, onChange, options }) {
   );
 }
 
-function normalizeText(value, fallback = "") {
-  if (value === undefined || value === null) return fallback;
-  return String(value).replace(/\s+/g, " ").trim() || fallback;
-}
-
-function sanitizeText(val, maxLen = 200) {
-  if (val === undefined || val === null) return "";
-  return String(val)
-    .replace(/<[^>]*>/g, "")
-    .replace(/[^\x20-\x7E\u00C0-\u024F]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maxLen);
-}
-
-function formatDateInput(value) {
-  if (!value) return "";
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
-}
-
-function normalizeDateForDb(value) {
-  if (!value) return null;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString();
-}
-
-function detectEquipmentType(assetType = "") {
-  const t = String(assetType).toLowerCase();
-  return ["pressure vessel", "boiler", "air receiver", "air compressor", "oil separator"].includes(t)
-    ? "pv"
-    : "lift";
-}
-
-function defaultCertificateType(assetType = "") {
-  return detectEquipmentType(assetType) === "pv"
-    ? "Pressure Test Certificate"
-    : "Load Test Certificate";
-}
-
-const LANYARD_TYPES = ["Safety Harness", "Fall Arrest"];
-
 export default function EditCertificatePage() {
   const params = useParams();
   const router = useRouter();
-  const id = params?.id;
+  const id = normalizeId(params?.id);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [uploadingSignature, setUploadingSignature] = useState(false);
   const [assets, setAssets] = useState([]);
+  const [certificateOptions, setCertificateOptions] = useState([]);
+  const [folderMembers, setFolderMembers] = useState([]);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [linkTargetId, setLinkTargetId] = useState("");
+  const [targetFolderPosition, setTargetFolderPosition] = useState(2);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const [form, setForm] = useState({
-    asset_id: "",
-    certificate_type: "",
-    company: "",
-    equipment_description: "",
-    equipment_location: "",
-    equipment_id: "",
-    identification_number: "",
-    inspection_no: "",
-    lanyard_serial_no: "",
-    swl: "",
-    mawp: "",
-    design_pressure: "",
-    test_pressure: "",
-    capacity: "",
-    year_built: "",
-    manufacturer: "",
-    model: "",
-    country_of_origin: "",
-    equipment_status: "PASS",
-    issued_at: "",
-    valid_to: "",
-    status: "issued",
-    legal_framework: "Mines, Quarries, Works and Machinery Act Cap 44:02",
-    inspector_name: "",
-    inspector_id: "",
-    signature_url: "",
-    logo_url: "/logo.png",
-    pdf_url: "",
-  });
-
-  useEffect(() => {
-    supabase
-      .from("assets")
-      .select(`
-        id,
-        asset_name,
-        asset_tag,
-        asset_type,
-        location,
-        serial_number,
-        equipment_id,
-        identification_number,
-        inspection_no,
-        lanyard_serial_no,
-        safe_working_load,
-        working_pressure,
-        design_pressure,
-        test_pressure,
-        next_inspection_date,
-        design_standard,
-        year_built,
-        capacity_volume,
-        manufacturer,
-        model,
-        country_of_origin,
-        inspector_name,
-        inspector_id,
-        clients ( company_name )
-      `)
-      .order("created_at", { ascending: false })
-      .then(({ data, error: err }) => {
-        if (err) {
-          setError(err.message || "Failed to load assets.");
-          return;
-        }
-        setAssets(data || []);
-      });
-  }, []);
-
   useEffect(() => {
     if (!id) return;
-
-    setLoading(true);
-    setError("");
-
-    supabase
-      .from("certificates")
-      .select("*")
-      .eq("id", id)
-      .single()
-      .then(({ data, error: err }) => {
-        if (err || !data) {
-          setError(err?.message || "Certificate not found.");
-          return;
-        }
-
-        setForm({
-          asset_id: data.asset_id || "",
-          certificate_type: data.certificate_type || "",
-          company: data.company || "",
-          equipment_description: data.equipment_description || "",
-          equipment_location: data.equipment_location || "",
-          equipment_id: data.equipment_id || "",
-          identification_number: data.identification_number || "",
-          inspection_no: data.inspection_no || "",
-          lanyard_serial_no: data.lanyard_serial_no || "",
-          swl: data.swl || "",
-          mawp: data.mawp || "",
-          design_pressure: data.design_pressure || "",
-          test_pressure: data.test_pressure || "",
-          capacity: data.capacity || "",
-          year_built: data.year_built || "",
-          manufacturer: data.manufacturer || "",
-          model: data.model || "",
-          country_of_origin: data.country_of_origin || "",
-          equipment_status: data.equipment_status || "PASS",
-          issued_at: formatDateInput(data.issued_at),
-          valid_to: formatDateInput(data.valid_to),
-          status: data.status || "issued",
-          legal_framework:
-            data.legal_framework ||
-            "Mines, Quarries, Works and Machinery Act Cap 44:02",
-          inspector_name: data.inspector_name || "",
-          inspector_id: data.inspector_id || "",
-          signature_url: data.signature_url || "",
-          logo_url: data.logo_url || "/logo.png",
-          pdf_url: data.pdf_url || "",
-        });
-      })
-      .finally(() => setLoading(false));
+    loadPage();
   }, [id]);
 
   const selectedAsset = useMemo(
-    () => assets.find((a) => a.id === form.asset_id) || null,
+    () => assets.find((item) => String(item.id) === String(form.asset_id)) || null,
     [assets, form.asset_id]
   );
 
-  const showLanyard = LANYARD_TYPES.includes(
-    selectedAsset?.asset_type || form.equipment_description || ""
+  const selectableCertificates = useMemo(
+    () => certificateOptions.filter((item) => String(item.id) !== String(id)),
+    [certificateOptions, id]
   );
 
-  function handleChange(e) {
-    const { name, value } = e.target;
+  async function loadPage() {
+    setLoading(true);
+    setError("");
+    setSuccess("");
+
+    const [assetsRes, certListRes, certRes] = await Promise.all([
+      supabase
+        .from("assets")
+        .select(`
+          id,
+          asset_name,
+          asset_tag,
+          asset_type,
+          location,
+          serial_number,
+          equipment_id,
+          identification_number,
+          inspection_no,
+          lanyard_serial_no,
+          safe_working_load,
+          working_pressure,
+          design_pressure,
+          test_pressure,
+          next_inspection_date,
+          year_built,
+          capacity_volume,
+          manufacturer,
+          model,
+          country_of_origin,
+          inspector_name,
+          inspector_id,
+          clients ( company_name )
+        `)
+        .order("created_at", { ascending: false }),
+
+      supabase
+        .from("certificates")
+        .select(`
+          id,
+          certificate_number,
+          company,
+          client_name,
+          equipment_description,
+          folder_id,
+          folder_name,
+          folder_position
+        `)
+        .order("created_at", { ascending: false }),
+
+      supabase
+        .from("certificates")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle(),
+    ]);
+
+    if (assetsRes.error) {
+      setError(assetsRes.error.message || "Failed to load assets.");
+      setLoading(false);
+      return;
+    }
+
+    if (certListRes.error) {
+      setError(certListRes.error.message || "Failed to load certificates.");
+      setLoading(false);
+      return;
+    }
+
+    if (certRes.error || !certRes.data) {
+      setError(certRes.error?.message || "Certificate not found.");
+      setLoading(false);
+      return;
+    }
+
+    setAssets(assetsRes.data || []);
+    setCertificateOptions(certListRes.data || []);
+
+    const row = certRes.data;
+
+    setForm({
+      asset_id: row.asset_id || "",
+      certificate_type: row.certificate_type || "",
+      company: row.company || row.client_name || "",
+      equipment_description: row.equipment_description || "",
+      equipment_location: row.equipment_location || "",
+      equipment_id: row.equipment_id || "",
+      identification_number: row.identification_number || "",
+      inspection_no: row.inspection_no || "",
+      lanyard_serial_no: row.lanyard_serial_no || "",
+      swl: row.swl || "",
+      mawp: row.mawp || "",
+      design_pressure: row.design_pressure || "",
+      test_pressure: row.test_pressure || "",
+      capacity: row.capacity || "",
+      year_built: row.year_built || "",
+      manufacturer: row.manufacturer || "",
+      model: row.model || "",
+      country_of_origin: row.country_of_origin || "",
+      equipment_status: row.equipment_status || row.result || "PASS",
+      issued_at: toDateInput(row.issued_at || row.issue_date),
+      valid_to: toDateInput(row.valid_to || row.expiry_date),
+      status: row.status || "issued",
+      legal_framework:
+        row.legal_framework || "Mines, Quarries, Works and Machinery Act Cap 44:02",
+      inspector_name: row.inspector_name || "",
+      inspector_id: row.inspector_id || "",
+      signature_url: row.signature_url || "",
+      logo_url: row.logo_url || "/logo.png",
+      pdf_url: row.pdf_url || "",
+      folder_id: row.folder_id || "",
+      folder_name: row.folder_name || "",
+      folder_position: row.folder_position || 1,
+    });
+
+    if (row.folder_id) {
+      const { data: members } = await supabase
+        .from("certificates")
+        .select("id, certificate_number, equipment_description, folder_position")
+        .eq("folder_id", row.folder_id)
+        .order("folder_position", { ascending: true })
+        .order("created_at", { ascending: true });
+
+      setFolderMembers(members || []);
+    } else {
+      setFolderMembers([]);
+    }
+
+    setLoading(false);
+  }
+
+  function handleChange(event) {
+    const { name, value } = event.target;
     setForm((prev) => ({ ...prev, [name]: value }));
   }
 
   function handleUseEquipmentData() {
     if (!selectedAsset) return;
 
-    const type = detectEquipmentType(selectedAsset.asset_type);
+    const assetType = selectedAsset.asset_type || "";
+    const kind = detectEquipmentType(assetType);
 
     setForm((prev) => ({
       ...prev,
-      certificate_type:
-        prev.certificate_type || defaultCertificateType(selectedAsset.asset_type),
+      certificate_type: prev.certificate_type || defaultCertificateType(assetType),
       company: selectedAsset.clients?.company_name || prev.company,
-      equipment_description:
-        selectedAsset.asset_type || selectedAsset.asset_name || prev.equipment_description,
+      equipment_description: assetType || selectedAsset.asset_name || prev.equipment_description,
       equipment_location: selectedAsset.location || prev.equipment_location,
       equipment_id:
         selectedAsset.equipment_id ||
         selectedAsset.serial_number ||
         selectedAsset.asset_tag ||
         prev.equipment_id,
-      identification_number:
-        selectedAsset.identification_number || prev.identification_number,
+      identification_number: selectedAsset.identification_number || prev.identification_number,
       inspection_no: selectedAsset.inspection_no || prev.inspection_no,
-      lanyard_serial_no:
-        selectedAsset.lanyard_serial_no || prev.lanyard_serial_no,
-      swl: type === "lift" ? selectedAsset.safe_working_load || prev.swl : prev.swl,
-      mawp: type === "pv" ? selectedAsset.working_pressure || prev.mawp : prev.mawp,
+      lanyard_serial_no: selectedAsset.lanyard_serial_no || prev.lanyard_serial_no,
+      swl: kind === "lift" ? selectedAsset.safe_working_load || prev.swl : prev.swl,
+      mawp: kind === "pv" ? selectedAsset.working_pressure || prev.mawp : prev.mawp,
       design_pressure: selectedAsset.design_pressure || prev.design_pressure,
       test_pressure: selectedAsset.test_pressure || prev.test_pressure,
       capacity: selectedAsset.capacity_volume || prev.capacity,
       year_built: selectedAsset.year_built || prev.year_built,
       manufacturer: selectedAsset.manufacturer || prev.manufacturer,
       model: selectedAsset.model || prev.model,
-      country_of_origin:
-        selectedAsset.country_of_origin || prev.country_of_origin,
+      country_of_origin: selectedAsset.country_of_origin || prev.country_of_origin,
       inspector_name: selectedAsset.inspector_name || prev.inspector_name,
       inspector_id: selectedAsset.inspector_id || prev.inspector_id,
-      valid_to: prev.valid_to || formatDateInput(selectedAsset.next_inspection_date),
-      legal_framework:
-        prev.legal_framework || selectedAsset.design_standard || "",
+      valid_to: prev.valid_to || toDateInput(selectedAsset.next_inspection_date),
     }));
   }
 
-  async function handleSignatureUpload(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploadingSignature(true);
-    setError("");
-    setSuccess("");
-
-    try {
-      const ext = file.name.split(".").pop() || "png";
-      const filePath = `certificate-signatures/sig-${id}-${Date.now()}.${ext}`;
-
-      const { error: upErr } = await supabase.storage
-        .from("documents")
-        .upload(filePath, file, { upsert: true });
-
-      if (upErr) throw upErr;
-
-      const { data: urlData } = supabase.storage
-        .from("documents")
-        .getPublicUrl(filePath);
-
-      let finalUrl = urlData?.publicUrl || null;
-
-      if (!finalUrl) {
-        const { data: signed, error: sErr } = await supabase.storage
-          .from("documents")
-          .createSignedUrl(filePath, 3600);
-
-        if (sErr) throw sErr;
-        finalUrl = signed?.signedUrl;
-      }
-
-      if (!finalUrl) throw new Error("Could not generate signature URL.");
-
-      setForm((prev) => ({ ...prev, signature_url: finalUrl }));
-      setSuccess("Signature uploaded successfully.");
-    } catch (err) {
-      setError(err?.message || "Failed to upload signature.");
-    } finally {
-      setUploadingSignature(false);
+  async function handleUnlinkFolder() {
+    if (!form.folder_id) {
+      setError("This certificate is not linked to any folder.");
+      return;
     }
-  }
-
-  async function handleSubmit(e) {
-    e.preventDefault();
 
     setSaving(true);
     setError("");
     setSuccess("");
 
+    const { error: unlinkError } = await supabase
+      .from("certificates")
+      .update({
+        folder_id: null,
+        folder_name: null,
+        folder_position: 1,
+      })
+      .eq("folder_id", form.folder_id);
+
+    if (unlinkError) {
+      setError(unlinkError.message || "Failed to unlink folder.");
+      setSaving(false);
+      return;
+    }
+
+    setSuccess("Linked folder removed.");
+    setForm((prev) => ({
+      ...prev,
+      folder_id: "",
+      folder_name: "",
+      folder_position: 1,
+    }));
+    setFolderMembers([]);
+    setLinkTargetId("");
+    setSaving(false);
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
     try {
-      if (!form.company || form.company.trim().length < 2) {
-        throw new Error("Company name is required.");
+      if (!sanitizeText(form.company, 120)) {
+        throw new Error("Company is required.");
       }
 
-      if (!form.equipment_description || form.equipment_description.trim().length < 2) {
+      if (!sanitizeText(form.equipment_description, 160)) {
         throw new Error("Equipment description is required.");
       }
 
-      if (!form.equipment_id || form.equipment_id.trim().length < 1) {
-        throw new Error("Equipment ID / serial number is required.");
+      if (!sanitizeText(form.equipment_id, 80)) {
+        throw new Error("Equipment ID is required.");
       }
 
-      if (form.issued_at && form.valid_to) {
-        const issue = new Date(form.issued_at);
-        const expiry = new Date(form.valid_to);
-        if (!Number.isNaN(issue.getTime()) && !Number.isNaN(expiry.getTime())) {
-          if (expiry <= issue) {
-            throw new Error("Expiry date must be after issue date.");
-          }
-        }
+      let folderId = form.folder_id || null;
+      let folderName = sanitizeText(form.folder_name, 120) || null;
+      const folderPosition = Math.max(1, Number(form.folder_position) || 1);
+
+      if (linkTargetId) {
+        folderId = folderId || crypto.randomUUID();
+        folderName = folderName || `Linked Folder ${id}`;
       }
 
       const payload = {
         asset_id: form.asset_id || null,
         certificate_type: sanitizeText(form.certificate_type, 100) || null,
-        company: sanitizeText(form.company, 100),
-        equipment_description: sanitizeText(form.equipment_description, 150),
+        company: sanitizeText(form.company, 120),
+        equipment_description: sanitizeText(form.equipment_description, 180),
         equipment_location: sanitizeText(form.equipment_location, 150) || null,
         equipment_id: sanitizeText(form.equipment_id, 80),
         identification_number: sanitizeText(form.identification_number, 80) || null,
@@ -421,72 +417,91 @@ export default function EditCertificatePage() {
         manufacturer: sanitizeText(form.manufacturer, 100) || null,
         model: sanitizeText(form.model, 100) || null,
         country_of_origin: sanitizeText(form.country_of_origin, 80) || null,
-        equipment_status: normalizeText(form.equipment_status, "PASS"),
+        equipment_status: sanitizeText(form.equipment_status, 30) || "PASS",
         issued_at: normalizeDateForDb(form.issued_at),
         valid_to: form.valid_to || null,
-        status: normalizeText(form.status, "issued"),
-        legal_framework: sanitizeText(form.legal_framework, 200) || null,
+        status: sanitizeText(form.status, 40) || "issued",
+        legal_framework: sanitizeText(form.legal_framework, 250) || null,
         inspector_name: sanitizeText(form.inspector_name, 100) || null,
         inspector_id: sanitizeText(form.inspector_id, 80) || null,
         signature_url: sanitizeText(form.signature_url, 500) || null,
         logo_url: sanitizeText(form.logo_url, 500) || null,
         pdf_url: sanitizeText(form.pdf_url, 500) || null,
+        folder_id: folderId,
+        folder_name: folderName,
+        folder_position: folderPosition,
       };
 
-      const { error: err } = await supabase
+      const { error: updateError } = await supabase
         .from("certificates")
         .update(payload)
         .eq("id", id);
 
-      if (err) throw err;
+      if (updateError) throw updateError;
 
-      if (form.asset_id) {
-        const assetUpdate = {
-          location: sanitizeText(form.equipment_location, 150) || null,
-          equipment_id: sanitizeText(form.equipment_id, 80) || null,
-          identification_number: sanitizeText(form.identification_number, 80) || null,
-          inspection_no: sanitizeText(form.inspection_no, 80) || null,
-          lanyard_serial_no: sanitizeText(form.lanyard_serial_no, 80) || null,
-          safe_working_load: sanitizeText(form.swl, 50) || null,
-          working_pressure: sanitizeText(form.mawp, 50) || null,
-          design_pressure: sanitizeText(form.design_pressure, 50) || null,
-          test_pressure: sanitizeText(form.test_pressure, 50) || null,
-          next_inspection_date: form.valid_to || null,
-          year_built: sanitizeText(form.year_built, 20) || null,
-          capacity_volume: sanitizeText(form.capacity, 50) || null,
-          manufacturer: sanitizeText(form.manufacturer, 100) || null,
-          model: sanitizeText(form.model, 100) || null,
-          country_of_origin: sanitizeText(form.country_of_origin, 80) || null,
-          inspector_name: sanitizeText(form.inspector_name, 100) || null,
-          inspector_id: sanitizeText(form.inspector_id, 80) || null,
-          cert_type: sanitizeText(form.certificate_type, 100) || null,
-          design_standard: sanitizeText(form.legal_framework, 200) || null,
-        };
-
-        await supabase.from("assets").update(assetUpdate).eq("id", form.asset_id);
+      if (folderId && folderName) {
+        await supabase
+          .from("certificates")
+          .update({ folder_name: folderName })
+          .eq("folder_id", folderId);
       }
 
-      setSuccess("Certificate saved successfully!");
-      setTimeout(() => router.push(`/certificates/${id}`), 1200);
-    } catch (err) {
-      setError(err?.message || "Failed to update certificate.");
-    } finally {
+      if (linkTargetId) {
+        const { error: targetError } = await supabase
+          .from("certificates")
+          .update({
+            folder_id: folderId,
+            folder_name: folderName,
+            folder_position: Math.max(1, Number(targetFolderPosition) || folderPosition + 1),
+          })
+          .eq("id", linkTargetId);
+
+        if (targetError) throw targetError;
+      }
+
+      if (form.asset_id) {
+        await supabase
+          .from("assets")
+          .update({
+            location: sanitizeText(form.equipment_location, 150) || null,
+            equipment_id: sanitizeText(form.equipment_id, 80) || null,
+            identification_number: sanitizeText(form.identification_number, 80) || null,
+            inspection_no: sanitizeText(form.inspection_no, 80) || null,
+            lanyard_serial_no: sanitizeText(form.lanyard_serial_no, 80) || null,
+            safe_working_load: sanitizeText(form.swl, 50) || null,
+            working_pressure: sanitizeText(form.mawp, 50) || null,
+            design_pressure: sanitizeText(form.design_pressure, 50) || null,
+            test_pressure: sanitizeText(form.test_pressure, 50) || null,
+            next_inspection_date: form.valid_to || null,
+            year_built: sanitizeText(form.year_built, 20) || null,
+            capacity_volume: sanitizeText(form.capacity, 50) || null,
+            manufacturer: sanitizeText(form.manufacturer, 100) || null,
+            model: sanitizeText(form.model, 100) || null,
+            country_of_origin: sanitizeText(form.country_of_origin, 80) || null,
+            inspector_name: sanitizeText(form.inspector_name, 100) || null,
+            inspector_id: sanitizeText(form.inspector_id, 80) || null,
+            cert_type: sanitizeText(form.certificate_type, 100) || null,
+            design_standard: sanitizeText(form.legal_framework, 250) || null,
+          })
+          .eq("id", form.asset_id);
+      }
+
+      setSuccess("Certificate saved successfully.");
+      router.push(`/certificates/${id}`);
+    } catch (saveError) {
+      setError(saveError?.message || "Failed to save certificate.");
       setSaving(false);
+      return;
     }
+
+    setSaving(false);
   }
 
   if (loading) {
     return (
       <AppLayout title="Edit Certificate">
-        <div
-          style={{
-            color: "#64748b",
-            padding: 40,
-            textAlign: "center",
-            fontSize: 14,
-          }}
-        >
-          Loading certificate…
+        <div style={pageWrap}>
+          <div style={panelStyle}>Loading certificate…</div>
         </div>
       </AppLayout>
     );
@@ -494,549 +509,387 @@ export default function EditCertificatePage() {
 
   return (
     <AppLayout title="Edit Certificate">
-      <div style={{ maxWidth: 1000 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: 12,
-            marginBottom: 24,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <button
-              onClick={() => router.push("/certificates")}
+      <div style={pageWrap}>
+        <div style={{ maxWidth: 1220, margin: "0 auto", display: "grid", gap: 18 }}>
+          <div style={panelStyle}>
+            <div
               style={{
-                display: "inline-flex",
+                display: "flex",
+                justifyContent: "space-between",
                 alignItems: "center",
-                gap: 6,
-                padding: "7px 14px",
-                borderRadius: 8,
-                cursor: "pointer",
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.1)",
-                color: "#94a3b8",
-                fontSize: 12,
-                fontWeight: 600,
-                fontFamily: "inherit",
+                gap: 12,
+                flexWrap: "wrap",
               }}
             >
-              ← Certificates
-            </button>
-
-            <span style={{ color: "#334155" }}>›</span>
-
-            <button
-              onClick={() => router.push(`/certificates/${id}`)}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "7px 14px",
-                borderRadius: 8,
-                cursor: "pointer",
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.1)",
-                color: "#94a3b8",
-                fontSize: 12,
-                fontWeight: 600,
-                fontFamily: "inherit",
-              }}
-            >
-              View Certificate
-            </button>
-
-            <span style={{ color: "#334155" }}>›</span>
-            <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>Edit</span>
-          </div>
-
-          <button
-            onClick={() => window.open(`/certificates/print/${id}`, "_blank")}
-            style={{
-              padding: "10px 20px",
-              borderRadius: 8,
-              background: "linear-gradient(135deg,#00f5c4,#4fc3f7)",
-              color: "#0d1117",
-              border: "none",
-              fontWeight: 700,
-              cursor: "pointer",
-              fontSize: 13,
-            }}
-          >
-            🖨 Print Certificate
-          </button>
-        </div>
-
-        <h1 style={{ color: "#fff", margin: "0 0 4px" }}>Edit Certificate</h1>
-        <div
-          style={{
-            width: 60,
-            height: 3,
-            borderRadius: 999,
-            background: "linear-gradient(90deg,#667eea,#764ba2,#4fc3f7)",
-            marginBottom: 28,
-          }}
-        />
-
-        {error && (
-          <div
-            style={{
-              background: "rgba(244,114,182,0.1)",
-              border: "1px solid rgba(244,114,182,0.3)",
-              borderRadius: 12,
-              padding: "12px 16px",
-              marginBottom: 20,
-              color: "#f472b6",
-              fontSize: 13,
-            }}
-          >
-            ⚠️ {error}
-          </div>
-        )}
-
-        {success && (
-          <div
-            style={{
-              background: "rgba(16,185,129,0.12)",
-              border: "1px solid rgba(16,185,129,0.35)",
-              borderRadius: 12,
-              padding: "12px 16px",
-              marginBottom: 20,
-              color: "#86efac",
-              fontSize: 13,
-            }}
-          >
-            ✅ {success}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit}>
-          <div style={sectionHeadStyle}>Link to Equipment</div>
-          <div style={{ ...gridStyle, gridTemplateColumns: "1fr auto" }}>
-            <div>
-              <label style={labelStyle}>Select Equipment (Asset)</label>
-              <select
-                name="asset_id"
-                value={form.asset_id}
-                onChange={handleChange}
-                style={{
-                  ...inputStyle,
-                  background: "#111827",
-                  color: "#e5e7eb",
-                  cursor: "pointer",
-                }}
-              >
-                <option value="">— Select equipment —</option>
-                {assets.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.asset_tag} — {a.asset_name}{" "}
-                    {a.serial_number ? `(S/N: ${a.serial_number})` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ display: "flex", alignItems: "flex-end" }}>
-              <button
-                type="button"
-                onClick={handleUseEquipmentData}
-                disabled={!selectedAsset}
-                style={{
-                  padding: "11px 18px",
-                  borderRadius: 8,
-                  border: "none",
-                  background: selectedAsset
-                    ? "linear-gradient(135deg,#667eea,#764ba2)"
-                    : "rgba(255,255,255,0.08)",
-                  color: "#fff",
-                  fontWeight: 700,
-                  cursor: selectedAsset ? "pointer" : "not-allowed",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                Auto-fill from Equipment
-              </button>
-            </div>
-          </div>
-
-          <div style={sectionHeadStyle}>Certificate Info</div>
-          <div style={gridStyle}>
-            <div>
-              <label style={labelStyle}>Certificate Type</label>
-              <select
-                name="certificate_type"
-                value={form.certificate_type}
-                onChange={handleChange}
-                style={{
-                  ...inputStyle,
-                  background: "#111827",
-                  color: "#e5e7eb",
-                  cursor: "pointer",
-                }}
-              >
-                <option value="">— Select type —</option>
-                <option value="Load Test Certificate">Load Test Certificate</option>
-                <option value="Pressure Test Certificate">Pressure Test Certificate</option>
-                <option value="Certificate of Statutory Inspection">
-                  Certificate of Statutory Inspection
-                </option>
-                <option value="Inspection Certificate">Inspection Certificate</option>
-                <option value="Compliance Certificate">Compliance Certificate</option>
-              </select>
-            </div>
-
-            <Field
-              label="Issue Date"
-              name="issued_at"
-              type="date"
-              value={form.issued_at}
-              onChange={handleChange}
-            />
-
-            <Field
-              label="Expiry Date"
-              name="valid_to"
-              type="date"
-              value={form.valid_to}
-              onChange={handleChange}
-            />
-
-            <SelectField
-              label="Equipment Status"
-              name="equipment_status"
-              value={form.equipment_status}
-              onChange={handleChange}
-              options={["PASS", "FAIL", "CONDITIONAL"].map((v) => ({
-                value: v,
-                label: v,
-              }))}
-            />
-
-            <SelectField
-              label="Record Status"
-              name="status"
-              value={form.status}
-              onChange={handleChange}
-              options={["issued", "draft", "expired", "revoked"].map((v) => ({
-                value: v,
-                label: v,
-              }))}
-            />
-          </div>
-
-          <div style={sectionHeadStyle}>Certificate Data</div>
-          <div style={gridStyle}>
-            <Field
-              label="Client / Company"
-              name="company"
-              value={form.company}
-              onChange={handleChange}
-            />
-
-            <Field
-              label="Equipment Description"
-              name="equipment_description"
-              value={form.equipment_description}
-              onChange={handleChange}
-            />
-
-            <Field
-              label="Equipment Location"
-              name="equipment_location"
-              value={form.equipment_location}
-              onChange={handleChange}
-            />
-
-            <Field
-              label="Equipment ID / Serial"
-              name="equipment_id"
-              value={form.equipment_id}
-              onChange={handleChange}
-            />
-
-            <Field
-              label="Identification Number"
-              name="identification_number"
-              value={form.identification_number}
-              onChange={handleChange}
-            />
-
-            <Field
-              label="Inspection No."
-              name="inspection_no"
-              value={form.inspection_no}
-              onChange={handleChange}
-            />
-
-            {showLanyard && (
               <div>
-                <label style={{ ...labelStyle, color: "#00f5c4" }}>
-                  Lanyard Serial No.
-                  <span
-                    style={{
-                      marginLeft: 6,
-                      fontSize: 9,
-                      color: "#00f5c4",
-                      background: "rgba(0,245,196,0.1)",
-                      border: "1px solid rgba(0,245,196,0.3)",
-                      borderRadius: 4,
-                      padding: "1px 5px",
-                      fontWeight: 700,
-                    }}
-                  >
-                    on certificate
-                  </span>
-                </label>
-                <input
-                  name="lanyard_serial_no"
-                  value={form.lanyard_serial_no}
-                  onChange={handleChange}
-                  placeholder="e.g. 0135"
-                  style={{ ...inputStyle, borderColor: "rgba(0,245,196,0.35)" }}
-                />
+                <div style={eyebrow}>Edit Certificate</div>
+                <div style={titleStyle}>Fix fields, link pairs, and print as one folder</div>
               </div>
-            )}
 
-            <Field
-              label="SWL"
-              name="swl"
-              value={form.swl}
-              onChange={handleChange}
-              placeholder="e.g. STANDARD or 2.5 Tons"
-            />
-
-            <Field
-              label="MAWP"
-              name="mawp"
-              value={form.mawp}
-              onChange={handleChange}
-              placeholder="e.g. 1600 kPa"
-            />
-
-            <Field
-              label="Design Pressure"
-              name="design_pressure"
-              value={form.design_pressure}
-              onChange={handleChange}
-              placeholder="e.g. 1300 kPa"
-            />
-
-            <Field
-              label="Test Pressure"
-              name="test_pressure"
-              value={form.test_pressure}
-              onChange={handleChange}
-              placeholder="e.g. 1950 kPa"
-            />
-
-            <Field
-              label="Capacity"
-              name="capacity"
-              value={form.capacity}
-              onChange={handleChange}
-              placeholder="e.g. 200 L or 3.29 m³"
-            />
-
-            <Field
-              label="Year Built"
-              name="year_built"
-              value={form.year_built}
-              onChange={handleChange}
-              placeholder="e.g. 2025"
-            />
-
-            <Field
-              label="Manufacturer"
-              name="manufacturer"
-              value={form.manufacturer}
-              onChange={handleChange}
-              placeholder="e.g. VOLA South Africa"
-            />
-
-            <Field
-              label="Model"
-              name="model"
-              value={form.model}
-              onChange={handleChange}
-              placeholder="e.g. TP2 Ø40"
-            />
-
-            <Field
-              label="Country of Origin"
-              name="country_of_origin"
-              value={form.country_of_origin}
-              onChange={handleChange}
-              placeholder="e.g. South Africa"
-            />
-
-            <Field
-              label="Legal Framework / Design Standard"
-              name="legal_framework"
-              value={form.legal_framework}
-              onChange={handleChange}
-            />
-
-            <Field
-              label="Inspector Name"
-              name="inspector_name"
-              value={form.inspector_name}
-              onChange={handleChange}
-            />
-
-            <Field
-              label="Inspector ID No."
-              name="inspector_id"
-              value={form.inspector_id}
-              onChange={handleChange}
-            />
-
-            <Field
-              label="Logo URL"
-              name="logo_url"
-              value={form.logo_url}
-              onChange={handleChange}
-            />
-
-            <Field
-              label="PDF URL"
-              name="pdf_url"
-              value={form.pdf_url}
-              onChange={handleChange}
-            />
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button type="button" onClick={() => router.push(`/certificates/${id}`)} style={ghostBtn}>
+                  View Certificate
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.open(`/certificates/print/${id}`, "_blank", "noopener,noreferrer")}
+                  style={greenBtn}
+                >
+                  Print
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div style={sectionHeadStyle}>Signature Upload</div>
-          <div style={gridStyle}>
-            <div>
-              <label style={labelStyle}>Upload Signature Image</label>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleSignatureUpload}
-                style={{ ...inputStyle, padding: 10 }}
-              />
-              <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginTop: 6 }}>
-                {uploadingSignature
-                  ? "⏳ Uploading…"
-                  : "PNG / JPG / SVG, clear background recommended"}
-              </p>
+          {error ? <div style={errorBox}>{error}</div> : null}
+          {success ? <div style={successBox}>{success}</div> : null}
+
+          <form onSubmit={handleSubmit} style={{ display: "grid", gap: 18 }}>
+            <div style={panelStyle}>
+              <div style={sectionTitle}>Link to Equipment</div>
+
+              <div style={{ ...gridStyle, gridTemplateColumns: "1.5fr auto" }}>
+                <div>
+                  <label style={labelStyle}>Select Equipment (Asset)</label>
+                  <select
+                    name="asset_id"
+                    value={form.asset_id}
+                    onChange={handleChange}
+                    style={{ ...inputStyle, background: "#0f172a", cursor: "pointer" }}
+                  >
+                    <option value="">— Select equipment —</option>
+                    {assets.map((asset) => (
+                      <option key={asset.id} value={asset.id}>
+                        {asset.asset_tag} — {asset.asset_name}
+                        {asset.serial_number ? ` (S/N: ${asset.serial_number})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "flex-end" }}>
+                  <button
+                    type="button"
+                    onClick={handleUseEquipmentData}
+                    disabled={!selectedAsset}
+                    style={selectedAsset ? purpleBtn : disabledBtn}
+                  >
+                    Auto-fill from Equipment
+                  </button>
+                </div>
+              </div>
             </div>
 
-            <div>
-              <label style={labelStyle}>Signature URL</label>
-              <input
-                name="signature_url"
-                value={form.signature_url}
-                onChange={handleChange}
-                placeholder="Auto-filled after upload"
-                style={inputStyle}
-              />
+            <div style={panelStyle}>
+              <div style={sectionTitle}>Certificate Details</div>
+
+              <div style={gridStyle}>
+                <Field label="Certificate Type" name="certificate_type" value={form.certificate_type} onChange={handleChange} />
+                <Field label="Company" name="company" value={form.company} onChange={handleChange} />
+                <Field label="Equipment Description" name="equipment_description" value={form.equipment_description} onChange={handleChange} />
+                <Field label="Equipment Location" name="equipment_location" value={form.equipment_location} onChange={handleChange} />
+                <Field label="Equipment ID" name="equipment_id" value={form.equipment_id} onChange={handleChange} />
+                <Field label="Identification Number" name="identification_number" value={form.identification_number} onChange={handleChange} />
+                <Field label="Inspection Number" name="inspection_no" value={form.inspection_no} onChange={handleChange} />
+                <Field label="Lanyard Serial Number" name="lanyard_serial_no" value={form.lanyard_serial_no} onChange={handleChange} />
+              </div>
             </div>
 
-            <div>
-              <label style={labelStyle}>Signature Preview</label>
+            <div style={panelStyle}>
+              <div style={sectionTitle}>Technical Fields</div>
+
+              <div style={gridStyle}>
+                <Field label="SWL" name="swl" value={form.swl} onChange={handleChange} />
+                <Field label="MAWP" name="mawp" value={form.mawp} onChange={handleChange} />
+                <Field label="Design Pressure" name="design_pressure" value={form.design_pressure} onChange={handleChange} />
+                <Field label="Test Pressure" name="test_pressure" value={form.test_pressure} onChange={handleChange} />
+                <Field label="Capacity" name="capacity" value={form.capacity} onChange={handleChange} />
+                <Field label="Year Built" name="year_built" value={form.year_built} onChange={handleChange} />
+                <Field label="Manufacturer" name="manufacturer" value={form.manufacturer} onChange={handleChange} />
+                <Field label="Model" name="model" value={form.model} onChange={handleChange} />
+                <Field label="Country of Origin" name="country_of_origin" value={form.country_of_origin} onChange={handleChange} />
+              </div>
+            </div>
+
+            <div style={panelStyle}>
+              <div style={sectionTitle}>Dates, Status, Inspector</div>
+
+              <div style={gridStyle}>
+                <SelectField
+                  label="Result"
+                  name="equipment_status"
+                  value={form.equipment_status}
+                  onChange={handleChange}
+                  options={[
+                    { value: "PASS", label: "PASS" },
+                    { value: "FAIL", label: "FAIL" },
+                    { value: "REPAIR_REQUIRED", label: "REPAIR REQUIRED" },
+                    { value: "OUT_OF_SERVICE", label: "OUT OF SERVICE" },
+                  ]}
+                />
+
+                <SelectField
+                  label="Record Status"
+                  name="status"
+                  value={form.status}
+                  onChange={handleChange}
+                  options={[
+                    { value: "issued", label: "Issued" },
+                    { value: "draft", label: "Draft" },
+                    { value: "archived", label: "Archived" },
+                  ]}
+                />
+
+                <Field label="Issue Date" name="issued_at" type="date" value={form.issued_at} onChange={handleChange} />
+                <Field label="Expiry Date" name="valid_to" type="date" value={form.valid_to} onChange={handleChange} />
+                <Field label="Inspector Name" name="inspector_name" value={form.inspector_name} onChange={handleChange} />
+                <Field label="Inspector ID" name="inspector_id" value={form.inspector_id} onChange={handleChange} />
+                <Field label="Legal Framework" name="legal_framework" value={form.legal_framework} onChange={handleChange} />
+                <Field label="Signature URL" name="signature_url" value={form.signature_url} onChange={handleChange} />
+              </div>
+            </div>
+
+            <div id="stapler" style={panelStyle}>
+              <div style={sectionTitle}>Stapler / Linked Folder</div>
+
               <div
                 style={{
-                  background: "#fff",
-                  borderRadius: 8,
-                  padding: 12,
-                  minHeight: 90,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  border: "1px solid #e2e8f0",
+                  border: `1px solid ${C.border}`,
+                  background: "rgba(34,211,238,0.06)",
+                  borderRadius: 14,
+                  padding: 14,
+                  marginBottom: 16,
                 }}
               >
-                {form.signature_url ? (
-                  <>
-                    <img
-                      key={form.signature_url}
-                      src={form.signature_url}
-                      alt="Signature"
-                      style={{ maxHeight: 80, maxWidth: "100%", objectFit: "contain" }}
-                      onError={(e) => {
-                        e.target.style.display = "none";
-                        if (e.target.nextSibling) e.target.nextSibling.style.display = "block";
-                      }}
-                    />
-                    <span style={{ color: "#9ca3af", fontSize: 12, display: "none" }}>
-                      ⚠️ Image failed to load, check bucket permissions
-                    </span>
-                  </>
-                ) : (
-                  <span style={{ color: "#9ca3af", fontSize: 12 }}>
-                    No signature uploaded
-                  </span>
-                )}
+                <div style={{ fontSize: 14, fontWeight: 800, color: C.text, marginBottom: 6 }}>
+                  Use this for paired certificates like Safety Harness + Lanyard
+                </div>
+                <div style={{ color: C.textSoft, fontSize: 13, lineHeight: 1.6 }}>
+                  When two certificates share the same folder, the print page will print them as separate pages in one job, and the certificate view will always show them together.
+                </div>
+              </div>
+
+              <div style={gridStyle}>
+                <Field label="Folder Name" name="folder_name" value={form.folder_name} onChange={handleChange} placeholder="Example: Harness + Lanyard Set 01" />
+                <Field label="Current Certificate Position" name="folder_position" type="number" value={form.folder_position} onChange={handleChange} />
+                <div>
+                  <label style={labelStyle}>Link Another Certificate</label>
+                  <select
+                    value={linkTargetId}
+                    onChange={(e) => setLinkTargetId(e.target.value)}
+                    style={{ ...inputStyle, background: "#0f172a", cursor: "pointer" }}
+                  >
+                    <option value="">— Select certificate to staple —</option>
+                    {selectableCertificates.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.certificate_number || item.id} — {item.equipment_description || item.company || item.client_name || "Certificate"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <Field
+                  label="Linked Certificate Position"
+                  type="number"
+                  name="linked_position"
+                  value={targetFolderPosition}
+                  onChange={(e) => setTargetFolderPosition(e.target.value)}
+                />
+              </div>
+
+              {folderMembers.length > 0 ? (
+                <div style={{ marginTop: 18 }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 10 }}>
+                    Current linked folder members
+                  </div>
+
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {folderMembers.map((item) => (
+                      <div
+                        key={item.id}
+                        style={{
+                          border: `1px solid ${C.border}`,
+                          background: "rgba(255,255,255,0.03)",
+                          borderRadius: 12,
+                          padding: 12,
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 10,
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 800 }}>
+                            {item.certificate_number || "—"}
+                          </div>
+                          <div style={{ color: C.textSoft, fontSize: 13 }}>
+                            {item.equipment_description || "Unnamed equipment"}
+                          </div>
+                        </div>
+                        <div style={{ color: C.cyan, fontWeight: 800, fontSize: 13 }}>
+                          Position {item.folder_position || 1}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 18 }}>
+                <button type="button" onClick={handleUnlinkFolder} style={redBtn} disabled={saving}>
+                  Remove Linked Folder
+                </button>
               </div>
             </div>
-          </div>
 
-          <div
-            style={{
-              display: "flex",
-              gap: 12,
-              marginTop: 32,
-              marginBottom: 40,
-              flexWrap: "wrap",
-            }}
-          >
-            <button
-              type="submit"
-              disabled={saving}
-              style={{
-                padding: "12px 32px",
-                borderRadius: 8,
-                border: "none",
-                background: "linear-gradient(135deg,#667eea,#764ba2)",
-                color: "#fff",
-                fontWeight: 700,
-                fontSize: 14,
-                cursor: saving ? "wait" : "pointer",
-                opacity: saving ? 0.7 : 1,
-              }}
-            >
-              {saving ? "Saving…" : "Save Changes"}
-            </button>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <button type="submit" disabled={saving} style={greenBtn}>
+                {saving ? "Saving..." : "Save Changes"}
+              </button>
 
-            <button
-              type="button"
-              onClick={() => router.push(`/certificates/${id}`)}
-              style={{
-                padding: "12px 32px",
-                borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.15)",
-                background: "rgba(255,255,255,0.05)",
-                color: "#fff",
-                fontWeight: 700,
-                fontSize: 14,
-                cursor: "pointer",
-              }}
-            >
-              ← Back to Certificate
-            </button>
-
-            <button
-              type="button"
-              onClick={() => router.push("/certificates")}
-              style={{
-                padding: "12px 32px",
-                borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.08)",
-                background: "transparent",
-                color: "#64748b",
-                fontWeight: 600,
-                fontSize: 14,
-                cursor: "pointer",
-              }}
-            >
-              All Certificates
-            </button>
-          </div>
-        </form>
+              <button type="button" onClick={() => router.push(`/certificates/${id}`)} style={ghostBtn}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </AppLayout>
   );
 }
+
+const pageWrap = {
+  minHeight: "100vh",
+  background: C.bg,
+  color: C.text,
+  padding: 24,
+};
+
+const panelStyle = {
+  background: C.panel,
+  border: `1px solid ${C.border}`,
+  borderRadius: 18,
+  padding: 18,
+};
+
+const eyebrow = {
+  fontSize: 11,
+  fontWeight: 900,
+  letterSpacing: "0.12em",
+  textTransform: "uppercase",
+  color: C.cyan,
+  marginBottom: 8,
+};
+
+const titleStyle = {
+  fontSize: 26,
+  fontWeight: 900,
+  lineHeight: 1.1,
+};
+
+const sectionTitle = {
+  fontSize: 18,
+  fontWeight: 900,
+  marginBottom: 16,
+};
+
+const gridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+  gap: 14,
+};
+
+const labelStyle = {
+  display: "block",
+  fontSize: 12,
+  fontWeight: 800,
+  color: C.textSoft,
+  marginBottom: 7,
+  letterSpacing: "0.02em",
+};
+
+const inputStyle = {
+  width: "100%",
+  boxSizing: "border-box",
+  padding: "12px 14px",
+  borderRadius: 12,
+  border: `1px solid ${C.border}`,
+  background: C.panel2,
+  color: C.text,
+  fontSize: 14,
+  fontWeight: 600,
+  outline: "none",
+};
+
+const ghostBtn = {
+  padding: "11px 16px",
+  borderRadius: 12,
+  border: "1px solid rgba(255,255,255,0.14)",
+  background: "rgba(255,255,255,0.04)",
+  color: "#f8fafc",
+  fontWeight: 800,
+  fontSize: 13,
+  cursor: "pointer",
+};
+
+const greenBtn = {
+  padding: "11px 16px",
+  borderRadius: 12,
+  border: "none",
+  background: "linear-gradient(135deg, #22c55e, #14b8a6)",
+  color: "#052e16",
+  fontWeight: 900,
+  fontSize: 13,
+  cursor: "pointer",
+};
+
+const purpleBtn = {
+  padding: "11px 16px",
+  borderRadius: 12,
+  border: "none",
+  background: "linear-gradient(135deg, #8b5cf6, #06b6d4)",
+  color: "#ecfeff",
+  fontWeight: 900,
+  fontSize: 13,
+  cursor: "pointer",
+};
+
+const redBtn = {
+  padding: "11px 16px",
+  borderRadius: 12,
+  border: "none",
+  background: "linear-gradient(135deg, #ef4444, #f97316)",
+  color: "#fff7ed",
+  fontWeight: 900,
+  fontSize: 13,
+  cursor: "pointer",
+};
+
+const disabledBtn = {
+  padding: "11px 16px",
+  borderRadius: 12,
+  border: "1px solid rgba(255,255,255,0.10)",
+  background: "rgba(255,255,255,0.05)",
+  color: "#64748b",
+  fontWeight: 800,
+  fontSize: 13,
+  cursor: "not-allowed",
+};
+
+const errorBox = {
+  background: "rgba(239,68,68,0.14)",
+  border: "1px solid rgba(239,68,68,0.24)",
+  color: "#fecaca",
+  borderRadius: 16,
+  padding: 14,
+  fontWeight: 700,
+};
+
+const successBox = {
+  background: "rgba(34,197,94,0.14)",
+  border: "1px solid rgba(34,197,94,0.24)",
+  color: "#bbf7d0",
+  borderRadius: 16,
+  padding: 14,
+  fontWeight: 700,
+};
