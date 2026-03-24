@@ -538,24 +538,6 @@ function NCRCreatePageInner() {
                 </Link>
               ) : null}
             </div>
-
-            <div style={card}>
-              <div style={cardTitle}>Auto Rules</div>
-              <div style={{ display: "grid", gap: 10, color: C.textSoft, fontSize: 13 }}>
-                <div style={ruleRow}>
-                  <span style={ruleDot(C.pink)} />
-                  Out of Service → Critical severity
-                </div>
-                <div style={ruleRow}>
-                  <span style={ruleDot(C.yellow)} />
-                  Fail / Repair Required → Major severity
-                </div>
-                <div style={ruleRow}>
-                  <span style={ruleDot(C.blue)} />
-                  Other results → Minor severity
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </div>
