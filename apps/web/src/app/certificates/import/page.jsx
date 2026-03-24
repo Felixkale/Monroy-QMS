@@ -148,9 +148,9 @@ const s = {
   eyebrow: { fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", color: "#64748b", textTransform: "uppercase" },
   heading: { fontSize: 26, fontWeight: 700, color: "#f1f5f9", lineHeight: 1.2 },
   headerActions: { display: "flex", gap: 8 },
-  twoCol: { display: "grid", gridTemplateColumns: "380px minmax(0,1fr)", gap: 16, alignItems: "start" },
+  twoCol: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 16, alignItems: "start" },
   leftCol: { display: "grid", gap: 14 },
-  statRow: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 10, marginBottom: 16 },
+  statRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 10, marginBottom: 16 },
   statCard: { background: "#111827", border: "1px solid #1e293b", borderRadius: 14, padding: "14px 16px" },
   statLabel: { fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 500 },
   statVal: { fontSize: 26, fontWeight: 700 },
@@ -183,11 +183,11 @@ const s = {
   resultNum: { width: 26, height: 26, borderRadius: 999, background: "#1e3a5f", color: "#60a5fa", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 },
   resultFname: { fontSize: 13, fontWeight: 600, color: "#e2e8f0", flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   resultBody: { padding: "14px 16px" },
-  miniGrid: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8, marginBottom: 10 },
+  miniGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, marginBottom: 10 },
   miniCell: { background: "#0d1525", border: "1px solid #1e293b", borderRadius: 10, padding: "9px 11px" },
   miniLabel: { fontSize: 11, color: "#64748b", marginBottom: 4 },
   miniVal: { fontSize: 13, fontWeight: 600, color: "#e2e8f0" },
-  summaryStrip: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8, padding: "10px 12px", background: "#0d1525", borderRadius: 10, border: "1px solid #1e293b", marginBottom: 10 },
+  summaryStrip: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, padding: "10px 12px", background: "#0d1525", borderRadius: 10, border: "1px solid #1e293b", marginBottom: 10 },
   sumLabel: { fontSize: 11, color: "#64748b", marginBottom: 3 },
   sumVal: { fontSize: 12, fontWeight: 600, color: "#e2e8f0" },
   rawText: { fontSize: 12, color: "#64748b", lineHeight: 1.6, marginBottom: 10 },
@@ -196,19 +196,18 @@ const s = {
   errDetail: { fontSize: 12, color: "#f87171", lineHeight: 1.6 },
   pill: { display: "inline-flex", alignItems: "center", padding: "3px 9px", borderRadius: 999, fontSize: 11, fontWeight: 600, flexShrink: 0 },
   drawer: { borderTop: "1px solid #1e293b", background: "#0a0f1a", padding: "14px 16px" },
-  drawerGrid: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8 },
+  drawerGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 8 },
+  overrideGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 10 },
+  inspectionRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 10, marginBottom: 10, alignItems: "start" },
   drawerCell: { background: "#111827", border: "1px solid #1e293b", borderRadius: 10, padding: "9px 11px" },
   drawerKey: { fontSize: 11, color: "#64748b", marginBottom: 4, textTransform: "capitalize" },
   drawerVal: { fontSize: 12, fontWeight: 600, color: "#e2e8f0", wordBreak: "break-word", lineHeight: 1.5 },
   empty: { padding: "18px 0", fontSize: 13, color: "#64748b" },
-  overrideGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 },
   overrideField: { display: "flex", flexDirection: "column", gap: 5 },
   overrideLabel: { fontSize: 11, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "#64748b" },
   overrideInput: { padding: "8px 11px", borderRadius: 9, border: "1px solid #1e293b", background: "#0d1525", color: "#e2e8f0", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" },
   overrideBadge: { display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600, background: "#1e3a5f", color: "#60a5fa", border: "1px solid #1e40af" },
 
-  // result + defects row
-  inspectionRow: { display: "grid", gridTemplateColumns: "180px 1fr", gap: 10, marginBottom: 10, alignItems: "start" },
   selectInput: { padding: "8px 11px", borderRadius: 9, border: "1px solid #1e293b", background: "#0d1525", color: "#e2e8f0", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box", cursor: "pointer" },
   textarea: { padding: "8px 11px", borderRadius: 9, border: "1px solid #1e293b", background: "#0d1525", color: "#e2e8f0", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box", resize: "vertical", minHeight: 70, lineHeight: 1.5 },
   fieldLabel: { fontSize: 11, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "#64748b", marginBottom: 5, display: "block" },
@@ -729,9 +728,14 @@ export default function CertificateImportPage() {
 
                               <div style={s.btnRow}>
                                 {item.saved && item.savedId && (
-                                  <Link href={`/certificates/${item.savedId}`} style={{ ...s.btn, color: "#60a5fa", borderColor: "#1e3a5f", fontSize: 12, padding: "7px 12px" }}>
-                                    Open saved →
-                                  </Link>
+                                  <>
+                                    <Link href={`/certificates/${item.savedId}`} style={{ ...s.btn, color: "#60a5fa", borderColor: "#1e3a5f", fontSize: 12, padding: "7px 12px" }}>
+                                      View →
+                                    </Link>
+                                    <Link href={`/certificates/${item.savedId}/edit`} style={{ ...s.btn, color: "#fbbf24", borderColor: "#78350f", background: "#1c1008", fontSize: 12, padding: "7px 12px" }}>
+                                      ✏️ Edit
+                                    </Link>
+                                  </>
                                 )}
                                 <button
                                   style={{ ...s.btnSuccess, opacity: item.saved || item.saving ? 0.5 : 1, cursor: item.saved || item.saving ? "not-allowed" : "pointer" }}
