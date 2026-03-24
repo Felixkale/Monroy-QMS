@@ -1,4 +1,3 @@
-// apps/web/src/app/certificates/page.jsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -34,7 +33,6 @@ function normalizeResult(result) {
 
 function getExpiryBucket(expiryDate) {
   if (!expiryDate) return "NO_EXPIRY";
-
   const today = new Date();
   const exp = new Date(expiryDate);
   const diffMs = exp - today;
@@ -57,18 +55,13 @@ function groupCertificates(rows) {
   const grouped = {};
 
   for (const row of rows) {
-    const company = normalizeText(
-      row.client_name || row.company_name || row.company || row.client,
-      "UNASSIGNED CLIENT"
-    );
-
+    const company = normalizeText(row.client_name, "UNASSIGNED CLIENT");
     const equipmentType = normalizeText(
-      row.equipment_type || row.asset_type || row.category,
+      row.equipment_type || row.asset_type,
       "UNCATEGORIZED EQUIPMENT"
     );
-
     const equipmentDescription = normalizeText(
-      row.equipment_description || row.asset_name || row.description || row.asset_tag,
+      row.equipment_description || row.asset_name || row.asset_tag,
       "UNNAMED EQUIPMENT"
     );
 
@@ -91,7 +84,9 @@ function groupCertificates(rows) {
       company,
       equipmentTypes: sortedTypes.map((equipmentType) => {
         const equipmentMap = types[equipmentType];
-        const sortedEquipment = Object.keys(equipmentMap).sort((a, b) => a.localeCompare(b));
+        const sortedEquipment = Object.keys(equipmentMap).sort((a, b) =>
+          a.localeCompare(b)
+        );
 
         return {
           equipmentType,
@@ -148,11 +143,7 @@ export default function CertificatesPage() {
         equipment_description,
         equipment_type,
         asset_type,
-        category,
         client_name,
-        company_name,
-        company,
-        client,
         status
       `)
       .order("created_at", { ascending: false });
@@ -168,12 +159,9 @@ export default function CertificatesPage() {
       ...row,
       result: normalizeResult(row.result),
       expiry_bucket: getExpiryBucket(row.expiry_date),
-      company_display: normalizeText(
-        row.client_name || row.company_name || row.company || row.client,
-        "UNASSIGNED CLIENT"
-      ),
+      company_display: normalizeText(row.client_name, "UNASSIGNED CLIENT"),
       equipment_type_display: normalizeText(
-        row.equipment_type || row.asset_type || row.category,
+        row.equipment_type || row.asset_type,
         "UNCATEGORIZED EQUIPMENT"
       ),
       equipment_description_display: normalizeText(
@@ -193,8 +181,8 @@ export default function CertificatesPage() {
   }, [certificates]);
 
   const equipmentTypeOptions = useMemo(() => {
-    return Array.from(new Set(certificates.map((x) => x.equipment_type_display))).sort((a, b) =>
-      a.localeCompare(b)
+    return Array.from(new Set(certificates.map((x) => x.equipment_type_display))).sort(
+      (a, b) => a.localeCompare(b)
     );
   }, [certificates]);
 
@@ -446,7 +434,7 @@ export default function CertificatesPage() {
                                 <Td>{formatDate(cert.issue_date)}</Td>
                                 <Td>{formatDate(cert.expiry_date)}</Td>
                                 <Td>{cert.expiry_bucket}</Td>
-                                <Td>{cert.status || "Active"}</Td>
+                                <Td>{cert.status || "active"}</Td>
                                 <Td>
                                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                                     <Link href={getCertificateViewLink(cert)} style={actionLinkBlue}>
