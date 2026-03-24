@@ -94,8 +94,6 @@ const s = {
     color: "#f1f5f9",
     fontFamily: "'DM Sans', 'Inter', system-ui, sans-serif",
   },
-
-  // top header strip
   header: {
     display: "flex",
     alignItems: "flex-end",
@@ -114,8 +112,6 @@ const s = {
   },
   heading: { fontSize: 26, fontWeight: 700, color: "#f1f5f9", lineHeight: 1.2 },
   headerActions: { display: "flex", gap: 8 },
-
-  // layout
   twoCol: {
     display: "grid",
     gridTemplateColumns: "380px minmax(0,1fr)",
@@ -123,8 +119,6 @@ const s = {
     alignItems: "start",
   },
   leftCol: { display: "grid", gap: 14 },
-
-  // stat row
   statRow: {
     display: "grid",
     gridTemplateColumns: "repeat(4,minmax(0,1fr))",
@@ -139,8 +133,6 @@ const s = {
   },
   statLabel: { fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 500 },
   statVal: { fontSize: 26, fontWeight: 700 },
-
-  // panel card
   panel: {
     background: "#111827",
     border: "1px solid #1e293b",
@@ -157,8 +149,6 @@ const s = {
   },
   panelTitle: { fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 2 },
   panelSub: { fontSize: 12, color: "#64748b" },
-
-  // drop zone
   dropZone: {
     border: "1.5px dashed #1e293b",
     borderRadius: 14,
@@ -183,8 +173,6 @@ const s = {
   },
   dropTitle: { fontSize: 14, fontWeight: 600, marginBottom: 4, color: "#e2e8f0" },
   dropSub: { fontSize: 12, color: "#64748b" },
-
-  // buttons
   btnRow: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" },
   btn: {
     padding: "9px 15px",
@@ -264,8 +252,6 @@ const s = {
     alignItems: "center",
     border: "none",
   },
-
-  // file queue row
   fileRow: {
     display: "flex",
     alignItems: "center",
@@ -299,8 +285,6 @@ const s = {
     minWidth: 0,
   },
   fileSize: { fontSize: 11, color: "#64748b" },
-
-  // progress
   progTrack: {
     height: 5,
     borderRadius: 999,
@@ -314,8 +298,6 @@ const s = {
     background: "linear-gradient(90deg,#3b82f6,#818cf8)",
     transition: "width .25s ease",
   },
-
-  // result card
   resultCard: {
     border: "1px solid #1e293b",
     borderRadius: 14,
@@ -355,8 +337,6 @@ const s = {
     textOverflow: "ellipsis",
   },
   resultBody: { padding: "14px 16px" },
-
-  // mini info grid
   miniGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(4,minmax(0,1fr))",
@@ -371,8 +351,6 @@ const s = {
   },
   miniLabel: { fontSize: 11, color: "#64748b", marginBottom: 4 },
   miniVal: { fontSize: 13, fontWeight: 600, color: "#e2e8f0" },
-
-  // summary strip
   summaryStrip: {
     display: "grid",
     gridTemplateColumns: "repeat(4,minmax(0,1fr))",
@@ -385,11 +363,7 @@ const s = {
   },
   sumLabel: { fontSize: 11, color: "#64748b", marginBottom: 3 },
   sumVal: { fontSize: 12, fontWeight: 600, color: "#e2e8f0" },
-
-  // raw text
   rawText: { fontSize: 12, color: "#64748b", lineHeight: 1.6, marginBottom: 10 },
-
-  // error box
   errBox: {
     background: "#450a0a",
     border: "1px solid #7f1d1d",
@@ -398,8 +372,6 @@ const s = {
   },
   errTitle: { fontSize: 13, fontWeight: 600, color: "#fca5a5", marginBottom: 6 },
   errDetail: { fontSize: 12, color: "#f87171", lineHeight: 1.6 },
-
-  // pill badges
   pill: {
     display: "inline-flex",
     alignItems: "center",
@@ -409,8 +381,6 @@ const s = {
     fontWeight: 600,
     flexShrink: 0,
   },
-
-  // detail drawer
   drawer: {
     borderTop: "1px solid #1e293b",
     background: "#0a0f1a",
@@ -429,13 +399,46 @@ const s = {
   },
   drawerKey: { fontSize: 11, color: "#64748b", marginBottom: 4, textTransform: "capitalize" },
   drawerVal: { fontSize: 12, fontWeight: 600, color: "#e2e8f0", wordBreak: "break-word", lineHeight: 1.5 },
+  empty: { padding: "18px 0", fontSize: 13, color: "#64748b" },
+  divider: { borderTop: "1px solid #1e293b", margin: "12px 0" },
 
-  empty: {
-    padding: "18px 0",
-    fontSize: 13,
+  // ── Manual override panel ──
+  overrideGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 10,
+  },
+  overrideField: { display: "flex", flexDirection: "column", gap: 5 },
+  overrideLabel: {
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: "0.07em",
+    textTransform: "uppercase",
     color: "#64748b",
   },
-  divider: { borderTop: "1px solid #1e293b", margin: "12px 0" },
+  overrideInput: {
+    padding: "8px 11px",
+    borderRadius: 9,
+    border: "1px solid #1e293b",
+    background: "#0d1525",
+    color: "#e2e8f0",
+    fontSize: 13,
+    outline: "none",
+    width: "100%",
+    boxSizing: "border-box",
+  },
+  overrideBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    padding: "2px 8px",
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 600,
+    background: "#1e3a5f",
+    color: "#60a5fa",
+    border: "1px solid #1e40af",
+  },
 };
 
 function pill(color) {
@@ -450,8 +453,6 @@ function pill(color) {
   };
   return { ...s.pill, ...map[color] };
 }
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StatCard({ label, value, color }) {
   return (
@@ -479,6 +480,24 @@ export default function CertificateImportPage() {
   const [dragActive, setDragActive] = useState(false);
   const [expanded, setExpanded]     = useState({});
 
+  // ── Manual override fields ───────────────────────────────────────────────
+  const [overrides, setOverrides] = useState({
+    client_name:     "",
+    location:        "",
+    inspection_date: "",
+    expiry_date:     "",
+  });
+
+  function setOverride(key, value) {
+    setOverrides((prev) => ({ ...prev, [key]: value }));
+  }
+
+  const activeOverrideCount = Object.values(overrides).filter(
+    (v) => v && String(v).trim() !== ""
+  ).length;
+
+  // ── Stats ────────────────────────────────────────────────────────────────
+
   const stats = useMemo(() => {
     const total   = results.length;
     const success = results.filter((x) => x.ok).length;
@@ -492,14 +511,11 @@ export default function CertificateImportPage() {
   function pushFiles(list) {
     const incoming = Array.from(list || []);
     if (!incoming.length) return;
-
-    const allowed = incoming.filter((f) => {
-      const ok =
-        f.type === "application/pdf" ||
-        f.type.startsWith("image/");
-      return ok && f.size <= MAX_FILE_MB * 1024 * 1024;
-    });
-
+    const allowed = incoming.filter(
+      (f) =>
+        (f.type === "application/pdf" || f.type.startsWith("image/")) &&
+        f.size <= MAX_FILE_MB * 1024 * 1024
+    );
     setFiles((prev) => {
       const merged = [...prev];
       for (const f of allowed) {
@@ -507,12 +523,7 @@ export default function CertificateImportPage() {
           (x) => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified
         );
         if (!dup && merged.length < MAX_FILES) {
-          merged.push({
-            id: crypto.randomUUID(),
-            file: f,
-            name: f.name,
-            size: f.size,
-          });
+          merged.push({ id: crypto.randomUUID(), file: f, name: f.name, size: f.size });
         }
       }
       return merged;
@@ -534,15 +545,12 @@ export default function CertificateImportPage() {
 
   async function extractAll() {
     if (!files.length || extracting) return;
-
     setExtracting(true);
     setResults([]);
     setExpanded({});
     setProgress(5);
-
     try {
       const payloadFiles = [];
-
       for (let i = 0; i < files.length; i++) {
         const item = files[i];
         const base64Data = await fileToBase64(item.file);
@@ -553,45 +561,38 @@ export default function CertificateImportPage() {
         });
         setProgress(5 + Math.round(((i + 1) / files.length) * 30));
       }
-
       setProgress(40);
-
       const res  = await fetch("/api/ai/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ files: payloadFiles }),
       });
-
       setProgress(80);
-
       const json = await res.json();
-
       if (!res.ok) throw new Error(json?.error || "Extraction failed.");
 
+      // Merge overrides: only fill blanks — never overwrite what AI found
       const mapped = Array.isArray(json?.results)
-        ? json.results.map((item) => ({
-            ...item,
-            saved:     false,
-            saving:    false,
-            saveError: null,
-            savedId:   null,
-          }))
+        ? json.results.map((item) => {
+            if (!item.ok || !item.data) return { ...item, saved: false, saving: false, saveError: null, savedId: null };
+            const merged = { ...item.data };
+            if (overrides.client_name     && !merged.client_name)     merged.client_name     = overrides.client_name;
+            if (overrides.location        && !merged.location)        merged.location        = overrides.location;
+            if (overrides.inspection_date && !merged.inspection_date) merged.inspection_date = overrides.inspection_date;
+            if (overrides.expiry_date     && !merged.expiry_date)     merged.expiry_date     = overrides.expiry_date;
+            return { ...item, data: merged, saved: false, saving: false, saveError: null, savedId: null };
+          })
         : [];
 
       setResults(mapped);
       setProgress(100);
     } catch (err) {
-      setResults([
-        {
-          fileName:  "Extraction request",
-          ok:        false,
-          error:     err?.message || "Unexpected error.",
-          saved:     false,
-          saving:    false,
-          saveError: null,
-          savedId:   null,
-        },
-      ]);
+      setResults([{
+        fileName: "Extraction request",
+        ok: false,
+        error: err?.message || "Unexpected error.",
+        saved: false, saving: false, saveError: null, savedId: null,
+      }]);
       setProgress(100);
     } finally {
       setExtracting(false);
@@ -603,13 +604,9 @@ export default function CertificateImportPage() {
   async function saveOne(index) {
     const row = results[index];
     if (!row?.ok || !row?.data || row.saved || row.saving) return;
-
     setResults((prev) =>
-      prev.map((item, i) =>
-        i === index ? { ...item, saving: true, saveError: null } : item
-      )
+      prev.map((item, i) => i === index ? { ...item, saving: true, saveError: null } : item)
     );
-
     try {
       const payload = toCertificatePayload(row.data, row.fileName);
       const { data, error } = await supabase
@@ -618,7 +615,6 @@ export default function CertificateImportPage() {
         .select("id")
         .single();
       if (error) throw error;
-
       setResults((prev) =>
         prev.map((item, i) =>
           i === index
@@ -642,9 +638,7 @@ export default function CertificateImportPage() {
       .map((item, index) => ({ item, index }))
       .filter(({ item }) => item.ok && item.data && !item.saved && !item.saving)
       .map(({ index }) => index);
-
     if (!pending.length) return;
-
     setSavingAll(true);
     try {
       for (const idx of pending) await saveOne(idx);
@@ -660,7 +654,6 @@ export default function CertificateImportPage() {
       .filter((x) => x.ok && x.data)
       .map((x) => ({ file_name: x.fileName, ...x.data }));
     if (!rows.length) return;
-
     const headers = [...new Set(rows.flatMap(Object.keys))];
     const csv = [
       headers.join(","),
@@ -668,7 +661,6 @@ export default function CertificateImportPage() {
         headers.map((h) => `"${String(row[h] ?? "").replace(/"/g, '""')}"`).join(",")
       ),
     ].join("\n");
-
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
     a.download = "certificate-extraction.csv";
@@ -695,7 +687,7 @@ export default function CertificateImportPage() {
 
         {/* Stats row */}
         <div style={s.statRow}>
-          <StatCard label="Processed" value={stats.total}   color="#60a5fa" />
+          <StatCard label="Processed"  value={stats.total}   color="#60a5fa" />
           <StatCard label="Successful" value={stats.success} color="#86efac" />
           <StatCard label="Errors"     value={stats.errors}  color="#f87171" />
           <StatCard label="Passed"     value={stats.passed}  color="#fbbf24" />
@@ -704,7 +696,7 @@ export default function CertificateImportPage() {
         {/* Two-col body */}
         <div style={s.twoCol}>
 
-          {/* LEFT — upload + queue */}
+          {/* LEFT */}
           <div style={s.leftCol}>
 
             {/* Upload panel */}
@@ -730,13 +722,10 @@ export default function CertificateImportPage() {
 
               {/* Drop zone */}
               <div
-                style={{
-                  ...s.dropZone,
-                  ...(dragActive ? s.dropZoneActive : {}),
-                }}
-                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                style={{ ...s.dropZone, ...(dragActive ? s.dropZoneActive : {}) }}
+                onDragOver={(e)  => { e.preventDefault(); setDragActive(true); }}
                 onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
-                onDrop={(e) => { e.preventDefault(); setDragActive(false); pushFiles(e.dataTransfer.files); }}
+                onDrop={(e)      => { e.preventDefault(); setDragActive(false); pushFiles(e.dataTransfer.files); }}
               >
                 <div style={s.dropIconWrap}>
                   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -776,6 +765,75 @@ export default function CertificateImportPage() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* ── Manual Override panel ── */}
+            <div style={s.panel}>
+              <div style={s.panelHeader}>
+                <div>
+                  <div style={{ ...s.panelTitle, display: "flex", alignItems: "center", gap: 8 }}>
+                    Manual override
+                    {activeOverrideCount > 0 && (
+                      <span style={s.overrideBadge}>{activeOverrideCount} active</span>
+                    )}
+                  </div>
+                  <div style={s.panelSub}>
+                    Fill blanks the AI couldn't read. Won't overwrite extracted values.
+                  </div>
+                </div>
+                {activeOverrideCount > 0 && (
+                  <button
+                    style={{ ...s.btnGhost, fontSize: 12, padding: "6px 10px" }}
+                    onClick={() => setOverrides({ client_name: "", location: "", inspection_date: "", expiry_date: "" })}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              <div style={s.overrideGrid}>
+                <div style={s.overrideField}>
+                  <label style={s.overrideLabel}>Client name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Karowe Diamond Mine"
+                    value={overrides.client_name}
+                    onChange={(e) => setOverride("client_name", e.target.value)}
+                    style={s.overrideInput}
+                  />
+                </div>
+
+                <div style={s.overrideField}>
+                  <label style={s.overrideLabel}>Location / Site</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Karowe, Processing Plant"
+                    value={overrides.location}
+                    onChange={(e) => setOverride("location", e.target.value)}
+                    style={s.overrideInput}
+                  />
+                </div>
+
+                <div style={s.overrideField}>
+                  <label style={s.overrideLabel}>Inspection date</label>
+                  <input
+                    type="date"
+                    value={overrides.inspection_date}
+                    onChange={(e) => setOverride("inspection_date", e.target.value)}
+                    style={s.overrideInput}
+                  />
+                </div>
+
+                <div style={s.overrideField}>
+                  <label style={s.overrideLabel}>Expiry date</label>
+                  <input
+                    type="date"
+                    value={overrides.expiry_date}
+                    onChange={(e) => setOverride("expiry_date", e.target.value)}
+                    style={s.overrideInput}
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Queue panel */}
@@ -838,17 +896,14 @@ export default function CertificateImportPage() {
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
                 {results.map((item, index) => {
-                  const data      = item.data || {};
-                  const filled    = item.ok ? nonEmptyCount(data) : 0;
+                  const data       = item.data || {};
+                  const filled     = item.ok ? nonEmptyCount(data) : 0;
                   const isExpanded = !!expanded[index];
 
                   return (
                     <div
                       key={`${item.fileName}-${index}`}
-                      style={{
-                        ...s.resultCard,
-                        ...(item.ok ? {} : s.resultCardErr),
-                      }}
+                      style={{ ...s.resultCard, ...(item.ok ? {} : s.resultCardErr) }}
                     >
                       {/* Head */}
                       <div style={s.resultHead}>
@@ -861,10 +916,7 @@ export default function CertificateImportPage() {
                           {index + 1}
                         </div>
                         <div style={s.resultFname} title={item.fileName}>{item.fileName}</div>
-
-                        {item.ok && (
-                          <span style={pill("info")}>{filled} fields</span>
-                        )}
+                        {item.ok && <span style={pill("info")}>{filled} fields</span>}
                         {item.ok && data.equipment_type && (
                           <span style={pill("neutral")}>{data.equipment_type}</span>
                         )}
@@ -877,7 +929,6 @@ export default function CertificateImportPage() {
                       {/* Body */}
                       <div style={s.resultBody}>
 
-                        {/* Error state */}
                         {!item.ok && (
                           <div style={s.errBox}>
                             <div style={s.errTitle}>{item.error || "Extraction error."}</div>
@@ -890,10 +941,8 @@ export default function CertificateImportPage() {
                           </div>
                         )}
 
-                        {/* Success state */}
                         {item.ok && (
                           <>
-                            {/* Mini info */}
                             <div style={s.miniGrid}>
                               <div style={s.miniCell}>
                                 <div style={s.miniLabel}>Certificate no.</div>
@@ -913,7 +962,6 @@ export default function CertificateImportPage() {
                               </div>
                             </div>
 
-                            {/* Summary strip */}
                             <div style={s.summaryStrip}>
                               <div>
                                 <div style={s.sumLabel}>Equipment</div>
@@ -933,19 +981,16 @@ export default function CertificateImportPage() {
                               </div>
                             </div>
 
-                            {/* Raw summary */}
                             {data.raw_text_summary && (
                               <div style={s.rawText}>{data.raw_text_summary}</div>
                             )}
 
-                            {/* Save error */}
                             {item.saveError && (
                               <div style={{ ...s.errBox, marginBottom: 10 }}>
                                 <div style={s.errTitle}>{item.saveError}</div>
                               </div>
                             )}
 
-                            {/* Footer actions */}
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                               <button
                                 style={{
@@ -989,7 +1034,6 @@ export default function CertificateImportPage() {
                         )}
                       </div>
 
-                      {/* Expandable detail drawer */}
                       {item.ok && isExpanded && (
                         <div style={s.drawer}>
                           <div style={s.drawerGrid}>
