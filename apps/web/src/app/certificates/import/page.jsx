@@ -37,11 +37,51 @@ function prettyKey(key) {
   return key.replace(/_/g, " ");
 }
 
-function toCertificatePayload(data = {}, fileName = "") {
+function slugify(str) {
+  return String(str || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s\-\/]+/g, "")
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 20);
+}
+
+async function generateCertificateNumber(data = {}, fileName = "") {
+  // Build base from serial → equipment_id → asset_tag → file name slug
+  const base =
+    slugify(data.serial_number) ||
+    slugify(data.equipment_id)  ||
+    slugify(data.asset_tag)     ||
+    slugify(fileName.replace(/\.[^.]+$/, "")).slice(0, 16) ||
+    "UNKNOWN";
+
+  const prefix = `CERT-${base}-`;
+
+  const { data: existing } = await supabase
+    .from("certificates")
+    .select("certificate_number")
+    .like("certificate_number", `${prefix}%`)
+    .order("certificate_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let next = 1;
+  if (existing?.certificate_number) {
+    const parts = existing.certificate_number.split("-");
+    const seq = parseInt(parts[parts.length - 1], 10);
+    if (!Number.isNaN(seq)) next = seq + 1;
+  }
+
+  return `${prefix}${String(next).padStart(2, "0")}`;
+}
+
+function toCertificatePayload(data = {}, fileName = "", certNumber = "", manualResult = "", manualDefects = "") {
+  const result = manualResult || data.result || "UNKNOWN";
+  const defects = manualDefects || data.defects_found || null;
   return {
-    certificate_number:    data.certificate_number    || null,
+    certificate_number:    certNumber,
     inspection_number:     data.inspection_number     || null,
-    result:                data.result                || "UNKNOWN",
+    result,
     issue_date:            data.issue_date            || null,
     expiry_date:           data.expiry_date           || null,
     equipment_description: data.equipment_description || null,
@@ -73,7 +113,7 @@ function toCertificatePayload(data = {}, fileName = "") {
     next_inspection_due:   data.next_inspection_due   || null,
     inspector_name:        data.inspector_name        || null,
     inspection_body:       data.inspection_body       || null,
-    defects_found:         data.defects_found         || null,
+    defects_found:         defects,
     recommendations:       data.recommendations       || null,
     comments:              data.comments              || null,
     nameplate_data:        data.nameplate_data        || null,
@@ -83,6 +123,8 @@ function toCertificatePayload(data = {}, fileName = "") {
 
 const MAX_FILES = 20;
 const MAX_FILE_MB = 10;
+
+const RESULT_OPTIONS = ["PASS", "FAIL", "CONDITIONAL"];
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
@@ -103,353 +145,87 @@ const s = {
     flexWrap: "wrap",
   },
   headingGroup: { display: "flex", flexDirection: "column", gap: 4 },
-  eyebrow: {
-    fontSize: 11,
-    fontWeight: 600,
-    letterSpacing: "0.1em",
-    color: "#64748b",
-    textTransform: "uppercase",
-  },
+  eyebrow: { fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", color: "#64748b", textTransform: "uppercase" },
   heading: { fontSize: 26, fontWeight: 700, color: "#f1f5f9", lineHeight: 1.2 },
   headerActions: { display: "flex", gap: 8 },
-  twoCol: {
-    display: "grid",
-    gridTemplateColumns: "380px minmax(0,1fr)",
-    gap: 16,
-    alignItems: "start",
-  },
+  twoCol: { display: "grid", gridTemplateColumns: "380px minmax(0,1fr)", gap: 16, alignItems: "start" },
   leftCol: { display: "grid", gap: 14 },
-  statRow: {
-    display: "grid",
-    gridTemplateColumns: "repeat(4,minmax(0,1fr))",
-    gap: 10,
-    marginBottom: 16,
-  },
-  statCard: {
-    background: "#111827",
-    border: "1px solid #1e293b",
-    borderRadius: 14,
-    padding: "14px 16px",
-  },
+  statRow: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 10, marginBottom: 16 },
+  statCard: { background: "#111827", border: "1px solid #1e293b", borderRadius: 14, padding: "14px 16px" },
   statLabel: { fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 500 },
   statVal: { fontSize: 26, fontWeight: 700 },
-  panel: {
-    background: "#111827",
-    border: "1px solid #1e293b",
-    borderRadius: 16,
-    padding: "18px 20px",
-  },
-  panelHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 12,
-    marginBottom: 14,
-    flexWrap: "wrap",
-  },
+  panel: { background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: "18px 20px" },
+  panelHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 14, flexWrap: "wrap" },
   panelTitle: { fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 2 },
   panelSub: { fontSize: 12, color: "#64748b" },
-  dropZone: {
-    border: "1.5px dashed #1e293b",
-    borderRadius: 14,
-    padding: "28px 16px",
-    textAlign: "center",
-    background: "#0d1525",
-    cursor: "pointer",
-    marginBottom: 14,
-    transition: "border-color .15s",
-  },
+  dropZone: { border: "1.5px dashed #1e293b", borderRadius: 14, padding: "28px 16px", textAlign: "center", background: "#0d1525", cursor: "pointer", marginBottom: 14, transition: "border-color .15s" },
   dropZoneActive: { borderColor: "#3b82f6" },
-  dropIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    background: "#1e293b",
-    border: "1px solid #334155",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    margin: "0 auto 12px",
-  },
+  dropIconWrap: { width: 44, height: 44, borderRadius: 12, background: "#1e293b", border: "1px solid #334155", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" },
   dropTitle: { fontSize: 14, fontWeight: 600, marginBottom: 4, color: "#e2e8f0" },
   dropSub: { fontSize: 12, color: "#64748b" },
   btnRow: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" },
-  btn: {
-    padding: "9px 15px",
-    borderRadius: 10,
-    border: "1px solid #1e293b",
-    background: "#1e293b",
-    color: "#cbd5e1",
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 500,
-    lineHeight: 1,
-    transition: "background .15s, opacity .15s",
-  },
-  btnPrimary: {
-    padding: "9px 16px",
-    borderRadius: 10,
-    border: "none",
-    background: "#3b82f6",
-    color: "#fff",
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 600,
-    lineHeight: 1,
-    transition: "opacity .15s",
-  },
-  btnSuccess: {
-    padding: "7px 13px",
-    borderRadius: 9,
-    border: "1px solid #166534",
-    background: "#14532d",
-    color: "#86efac",
-    cursor: "pointer",
-    fontSize: 12,
-    fontWeight: 500,
-  },
-  btnDanger: {
-    padding: "6px 11px",
-    borderRadius: 8,
-    border: "1px solid #7f1d1d",
-    background: "#450a0a",
-    color: "#fca5a5",
-    cursor: "pointer",
-    fontSize: 12,
-    fontWeight: 500,
-  },
-  btnGhost: {
-    padding: "9px 13px",
-    borderRadius: 10,
-    border: "1px solid transparent",
-    background: "transparent",
-    color: "#64748b",
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 500,
-  },
-  linkBtn: {
-    textDecoration: "none",
-    padding: "9px 15px",
-    borderRadius: 10,
-    border: "1px solid #1e293b",
-    background: "#1e293b",
-    color: "#cbd5e1",
-    fontSize: 13,
-    fontWeight: 500,
-    display: "inline-flex",
-    alignItems: "center",
-  },
-  linkBtnPrimary: {
-    textDecoration: "none",
-    padding: "9px 16px",
-    borderRadius: 10,
-    background: "#3b82f6",
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: 600,
-    display: "inline-flex",
-    alignItems: "center",
-    border: "none",
-  },
-  fileRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    padding: "9px 11px",
-    borderRadius: 10,
-    border: "1px solid #1e293b",
-    background: "#0d1525",
-  },
-  fileBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    background: "#1e3a5f",
-    color: "#60a5fa",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: 10,
-    fontWeight: 700,
-    flexShrink: 0,
-  },
-  fileName: {
-    fontSize: 13,
-    fontWeight: 500,
-    color: "#e2e8f0",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    flex: 1,
-    minWidth: 0,
-  },
+  btn: { padding: "9px 15px", borderRadius: 10, border: "1px solid #1e293b", background: "#1e293b", color: "#cbd5e1", cursor: "pointer", fontSize: 13, fontWeight: 500, lineHeight: 1 },
+  btnPrimary: { padding: "9px 16px", borderRadius: 10, border: "none", background: "#3b82f6", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, lineHeight: 1 },
+  btnSuccess: { padding: "7px 13px", borderRadius: 9, border: "1px solid #166534", background: "#14532d", color: "#86efac", cursor: "pointer", fontSize: 12, fontWeight: 500 },
+  btnDanger: { padding: "6px 11px", borderRadius: 8, border: "1px solid #7f1d1d", background: "#450a0a", color: "#fca5a5", cursor: "pointer", fontSize: 12, fontWeight: 500 },
+  btnGhost: { padding: "9px 13px", borderRadius: 10, border: "1px solid transparent", background: "transparent", color: "#64748b", cursor: "pointer", fontSize: 13, fontWeight: 500 },
+  linkBtn: { textDecoration: "none", padding: "9px 15px", borderRadius: 10, border: "1px solid #1e293b", background: "#1e293b", color: "#cbd5e1", fontSize: 13, fontWeight: 500, display: "inline-flex", alignItems: "center" },
+  linkBtnPrimary: { textDecoration: "none", padding: "9px 16px", borderRadius: 10, background: "#3b82f6", color: "#fff", fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", border: "none" },
+  fileRow: { display: "flex", alignItems: "center", gap: 10, padding: "9px 11px", borderRadius: 10, border: "1px solid #1e293b", background: "#0d1525" },
+  fileBadge: { width: 36, height: 36, borderRadius: 8, background: "#1e3a5f", color: "#60a5fa", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 },
+  fileName: { fontSize: 13, fontWeight: 500, color: "#e2e8f0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 },
   fileSize: { fontSize: 11, color: "#64748b" },
-  progTrack: {
-    height: 5,
-    borderRadius: 999,
-    background: "#1e293b",
-    overflow: "hidden",
-    marginTop: 8,
-  },
-  progBar: {
-    height: "100%",
-    borderRadius: 999,
-    background: "linear-gradient(90deg,#3b82f6,#818cf8)",
-    transition: "width .25s ease",
-  },
-  resultCard: {
-    border: "1px solid #1e293b",
-    borderRadius: 14,
-    overflow: "hidden",
-    marginTop: 10,
-  },
+  progTrack: { height: 5, borderRadius: 999, background: "#1e293b", overflow: "hidden", marginTop: 8 },
+  progBar: { height: "100%", borderRadius: 999, background: "linear-gradient(90deg,#3b82f6,#818cf8)", transition: "width .25s ease" },
+  resultCard: { border: "1px solid #1e293b", borderRadius: 14, overflow: "hidden", marginTop: 10 },
   resultCardErr: { border: "1px solid #7f1d1d" },
-  resultHead: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    padding: "11px 14px",
-    background: "#0d1525",
-    flexWrap: "wrap",
-  },
-  resultNum: {
-    width: 26,
-    height: 26,
-    borderRadius: 999,
-    background: "#1e3a5f",
-    color: "#60a5fa",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: 11,
-    fontWeight: 700,
-    flexShrink: 0,
-  },
-  resultFname: {
-    fontSize: 13,
-    fontWeight: 600,
-    color: "#e2e8f0",
-    flex: 1,
-    minWidth: 0,
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-  },
+  resultHead: { display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", background: "#0d1525", flexWrap: "wrap" },
+  resultNum: { width: 26, height: 26, borderRadius: 999, background: "#1e3a5f", color: "#60a5fa", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 },
+  resultFname: { fontSize: 13, fontWeight: 600, color: "#e2e8f0", flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   resultBody: { padding: "14px 16px" },
-  miniGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(4,minmax(0,1fr))",
-    gap: 8,
-    marginBottom: 10,
-  },
-  miniCell: {
-    background: "#0d1525",
-    border: "1px solid #1e293b",
-    borderRadius: 10,
-    padding: "9px 11px",
-  },
+  miniGrid: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8, marginBottom: 10 },
+  miniCell: { background: "#0d1525", border: "1px solid #1e293b", borderRadius: 10, padding: "9px 11px" },
   miniLabel: { fontSize: 11, color: "#64748b", marginBottom: 4 },
   miniVal: { fontSize: 13, fontWeight: 600, color: "#e2e8f0" },
-  summaryStrip: {
-    display: "grid",
-    gridTemplateColumns: "repeat(4,minmax(0,1fr))",
-    gap: 8,
-    padding: "10px 12px",
-    background: "#0d1525",
-    borderRadius: 10,
-    border: "1px solid #1e293b",
-    marginBottom: 10,
-  },
+  summaryStrip: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8, padding: "10px 12px", background: "#0d1525", borderRadius: 10, border: "1px solid #1e293b", marginBottom: 10 },
   sumLabel: { fontSize: 11, color: "#64748b", marginBottom: 3 },
   sumVal: { fontSize: 12, fontWeight: 600, color: "#e2e8f0" },
   rawText: { fontSize: 12, color: "#64748b", lineHeight: 1.6, marginBottom: 10 },
-  errBox: {
-    background: "#450a0a",
-    border: "1px solid #7f1d1d",
-    borderRadius: 10,
-    padding: "12px 14px",
-  },
+  errBox: { background: "#450a0a", border: "1px solid #7f1d1d", borderRadius: 10, padding: "12px 14px" },
   errTitle: { fontSize: 13, fontWeight: 600, color: "#fca5a5", marginBottom: 6 },
   errDetail: { fontSize: 12, color: "#f87171", lineHeight: 1.6 },
-  pill: {
-    display: "inline-flex",
-    alignItems: "center",
-    padding: "3px 9px",
-    borderRadius: 999,
-    fontSize: 11,
-    fontWeight: 600,
-    flexShrink: 0,
-  },
-  drawer: {
-    borderTop: "1px solid #1e293b",
-    background: "#0a0f1a",
-    padding: "14px 16px",
-  },
-  drawerGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3,minmax(0,1fr))",
-    gap: 8,
-  },
-  drawerCell: {
-    background: "#111827",
-    border: "1px solid #1e293b",
-    borderRadius: 10,
-    padding: "9px 11px",
-  },
+  pill: { display: "inline-flex", alignItems: "center", padding: "3px 9px", borderRadius: 999, fontSize: 11, fontWeight: 600, flexShrink: 0 },
+  drawer: { borderTop: "1px solid #1e293b", background: "#0a0f1a", padding: "14px 16px" },
+  drawerGrid: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8 },
+  drawerCell: { background: "#111827", border: "1px solid #1e293b", borderRadius: 10, padding: "9px 11px" },
   drawerKey: { fontSize: 11, color: "#64748b", marginBottom: 4, textTransform: "capitalize" },
   drawerVal: { fontSize: 12, fontWeight: 600, color: "#e2e8f0", wordBreak: "break-word", lineHeight: 1.5 },
   empty: { padding: "18px 0", fontSize: 13, color: "#64748b" },
-  divider: { borderTop: "1px solid #1e293b", margin: "12px 0" },
-
-  // ── Manual override panel ──
-  overrideGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 10,
-  },
+  overrideGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 },
   overrideField: { display: "flex", flexDirection: "column", gap: 5 },
-  overrideLabel: {
-    fontSize: 11,
-    fontWeight: 600,
-    letterSpacing: "0.07em",
-    textTransform: "uppercase",
-    color: "#64748b",
-  },
-  overrideInput: {
-    padding: "8px 11px",
-    borderRadius: 9,
-    border: "1px solid #1e293b",
-    background: "#0d1525",
-    color: "#e2e8f0",
-    fontSize: 13,
-    outline: "none",
-    width: "100%",
-    boxSizing: "border-box",
-  },
-  overrideBadge: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 5,
-    padding: "2px 8px",
-    borderRadius: 999,
-    fontSize: 11,
-    fontWeight: 600,
-    background: "#1e3a5f",
-    color: "#60a5fa",
-    border: "1px solid #1e40af",
-  },
+  overrideLabel: { fontSize: 11, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "#64748b" },
+  overrideInput: { padding: "8px 11px", borderRadius: 9, border: "1px solid #1e293b", background: "#0d1525", color: "#e2e8f0", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" },
+  overrideBadge: { display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600, background: "#1e3a5f", color: "#60a5fa", border: "1px solid #1e40af" },
+
+  // result + defects row
+  inspectionRow: { display: "grid", gridTemplateColumns: "180px 1fr", gap: 10, marginBottom: 10, alignItems: "start" },
+  selectInput: { padding: "8px 11px", borderRadius: 9, border: "1px solid #1e293b", background: "#0d1525", color: "#e2e8f0", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box", cursor: "pointer" },
+  textarea: { padding: "8px 11px", borderRadius: 9, border: "1px solid #1e293b", background: "#0d1525", color: "#e2e8f0", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box", resize: "vertical", minHeight: 70, lineHeight: 1.5 },
+  fieldLabel: { fontSize: 11, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "#64748b", marginBottom: 5, display: "block" },
+
+  // cert number badge
+  certNumBadge: { fontSize: 11, color: "#86efac", background: "#14532d", border: "1px solid #166534", borderRadius: 6, padding: "2px 8px", fontWeight: 600, fontFamily: "monospace" },
 };
 
 function pill(color) {
   const map = {
-    pass:    { background: "#14532d", color: "#86efac", border: "1px solid #166534" },
-    fail:    { background: "#450a0a", color: "#fca5a5", border: "1px solid #7f1d1d" },
-    warn:    { background: "#431407", color: "#fdba74", border: "1px solid #7c2d12" },
-    info:    { background: "#1e3a5f", color: "#93c5fd", border: "1px solid #1e40af" },
-    neutral: { background: "#1e293b", color: "#94a3b8", border: "1px solid #334155" },
-    ok:      { background: "#14532d", color: "#86efac", border: "1px solid #166534" },
-    err:     { background: "#450a0a", color: "#fca5a5", border: "1px solid #7f1d1d" },
+    pass:        { background: "#14532d", color: "#86efac", border: "1px solid #166534" },
+    fail:        { background: "#450a0a", color: "#fca5a5", border: "1px solid #7f1d1d" },
+    conditional: { background: "#431407", color: "#fdba74", border: "1px solid #7c2d12" },
+    info:        { background: "#1e3a5f", color: "#93c5fd", border: "1px solid #1e40af" },
+    neutral:     { background: "#1e293b", color: "#94a3b8", border: "1px solid #334155" },
+    ok:          { background: "#14532d", color: "#86efac", border: "1px solid #166534" },
+    err:         { background: "#450a0a", color: "#fca5a5", border: "1px solid #7f1d1d" },
   };
   return { ...s.pill, ...map[color] };
 }
@@ -465,7 +241,7 @@ function StatCard({ label, value, color }) {
 
 function ResultPill({ result }) {
   const r = String(result || "UNKNOWN").toUpperCase();
-  const c = r === "PASS" ? "pass" : r === "FAIL" ? "fail" : "neutral";
+  const c = r === "PASS" ? "pass" : r === "FAIL" ? "fail" : r === "CONDITIONAL" ? "conditional" : "neutral";
   return <span style={pill(c)}>{r}</span>;
 }
 
@@ -480,29 +256,28 @@ export default function CertificateImportPage() {
   const [dragActive, setDragActive] = useState(false);
   const [expanded, setExpanded]     = useState({});
 
-  // ── Manual override fields ───────────────────────────────────────────────
   const [overrides, setOverrides] = useState({
-    client_name:     "",
-    location:        "",
-    inspection_date: "",
-    expiry_date:     "",
+    client_name: "", location: "", inspection_date: "", expiry_date: "",
   });
 
   function setOverride(key, value) {
     setOverrides((prev) => ({ ...prev, [key]: value }));
   }
 
-  const activeOverrideCount = Object.values(overrides).filter(
-    (v) => v && String(v).trim() !== ""
-  ).length;
+  const activeOverrideCount = Object.values(overrides).filter((v) => v && String(v).trim() !== "").length;
 
-  // ── Stats ────────────────────────────────────────────────────────────────
+  // per-result editable fields
+  function setResultField(index, key, value) {
+    setResults((prev) =>
+      prev.map((item, i) => i === index ? { ...item, [key]: value } : item)
+    );
+  }
 
   const stats = useMemo(() => {
     const total   = results.length;
     const success = results.filter((x) => x.ok).length;
     const errors  = results.filter((x) => !x.ok).length;
-    const passed  = results.filter((x) => x.ok && x.data?.result === "PASS").length;
+    const passed  = results.filter((x) => x.ok && (x.manualResult || x.data?.result) === "PASS").length;
     return { total, success, errors, passed };
   }, [results]);
 
@@ -512,33 +287,22 @@ export default function CertificateImportPage() {
     const incoming = Array.from(list || []);
     if (!incoming.length) return;
     const allowed = incoming.filter(
-      (f) =>
-        (f.type === "application/pdf" || f.type.startsWith("image/")) &&
-        f.size <= MAX_FILE_MB * 1024 * 1024
+      (f) => (f.type === "application/pdf" || f.type.startsWith("image/")) && f.size <= MAX_FILE_MB * 1024 * 1024
     );
     setFiles((prev) => {
       const merged = [...prev];
       for (const f of allowed) {
-        const dup = merged.some(
-          (x) => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified
-        );
-        if (!dup && merged.length < MAX_FILES) {
-          merged.push({ id: crypto.randomUUID(), file: f, name: f.name, size: f.size });
-        }
+        const dup = merged.some((x) => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified);
+        if (!dup && merged.length < MAX_FILES) merged.push({ id: crypto.randomUUID(), file: f, name: f.name, size: f.size });
       }
       return merged;
     });
   }
 
-  function removeFile(id) {
-    setFiles((prev) => prev.filter((x) => x.id !== id));
-  }
+  function removeFile(id) { setFiles((prev) => prev.filter((x) => x.id !== id)); }
 
   function clearAll() {
-    setFiles([]);
-    setResults([]);
-    setProgress(0);
-    setExpanded({});
+    setFiles([]); setResults([]); setProgress(0); setExpanded({});
   }
 
   // ── Extraction ───────────────────────────────────────────────────────────
@@ -554,11 +318,7 @@ export default function CertificateImportPage() {
       for (let i = 0; i < files.length; i++) {
         const item = files[i];
         const base64Data = await fileToBase64(item.file);
-        payloadFiles.push({
-          fileName:  item.name,
-          mimeType:  item.file.type || "application/pdf",
-          base64Data,
-        });
+        payloadFiles.push({ fileName: item.name, mimeType: item.file.type || "application/pdf", base64Data });
         setProgress(5 + Math.round(((i + 1) / files.length) * 30));
       }
       setProgress(40);
@@ -571,28 +331,32 @@ export default function CertificateImportPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Extraction failed.");
 
-      // Merge overrides: only fill blanks — never overwrite what AI found
       const mapped = Array.isArray(json?.results)
         ? json.results.map((item) => {
-            if (!item.ok || !item.data) return { ...item, saved: false, saving: false, saveError: null, savedId: null };
+            if (!item.ok || !item.data) return { ...item, saved: false, saving: false, saveError: null, savedId: null, manualResult: "PASS", manualDefects: "", certNumber: null };
             const merged = { ...item.data };
             if (overrides.client_name     && !merged.client_name)     merged.client_name     = overrides.client_name;
             if (overrides.location        && !merged.location)        merged.location        = overrides.location;
             if (overrides.inspection_date && !merged.inspection_date) merged.inspection_date = overrides.inspection_date;
             if (overrides.expiry_date     && !merged.expiry_date)     merged.expiry_date     = overrides.expiry_date;
-            return { ...item, data: merged, saved: false, saving: false, saveError: null, savedId: null };
+            return {
+              ...item,
+              data: merged,
+              saved: false,
+              saving: false,
+              saveError: null,
+              savedId: null,
+              manualResult: merged.result || "PASS",
+              manualDefects: merged.defects_found || "",
+              certNumber: null, // generated on save
+            };
           })
         : [];
 
       setResults(mapped);
       setProgress(100);
     } catch (err) {
-      setResults([{
-        fileName: "Extraction request",
-        ok: false,
-        error: err?.message || "Unexpected error.",
-        saved: false, saving: false, saveError: null, savedId: null,
-      }]);
+      setResults([{ fileName: "Extraction request", ok: false, error: err?.message || "Unexpected error.", saved: false, saving: false, saveError: null, savedId: null, manualResult: "PASS", manualDefects: "", certNumber: null }]);
       setProgress(100);
     } finally {
       setExtracting(false);
@@ -604,21 +368,35 @@ export default function CertificateImportPage() {
   async function saveOne(index) {
     const row = results[index];
     if (!row?.ok || !row?.data || row.saved || row.saving) return;
+
     setResults((prev) =>
       prev.map((item, i) => i === index ? { ...item, saving: true, saveError: null } : item)
     );
+
     try {
-      const payload = toCertificatePayload(row.data, row.fileName);
+      // Auto-generate certificate number
+      const certNumber = await generateCertificateNumber(row.data, row.fileName);
+
+      const payload = toCertificatePayload(
+        row.data,
+        row.fileName,
+        certNumber,
+        row.manualResult,
+        row.manualDefects
+      );
+
       const { data, error } = await supabase
         .from("certificates")
         .insert(payload)
         .select("id")
         .single();
+
       if (error) throw error;
+
       setResults((prev) =>
         prev.map((item, i) =>
           i === index
-            ? { ...item, saving: false, saved: true, savedId: data?.id || null, saveError: null }
+            ? { ...item, saving: false, saved: true, savedId: data?.id || null, saveError: null, certNumber }
             : item
         )
       );
@@ -640,11 +418,8 @@ export default function CertificateImportPage() {
       .map(({ index }) => index);
     if (!pending.length) return;
     setSavingAll(true);
-    try {
-      for (const idx of pending) await saveOne(idx);
-    } finally {
-      setSavingAll(false);
-    }
+    try { for (const idx of pending) await saveOne(idx); }
+    finally { setSavingAll(false); }
   }
 
   // ── CSV export ───────────────────────────────────────────────────────────
@@ -652,14 +427,12 @@ export default function CertificateImportPage() {
   function exportCsv() {
     const rows = results
       .filter((x) => x.ok && x.data)
-      .map((x) => ({ file_name: x.fileName, ...x.data }));
+      .map((x) => ({ file_name: x.fileName, certificate_number: x.certNumber || "", result: x.manualResult, defects_found: x.manualDefects, ...x.data }));
     if (!rows.length) return;
     const headers = [...new Set(rows.flatMap(Object.keys))];
     const csv = [
       headers.join(","),
-      ...rows.map((row) =>
-        headers.map((h) => `"${String(row[h] ?? "").replace(/"/g, '""')}"`).join(",")
-      ),
+      ...rows.map((row) => headers.map((h) => `"${String(row[h] ?? "").replace(/"/g, '""')}"`).join(",")),
     ].join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
@@ -685,7 +458,7 @@ export default function CertificateImportPage() {
           </div>
         </div>
 
-        {/* Stats row */}
+        {/* Stats */}
         <div style={s.statRow}>
           <StatCard label="Processed"  value={stats.total}   color="#60a5fa" />
           <StatCard label="Successful" value={stats.success} color="#86efac" />
@@ -693,7 +466,6 @@ export default function CertificateImportPage() {
           <StatCard label="Passed"     value={stats.passed}  color="#fbbf24" />
         </div>
 
-        {/* Two-col body */}
         <div style={s.twoCol}>
 
           {/* LEFT */}
@@ -704,28 +476,19 @@ export default function CertificateImportPage() {
               <div style={s.panelHeader}>
                 <div>
                   <div style={s.panelTitle}>Upload zone</div>
-                  <div style={s.panelSub}>
-                    PDF, PNG, JPG, WEBP · max {MAX_FILES} files · max {MAX_FILE_MB} MB each
-                  </div>
+                  <div style={s.panelSub}>PDF, PNG, JPG, WEBP · max {MAX_FILES} files · max {MAX_FILE_MB} MB each</div>
                 </div>
                 <label style={{ ...s.btnPrimary, cursor: "pointer" }}>
                   Select files
-                  <input
-                    type="file"
-                    accept=".pdf,image/png,image/jpeg,image/jpg,image/webp"
-                    multiple
-                    style={{ display: "none" }}
-                    onChange={(e) => { pushFiles(e.target.files); e.target.value = ""; }}
-                  />
+                  <input type="file" accept=".pdf,image/png,image/jpeg,image/jpg,image/webp" multiple style={{ display: "none" }} onChange={(e) => { pushFiles(e.target.files); e.target.value = ""; }} />
                 </label>
               </div>
 
-              {/* Drop zone */}
               <div
                 style={{ ...s.dropZone, ...(dragActive ? s.dropZoneActive : {}) }}
-                onDragOver={(e)  => { e.preventDefault(); setDragActive(true); }}
+                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
                 onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
-                onDrop={(e)      => { e.preventDefault(); setDragActive(false); pushFiles(e.dataTransfer.files); }}
+                onDrop={(e) => { e.preventDefault(); setDragActive(false); pushFiles(e.dataTransfer.files); }}
               >
                 <div style={s.dropIconWrap}>
                   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -736,16 +499,10 @@ export default function CertificateImportPage() {
                 <div style={s.dropSub}>Multi-page PDFs, sticker photos, nameplates supported</div>
               </div>
 
-              {/* Actions */}
               <div style={s.btnRow}>
                 <button style={s.btnGhost} onClick={clearAll}>Clear all</button>
                 <button
-                  style={{
-                    ...s.btnPrimary,
-                    flex: 1,
-                    opacity: !files.length || extracting ? 0.5 : 1,
-                    cursor: !files.length || extracting ? "not-allowed" : "pointer",
-                  }}
+                  style={{ ...s.btnPrimary, flex: 1, opacity: !files.length || extracting ? 0.5 : 1, cursor: !files.length || extracting ? "not-allowed" : "pointer" }}
                   disabled={!files.length || extracting}
                   onClick={extractAll}
                 >
@@ -753,85 +510,47 @@ export default function CertificateImportPage() {
                 </button>
               </div>
 
-              {/* Progress */}
               {progress > 0 && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#64748b", marginBottom: 4 }}>
                     <span>{extracting ? "Processing files…" : "Extraction complete"}</span>
                     <span style={{ fontWeight: 600, color: "#e2e8f0" }}>{progress}%</span>
                   </div>
-                  <div style={s.progTrack}>
-                    <div style={{ ...s.progBar, width: `${progress}%` }} />
-                  </div>
+                  <div style={s.progTrack}><div style={{ ...s.progBar, width: `${progress}%` }} /></div>
                 </div>
               )}
             </div>
 
-            {/* ── Manual Override panel ── */}
+            {/* Manual override panel */}
             <div style={s.panel}>
               <div style={s.panelHeader}>
                 <div>
                   <div style={{ ...s.panelTitle, display: "flex", alignItems: "center", gap: 8 }}>
                     Manual override
-                    {activeOverrideCount > 0 && (
-                      <span style={s.overrideBadge}>{activeOverrideCount} active</span>
-                    )}
+                    {activeOverrideCount > 0 && <span style={s.overrideBadge}>{activeOverrideCount} active</span>}
                   </div>
-                  <div style={s.panelSub}>
-                    Fill blanks the AI couldn't read. Won't overwrite extracted values.
-                  </div>
+                  <div style={s.panelSub}>Fill blanks the AI couldn't read. Won't overwrite extracted values.</div>
                 </div>
                 {activeOverrideCount > 0 && (
-                  <button
-                    style={{ ...s.btnGhost, fontSize: 12, padding: "6px 10px" }}
-                    onClick={() => setOverrides({ client_name: "", location: "", inspection_date: "", expiry_date: "" })}
-                  >
-                    Clear
-                  </button>
+                  <button style={{ ...s.btnGhost, fontSize: 12, padding: "6px 10px" }} onClick={() => setOverrides({ client_name: "", location: "", inspection_date: "", expiry_date: "" })}>Clear</button>
                 )}
               </div>
-
               <div style={s.overrideGrid}>
                 <div style={s.overrideField}>
                   <label style={s.overrideLabel}>Client name</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Karowe Diamond Mine"
-                    value={overrides.client_name}
-                    onChange={(e) => setOverride("client_name", e.target.value)}
-                    style={s.overrideInput}
-                  />
+                  <input type="text" placeholder="e.g. Karowe Diamond Mine" value={overrides.client_name} onChange={(e) => setOverride("client_name", e.target.value)} style={s.overrideInput} />
                 </div>
-
                 <div style={s.overrideField}>
                   <label style={s.overrideLabel}>Location / Site</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Karowe, Processing Plant"
-                    value={overrides.location}
-                    onChange={(e) => setOverride("location", e.target.value)}
-                    style={s.overrideInput}
-                  />
+                  <input type="text" placeholder="e.g. Karowe, Processing Plant" value={overrides.location} onChange={(e) => setOverride("location", e.target.value)} style={s.overrideInput} />
                 </div>
-
                 <div style={s.overrideField}>
                   <label style={s.overrideLabel}>Inspection date</label>
-                  <input
-                    type="date"
-                    value={overrides.inspection_date}
-                    onChange={(e) => setOverride("inspection_date", e.target.value)}
-                    style={s.overrideInput}
-                  />
+                  <input type="date" value={overrides.inspection_date} onChange={(e) => setOverride("inspection_date", e.target.value)} style={s.overrideInput} />
                 </div>
-
                 <div style={s.overrideField}>
                   <label style={s.overrideLabel}>Expiry date</label>
-                  <input
-                    type="date"
-                    value={overrides.expiry_date}
-                    onChange={(e) => setOverride("expiry_date", e.target.value)}
-                    style={s.overrideInput}
-                  />
+                  <input type="date" value={overrides.expiry_date} onChange={(e) => setOverride("expiry_date", e.target.value)} style={s.overrideInput} />
                 </div>
               </div>
             </div>
@@ -844,23 +563,18 @@ export default function CertificateImportPage() {
                   <div style={s.panelSub}>{files.length} / {MAX_FILES} selected</div>
                 </div>
               </div>
-
               {files.length === 0 ? (
                 <div style={s.empty}>No files added yet.</div>
               ) : (
                 <div style={{ display: "grid", gap: 8 }}>
                   {files.map((item) => (
                     <div key={item.id} style={s.fileRow}>
-                      <div style={s.fileBadge}>
-                        {item.file.type === "application/pdf" ? "PDF" : "IMG"}
-                      </div>
+                      <div style={s.fileBadge}>{item.file.type === "application/pdf" ? "PDF" : "IMG"}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={s.fileName} title={item.name}>{item.name}</div>
                         <div style={s.fileSize}>{formatBytes(item.size)}</div>
                       </div>
-                      <button style={s.btnDanger} onClick={() => removeFile(item.id)}>
-                        Remove
-                      </button>
+                      <button style={s.btnDanger} onClick={() => removeFile(item.id)}>Remove</button>
                     </div>
                   ))}
                 </div>
@@ -873,16 +587,12 @@ export default function CertificateImportPage() {
             <div style={s.panelHeader}>
               <div>
                 <div style={s.panelTitle}>Extracted results</div>
-                <div style={s.panelSub}>Review core fields first, expand for full detail</div>
+                <div style={s.panelSub}>Set result &amp; defects per certificate before saving</div>
               </div>
               <div style={s.btnRow}>
                 <button style={s.btn} onClick={exportCsv}>↓ CSV</button>
                 <button
-                  style={{
-                    ...s.btnPrimary,
-                    opacity: savingAll || !results.some((x) => x.ok && !x.saved) ? 0.5 : 1,
-                    cursor: savingAll || !results.some((x) => x.ok && !x.saved) ? "not-allowed" : "pointer",
-                  }}
+                  style={{ ...s.btnPrimary, opacity: savingAll || !results.some((x) => x.ok && !x.saved) ? 0.5 : 1, cursor: savingAll || !results.some((x) => x.ok && !x.saved) ? "not-allowed" : "pointer" }}
                   disabled={savingAll || !results.some((x) => x.ok && !x.saved)}
                   onClick={saveAllSuccessful}
                 >
@@ -901,29 +611,19 @@ export default function CertificateImportPage() {
                   const isExpanded = !!expanded[index];
 
                   return (
-                    <div
-                      key={`${item.fileName}-${index}`}
-                      style={{ ...s.resultCard, ...(item.ok ? {} : s.resultCardErr) }}
-                    >
+                    <div key={`${item.fileName}-${index}`} style={{ ...s.resultCard, ...(item.ok ? {} : s.resultCardErr) }}>
+
                       {/* Head */}
                       <div style={s.resultHead}>
-                        <div style={{
-                          ...s.resultNum,
-                          ...(item.ok
-                            ? { background: "#14532d", color: "#86efac" }
-                            : { background: "#450a0a", color: "#fca5a5" }),
-                        }}>
+                        <div style={{ ...s.resultNum, ...(item.ok ? { background: "#14532d", color: "#86efac" } : { background: "#450a0a", color: "#fca5a5" }) }}>
                           {index + 1}
                         </div>
                         <div style={s.resultFname} title={item.fileName}>{item.fileName}</div>
                         {item.ok && <span style={pill("info")}>{filled} fields</span>}
-                        {item.ok && data.equipment_type && (
-                          <span style={pill("neutral")}>{data.equipment_type}</span>
-                        )}
-                        {item.ok && <ResultPill result={data.result} />}
-                        <span style={item.ok ? pill("ok") : pill("err")}>
-                          {item.ok ? "Success" : "Error"}
-                        </span>
+                        {item.ok && data.equipment_type && <span style={pill("neutral")}>{data.equipment_type}</span>}
+                        {item.ok && <ResultPill result={item.manualResult || data.result} />}
+                        {item.saved && item.certNumber && <span style={s.certNumBadge}>{item.certNumber}</span>}
+                        <span style={item.ok ? pill("ok") : pill("err")}>{item.ok ? "Success" : "Error"}</span>
                       </div>
 
                       {/* Body */}
@@ -935,7 +635,7 @@ export default function CertificateImportPage() {
                             {item.error?.includes("JSON") && (
                               <div style={s.errDetail}>
                                 Likely cause: the PDF is large and Gemini truncated the response.
-                                Fix: increase <code>maxOutputTokens</code> to <code>4096</code> and set <code>temperature: 0</code> in your API route's <code>generationConfig</code>.
+                                Fix: increase <code>maxOutputTokens</code> to <code>4096</code> and set <code>temperature: 0</code>.
                               </div>
                             )}
                           </div>
@@ -943,25 +643,27 @@ export default function CertificateImportPage() {
 
                         {item.ok && (
                           <>
+                            {/* Key fields */}
                             <div style={s.miniGrid}>
                               <div style={s.miniCell}>
                                 <div style={s.miniLabel}>Certificate no.</div>
-                                <div style={s.miniVal}>{data.certificate_number || "—"}</div>
+                                <div style={s.miniVal}>{item.certNumber || <span style={{ color: "#64748b", fontWeight: 400 }}>Auto on save</span>}</div>
                               </div>
                               <div style={s.miniCell}>
                                 <div style={s.miniLabel}>Equipment type</div>
                                 <div style={s.miniVal}>{data.equipment_type || "—"}</div>
                               </div>
                               <div style={s.miniCell}>
-                                <div style={s.miniLabel}>Result</div>
-                                <div style={s.miniVal}><ResultPill result={data.result} /></div>
-                              </div>
-                              <div style={s.miniCell}>
                                 <div style={s.miniLabel}>Inspection date</div>
                                 <div style={s.miniVal}>{data.inspection_date || "—"}</div>
                               </div>
+                              <div style={s.miniCell}>
+                                <div style={s.miniLabel}>Expiry date</div>
+                                <div style={s.miniVal}>{data.expiry_date || "—"}</div>
+                              </div>
                             </div>
 
+                            {/* Summary strip */}
                             <div style={s.summaryStrip}>
                               <div>
                                 <div style={s.sumLabel}>Equipment</div>
@@ -981,9 +683,34 @@ export default function CertificateImportPage() {
                               </div>
                             </div>
 
-                            {data.raw_text_summary && (
-                              <div style={s.rawText}>{data.raw_text_summary}</div>
-                            )}
+                            {/* ── Result + Defects row ── */}
+                            <div style={s.inspectionRow}>
+                              <div>
+                                <label style={s.fieldLabel}>Inspection result</label>
+                                <select
+                                  value={item.manualResult || "PASS"}
+                                  onChange={(e) => setResultField(index, "manualResult", e.target.value)}
+                                  style={s.selectInput}
+                                  disabled={item.saved}
+                                >
+                                  {RESULT_OPTIONS.map((opt) => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label style={s.fieldLabel}>Defects found (if any)</label>
+                                <textarea
+                                  value={item.manualDefects || ""}
+                                  onChange={(e) => setResultField(index, "manualDefects", e.target.value)}
+                                  placeholder="Describe defects, cracks, wear, non-conformances…"
+                                  style={{ ...s.textarea, opacity: item.saved ? 0.5 : 1 }}
+                                  disabled={item.saved}
+                                />
+                              </div>
+                            </div>
+
+                            {data.raw_text_summary && <div style={s.rawText}>{data.raw_text_summary}</div>}
 
                             {item.saveError && (
                               <div style={{ ...s.errBox, marginBottom: 10 }}>
@@ -991,18 +718,10 @@ export default function CertificateImportPage() {
                               </div>
                             )}
 
+                            {/* Footer */}
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                               <button
-                                style={{
-                                  background: "none",
-                                  border: "none",
-                                  color: "#64748b",
-                                  fontSize: 12,
-                                  cursor: "pointer",
-                                  textDecoration: "underline",
-                                  textUnderlineOffset: 2,
-                                  padding: 0,
-                                }}
+                                style={{ background: "none", border: "none", color: "#64748b", fontSize: 12, cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 2, padding: 0 }}
                                 onClick={() => setExpanded((prev) => ({ ...prev, [index]: !prev[index] }))}
                               >
                                 {isExpanded ? "Hide all fields" : "Show all fields"}
@@ -1010,19 +729,12 @@ export default function CertificateImportPage() {
 
                               <div style={s.btnRow}>
                                 {item.saved && item.savedId && (
-                                  <Link
-                                    href={`/certificates/${item.savedId}`}
-                                    style={{ ...s.btn, color: "#60a5fa", borderColor: "#1e3a5f", fontSize: 12, padding: "7px 12px" }}
-                                  >
+                                  <Link href={`/certificates/${item.savedId}`} style={{ ...s.btn, color: "#60a5fa", borderColor: "#1e3a5f", fontSize: 12, padding: "7px 12px" }}>
                                     Open saved →
                                   </Link>
                                 )}
                                 <button
-                                  style={{
-                                    ...s.btnSuccess,
-                                    opacity: item.saved || item.saving ? 0.5 : 1,
-                                    cursor: item.saved || item.saving ? "not-allowed" : "pointer",
-                                  }}
+                                  style={{ ...s.btnSuccess, opacity: item.saved || item.saving ? 0.5 : 1, cursor: item.saved || item.saving ? "not-allowed" : "pointer" }}
                                   disabled={item.saved || item.saving}
                                   onClick={() => saveOne(index)}
                                 >
@@ -1034,6 +746,7 @@ export default function CertificateImportPage() {
                         )}
                       </div>
 
+                      {/* Expandable drawer */}
                       {item.ok && isExpanded && (
                         <div style={s.drawer}>
                           <div style={s.drawerGrid}>
