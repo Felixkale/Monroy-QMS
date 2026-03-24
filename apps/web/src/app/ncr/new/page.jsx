@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
@@ -162,6 +162,22 @@ async function fetchAssetsByPriority(source) {
 }
 
 export default function NCRCreatePage() {
+  return (
+    <Suspense fallback={<NCRCreatePageFallback />}>
+      <NCRCreatePageInner />
+    </Suspense>
+  );
+}
+
+function NCRCreatePageFallback() {
+  return (
+    <AppLayout title="Create NCR">
+      <div style={{ maxWidth: 1200, color: C.textDim, fontSize: 14 }}>Loading...</div>
+    </AppLayout>
+  );
+}
+
+function NCRCreatePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
