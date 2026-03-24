@@ -3,13 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
-import { getEquipment } from "@/services/equipment";
+import { listEquipment } from "@/services/equipment";
 
 const C = {
   green: "#00f5c4",
   purple: "#7c5cfc",
   blue: "#4fc3f7",
   pink: "#f472b6",
+  yellow: "#facc15",
+  orange: "#fb923c",
+  red: "#ef4444",
 };
 
 const boxStyle = {
@@ -18,6 +21,13 @@ const boxStyle = {
   borderRadius: 16,
   padding: 18,
 };
+
+function formatDate(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toISOString().slice(0, 10);
+}
 
 function getLicenseLabel(status) {
   if (status === "expiring") return "Expiring Soon";
@@ -64,7 +74,7 @@ export default function EquipmentPage() {
       setLoading(true);
       setError("");
 
-      const { data, error } = await getEquipment();
+      const { data, error } = await listEquipment();
 
       if (error) {
         setEquipment([]);
@@ -109,6 +119,7 @@ export default function EquipmentPage() {
           item.asset_tag,
           item.asset_name,
           item.asset_type,
+          item.equipment_type,
           item.serial_number,
           item.manufacturer,
           item.model,
@@ -159,7 +170,7 @@ export default function EquipmentPage() {
             borderRadius: 12,
             padding: "12px 16px",
             marginBottom: 20,
-            color: C.pink,
+            color: "#f472b6",
             fontSize: 13,
           }}
         >
@@ -167,27 +178,27 @@ export default function EquipmentPage() {
         </div>
       )}
 
-      <div style={{ ...boxStyle, marginBottom: 18 }}>
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+      <div style={boxStyle}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <input
-            type="text"
-            placeholder="Search by tag, asset name, serial, client..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by tag, asset name, serial, client..."
             style={{
-              flex: "1 1 280px",
-              minWidth: 220,
-              padding: "11px 14px",
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid rgba(102,126,234,0.25)",
-              borderRadius: 8,
+              flex: "1 1 320px",
+              minWidth: 240,
+              padding: "10px 14px",
+              borderRadius: 10,
+              border: "1px solid rgba(102,126,234,0.22)",
+              background: "rgba(255,255,255,0.03)",
               color: "#fff",
-              fontSize: 13,
               outline: "none",
+              fontSize: 14,
             }}
           />
 
           <button
+            type="button"
             onClick={() => setFilter("all")}
             style={{
               padding: "10px 14px",
@@ -195,7 +206,10 @@ export default function EquipmentPage() {
               border: "none",
               cursor: "pointer",
               fontWeight: 800,
-              background: filter === "all" ? "linear-gradient(135deg,#667eea,#764ba2)" : "rgba(255,255,255,0.06)",
+              background:
+                filter === "all"
+                  ? "linear-gradient(135deg,#667eea,#764ba2)"
+                  : "rgba(255,255,255,0.06)",
               color: "#fff",
             }}
           >
@@ -203,6 +217,7 @@ export default function EquipmentPage() {
           </button>
 
           <button
+            type="button"
             onClick={() => setFilter("active")}
             style={{
               padding: "10px 14px",
@@ -210,7 +225,10 @@ export default function EquipmentPage() {
               border: "none",
               cursor: "pointer",
               fontWeight: 800,
-              background: filter === "active" ? "linear-gradient(135deg,#00f5c4,#4fc3f7)" : "rgba(255,255,255,0.06)",
+              background:
+                filter === "active"
+                  ? "linear-gradient(135deg,#00f5c4,#4fc3f7)"
+                  : "rgba(255,255,255,0.06)",
               color: filter === "active" ? "#0f172a" : "#fff",
             }}
           >
@@ -218,6 +236,7 @@ export default function EquipmentPage() {
           </button>
 
           <button
+            type="button"
             onClick={() => setFilter("expiring")}
             style={{
               padding: "10px 14px",
@@ -225,7 +244,10 @@ export default function EquipmentPage() {
               border: "none",
               cursor: "pointer",
               fontWeight: 800,
-              background: filter === "expiring" ? "linear-gradient(135deg,#facc15,#fb923c)" : "rgba(255,255,255,0.06)",
+              background:
+                filter === "expiring"
+                  ? "linear-gradient(135deg,#facc15,#fb923c)"
+                  : "rgba(255,255,255,0.06)",
               color: filter === "expiring" ? "#111827" : "#fff",
             }}
           >
@@ -233,6 +255,7 @@ export default function EquipmentPage() {
           </button>
 
           <button
+            type="button"
             onClick={() => setFilter("expired")}
             style={{
               padding: "10px 14px",
@@ -240,7 +263,10 @@ export default function EquipmentPage() {
               border: "none",
               cursor: "pointer",
               fontWeight: 800,
-              background: filter === "expired" ? "linear-gradient(135deg,#fb7185,#ef4444)" : "rgba(255,255,255,0.06)",
+              background:
+                filter === "expired"
+                  ? "linear-gradient(135deg,#fb7185,#ef4444)"
+                  : "rgba(255,255,255,0.06)",
               color: "#fff",
             }}
           >
@@ -264,6 +290,7 @@ export default function EquipmentPage() {
 
           <div style={{ display: "flex", gap: 8 }}>
             <button
+              type="button"
               onClick={() => setViewMode("grid")}
               style={{
                 padding: "9px 14px",
@@ -271,13 +298,18 @@ export default function EquipmentPage() {
                 border: "1px solid rgba(255,255,255,0.08)",
                 cursor: "pointer",
                 fontWeight: 700,
-                background: viewMode === "grid" ? "rgba(102,126,234,0.18)" : "rgba(255,255,255,0.04)",
+                background:
+                  viewMode === "grid"
+                    ? "rgba(102,126,234,0.18)"
+                    : "rgba(255,255,255,0.04)",
                 color: "#fff",
               }}
             >
               Grid View
             </button>
+
             <button
+              type="button"
               onClick={() => setViewMode("list")}
               style={{
                 padding: "9px 14px",
@@ -285,7 +317,10 @@ export default function EquipmentPage() {
                 border: "1px solid rgba(255,255,255,0.08)",
                 cursor: "pointer",
                 fontWeight: 700,
-                background: viewMode === "list" ? "rgba(102,126,234,0.18)" : "rgba(255,255,255,0.04)",
+                background:
+                  viewMode === "list"
+                    ? "rgba(102,126,234,0.18)"
+                    : "rgba(255,255,255,0.04)",
                 color: "#fff",
               }}
             >
@@ -296,16 +331,19 @@ export default function EquipmentPage() {
       </div>
 
       {loading ? (
-        <div style={{ ...boxStyle, color: "#fff" }}>Loading equipment...</div>
+        <div style={{ ...boxStyle, color: "#fff", marginTop: 18 }}>
+          Loading equipment...
+        </div>
       ) : filteredEquipment.length === 0 ? (
-        <div style={{ ...boxStyle, color: "#fff" }}>
+        <div style={{ ...boxStyle, color: "#fff", marginTop: 18 }}>
           No equipment found.
         </div>
       ) : viewMode === "grid" ? (
         <div
           style={{
+            marginTop: 18,
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))",
+            gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))",
             gap: 16,
           }}
         >
@@ -314,7 +352,7 @@ export default function EquipmentPage() {
             const badgeStyle = getLicenseStyle(status);
 
             return (
-              <div key={item.id} style={boxStyle}>
+              <div key={item.id || item.asset_tag} style={boxStyle}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                   <div>
                     <div style={{ color: "#fff", fontSize: 17, fontWeight: 800 }}>
@@ -344,21 +382,34 @@ export default function EquipmentPage() {
 
                 <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
                   <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 13 }}>
-                    <strong style={{ color: "#fff" }}>Type:</strong> {item.asset_type || "—"}
+                    <strong style={{ color: "#fff" }}>Type:</strong>{" "}
+                    {item.asset_type || item.equipment_type || "—"}
                   </div>
                   <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 13 }}>
-                    <strong style={{ color: "#fff" }}>Client:</strong> {item.clients?.company_name || "—"}
+                    <strong style={{ color: "#fff" }}>Client:</strong>{" "}
+                    {item.clients?.company_name || "—"}
                   </div>
                   <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 13 }}>
-                    <strong style={{ color: "#fff" }}>Serial:</strong> {item.serial_number || "—"}
+                    <strong style={{ color: "#fff" }}>Serial:</strong>{" "}
+                    {item.serial_number || "—"}
                   </div>
                   <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 13 }}>
-                    <strong style={{ color: "#fff" }}>Location:</strong> {item.location || "—"}
+                    <strong style={{ color: "#fff" }}>Location:</strong>{" "}
+                    {item.location || "—"}
+                  </div>
+                  <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 13 }}>
+                    <strong style={{ color: "#fff" }}>Inspection Date:</strong>{" "}
+                    {formatDate(item.effective_issue_date)}
+                  </div>
+                  <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 13 }}>
+                    <strong style={{ color: "#fff" }}>Expiry Date:</strong>{" "}
+                    {formatDate(item.effective_expiry_date)}
                   </div>
                 </div>
 
                 <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
                   <button
+                    type="button"
                     onClick={() => router.push(`/equipment/${item.asset_tag}`)}
                     style={{
                       padding: "10px 14px",
@@ -374,6 +425,7 @@ export default function EquipmentPage() {
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => router.push(`/equipment/${item.asset_tag}/edit`)}
                     style={{
                       padding: "10px 14px",
@@ -393,7 +445,7 @@ export default function EquipmentPage() {
           })}
         </div>
       ) : (
-        <div style={{ ...boxStyle, padding: 0, overflow: "hidden" }}>
+        <div style={{ ...boxStyle, marginTop: 18, padding: 0, overflow: "hidden" }}>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
@@ -403,6 +455,8 @@ export default function EquipmentPage() {
                   <th style={thStyle}>Type</th>
                   <th style={thStyle}>Client</th>
                   <th style={thStyle}>Location</th>
+                  <th style={thStyle}>Inspection Date</th>
+                  <th style={thStyle}>Expiry Date</th>
                   <th style={thStyle}>Status</th>
                   <th style={thStyle}>Actions</th>
                 </tr>
@@ -413,12 +467,17 @@ export default function EquipmentPage() {
                   const badgeStyle = getLicenseStyle(status);
 
                   return (
-                    <tr key={item.id} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                    <tr
+                      key={item.id || item.asset_tag}
+                      style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+                    >
                       <td style={tdStyle}>{item.asset_tag || "—"}</td>
                       <td style={tdStyle}>{item.asset_name || "Unnamed Equipment"}</td>
-                      <td style={tdStyle}>{item.asset_type || "—"}</td>
+                      <td style={tdStyle}>{item.asset_type || item.equipment_type || "—"}</td>
                       <td style={tdStyle}>{item.clients?.company_name || "—"}</td>
                       <td style={tdStyle}>{item.location || "—"}</td>
+                      <td style={tdStyle}>{formatDate(item.effective_issue_date)}</td>
+                      <td style={tdStyle}>{formatDate(item.effective_expiry_date)}</td>
                       <td style={tdStyle}>
                         <span
                           style={{
@@ -437,12 +496,14 @@ export default function EquipmentPage() {
                       <td style={tdStyle}>
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                           <button
+                            type="button"
                             onClick={() => router.push(`/equipment/${item.asset_tag}`)}
                             style={actionBtnPrimary}
                           >
                             View
                           </button>
                           <button
+                            type="button"
                             onClick={() => router.push(`/equipment/${item.asset_tag}/edit`)}
                             style={actionBtnSecondary}
                           >
