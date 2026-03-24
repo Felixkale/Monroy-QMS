@@ -1,8 +1,7 @@
-// apps/web/src/services/equipment.js
 import { supabase } from "@/lib/supabaseClient";
 
 function notConfigured(defaultData = null) {
-  return { data: defaultData, error: "Supabase not configured" };
+  return { data: defaultData, error: new Error("Supabase not configured") };
 }
 
 function normalizeText(value, fallback = null) {
@@ -88,7 +87,7 @@ function normalizeEquipmentPayload(equipmentData = {}) {
     material: normalizeText(equipmentData.material),
     standard_code: normalizeText(equipmentData.standard_code),
     location: normalizeText(equipmentData.location),
-    status: normalizeText(equipmentData.status, "Active"),
+    status: normalizeText(equipmentData.status, "active"),
     inspection_date: normalizeText(
       equipmentData.inspection_date || equipmentData.last_inspection_date
     ),
@@ -104,45 +103,353 @@ function normalizeEquipmentPayload(equipmentData = {}) {
   };
 }
 
-export async function listEquipment() {
-  if (!supabase) return notConfigured([]);
+function parseDateValue(value) {
+  const text = normalizeText(value);
+  if (!text) return null;
+
+  const d = new Date(text);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
+function computeLicenseStatus(expiryValue) {
+  const expiryDate = parseDateValue(expiryValue);
+  if (!expiryDate) return "valid";
+
+  const now = new Date();
+  const diffMs = expiryDate.getTime() - now.getTime();
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) return "expired";
+  if (diffDays <= 30) return "expiring";
+  return "valid";
+}
+
+function pickFirst(...values) {
+  for (const value of values) {
+    const cleaned = normalizeText(value);
+    if (cleaned) return cleaned;
+  }
+  return null;
+}
+
+async function loadClientsById(rows = []) {
+  const clientIds = [...new Set(rows.map((row) => row.client_id).filter(Boolean))];
+  if (!clientIds.length) return new Map();
 
   const { data, error } = await supabase
-    .from("assets")
-    .select("*")
+    .from("clients")
+    .select("id, company_name, company_code")
+    .in("id", clientIds);
+
+  if (error || !Array.isArray(data)) return new Map();
+
+  return new Map(data.map((item) => [item.id, item]));
+}
+
+async function loadLatestCertificatesByAssetTag(rows = []) {
+  const tags = [...new Set(rows.map((row) => row.asset_tag).filter(Boolean))];
+  if (!tags.length) return new Map();
+
+  const { data, error } = await supabase
+    .from("certificates")
+    .select(`
+      id,
+      asset_tag,
+      certificate_number,
+      result,
+      status,
+      issue_date,
+      issued_at,
+      expiry_date,
+      valid_to,
+      created_at,
+      inspection_date,
+      next_inspection_due
+    `)
+    .in("asset_tag", tags)
     .order("created_at", { ascending: false });
 
-  return { data: data || [], error: error?.message || null };
+  if (error || !Array.isArray(data)) return new Map();
+
+  const latestByTag = new Map();
+
+  for (const row of data) {
+    if (!row.asset_tag) continue;
+
+    const existing = latestByTag.get(row.asset_tag);
+    const rowRank = new Date(
+      row.issue_date ||
+        row.issued_at ||
+        row.expiry_date ||
+        row.valid_to ||
+        row.created_at ||
+        0
+    ).getTime();
+
+    if (!existing) {
+      latestByTag.set(row.asset_tag, row);
+      continue;
+    }
+
+    const existingRank = new Date(
+      existing.issue_date ||
+        existing.issued_at ||
+        existing.expiry_date ||
+        existing.valid_to ||
+        existing.created_at ||
+        0
+    ).getTime();
+
+    if (rowRank >= existingRank) {
+      latestByTag.set(row.asset_tag, row);
+    }
+  }
+
+  return latestByTag;
+}
+
+function enrichRows(rows = [], clientMap = new Map(), latestCertificateMap = new Map()) {
+  return rows.map((row) => {
+    const latestCertificate = row.asset_tag
+      ? latestCertificateMap.get(row.asset_tag) || null
+      : null;
+
+    const effectiveIssueDate = pickFirst(
+      row.inspection_date,
+      row.last_inspection_date,
+      latestCertificate?.inspection_date,
+      latestCertificate?.issue_date,
+      latestCertificate?.issued_at
+    );
+
+    const effectiveExpiryDate = pickFirst(
+      row.next_inspection_due,
+      row.next_inspection_date,
+      latestCertificate?.next_inspection_due,
+      latestCertificate?.expiry_date,
+      latestCertificate?.valid_to
+    );
+
+    return {
+      ...row,
+      clients: row.client_id ? clientMap.get(row.client_id) || null : null,
+      latest_certificate: latestCertificate,
+      effective_issue_date: effectiveIssueDate,
+      effective_expiry_date: effectiveExpiryDate,
+      license_status: computeLicenseStatus(effectiveExpiryDate),
+    };
+  });
+}
+
+export async function listEquipment() {
+  try {
+    if (!supabase) return notConfigured([]);
+
+    const { data, error } = await supabase
+      .from("assets")
+      .select(`
+        id,
+        client_id,
+        site_id,
+        asset_tag,
+        asset_name,
+        asset_type,
+        equipment_type,
+        equipment_description,
+        serial_number,
+        manufacturer,
+        model,
+        year_built,
+        country_of_origin,
+        capacity_volume,
+        swl,
+        proof_load,
+        lift_height,
+        sling_length,
+        working_pressure,
+        design_pressure,
+        test_pressure,
+        pressure_unit,
+        temperature_range,
+        material,
+        standard_code,
+        location,
+        status,
+        inspection_date,
+        next_inspection_due,
+        certificate_number,
+        inspection_number,
+        identification_number,
+        equipment_id,
+        lanyard_serial_no,
+        comments,
+        created_at
+      `)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      return { data: [], error: new Error(error.message || "Failed to load equipment.") };
+    }
+
+    const rows = Array.isArray(data) ? data : [];
+    const clientMap = await loadClientsById(rows);
+    const latestCertificateMap = await loadLatestCertificatesByAssetTag(rows);
+    const enriched = enrichRows(rows, clientMap, latestCertificateMap);
+
+    return { data: enriched, error: null };
+  } catch (error) {
+    return {
+      data: [],
+      error: error instanceof Error ? error : new Error("Failed to load equipment."),
+    };
+  }
 }
 
 export async function getEquipment(tag) {
-  if (!supabase) return notConfigured(null);
+  try {
+    if (!supabase) return notConfigured(null);
 
-  const cleanTag = normalizeText(tag);
-  if (!cleanTag) return { data: null, error: "Equipment tag is required." };
+    const cleanTag = normalizeText(tag);
+    if (!cleanTag) {
+      return { data: null, error: new Error("Equipment tag is required.") };
+    }
 
-  const { data, error } = await supabase
-    .from("assets")
-    .select("*")
-    .eq("asset_tag", cleanTag)
-    .maybeSingle();
+    const { data, error } = await supabase
+      .from("assets")
+      .select(`
+        id,
+        client_id,
+        site_id,
+        asset_tag,
+        asset_name,
+        asset_type,
+        equipment_type,
+        equipment_description,
+        serial_number,
+        manufacturer,
+        model,
+        year_built,
+        country_of_origin,
+        capacity_volume,
+        swl,
+        proof_load,
+        lift_height,
+        sling_length,
+        working_pressure,
+        design_pressure,
+        test_pressure,
+        pressure_unit,
+        temperature_range,
+        material,
+        standard_code,
+        location,
+        status,
+        inspection_date,
+        next_inspection_due,
+        certificate_number,
+        inspection_number,
+        identification_number,
+        equipment_id,
+        lanyard_serial_no,
+        comments,
+        created_at
+      `)
+      .eq("asset_tag", cleanTag)
+      .maybeSingle();
 
-  return { data: data || null, error: error?.message || null };
+    if (error) {
+      return { data: null, error: new Error(error.message || "Failed to load equipment.") };
+    }
+
+    if (!data) {
+      return { data: null, error: null };
+    }
+
+    const clientMap = await loadClientsById([data]);
+    const latestCertificateMap = await loadLatestCertificatesByAssetTag([data]);
+    const [enriched] = enrichRows([data], clientMap, latestCertificateMap);
+
+    return { data: enriched || null, error: null };
+  } catch (error) {
+    return {
+      data: null,
+      error: error instanceof Error ? error : new Error("Failed to load equipment."),
+    };
+  }
 }
 
 export async function getEquipmentById(id) {
-  if (!supabase) return notConfigured(null);
+  try {
+    if (!supabase) return notConfigured(null);
 
-  const cleanId = normalizeText(id);
-  if (!cleanId) return { data: null, error: "Equipment id is required." };
+    const cleanId = normalizeText(id);
+    if (!cleanId) {
+      return { data: null, error: new Error("Equipment id is required.") };
+    }
 
-  const { data, error } = await supabase
-    .from("assets")
-    .select("*")
-    .eq("id", cleanId)
-    .maybeSingle();
+    const { data, error } = await supabase
+      .from("assets")
+      .select(`
+        id,
+        client_id,
+        site_id,
+        asset_tag,
+        asset_name,
+        asset_type,
+        equipment_type,
+        equipment_description,
+        serial_number,
+        manufacturer,
+        model,
+        year_built,
+        country_of_origin,
+        capacity_volume,
+        swl,
+        proof_load,
+        lift_height,
+        sling_length,
+        working_pressure,
+        design_pressure,
+        test_pressure,
+        pressure_unit,
+        temperature_range,
+        material,
+        standard_code,
+        location,
+        status,
+        inspection_date,
+        next_inspection_due,
+        certificate_number,
+        inspection_number,
+        identification_number,
+        equipment_id,
+        lanyard_serial_no,
+        comments,
+        created_at
+      `)
+      .eq("id", cleanId)
+      .maybeSingle();
 
-  return { data: data || null, error: error?.message || null };
+    if (error) {
+      return { data: null, error: new Error(error.message || "Failed to load equipment.") };
+    }
+
+    if (!data) {
+      return { data: null, error: null };
+    }
+
+    const clientMap = await loadClientsById([data]);
+    const latestCertificateMap = await loadLatestCertificatesByAssetTag([data]);
+    const [enriched] = enrichRows([data], clientMap, latestCertificateMap);
+
+    return { data: enriched || null, error: null };
+  } catch (error) {
+    return {
+      data: null,
+      error: error instanceof Error ? error : new Error("Failed to load equipment."),
+    };
+  }
 }
 
 export async function registerEquipment(equipmentData = {}) {
@@ -151,7 +458,7 @@ export async function registerEquipment(equipmentData = {}) {
   const payload = normalizeEquipmentPayload(equipmentData);
 
   if (!payload.asset_name) {
-    return { data: null, error: "Asset name is required." };
+    return { data: null, error: new Error("Asset name is required.") };
   }
 
   const { data, error } = await supabase
@@ -160,14 +467,19 @@ export async function registerEquipment(equipmentData = {}) {
     .select()
     .single();
 
-  return { data: data || null, error: error?.message || null };
+  return {
+    data: data || null,
+    error: error ? new Error(error.message || "Failed to register equipment.") : null,
+  };
 }
 
 export async function updateEquipment(tag, equipmentData = {}) {
   if (!supabase) return notConfigured(null);
 
   const cleanTag = normalizeText(tag);
-  if (!cleanTag) return { data: null, error: "Equipment tag is required." };
+  if (!cleanTag) {
+    return { data: null, error: new Error("Equipment tag is required.") };
+  }
 
   const payload = normalizeEquipmentPayload(equipmentData);
 
@@ -178,18 +490,29 @@ export async function updateEquipment(tag, equipmentData = {}) {
     .select()
     .single();
 
-  return { data: data || null, error: error?.message || null };
+  return {
+    data: data || null,
+    error: error ? new Error(error.message || "Failed to update equipment.") : null,
+  };
 }
 
 export async function deleteEquipment(tag) {
   if (!supabase) return notConfigured(null);
 
   const cleanTag = normalizeText(tag);
-  if (!cleanTag) return { data: null, error: "Equipment tag is required." };
+  if (!cleanTag) {
+    return { data: null, error: new Error("Equipment tag is required.") };
+  }
 
-  const { error } = await supabase.from("assets").delete().eq("asset_tag", cleanTag);
+  const { error } = await supabase
+    .from("assets")
+    .delete()
+    .eq("asset_tag", cleanTag);
 
-  return { data: !error, error: error?.message || null };
+  return {
+    data: !error,
+    error: error ? new Error(error.message || "Failed to delete equipment.") : null,
+  };
 }
 
 export async function findOrCreateEquipment(equipmentData = {}) {
@@ -208,5 +531,8 @@ export async function findOrCreateEquipment(equipmentData = {}) {
     .select()
     .single();
 
-  return { data: data || null, error: error?.message || null };
+  return {
+    data: data || null,
+    error: error ? new Error(error.message || "Failed to create equipment.") : null,
+  };
 }
