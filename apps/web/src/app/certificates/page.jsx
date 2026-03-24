@@ -140,6 +140,10 @@ function expiryCfg(value) {
   return EXPIRY_CFG[value] || EXPIRY_CFG.NO_EXPIRY;
 }
 
+function safeId(id) {
+  return encodeURIComponent(String(id ?? ""));
+}
+
 function groupCertificates(rows) {
   const grouped = {};
 
@@ -234,11 +238,14 @@ export default function CertificatesPage() {
 
     const cleaned = (data || []).map((row) => {
       const extracted = row.extracted_data || {};
-      const issueDate = row.issue_date || row.issued_at || extracted.issue_date || null;
-      const expiryDate = row.expiry_date || row.valid_to || extracted.expiry_date || null;
+      const issueDate =
+        row.issue_date || row.issued_at || extracted.issue_date || null;
+      const expiryDate =
+        row.expiry_date || row.valid_to || extracted.expiry_date || null;
 
       return {
         ...row,
+        id: row.id,
         issue_date: issueDate,
         expiry_date: expiryDate,
         result: normalizeResult(row.result || extracted.result),
@@ -296,6 +303,7 @@ export default function CertificatesPage() {
         row.equipment_type,
         row.inspection_number,
         row.status,
+        row.id,
       ]
         .join(" ")
         .toLowerCase();
@@ -904,7 +912,7 @@ function AssetBlock({ item }) {
 
       {open ? (
         <div style={{ borderTop: `1px solid ${T.border}`, overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
             <thead>
               <tr style={{ background: T.bg }}>
                 {[
@@ -929,6 +937,7 @@ function AssetBlock({ item }) {
                 const expiry = expiryCfg(cert.expiry_bucket);
                 const days = daysUntil(cert.expiry_date);
                 const latest = index === 0;
+                const id = safeId(cert.id);
 
                 return (
                   <tr
@@ -973,12 +982,25 @@ function AssetBlock({ item }) {
                       </span>
                     </td>
                     <td style={tdStyle}>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <Link href={`/certificates/${cert.id}`} style={actionBtn(T.accent, T.accentDim, T.accentBrd)}>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <Link
+                          href={`/certificates/${id}`}
+                          prefetch={false}
+                          style={actionBtn(T.accent, T.accentDim, T.accentBrd)}
+                        >
                           View
                         </Link>
+
+                        <Link
+                          href={`/certificates/${id}/edit`}
+                          prefetch={false}
+                          style={actionBtn(T.amber, T.amberDim, T.amberBrd)}
+                        >
+                          Edit
+                        </Link>
+
                         <a
-                          href={`/certificates/${cert.id}?download=1`}
+                          href={`/certificates/${id}?download=1`}
                           target="_blank"
                           rel="noreferrer"
                           style={actionBtn(T.green, T.greenDim, T.greenBrd)}
@@ -1009,7 +1031,7 @@ function FlatView({ certs }) {
       }}
     >
       <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1200 }}>
           <thead>
             <tr style={{ background: T.bg }}>
               {[
@@ -1035,6 +1057,7 @@ function FlatView({ certs }) {
               const result = resultCfg(cert.result);
               const expiry = expiryCfg(cert.expiry_bucket);
               const days = daysUntil(cert.expiry_date);
+              const id = safeId(cert.id);
 
               return (
                 <tr
@@ -1087,12 +1110,25 @@ function FlatView({ certs }) {
                     </span>
                   </td>
                   <td style={tdStyle}>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <Link href={`/certificates/${cert.id}`} style={actionBtn(T.accent, T.accentDim, T.accentBrd)}>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <Link
+                        href={`/certificates/${id}`}
+                        prefetch={false}
+                        style={actionBtn(T.accent, T.accentDim, T.accentBrd)}
+                      >
                         View
                       </Link>
+
+                      <Link
+                        href={`/certificates/${id}/edit`}
+                        prefetch={false}
+                        style={actionBtn(T.amber, T.amberDim, T.amberBrd)}
+                      >
+                        Edit
+                      </Link>
+
                       <a
-                        href={`/certificates/${cert.id}?download=1`}
+                        href={`/certificates/${id}?download=1`}
                         target="_blank"
                         rel="noreferrer"
                         style={actionBtn(T.green, T.greenDim, T.greenBrd)}
