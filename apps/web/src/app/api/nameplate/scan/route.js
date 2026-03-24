@@ -60,6 +60,7 @@ function extractTextParts(apiData) {
   const parts = apiData?.candidates?.[0]?.content?.parts;
   if (!Array.isArray(parts)) return "";
   return parts
+    .filter((part) => !part.thought) // exclude Gemini 2.5 thinking parts
     .map((part) => (typeof part?.text === "string" ? part.text : ""))
     .join("\n")
     .trim();
