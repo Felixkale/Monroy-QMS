@@ -1,30 +1,7 @@
-// apps/web/src/app/certificates/page.jsx
+import CertificatesPageClient from "./CertificatesPageClient";
 
-const T = {
-  bg: "#080d14",
-  surface: "#0d1420",
-  panel: "#162132",
-  panel2: "#1b2940",
-  border: "rgba(255,255,255,0.14)",
-  borderMid: "rgba(255,255,255,0.22)",
-  text: "#f8fafc",
-  textMid: "rgba(248,250,252,0.88)",
-  textDim: "rgba(248,250,252,0.74)",
-  accent: "#22d3ee",
-  accentDim: "rgba(34,211,238,0.16)",
-  accentBrd: "rgba(34,211,238,0.30)",
-  green: "#22c55e",
-  greenDim: "rgba(34,197,94,0.16)",
-  greenBrd: "rgba(34,197,94,0.30)",
-  red: "#ef4444",
-  redDim: "rgba(239,68,68,0.16)",
-  redBrd: "rgba(239,68,68,0.30)",
-  amber: "#f59e0b",
-  amberDim: "rgba(245,158,11,0.16)",
-  amberBrd: "rgba(245,158,11,0.30)",
-  purple: "#a78bfa",
-  purpleDim: "rgba(167,139,250,0.16)",
-  purpleBrd: "rgba(167,139,250,0.30)",
-  slate: "rgba(248,250,252,0.12)",
-  slateBrd: "rgba(248,250,252,0.22)",
-};
+export const dynamic = "force-dynamic";
+
+export default function CertificatesPage() {
+  return <CertificatesPageClient />;
+}
