@@ -6,42 +6,56 @@ import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 
 const T = {
-  bg:         "#070e18",
-  surface:    "rgba(13,22,38,0.80)",
-  panel:      "rgba(10,18,32,0.92)",
-  card:       "rgba(255,255,255,0.025)",
-  border:     "rgba(148,163,184,0.12)",
-  text:       "#f0f6ff",
-  textMid:    "rgba(240,246,255,0.72)",
-  textDim:    "rgba(240,246,255,0.40)",
-  accent:     "#22d3ee",
-  accentDim:  "rgba(34,211,238,0.10)",
-  accentBrd:  "rgba(34,211,238,0.25)",
-  accentGlow: "rgba(34,211,238,0.18)",
-  green:      "#34d399", greenDim: "rgba(52,211,153,0.10)",   greenBrd: "rgba(52,211,153,0.25)",
-  red:        "#f87171", redDim:   "rgba(248,113,113,0.10)",  redBrd:   "rgba(248,113,113,0.25)",
-  amber:      "#fbbf24", amberDim: "rgba(251,191,36,0.10)",   amberBrd: "rgba(251,191,36,0.25)",
-  purple:     "#a78bfa", purpleDim:"rgba(167,139,250,0.10)",  purpleBrd:"rgba(167,139,250,0.25)",
-  slate:      "rgba(248,250,252,0.06)", slateBrd:"rgba(248,250,252,0.14)",
+  bg:"#070e18",surface:"rgba(13,22,38,0.80)",panel:"rgba(10,18,32,0.92)",card:"rgba(255,255,255,0.025)",
+  border:"rgba(148,163,184,0.12)",text:"#f0f6ff",textMid:"rgba(240,246,255,0.72)",textDim:"rgba(240,246,255,0.40)",
+  accent:"#22d3ee",accentDim:"rgba(34,211,238,0.10)",accentBrd:"rgba(34,211,238,0.25)",accentGlow:"rgba(34,211,238,0.18)",
+  green:"#34d399",greenDim:"rgba(52,211,153,0.10)",greenBrd:"rgba(52,211,153,0.25)",
+  red:"#f87171",redDim:"rgba(248,113,113,0.10)",redBrd:"rgba(248,113,113,0.25)",
+  amber:"#fbbf24",amberDim:"rgba(251,191,36,0.10)",amberBrd:"rgba(251,191,36,0.25)",
+  purple:"#a78bfa",purpleDim:"rgba(167,139,250,0.10)",purpleBrd:"rgba(167,139,250,0.25)",
+  slate:"rgba(248,250,252,0.06)",slateBrd:"rgba(248,250,252,0.14)",
 };
 
-function nz(v, fb="") { if(v===null||v===undefined) return fb; const s=String(v).trim(); return s||fb; }
-function normalizeResult(v) { const r=nz(v).toUpperCase().replace(/\s+/g,"_"); if(!r) return "UNKNOWN"; if(r==="CONDITIONAL") return "REPAIR_REQUIRED"; return r; }
-function formatDate(v) { if(!v) return "—"; const d=new Date(v); if(Number.isNaN(d.getTime())) return v; return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}); }
-function getExpiryBucket(d) { if(!d) return "NO_EXPIRY"; const diff=Math.ceil((new Date(d)-new Date())/86400000); if(diff<0) return "EXPIRED"; if(diff<=30) return "EXPIRING_SOON"; if(diff<=90) return "EXPIRING_90"; return "VALID"; }
-function daysUntil(v) { if(!v) return null; return Math.ceil((new Date(v)-new Date())/86400000); }
-function safeId(id) { return encodeURIComponent(String(id??""));}
-function needsNcr(c) { return ["FAIL","REPAIR_REQUIRED","OUT_OF_SERVICE"].includes(normalizeResult(c?.result)); }
+function nz(v,fb=""){if(v===null||v===undefined)return fb;const s=String(v).trim();return s||fb;}
 
-function groupCertificates(rows) {
+/* ✅ FIX: check result + equipment_status + extracted_data in priority order */
+function normalizeResult(v){
+  const r=nz(v).toUpperCase().replace(/\s+/g,"_");
+  if(!r)return "UNKNOWN";
+  if(r==="CONDITIONAL"||r==="REPAIR REQUIRED")return "REPAIR_REQUIRED";
+  if(r==="OUT OF SERVICE")return "OUT_OF_SERVICE";
+  if(["PASS","FAIL","REPAIR_REQUIRED","OUT_OF_SERVICE","UNKNOWN"].includes(r))return r;
+  return "UNKNOWN";
+}
+function pickResult(row){
+  /* Try every field that might hold a result, in priority order */
+  const ex=row.extracted_data||{};
+  const candidates=[
+    row.result, row.equipment_status,
+    ex.result, ex.equipment_status, ex.inspection_result,
+  ];
+  for(const c of candidates){
+    const n=normalizeResult(c);
+    if(n!=="UNKNOWN")return n;
+  }
+  return "UNKNOWN";
+}
+
+function formatDate(v){if(!v)return "—";const d=new Date(v);if(Number.isNaN(d.getTime()))return v;return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});}
+function getExpiryBucket(d){if(!d)return "NO_EXPIRY";const diff=Math.ceil((new Date(d)-new Date())/86400000);if(diff<0)return "EXPIRED";if(diff<=30)return "EXPIRING_SOON";if(diff<=90)return "EXPIRING_90";return "VALID";}
+function daysUntil(v){if(!v)return null;return Math.ceil((new Date(v)-new Date())/86400000);}
+function safeId(id){return encodeURIComponent(String(id??""));}
+function needsNcr(c){return["FAIL","REPAIR_REQUIRED","OUT_OF_SERVICE"].includes(pickResult(c));}
+
+function groupCertificates(rows){
   const g={};
   for(const row of rows){
     const client=nz(row.client_name,"UNASSIGNED CLIENT");
     const type=nz(row.equipment_type||row.asset_type,"UNCATEGORIZED");
     const desc=nz(row.equipment_description||row.asset_name||row.asset_tag,"UNNAMED EQUIPMENT");
-    if(!g[client]) g[client]={};
-    if(!g[client][type]) g[client][type]={};
-    if(!g[client][type][desc]) g[client][type][desc]=[];
+    if(!g[client])g[client]={};
+    if(!g[client][type])g[client][type]={};
+    if(!g[client][type][desc])g[client][type][desc]=[];
     g[client][type][desc].push(row);
   }
   return Object.keys(g).sort().map(client=>({
@@ -56,27 +70,24 @@ function groupCertificates(rows) {
   }));
 }
 
-const RESULT_CFG = {
-  PASS:            {label:"Pass",           color:T.green, bg:T.greenDim,  brd:T.greenBrd},
-  FAIL:            {label:"Fail",           color:T.red,   bg:T.redDim,    brd:T.redBrd},
-  REPAIR_REQUIRED: {label:"Repair Req.",    color:T.amber, bg:T.amberDim,  brd:T.amberBrd},
-  OUT_OF_SERVICE:  {label:"Out of Service", color:T.purple,bg:T.purpleDim, brd:T.purpleBrd},
-  UNKNOWN:         {label:"Unknown",        color:T.textDim,bg:T.slate,    brd:T.slateBrd},
+const RESULT_CFG={
+  PASS:           {label:"Pass",           color:T.green, bg:T.greenDim,  brd:T.greenBrd},
+  FAIL:           {label:"Fail",           color:T.red,   bg:T.redDim,    brd:T.redBrd},
+  REPAIR_REQUIRED:{label:"Repair Req.",    color:T.amber, bg:T.amberDim,  brd:T.amberBrd},
+  OUT_OF_SERVICE: {label:"Out of Service", color:T.purple,bg:T.purpleDim, brd:T.purpleBrd},
+  UNKNOWN:        {label:"Unknown",        color:T.textDim,bg:T.slate,    brd:T.slateBrd},
 };
-const EXPIRY_CFG = {
-  EXPIRED:       {color:T.red,    bg:T.redDim},
-  EXPIRING_SOON: {color:T.amber,  bg:T.amberDim},
-  EXPIRING_90:   {color:T.accent, bg:T.accentDim},
-  VALID:         {color:T.green,  bg:T.greenDim},
-  NO_EXPIRY:     {color:T.textDim,bg:T.slate},
+const EXPIRY_CFG={
+  EXPIRED:{color:T.red,bg:T.redDim},EXPIRING_SOON:{color:T.amber,bg:T.amberDim},
+  EXPIRING_90:{color:T.accent,bg:T.accentDim},VALID:{color:T.green,bg:T.greenDim},
+  NO_EXPIRY:{color:T.textDim,bg:T.slate},
 };
-const rCfg = v => RESULT_CFG[v]||RESULT_CFG.UNKNOWN;
-const eCfg = v => EXPIRY_CFG[v]||EXPIRY_CFG.NO_EXPIRY;
+const rCfg=v=>RESULT_CFG[v]||RESULT_CFG.UNKNOWN;
+const eCfg=v=>EXPIRY_CFG[v]||EXPIRY_CFG.NO_EXPIRY;
 
-/* ── Global CSS ── */
-const CSS = `
+const CSS=`
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
-  *, *::before, *::after { box-sizing: border-box; }
+  *,*::before,*::after{box-sizing:border-box}
   ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.2);border-radius:99px}
   input::placeholder{color:rgba(240,246,255,0.28)} select option{background:#0a1420;color:#f0f6ff}
   .cert-row:hover td{background:rgba(34,211,238,0.03)!important}
@@ -93,91 +104,82 @@ const CSS = `
   .cert-mob-cards{display:none}
   .act-strip{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
 
-  @media(max-width:1024px){
-    .stats-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
-    .filter-grid{grid-template-columns:1fr 1fr 1fr}
-    .cert-tbl-full{min-width:900px}
-  }
+  @media(max-width:1024px){.stats-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.filter-grid{grid-template-columns:1fr 1fr 1fr}.cert-tbl-full{min-width:900px}}
   @media(max-width:768px){
-    .page-pad{padding:12px;gap:12px}
-    .page-hdr{padding:14px 16px!important}
-    .page-title{font-size:21px!important}
-    .hdr-row{flex-direction:column!important;align-items:flex-start!important;gap:12px!important}
+    .page-pad{padding:12px;gap:12px}.page-hdr{padding:14px 16px!important}
+    .page-title{font-size:21px!important}.hdr-row{flex-direction:column!important;align-items:flex-start!important;gap:12px!important}
     .hdr-actions{width:100%}.hdr-actions a{flex:1;text-align:center}
-    .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-    .stat-val{font-size:26px!important}
+    .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.stat-val{font-size:26px!important}
     .filter-grid{grid-template-columns:1fr;gap:10px;padding:12px 14px}
     .toolbar{padding:10px 14px!important;flex-wrap:wrap;gap:8px!important}
     .cert-tbl-wrap{display:none!important}.cert-mob-cards{display:grid;gap:10px}
-    .content-pad{padding:12px!important}
-    .grp-hdr-pad{padding:12px 14px!important}
-    .type-inner{padding:10px!important}
-    .link-banner{flex-direction:column!important;align-items:flex-start!important}
-    .link-banner-input{width:100%!important}
+    .content-pad{padding:12px!important}.grp-hdr-pad{padding:12px 14px!important}.type-inner{padding:10px!important}
+    .link-banner{flex-direction:column!important;align-items:flex-start!important}.link-banner-input{width:100%!important}
   }
   @media(max-width:480px){
-    .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-    .page-title{font-size:18px!important}
-    .stat-val{font-size:22px!important}
+    .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.page-title{font-size:18px!important}.stat-val{font-size:22px!important}
     .act-strip a,.act-strip button{padding:6px 8px!important;font-size:10px!important}
   }
 `;
 
 export default function CertificatesPageClient() {
-  const [certs,setCerts]                     = useState([]);
-  const [loading,setLoading]                 = useState(true);
-  const [errorText,setErrorText]             = useState("");
-  const [search,setSearch]                   = useState("");
-  const [fResult,setFResult]                 = useState("ALL");
-  const [fExpiry,setFExpiry]                 = useState("ALL");
-  const [fClient,setFClient]                 = useState("ALL");
-  const [fType,setFType]                     = useState("ALL");
-  const [fLinked,setFLinked]                 = useState("ALL");
-  const [view,setView]                       = useState("grouped");
-  const [expandedClients,setExpandedClients] = useState({});
-  const [expandedTypes,setExpandedTypes]     = useState({});
-  const [linkSource,setLinkSource]           = useState(null);
-  const [linkName,setLinkName]               = useState("");
-  const [busyId,setBusyId]                   = useState("");
+  const [certs,setCerts]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [errorText,setErrorText]=useState("");
+  const [search,setSearch]=useState("");
+  const [fResult,setFResult]=useState("ALL");
+  const [fExpiry,setFExpiry]=useState("ALL");
+  const [fClient,setFClient]=useState("ALL");
+  const [fType,setFType]=useState("ALL");
+  const [fLinked,setFLinked]=useState("ALL");
+  const [view,setView]=useState("grouped");
+  const [expandedClients,setExpandedClients]=useState({});
+  const [expandedTypes,setExpandedTypes]=useState({});
+  const [linkSource,setLinkSource]=useState(null);
+  const [linkName,setLinkName]=useState("");
+  const [busyId,setBusyId]=useState("");
 
   useEffect(()=>{loadCerts();},[]);
 
-  async function loadCerts() {
-    setLoading(true); setErrorText("");
-    const {data,error} = await supabase.from("certificates")
-      .select(`id,certificate_number,result,issue_date,issued_at,expiry_date,valid_to,created_at,
-               inspection_number,asset_tag,asset_name,equipment_description,equipment_type,
+  async function loadCerts(){
+    setLoading(true);setErrorText("");
+    const{data,error}=await supabase.from("certificates")
+      .select(`id,certificate_number,result,equipment_status,issue_date,issued_at,expiry_date,valid_to,
+               created_at,inspection_number,asset_tag,asset_name,equipment_description,equipment_type,
                asset_type,client_name,status,folder_id,folder_name,folder_position,extracted_data`)
       .order("created_at",{ascending:false});
     if(error){setCerts([]);setErrorText(error.message||"Failed to load.");setLoading(false);return;}
     const cleaned=(data||[]).map(row=>{
       const ex=row.extracted_data||{};
       const issueDate=row.issue_date||row.issued_at||ex.issue_date||null;
-      const expiryDate=row.expiry_date||row.valid_to||ex.expiry_date||null;
-      return{...row,issue_date:issueDate,expiry_date:expiryDate,
-        result:normalizeResult(row.result||ex.result),
+      /* ✅ FIX: use pickResult which checks all possible fields */
+      const resolvedResult=pickResult(row);
+      /* ✅ FIX: expiry_date and next_inspection_date are the same concept */
+      const expiryDate=row.expiry_date||row.valid_to||ex.expiry_date||ex.next_inspection_date||null;
+      return{...row,
+        issue_date:issueDate,expiry_date:expiryDate,
+        result:resolvedResult,
         client_name:nz(row.client_name||ex.client_name,"UNASSIGNED CLIENT"),
         equipment_type:nz(row.equipment_type||row.asset_type||ex.equipment_type,"UNCATEGORIZED"),
         equipment_description:nz(row.equipment_description||row.asset_name||row.asset_tag||ex.equipment_description,"UNNAMED EQUIPMENT"),
-        status:nz(row.status,"active"),expiry_bucket:getExpiryBucket(expiryDate)};
+        status:nz(row.status,"active"),
+        expiry_bucket:getExpiryBucket(expiryDate),
+      };
     });
     const openClients={};cleaned.forEach(r=>{openClients[r.client_name]=true;});
     setExpandedClients(openClients);setCerts(cleaned);setLoading(false);
   }
 
   const clientOptions=useMemo(()=>[...new Set(certs.map(x=>x.client_name))].sort(),[certs]);
-  const typeOptions  =useMemo(()=>[...new Set(certs.map(x=>x.equipment_type))].sort(),[certs]);
+  const typeOptions=useMemo(()=>[...new Set(certs.map(x=>x.equipment_type))].sort(),[certs]);
 
   const filtered=useMemo(()=>{
     const q=search.toLowerCase();
     return certs.filter(row=>{
       const hay=[row.certificate_number,row.client_name,row.asset_tag,row.asset_name,
-                 row.equipment_description,row.equipment_type,row.inspection_number,
-                 row.status,row.folder_name].join(" ").toLowerCase();
-      return(!q||hay.includes(q))&&
-        (fResult==="ALL"||row.result===fResult)&&
-        (fExpiry==="ALL"||row.expiry_bucket===fExpiry)&&
-        (fClient==="ALL"||row.client_name===fClient)&&
+                 row.equipment_description,row.equipment_type,row.inspection_number,row.status,row.folder_name].join(" ").toLowerCase();
+      return(!q||hay.includes(q))&&(fResult==="ALL"||row.result===fResult)&&
+        (fExpiry==="ALL"||row.expiry_bucket===fExpiry)&&(fClient==="ALL"||row.client_name===fClient)&&
         (fType==="ALL"||row.equipment_type===fType)&&
         (fLinked==="ALL"||(fLinked==="YES"&&!!row.folder_id)||(fLinked==="NO"&&!row.folder_id));
     });
@@ -194,33 +196,31 @@ export default function CertificatesPageClient() {
   function clearFilters(){setSearch("");setFResult("ALL");setFExpiry("ALL");setFClient("ALL");setFType("ALL");setFLinked("ALL");}
   const toggleClient=c=>setExpandedClients(p=>({...p,[c]:!p[c]}));
   const toggleType=k=>setExpandedTypes(p=>({...p,[k]:!p[k]}));
-
   function beginLink(cert){setLinkSource(cert);setLinkName(cert.folder_name||`${cert.asset_tag||cert.certificate_number} Folder`);}
   function cancelLink(){setLinkSource(null);setLinkName("");}
 
   async function handleLink(target){
-    if(!linkSource||linkSource.id===target.id) return;
-    /* ✅ FIX: use crypto.randomUUID() — not a custom string, Supabase needs valid uuid */
+    if(!linkSource||linkSource.id===target.id)return;
     const groupId=linkSource.folder_id||target.folder_id||crypto.randomUUID();
     const groupName=nz(linkName)||linkSource.folder_name||target.folder_name||`${linkSource.asset_tag||linkSource.certificate_number} Folder`;
     try{
       setBusyId(target.id);
       const{error:e1}=await supabase.from("certificates").update({folder_id:groupId,folder_name:groupName,folder_position:1}).eq("id",linkSource.id);
-      if(e1) throw e1;
+      if(e1)throw e1;
       const{error:e2}=await supabase.from("certificates").update({folder_id:groupId,folder_name:groupName,folder_position:2}).eq("id",target.id);
-      if(e2) throw e2;
+      if(e2)throw e2;
       cancelLink();await loadCerts();
     }catch(err){setErrorText(err.message||"Failed to link.");}
     finally{setBusyId("");}
   }
 
   async function handleUnlink(cert){
-    if(!cert.folder_id) return;
-    if(!window.confirm("Unlink all certificates in this folder?")) return;
+    if(!cert.folder_id)return;
+    if(!window.confirm("Unlink all certificates in this folder?"))return;
     try{
       setBusyId(cert.id);
       const{error}=await supabase.from("certificates").update({folder_id:null,folder_name:null,folder_position:null}).eq("folder_id",cert.folder_id);
-      if(error) throw error;
+      if(error)throw error;
       await loadCerts();
     }catch(err){setErrorText(err.message||"Failed to unlink.");}
     finally{setBusyId("");}
@@ -233,7 +233,6 @@ export default function CertificatesPageClient() {
       <style>{CSS}</style>
       <div style={{minHeight:"100vh",background:`radial-gradient(ellipse 70% 50% at 0% 0%,rgba(34,211,238,0.06),transparent),radial-gradient(ellipse 60% 50% at 100% 100%,rgba(167,139,250,0.06),transparent),${T.bg}`,color:T.text,fontFamily:"'IBM Plex Sans',sans-serif"}}>
         <div className="page-pad" style={{maxWidth:1600,margin:"0 auto"}}>
-
           {/* HEADER */}
           <div className="page-hdr" style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:20,padding:"22px 24px",backdropFilter:"blur(20px)",boxShadow:"0 24px 64px rgba(0,0,0,0.35)"}}>
             <div className="hdr-row" style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:14,marginBottom:18}}>
@@ -250,7 +249,6 @@ export default function CertificatesPageClient() {
                 <Link href="/certificates/create" style={S.btnAccent}>+ New</Link>
               </div>
             </div>
-
             <div className="stats-grid">
               {[{label:"Total",value:stats.total,color:T.accent,glow:"rgba(34,211,238,0.15)"},
                 {label:"Passed",value:stats.pass,color:T.green,glow:"rgba(52,211,153,0.15)"},
@@ -294,14 +292,12 @@ export default function CertificatesPageClient() {
                 {label:"Result",value:fResult,set:setFResult,opts:[{v:"ALL",l:"All results"},{v:"PASS",l:"Pass"},{v:"FAIL",l:"Fail"},{v:"REPAIR_REQUIRED",l:"Repair req."},{v:"OUT_OF_SERVICE",l:"Out of service"},{v:"UNKNOWN",l:"Unknown"}]},
                 {label:"Expiry",value:fExpiry,set:setFExpiry,opts:[{v:"ALL",l:"All expiry"},{v:"EXPIRED",l:"Expired"},{v:"EXPIRING_SOON",l:"≤30 days"},{v:"EXPIRING_90",l:"≤90 days"},{v:"VALID",l:"Valid"},{v:"NO_EXPIRY",l:"No expiry"}]},
                 {label:"Client",value:fClient,set:setFClient,opts:[{v:"ALL",l:"All clients"},...clientOptions.map(c=>({v:c,l:c}))]},
-                {label:"Type",  value:fType,  set:setFType,  opts:[{v:"ALL",l:"All types"},...typeOptions.map(t=>({v:t,l:t}))]},
+                {label:"Type",value:fType,set:setFType,opts:[{v:"ALL",l:"All types"},...typeOptions.map(t=>({v:t,l:t}))]},
                 {label:"Linked",value:fLinked,set:setFLinked,opts:[{v:"ALL",l:"All"},{v:"YES",l:"Linked"},{v:"NO",l:"Unlinked"}]},
               ].map(({label,value,set,opts})=>(
                 <div key={label}>
                   <div style={S.filterLabel}>{label}</div>
-                  <select value={value} onChange={e=>set(e.target.value)} style={S.input}>
-                    {opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
-                  </select>
+                  <select value={value} onChange={e=>set(e.target.value)} style={S.input}>{opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}</select>
                 </div>
               ))}
             </div>
@@ -320,7 +316,7 @@ export default function CertificatesPageClient() {
               </div>
             </div>
 
-            {errorText&&<div style={{margin:"12px 20px",padding:"12px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,background:T.redDim,color:T.red,fontSize:13,display:"flex",gap:8}}><span>⚠</span>{errorText}</div>}
+            {errorText&&<div style={{margin:"12px 20px",padding:"12px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,background:T.redDim,color:T.red,fontSize:13,display:"flex",gap:8,alignItems:"flex-start"}}><span>⚠</span>{errorText}</div>}
 
             <div className="content-pad" style={{padding:16}}>
               {loading?<LoadingState/>:filtered.length===0?<EmptyState onClear={clearFilters}/>:
@@ -334,7 +330,6 @@ export default function CertificatesPageClient() {
   );
 }
 
-/* ── GROUPED VIEW ── */
 function GroupedView({grouped,expandedClients,expandedTypes,toggleClient,toggleType,...rp}){
   return(
     <div style={{display:"grid",gap:12}}>
@@ -400,7 +395,6 @@ function GroupedView({grouped,expandedClients,expandedTypes,toggleClient,toggleT
   );
 }
 
-/* ── FLAT VIEW ── */
 function FlatView({certs,...rp}){
   return(
     <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:16,overflow:"hidden"}}>
@@ -415,7 +409,6 @@ function FlatView({certs,...rp}){
   );
 }
 
-/* ── CERT ROW (desktop) ── */
 function CertRow({cert,compact=false,linkSource,beginLink,handleLink,handleUnlink,busyId,cancelLink}){
   const result=rCfg(cert.result);
   const expiry=eCfg(cert.expiry_bucket);
@@ -434,7 +427,6 @@ function CertRow({cert,compact=false,linkSource,beginLink,handleLink,handleUnlin
       <Link href={`/certificates/${id}/edit`}  prefetch={false} className="act-lnk" style={S.ab(T.amber,T.amberDim,T.amberBrd)}>Edit</Link>
       <Link href={`/certificates/print/${id}`} prefetch={false} className="act-lnk" style={S.ab(T.green,T.greenDim,T.greenBrd)}>Print</Link>
       {needsNcr(cert)&&<Link href={buildNcrHref(cert)} prefetch={false} className="act-lnk" style={S.ab(T.red,T.redDim,T.redBrd)}>NCR</Link>}
-      {/* ✅ FIX: "Selected" is now clickable to UNSELECT */}
       {isLinkSource
         ?<button type="button" onClick={cancelLink} style={{...S.ab(T.purple,T.purpleDim,T.purpleBrd),cursor:"pointer",opacity:0.8}}>✕ Unselect</button>
         :canLinkHere
@@ -445,7 +437,7 @@ function CertRow({cert,compact=false,linkSource,beginLink,handleLink,handleUnlin
     </div>
   );
 
-  if(compact) return(
+  if(compact)return(
     <tr className="cert-row" style={{borderBottom:`1px solid ${T.border}`}}>
       <td style={S.td}><span style={S.mono}>{cert.certificate_number||"—"}</span></td>
       <td style={S.td}><Badge {...result}/></td>
@@ -455,7 +447,6 @@ function CertRow({cert,compact=false,linkSource,beginLink,handleLink,handleUnlin
       <td style={S.td}>{actions}</td>
     </tr>
   );
-
   return(
     <tr className="cert-row" style={{borderBottom:`1px solid ${T.border}`}}>
       <td style={S.td}><span style={S.mono}>{cert.certificate_number||"—"}</span></td>
@@ -472,7 +463,6 @@ function CertRow({cert,compact=false,linkSource,beginLink,handleLink,handleUnlin
   );
 }
 
-/* ── CERT CARD (mobile) ── */
 function CertCard({cert,linkSource,beginLink,handleLink,handleUnlink,busyId,cancelLink}){
   const result=rCfg(cert.result);
   const expiry=eCfg(cert.expiry_bucket);
@@ -482,10 +472,7 @@ function CertCard({cert,linkSource,beginLink,handleLink,handleUnlink,busyId,canc
   const canLinkHere=!!linkSource&&linkSource.id!==cert.id;
   return(
     <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"13px 14px",display:"grid",gap:10}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
-        <span style={S.mono}>{cert.certificate_number||"—"}</span>
-        <Badge {...result}/>
-      </div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}><span style={S.mono}>{cert.certificate_number||"—"}</span><Badge {...result}/></div>
       <div>
         <div style={{fontSize:13,fontWeight:600,color:T.text,lineHeight:1.3}}>{cert.equipment_description}</div>
         <div style={{fontSize:11,color:T.textDim,marginTop:3}}>{cert.equipment_type}{cert.client_name!=="UNASSIGNED CLIENT"?` · ${cert.client_name}`:""}</div>
@@ -512,13 +499,12 @@ function CertCard({cert,linkSource,beginLink,handleLink,handleUnlink,busyId,canc
   );
 }
 
-/* ── HELPERS ── */
 function buildNcrHref(cert){
   const p=new URLSearchParams();
   p.set("source","certificate");p.set("certificate_id",nz(cert?.id));p.set("certificate_number",nz(cert?.certificate_number));
   p.set("inspection_number",nz(cert?.inspection_number));p.set("asset_tag",nz(cert?.asset_tag));p.set("asset_name",nz(cert?.asset_name));
   p.set("equipment_description",nz(cert?.equipment_description));p.set("equipment_type",nz(cert?.equipment_type||cert?.asset_type));
-  p.set("client_name",nz(cert?.client_name));p.set("result",normalizeResult(cert?.result));p.set("issue_date",nz(cert?.issue_date));p.set("expiry_date",nz(cert?.expiry_date));
+  p.set("client_name",nz(cert?.client_name));p.set("result",pickResult(cert));p.set("issue_date",nz(cert?.issue_date));p.set("expiry_date",nz(cert?.expiry_date));
   return `/ncr/new?${p.toString()}`;
 }
 function DaysBadge({days,expiry}){return <span style={{fontSize:10,fontWeight:700,padding:"2px 6px",borderRadius:4,background:expiry.bg,color:expiry.color,whiteSpace:"nowrap"}}>{days<0?`${Math.abs(days)}d ago`:`${days}d`}</span>;}
@@ -533,7 +519,7 @@ const S={
   th:{padding:"9px 13px",fontSize:10,color:T.textDim,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",background:"rgba(255,255,255,0.02)"},
   td:{padding:"11px 13px",verticalAlign:"middle",fontSize:12,color:T.textMid},
   mono:{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,color:T.accent,fontWeight:500},
-  btnAccent:{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"10px 16px",borderRadius:10,background:T.accent,color:"#001018",fontSize:12,fontWeight:800,textDecoration:"none",boxShadow:`0 0 20px ${T.accentGlow}`,whiteSpace:"nowrap"},
+  btnAccent:{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"10px 16px",borderRadius:10,background:T.accent,color:"#001018",fontSize:12,fontWeight:800,textDecoration:"none",whiteSpace:"nowrap"},
   btnGhost:{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"10px 16px",borderRadius:10,background:"rgba(255,255,255,0.03)",color:T.textMid,fontSize:12,fontWeight:700,textDecoration:"none",border:`1px solid ${T.border}`,whiteSpace:"nowrap"},
   btnPlain:{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"9px 14px",borderRadius:9,background:"rgba(255,255,255,0.05)",color:T.textMid,fontSize:12,fontWeight:700,border:`1px solid ${T.border}`,cursor:"pointer",whiteSpace:"nowrap"},
   ab:(color,bg,brd)=>({display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"6px 10px",borderRadius:7,background:bg,border:`1px solid ${brd}`,color,fontSize:11,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap",minHeight:32}),
