@@ -1,1187 +1,368 @@
+// apps/web/src/app/certificates/create/page.jsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 import { registerEquipment } from "@/services/equipment";
-import {
-  buildDocumentGroup,
-  buildEquipmentDescription,
-  detectEquipmentType,
-  expiryBucketFromDate,
-  normalizeText,
-} from "@/lib/equipmentDetection";
+import { buildDocumentGroup, buildEquipmentDescription, detectEquipmentType, expiryBucketFromDate, normalizeText } from "@/lib/equipmentDetection";
 
-const C = {
-  green: "#00f5c4",
-  blue: "#4fc3f7",
-  purple: "#7c5cfc",
-  pink: "#f472b6",
-  yellow: "#fbbf24",
-  bg: "#0f172a",
-  card: "rgba(255,255,255,0.04)",
-  border: "rgba(255,255,255,0.10)",
-  text: "#e2e8f0",
-  muted: "rgba(226,232,240,0.65)",
-  inputBg: "rgba(255,255,255,0.04)",
+/* ── Tokens ── */
+const T = {
+  bg:"#070e18", surface:"rgba(13,22,38,0.80)", panel:"rgba(10,18,32,0.92)",
+  panel2:"rgba(18,30,50,0.70)", card:"rgba(255,255,255,0.025)",
+  border:"rgba(148,163,184,0.12)", text:"#f0f6ff",
+  textMid:"rgba(240,246,255,0.72)", textDim:"rgba(240,246,255,0.40)",
+  accent:"#22d3ee", accentDim:"rgba(34,211,238,0.10)", accentBrd:"rgba(34,211,238,0.25)", accentGlow:"rgba(34,211,238,0.18)",
+  green:"#34d399", greenDim:"rgba(52,211,153,0.10)", greenBrd:"rgba(52,211,153,0.25)",
+  red:"#f87171",   redDim:"rgba(248,113,113,0.10)",  redBrd:"rgba(248,113,113,0.25)",
+  blue:"#60a5fa",  blueDim:"rgba(96,165,250,0.10)",
 };
 
-const inputStyle = {
-  width: "100%",
-  padding: "11px 14px",
-  borderRadius: 10,
-  border: `1px solid ${C.border}`,
-  background: C.inputBg,
-  color: C.text,
-  outline: "none",
-  fontSize: 14,
-  boxSizing: "border-box",
-};
+const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500&display=swap');
+  *,*::before,*::after{box-sizing:border-box}
+  input::placeholder,textarea::placeholder,select::placeholder{color:rgba(240,246,255,0.28)}
+  select option{background:#0a1420;color:#f0f6ff}
+  ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.2);border-radius:99px}
 
-const labelStyle = {
-  display: "block",
-  fontSize: 11,
-  fontWeight: 700,
-  letterSpacing: "0.08em",
-  textTransform: "uppercase",
-  color: C.muted,
-  marginBottom: 6,
-};
+  .create-grid-4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+  .create-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+  .create-grid-auto{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+  .scan-layout{display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:start}
 
-const sectionStyle = {
-  background: C.card,
-  border: `1px solid ${C.border}`,
-  borderRadius: 18,
-  padding: 20,
-  marginBottom: 18,
-};
-
-const buttonBase = {
-  border: "none",
-  borderRadius: 10,
-  padding: "12px 18px",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-function isoDateOnly(value) {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 10);
-}
-
-function addDays(start, days) {
-  const d = new Date(start || new Date());
-  d.setDate(d.getDate() + days);
-  return isoDateOnly(d);
-}
-
-function normalizeCertificateResult(value) {
-  const v = String(value || "").trim().toUpperCase();
-
-  if (["PASS", "FAIL", "REPAIR_REQUIRED", "OUT_OF_SERVICE", "UNKNOWN"].includes(v)) {
-    return v;
+  @media(max-width:1024px){
+    .create-grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .create-grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}
   }
-
-  if (v === "REPAIR REQUIRED") return "REPAIR_REQUIRED";
-  if (v === "OUT OF SERVICE") return "OUT_OF_SERVICE";
-
-  return "PASS";
-}
-
-function normalizeCertificateStatus(value) {
-  const v = String(value || "").trim().toLowerCase();
-
-  if (["active", "issued", "draft", "expired", "inactive", "void"].includes(v)) {
-    return v;
+  @media(max-width:768px){
+    .create-page-pad{padding:14px!important}
+    .create-hdr{flex-direction:column!important;align-items:flex-start!important;gap:12px!important}
+    .create-hdr-btns{width:100%}
+    .create-hdr-btns button{flex:1}
+    .create-grid-4{grid-template-columns:1fr}
+    .create-grid-3{grid-template-columns:1fr}
+    .create-grid-auto{grid-template-columns:1fr}
+    .scan-layout{grid-template-columns:1fr!important}
+    .scan-preview{order:-1}
+    .save-row{width:100%}
+    .save-row button{width:100%}
   }
-
-  if (v === "archived") return "inactive";
-  if (v === "revoked") return "void";
-
-  return "active";
-}
-
-async function getClients() {
-  const { data, error } = await supabase
-    .from("clients")
-    .select("id, company_name, company_code")
-    .order("company_name", { ascending: true });
-
-  if (error) throw error;
-  return data || [];
-}
-
-async function getClientByName(companyName) {
-  const clean = normalizeText(companyName);
-  if (!clean) return null;
-
-  const { data, error } = await supabase
-    .from("clients")
-    .select("id, company_name, company_code")
-    .ilike("company_name", clean)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw error;
-  return data;
-}
-
-async function createClient(companyName) {
-  const clean = normalizeText(companyName);
-
-  const { data, error } = await supabase
-    .from("clients")
-    .insert([{ company_name: clean, status: "active" }])
-    .select("id, company_name, company_code")
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
-async function uploadToCertificatesBucket(file, folder) {
-  const ext = file.name.split(".").pop() || "jpg";
-  const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-
-  const { error } = await supabase.storage
-    .from("certificates")
-    .upload(path, file, { upsert: true });
-
-  if (error) throw error;
-
-  const { data } = supabase.storage.from("certificates").getPublicUrl(path);
-  return data.publicUrl;
-}
-
-async function generateCertificateNumber(serialNumber, assetId) {
-  const base = normalizeText(serialNumber)
-    ? normalizeText(serialNumber).replace(/[\s\-\/]+/g, "").toUpperCase()
-    : `ASSET${assetId}`;
-
-  const prefix = `CERT-${base}-`;
-
-  const { data, error } = await supabase
-    .from("certificates")
-    .select("certificate_number")
-    .like("certificate_number", `${prefix}%`)
-    .order("certificate_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw error;
-
-  let next = 1;
-  if (data?.certificate_number) {
-    const parts = data.certificate_number.split("-");
-    const seq = parseInt(parts[parts.length - 1], 10);
-    if (!Number.isNaN(seq)) next = seq + 1;
+  @media(max-width:480px){
+    .create-grid-4,.create-grid-3,.create-grid-auto{grid-template-columns:1fr}
   }
+`;
 
-  return `${prefix}${String(next).padStart(2, "0")}`;
-}
+/* ── Helpers ── */
+function isoDateOnly(v){ if(!v) return ""; const d=new Date(v); if(Number.isNaN(d.getTime())) return ""; return d.toISOString().slice(0,10); }
+function addDays(start,days){ const d=new Date(start||new Date()); d.setDate(d.getDate()+days); return isoDateOnly(d); }
+function normalizeCertResult(v){ const r=String(v||"").trim().toUpperCase(); if(["PASS","FAIL","REPAIR_REQUIRED","OUT_OF_SERVICE","UNKNOWN"].includes(r)) return r; if(r==="REPAIR REQUIRED") return "REPAIR_REQUIRED"; if(r==="OUT OF SERVICE") return "OUT_OF_SERVICE"; return "PASS"; }
+function normalizeCertStatus(v){ const r=String(v||"").trim().toLowerCase(); if(["active","issued","draft","expired","inactive","void"].includes(r)) return r; if(r==="archived") return "inactive"; if(r==="revoked") return "void"; return "active"; }
+
+async function getClients(){ const{data,error}=await supabase.from("clients").select("id,company_name,company_code").order("company_name",{ascending:true}); if(error) throw error; return data||[]; }
+async function getClientByName(name){ const c=normalizeText(name); if(!c) return null; const{data,error}=await supabase.from("clients").select("id,company_name,company_code").ilike("company_name",c).limit(1).maybeSingle(); if(error) throw error; return data; }
+async function createClient(name){ const c=normalizeText(name); const{data,error}=await supabase.from("clients").insert([{company_name:c,status:"active"}]).select("id,company_name,company_code").single(); if(error) throw error; return data; }
+async function uploadToCertsBucket(file,folder){ const ext=file.name.split(".").pop()||"jpg"; const path=`${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`; const{error}=await supabase.storage.from("certificates").upload(path,file,{upsert:true}); if(error) throw error; const{data}=supabase.storage.from("certificates").getPublicUrl(path); return data.publicUrl; }
+async function generateCertNumber(serial,assetId){ const base=normalizeText(serial)?normalizeText(serial).replace(/[\s\-\/]+/g,"").toUpperCase():`ASSET${assetId}`; const prefix=`CERT-${base}-`; const{data,error}=await supabase.from("certificates").select("certificate_number").like("certificate_number",`${prefix}%`).order("certificate_number",{ascending:false}).limit(1).maybeSingle(); if(error) throw error; let next=1; if(data?.certificate_number){const parts=data.certificate_number.split("-");const seq=parseInt(parts[parts.length-1],10);if(!Number.isNaN(seq)) next=seq+1;} return `${prefix}${String(next).padStart(2,"0")}`; }
+
+const INIT = {
+  client_id:"",client_name:"",site_id:"",site_name:"",manufacturer:"",model:"",serial_number:"",
+  year_built:"",equipment_id:"",identification_number:"",capacity:"",swl:"",mawp:"",
+  design_pressure:"",test_pressure:"",country_of_origin:"",equipment_type:"",
+  equipment_description:"",asset_name:"",asset_tag:"",
+  certificate_type:"Load Test Certificate",equipment_status:"PASS",document_status:"active",
+  inspection_date:isoDateOnly(new Date()),issue_date:isoDateOnly(new Date()),
+  expiry_date:addDays(new Date(),365),inspector_name:"",inspector_id:"",
+  remarks:"",pdf_url:"",nameplate_image_url:"",ocr_raw_text:"",detected_from_nameplate:false,
+};
 
 export default function CreateCertificatePage() {
-  const [loadingClients, setLoadingClients] = useState(true);
-  const [clients, setClients] = useState([]);
-  const [saving, setSaving] = useState(false);
-  const [scanLoading, setScanLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  const [nameplateFile, setNameplateFile] = useState(null);
-  const [nameplatePreview, setNameplatePreview] = useState("");
+  const router=useRouter();
+  const [loadingClients,setLoadingClients]=useState(true);
+  const [clients,setClients]=useState([]);
+  const [saving,setSaving]=useState(false);
+  const [scanLoading,setScanLoading]=useState(false);
+  const [error,setError]=useState("");
+  const [success,setSuccess]=useState("");
+  const [nameplateFile,setNameplateFile]=useState(null);
+  const [nameplatePreview,setNameplatePreview]=useState("");
+  const [form,setForm]=useState(INIT);
 
-  const [form, setForm] = useState({
-    client_id: "",
-    client_name: "",
-    site_id: "",
-    site_name: "",
-    manufacturer: "",
-    model: "",
-    serial_number: "",
-    year_built: "",
-    equipment_id: "",
-    identification_number: "",
-    capacity: "",
-    swl: "",
-    mawp: "",
-    design_pressure: "",
-    test_pressure: "",
-    country_of_origin: "",
-    equipment_type: "",
-    equipment_description: "",
-    asset_name: "",
-    asset_tag: "",
-    certificate_type: "Load Test Certificate",
-    equipment_status: "PASS",
-    document_status: "active",
-    inspection_date: isoDateOnly(new Date()),
-    issue_date: isoDateOnly(new Date()),
-    expiry_date: addDays(new Date(), 365),
-    inspector_name: "",
-    inspector_id: "",
-    remarks: "",
-    pdf_url: "",
-    nameplate_image_url: "",
-    ocr_raw_text: "",
-    detected_from_nameplate: false,
-  });
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function load() {
-      try {
-        setLoadingClients(true);
-        const rows = await getClients();
-        if (mounted) setClients(rows);
-      } catch (err) {
-        if (mounted) setError(err.message || "Failed to load clients.");
-      } finally {
-        if (mounted) setLoadingClients(false);
-      }
-    }
-
+  useEffect(()=>{
+    let mounted=true;
+    async function load(){ try{setLoadingClients(true);const rows=await getClients();if(mounted)setClients(rows);}catch(e){if(mounted)setError(e.message||"Failed to load clients.");}finally{if(mounted)setLoadingClients(false);} }
     load();
+    return()=>{mounted=false;if(nameplatePreview)URL.revokeObjectURL(nameplatePreview);};
+  },[]);
 
-    return () => {
-      mounted = false;
-      if (nameplatePreview) {
-        URL.revokeObjectURL(nameplatePreview);
+  const expiryBucket=useMemo(()=>expiryBucketFromDate(form.expiry_date),[form.expiry_date]);
+
+  function setField(name,value){
+    setForm(prev=>{
+      const next={...prev,[name]:value};
+      if(["manufacturer","model","capacity","serial_number","identification_number","equipment_id","equipment_type"].includes(name)){
+        next.equipment_description=buildEquipmentDescription({manufacturer:name==="manufacturer"?value:next.manufacturer,equipment_type:name==="equipment_type"?value:next.equipment_type,model:name==="model"?value:next.model,capacity:name==="capacity"?value:next.capacity,serial_number:name==="serial_number"?value:next.serial_number,identification_number:name==="identification_number"?value:next.identification_number,equipment_id:name==="equipment_id"?value:next.equipment_id});
+        next.asset_name=next.equipment_description;
       }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const expiryBucket = useMemo(() => {
-    return expiryBucketFromDate(form.expiry_date);
-  }, [form.expiry_date]);
-
-  function setField(name, value) {
-    setForm((prev) => {
-      const next = { ...prev, [name]: value };
-
-      if (
-        [
-          "manufacturer",
-          "model",
-          "capacity",
-          "serial_number",
-          "identification_number",
-          "equipment_id",
-          "equipment_type",
-        ].includes(name)
-      ) {
-        next.equipment_description = buildEquipmentDescription({
-          manufacturer: name === "manufacturer" ? value : next.manufacturer,
-          equipment_type: name === "equipment_type" ? value : next.equipment_type,
-          model: name === "model" ? value : next.model,
-          capacity: name === "capacity" ? value : next.capacity,
-          serial_number: name === "serial_number" ? value : next.serial_number,
-          identification_number:
-            name === "identification_number" ? value : next.identification_number,
-          equipment_id: name === "equipment_id" ? value : next.equipment_id,
-        });
-
-        next.asset_name = next.equipment_description;
-      }
-
       return next;
     });
   }
 
-  function handleClientChange(e) {
-    const value = e.target.value;
-    const selected = clients.find((c) => String(c.id) === String(value));
+  function handleClientChange(e){ const v=e.target.value; const sel=clients.find(c=>String(c.id)===String(v)); setForm(p=>({...p,client_id:sel?.id||"",client_name:sel?.company_name||p.client_name})); }
 
-    setForm((prev) => ({
-      ...prev,
-      client_id: selected?.id || "",
-      client_name: selected?.company_name || prev.client_name,
-    }));
+  function handleNameplateSelect(e){ const file=e.target.files?.[0]; if(!file) return; if(nameplatePreview) URL.revokeObjectURL(nameplatePreview); setNameplateFile(file);setNameplatePreview(URL.createObjectURL(file));setSuccess("");setError(""); }
+
+  async function handleScanNameplate(){
+    if(!nameplateFile){setError("Choose or capture a nameplate image first.");return;}
+    try{
+      setScanLoading(true);setError("");setSuccess("");
+      const body=new FormData();body.append("file",nameplateFile);
+      const res=await fetch("/api/nameplate/scan",{method:"POST",body});
+      const json=await res.json();
+      if(!res.ok) throw new Error(json.error||"Failed to scan nameplate.");
+      const parsed=json.parsed||{};
+      const detection=detectEquipmentType({raw_text:json.ocr?.raw_text||parsed.raw_text||"",manufacturer:parsed.manufacturer,model:parsed.model,serial_number:parsed.serial_number,capacity:parsed.capacity,swl:parsed.swl,mawp:parsed.mawp});
+      setForm(prev=>{
+        const equipment_type=parsed.equipment_type||detection.type||prev.equipment_type;
+        const certificate_type=parsed.document_category||detection.category||prev.certificate_type;
+        const equipment_description=buildEquipmentDescription({manufacturer:parsed.manufacturer||prev.manufacturer,equipment_type,model:parsed.model||prev.model,capacity:parsed.capacity||prev.capacity,serial_number:parsed.serial_number||prev.serial_number,identification_number:parsed.equipment_id||prev.identification_number,equipment_id:parsed.equipment_id||prev.equipment_id});
+        return{...prev,manufacturer:parsed.manufacturer||prev.manufacturer,model:parsed.model||prev.model,serial_number:parsed.serial_number||prev.serial_number,year_built:parsed.year_built||prev.year_built,capacity:parsed.capacity||prev.capacity,swl:parsed.swl||prev.swl,mawp:parsed.mawp||prev.mawp,design_pressure:parsed.design_pressure||prev.design_pressure,test_pressure:parsed.test_pressure||prev.test_pressure,country_of_origin:parsed.country_of_origin||prev.country_of_origin,equipment_id:parsed.equipment_id||prev.equipment_id,identification_number:parsed.equipment_id||prev.identification_number,equipment_type,certificate_type,equipment_description,asset_name:equipment_description,ocr_raw_text:json.ocr?.raw_text||parsed.raw_text||"",detected_from_nameplate:true};
+      });
+      setSuccess("Nameplate scanned successfully.");
+    }catch(e){setError(e.message||"Scan failed.");}
+    finally{setScanLoading(false);}
   }
 
-  function handleNameplateSelect(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (nameplatePreview) URL.revokeObjectURL(nameplatePreview);
-
-    setNameplateFile(file);
-    setNameplatePreview(URL.createObjectURL(file));
-    setSuccess("");
-    setError("");
-  }
-
-  async function handleScanNameplate() {
-    if (!nameplateFile) {
-      setError("Choose or capture a nameplate image first.");
-      return;
-    }
-
-    try {
-      setScanLoading(true);
-      setError("");
-      setSuccess("");
-
-      const body = new FormData();
-      body.append("file", nameplateFile);
-
-      const res = await fetch("/api/nameplate/scan", {
-        method: "POST",
-        body,
-      });
-
-      const json = await res.json();
-
-      if (!res.ok) {
-        throw new Error(json.error || "Failed to scan nameplate.");
-      }
-
-      const parsed = json.parsed || {};
-      const detection = detectEquipmentType({
-        raw_text: json.ocr?.raw_text || parsed.raw_text || "",
-        manufacturer: parsed.manufacturer,
-        model: parsed.model,
-        serial_number: parsed.serial_number,
-        capacity: parsed.capacity,
-        swl: parsed.swl,
-        mawp: parsed.mawp,
-      });
-
-      setForm((prev) => {
-        const equipment_type = parsed.equipment_type || detection.type || prev.equipment_type;
-        const certificate_type =
-          parsed.document_category || detection.category || prev.certificate_type;
-
-        const equipment_description = buildEquipmentDescription({
-          manufacturer: parsed.manufacturer || prev.manufacturer,
-          equipment_type,
-          model: parsed.model || prev.model,
-          capacity: parsed.capacity || prev.capacity,
-          serial_number: parsed.serial_number || prev.serial_number,
-          identification_number: parsed.equipment_id || prev.identification_number,
-          equipment_id: parsed.equipment_id || prev.equipment_id,
-        });
-
-        return {
-          ...prev,
-          manufacturer: parsed.manufacturer || prev.manufacturer,
-          model: parsed.model || prev.model,
-          serial_number: parsed.serial_number || prev.serial_number,
-          year_built: parsed.year_built || prev.year_built,
-          capacity: parsed.capacity || prev.capacity,
-          swl: parsed.swl || prev.swl,
-          mawp: parsed.mawp || prev.mawp,
-          design_pressure: parsed.design_pressure || prev.design_pressure,
-          test_pressure: parsed.test_pressure || prev.test_pressure,
-          country_of_origin: parsed.country_of_origin || prev.country_of_origin,
-          equipment_id: parsed.equipment_id || prev.equipment_id,
-          identification_number: parsed.equipment_id || prev.identification_number,
-          equipment_type,
-          certificate_type,
-          equipment_description,
-          asset_name: equipment_description,
-          ocr_raw_text: json.ocr?.raw_text || parsed.raw_text || "",
-          detected_from_nameplate: true,
-        };
-      });
-
-      setSuccess("Nameplate scanned successfully with Gemini.");
-    } catch (err) {
-      setError(err.message || "Scan failed.");
-    } finally {
-      setScanLoading(false);
-    }
-  }
-
-  async function resolveClient() {
-    if (form.client_id) {
-      const selected = clients.find((c) => c.id === form.client_id);
-
-      return {
-        id: form.client_id,
-        company_name: selected?.company_name || form.client_name,
-      };
-    }
-
-    if (!normalizeText(form.client_name)) {
-      throw new Error("Enter client name or choose a client.");
-    }
-
-    const existing = await getClientByName(form.client_name);
-    if (existing) return existing;
-
-    const created = await createClient(form.client_name);
-    setClients((prev) =>
-      [...prev, created].sort((a, b) => a.company_name.localeCompare(b.company_name))
-    );
+  async function resolveClient(){
+    if(form.client_id){ const sel=clients.find(c=>c.id===form.client_id); return{id:form.client_id,company_name:sel?.company_name||form.client_name}; }
+    if(!normalizeText(form.client_name)) throw new Error("Enter client name or choose a client.");
+    const existing=await getClientByName(form.client_name);
+    if(existing) return existing;
+    const created=await createClient(form.client_name);
+    setClients(p=>[...p,created].sort((a,b)=>a.company_name.localeCompare(b.company_name)));
     return created;
   }
 
-  async function createOrUpdateAsset(client, nameplateImageUrl) {
-    const lookupSerial = normalizeText(
-      form.serial_number || form.identification_number || form.equipment_id
-    );
-
-    if (lookupSerial) {
-      const { data: existing, error } = await supabase
-        .from("assets")
-        .select("id, asset_tag")
-        .eq("client_id", client.id)
-        .eq("serial_number", lookupSerial)
-        .limit(1)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      if (existing) {
-        const updatePayload = {
-          client_id: client.id,
-          asset_name: form.asset_name || form.equipment_description,
-          asset_tag: form.asset_tag || existing.asset_tag || null,
-          equipment_type: form.equipment_type || null,
-          equipment_description: form.equipment_description || null,
-          asset_type: form.equipment_type || null,
-          manufacturer: form.manufacturer || null,
-          model: form.model || null,
-          serial_number: form.serial_number || lookupSerial,
-          year_built: form.year_built || null,
-          swl: form.swl || null,
-          capacity_volume: form.capacity || null,
-          working_pressure: form.mawp || null,
-          design_pressure: form.design_pressure || null,
-          test_pressure: form.test_pressure || null,
-          identification_number: form.identification_number || null,
-          equipment_id: form.equipment_id || null,
-          country_of_origin: form.country_of_origin || null,
-          location: form.site_name || null,
-          next_inspection_due: form.expiry_date || null,
-          inspection_date: form.inspection_date || null,
-          comments: form.remarks || null,
-          nameplate_image_url: nameplateImageUrl || null,
-          nameplate_data: {
-            manufacturer: form.manufacturer,
-            model: form.model,
-            serial_number: form.serial_number,
-            year_built: form.year_built,
-            capacity: form.capacity,
-            swl: form.swl,
-            mawp: form.mawp,
-            design_pressure: form.design_pressure,
-            test_pressure: form.test_pressure,
-            country_of_origin: form.country_of_origin,
-            ocr_raw_text: form.ocr_raw_text,
-          },
-        };
-
-        const { error: updateError } = await supabase
-          .from("assets")
-          .update(updatePayload)
-          .eq("id", existing.id);
-
-        if (updateError) throw updateError;
-
-        return {
-          id: existing.id,
-          asset_tag: updatePayload.asset_tag || existing.asset_tag || null,
-          asset_name: updatePayload.asset_name,
-        };
+  async function createOrUpdateAsset(client,nameplateImageUrl){
+    const lookupSerial=normalizeText(form.serial_number||form.identification_number||form.equipment_id);
+    if(lookupSerial){
+      const{data:existing,error}=await supabase.from("assets").select("id,asset_tag").eq("client_id",client.id).eq("serial_number",lookupSerial).limit(1).maybeSingle();
+      if(error) throw error;
+      if(existing){
+        const{error:ue}=await supabase.from("assets").update({client_id:client.id,asset_name:form.asset_name||form.equipment_description,asset_tag:form.asset_tag||existing.asset_tag||null,equipment_type:form.equipment_type||null,asset_type:form.equipment_type||null,manufacturer:form.manufacturer||null,model:form.model||null,serial_number:form.serial_number||lookupSerial,year_built:form.year_built||null,swl:form.swl||null,capacity_volume:form.capacity||null,working_pressure:form.mawp||null,design_pressure:form.design_pressure||null,test_pressure:form.test_pressure||null,identification_number:form.identification_number||null,equipment_id:form.equipment_id||null,country_of_origin:form.country_of_origin||null,location:form.site_name||null,next_inspection_due:form.expiry_date||null,inspection_date:form.inspection_date||null,comments:form.remarks||null,nameplate_image_url:nameplateImageUrl||null}).eq("id",existing.id);
+        if(ue) throw ue;
+        return{id:existing.id,asset_tag:form.asset_tag||existing.asset_tag||null,asset_name:form.asset_name||form.equipment_description};
       }
     }
-
-    const payload = {
-      client_id: client.id,
-      asset_name: form.asset_name || form.equipment_description,
-      asset_tag: form.asset_tag || null,
-      equipment_type: form.equipment_type,
-      equipment_description: form.equipment_description,
-      asset_type: form.equipment_type,
-      manufacturer: form.manufacturer,
-      model: form.model,
-      serial_number: form.serial_number || lookupSerial || null,
-      year_built: form.year_built,
-      swl: form.swl,
-      capacity: form.capacity,
-      capacity_volume: form.capacity,
-      working_pressure: form.mawp,
-      design_pressure: form.design_pressure,
-      test_pressure: form.test_pressure,
-      identification_number: form.identification_number,
-      equipment_id: form.equipment_id,
-      country_of_origin: form.country_of_origin,
-      location: form.site_name || null,
-      next_inspection_due: form.expiry_date || null,
-      inspection_date: form.inspection_date || null,
-      comments: form.remarks || null,
-      nameplate_image_url: nameplateImageUrl || null,
-      nameplate_data: {
-        manufacturer: form.manufacturer,
-        model: form.model,
-        serial_number: form.serial_number,
-        year_built: form.year_built,
-        capacity: form.capacity,
-        swl: form.swl,
-        mawp: form.mawp,
-        design_pressure: form.design_pressure,
-        test_pressure: form.test_pressure,
-        country_of_origin: form.country_of_origin,
-        ocr_raw_text: form.ocr_raw_text,
-      },
-    };
-
-    const { data, error } = await registerEquipment(payload);
-    if (error) throw error;
-
+    const payload={client_id:client.id,asset_name:form.asset_name||form.equipment_description,asset_tag:form.asset_tag||null,equipment_type:form.equipment_type,equipment_description:form.equipment_description,asset_type:form.equipment_type,manufacturer:form.manufacturer,model:form.model,serial_number:form.serial_number||lookupSerial||null,year_built:form.year_built,swl:form.swl,capacity:form.capacity,capacity_volume:form.capacity,working_pressure:form.mawp,design_pressure:form.design_pressure,test_pressure:form.test_pressure,identification_number:form.identification_number,equipment_id:form.equipment_id,country_of_origin:form.country_of_origin,location:form.site_name||null,next_inspection_due:form.expiry_date||null,inspection_date:form.inspection_date||null,comments:form.remarks||null,nameplate_image_url:nameplateImageUrl||null};
+    const{data,error}=await registerEquipment(payload);
+    if(error) throw error;
     return data;
   }
 
-  async function handleSave() {
-    try {
-      setSaving(true);
-      setError("");
-      setSuccess("");
+  async function handleSave(){
+    try{
+      setSaving(true);setError("");setSuccess("");
+      const client=await resolveClient();
+      let nameplateImageUrl=form.nameplate_image_url;
+      if(nameplateFile&&!nameplateImageUrl) nameplateImageUrl=await uploadToCertsBucket(nameplateFile,"nameplates");
+      const asset=await createOrUpdateAsset(client,nameplateImageUrl);
+      const certificate_number=await generateCertNumber(form.serial_number||form.identification_number||form.equipment_id,asset.id);
+      const detected=detectEquipmentType({raw_text:form.ocr_raw_text,manufacturer:form.manufacturer,model:form.model,serial_number:form.serial_number,capacity:form.capacity,swl:form.swl,mawp:form.mawp});
+      const equipment_type=normalizeText(form.equipment_type)||detected.type;
+      const equipment_description=normalizeText(form.equipment_description)||buildEquipmentDescription({manufacturer:form.manufacturer,equipment_type,model:form.model,capacity:form.capacity,serial_number:form.serial_number,identification_number:form.identification_number,equipment_id:form.equipment_id});
+      const canonicalResult=normalizeCertResult(form.equipment_status);
+      const canonicalStatus=normalizeCertStatus(form.document_status);
+      const assetTag=asset?.asset_tag||form.asset_tag||null;
+      const issueDate=form.issue_date||null;
+      const expiryDate=form.expiry_date||null;
+      const inspectionDate=form.inspection_date||null;
+      const comments=normalizeText(form.remarks)||null;
 
-      const client = await resolveClient();
-
-      let nameplateImageUrl = form.nameplate_image_url;
-      if (nameplateFile && !nameplateImageUrl) {
-        nameplateImageUrl = await uploadToCertificatesBucket(nameplateFile, "nameplates");
-      }
-
-      const asset = await createOrUpdateAsset(client, nameplateImageUrl);
-
-      const certificate_number = await generateCertificateNumber(
-        form.serial_number || form.identification_number || form.equipment_id,
-        asset.id
-      );
-
-      const detected = detectEquipmentType({
-        raw_text: form.ocr_raw_text,
-        manufacturer: form.manufacturer,
-        model: form.model,
-        serial_number: form.serial_number,
-        capacity: form.capacity,
-        swl: form.swl,
-        mawp: form.mawp,
-      });
-
-      const equipment_type = normalizeText(form.equipment_type) || detected.type;
-      const equipment_description =
-        normalizeText(form.equipment_description) ||
-        buildEquipmentDescription({
-          manufacturer: form.manufacturer,
-          equipment_type,
-          model: form.model,
-          capacity: form.capacity,
-          serial_number: form.serial_number,
-          identification_number: form.identification_number,
-          equipment_id: form.equipment_id,
-        });
-
-      const canonicalResult = normalizeCertificateResult(form.equipment_status);
-      const canonicalStatus = normalizeCertificateStatus(form.document_status);
-      const assetTag = asset?.asset_tag || form.asset_tag || null;
-      const issueDate = form.issue_date || null;
-      const expiryDate = form.expiry_date || null;
-      const inspectionDate = form.inspection_date || null;
-      const comments = normalizeText(form.remarks) || null;
-
-      const payload = {
-        certificate_number,
-
-        client_id: client.id,
-        client_name: client.company_name,
-        company: client.company_name,
-        company_name: client.company_name,
-
-        asset_id: asset.id,
-        asset_tag: assetTag,
-        asset_name: asset?.asset_name || form.asset_name || equipment_description,
-        asset_type: equipment_type,
-        equipment_type,
-        equipment_description,
-
-        site_id: form.site_id || null,
-        location: form.site_name || null,
-
-        certificate_type: form.certificate_type,
-        document_category: form.certificate_type,
-
-        result: canonicalResult,
-        equipment_status: canonicalResult,
-
-        status: canonicalStatus,
-        document_status: canonicalStatus,
-
-        inspection_date: inspectionDate,
-        issue_date: issueDate,
-        expiry_date: expiryDate,
-        last_inspection_date: inspectionDate,
-        next_inspection_date: expiryDate,
-        issued_at: issueDate ? new Date(issueDate).toISOString() : null,
-        valid_to: expiryDate,
-
-        manufacturer: form.manufacturer || null,
-        model: form.model || null,
-        serial_number: form.serial_number || null,
-        year_built: form.year_built || null,
-
-        equipment_id: form.equipment_id || null,
-        identification_number: form.identification_number || null,
-        inspection_number: form.identification_number || null,
-
-        capacity: form.capacity || null,
-        capacity_volume: form.capacity || null,
-        swl: form.swl || null,
-        mawp: form.mawp || null,
-        working_pressure: form.mawp || null,
-        design_pressure: form.design_pressure || null,
-        test_pressure: form.test_pressure || null,
-        country_of_origin: form.country_of_origin || null,
-
-        inspector_name: form.inspector_name || null,
-        inspector_id: form.inspector_id || null,
-        inspection_body: "Monroy (Pty) Ltd",
-
-        comments,
-        remarks: comments,
-
-        nameplate_image_url: nameplateImageUrl || null,
-        pdf_url: form.pdf_url || null,
-        logo_url: "/logo.png",
-
-        detected_from_nameplate: !!form.detected_from_nameplate,
-        ocr_raw_text: form.ocr_raw_text || null,
-        version_no: 1,
-
-        document_group: buildDocumentGroup({
-          clientName: client.company_name,
-          equipmentType: equipment_type,
-          equipmentDescription: equipment_description,
-        }),
+      const payload={
+        certificate_number,client_id:client.id,client_name:client.company_name,company:client.company_name,company_name:client.company_name,
+        asset_id:asset.id,asset_tag:assetTag,asset_name:asset?.asset_name||form.asset_name||equipment_description,asset_type:equipment_type,equipment_type,equipment_description,
+        site_id:form.site_id||null,location:form.site_name||null,certificate_type:form.certificate_type,document_category:form.certificate_type,
+        result:canonicalResult,equipment_status:canonicalResult,status:canonicalStatus,document_status:canonicalStatus,
+        inspection_date:inspectionDate,issue_date:issueDate,expiry_date:expiryDate,last_inspection_date:inspectionDate,next_inspection_date:expiryDate,
+        issued_at:issueDate?new Date(issueDate).toISOString():null,valid_to:expiryDate,
+        manufacturer:form.manufacturer||null,model:form.model||null,serial_number:form.serial_number||null,year_built:form.year_built||null,
+        equipment_id:form.equipment_id||null,identification_number:form.identification_number||null,inspection_number:form.identification_number||null,
+        capacity:form.capacity||null,capacity_volume:form.capacity||null,swl:form.swl||null,mawp:form.mawp||null,working_pressure:form.mawp||null,
+        design_pressure:form.design_pressure||null,test_pressure:form.test_pressure||null,country_of_origin:form.country_of_origin||null,
+        inspector_name:form.inspector_name||null,inspector_id:form.inspector_id||null,inspection_body:"Monroy (Pty) Ltd",
+        comments,remarks:comments,nameplate_image_url:nameplateImageUrl||null,pdf_url:form.pdf_url||null,logo_url:"/logo.png",
+        detected_from_nameplate:!!form.detected_from_nameplate,ocr_raw_text:form.ocr_raw_text||null,version_no:1,
+        document_group:buildDocumentGroup({clientName:client.company_name,equipmentType:equipment_type,equipmentDescription:equipment_description}),
       };
 
-      const { error: insertError } = await supabase
-        .from("certificates")
-        .insert([payload]);
-
-      if (insertError) throw insertError;
-
-      setForm((prev) => ({
-        ...prev,
-        client_id: client.id,
-        client_name: client.company_name,
-        nameplate_image_url: nameplateImageUrl || "",
-        equipment_type,
-        equipment_description,
-        asset_name: equipment_description,
-        asset_tag: assetTag || prev.asset_tag,
-        document_status: canonicalStatus,
-        equipment_status: canonicalResult,
-      }));
-
-      setSuccess(`Certificate saved successfully. Expiry bucket: ${expiryBucket}.`);
-    } catch (err) {
-      setError(err.message || "Failed to save certificate.");
-    } finally {
-      setSaving(false);
-    }
+      const{error:insertError}=await supabase.from("certificates").insert([payload]);
+      if(insertError) throw insertError;
+      setSuccess(`Certificate saved successfully — expiry bucket: ${expiryBucket}.`);
+      setTimeout(()=>router.push("/certificates"),1500);
+    }catch(e){setError(e.message||"Failed to save certificate.");}
+    finally{setSaving(false);}
   }
 
-  return (
-    <AppLayout>
-      <div
-        style={{
-          minHeight: "100vh",
-          background: C.bg,
-          color: C.text,
-          padding: 24,
-        }}
-      >
-        <div style={{ maxWidth: 1300, margin: "0 auto" }}>
-          <div style={{ marginBottom: 18 }}>
-            <h1 style={{ margin: 0, fontSize: 34, fontWeight: 800 }}>
-              Create Certificate
-            </h1>
-            <p style={{ margin: "8px 0 0", color: C.muted }}>
-              Scan the equipment nameplate with Gemini, capture the data automatically,
-              assign the client, detect equipment type, and save the certificate in the
-              current register model.
-            </p>
+  return(
+    <AppLayout title="Create Certificate">
+      <style>{CSS}</style>
+      <div className="create-page-pad" style={{minHeight:"100vh",background:`radial-gradient(ellipse 70% 50% at 0% 0%,rgba(34,211,238,0.05),transparent),${T.bg}`,color:T.text,fontFamily:"'IBM Plex Sans',sans-serif",padding:24}}>
+        <div style={{maxWidth:1300,margin:"0 auto",display:"grid",gap:18}}>
+
+          {/* HEADER */}
+          <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:20,padding:"20px 22px",backdropFilter:"blur(20px)"}}>
+            <div className="create-hdr" style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:14,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.14em",textTransform:"uppercase",color:T.accent,marginBottom:8}}>New Certificate</div>
+                <h1 style={{margin:"0 0 4px",fontSize:24,fontWeight:900,letterSpacing:"-0.02em"}}>Create Certificate</h1>
+                <p style={{margin:0,color:T.textDim,fontSize:13}}>Scan nameplate with Gemini, auto-detect equipment type, assign client and save.</p>
+              </div>
+              <div className="create-hdr-btns" style={{display:"flex",gap:8,flexShrink:0}}>
+                <button type="button" onClick={()=>router.push("/certificates")} style={S.btnGhost}>← Back</button>
+              </div>
+            </div>
           </div>
 
-          {error ? (
-            <div
-              style={{
-                marginBottom: 16,
-                padding: "12px 14px",
-                borderRadius: 12,
-                background: "rgba(244,114,182,0.12)",
-                border: `1px solid rgba(244,114,182,0.35)`,
-                color: "#fbcfe8",
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {error}
-            </div>
-          ) : null}
+          {error&&<div style={{padding:"12px 16px",borderRadius:12,border:`1px solid ${T.redBrd}`,background:T.redDim,color:T.red,fontSize:13,fontWeight:700,whiteSpace:"pre-wrap"}}>⚠ {error}</div>}
+          {success&&<div style={{padding:"12px 16px",borderRadius:12,border:`1px solid ${T.greenBrd}`,background:T.greenDim,color:T.green,fontSize:13,fontWeight:700}}>✓ {success}</div>}
 
-          {success ? (
-            <div
-              style={{
-                marginBottom: 16,
-                padding: "12px 14px",
-                borderRadius: 12,
-                background: "rgba(0,245,196,0.10)",
-                border: `1px solid rgba(0,245,196,0.35)`,
-                color: "#a7f3d0",
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {success}
-            </div>
-          ) : null}
-
-          <div style={sectionStyle}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 16,
-                gap: 12,
-                flexWrap: "wrap",
-              }}
-            >
-              <div>
-                <div style={{ ...labelStyle, marginBottom: 4 }}>Nameplate Scan</div>
-                <div style={{ color: C.muted, fontSize: 14 }}>
-                  Upload or capture a nameplate image. Gemini will extract the visible fields.
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleScanNameplate}
-                disabled={scanLoading || !nameplateFile}
-                style={{
-                  ...buttonBase,
-                  background: scanLoading || !nameplateFile ? "#334155" : C.blue,
-                  color: "#08111f",
-                  minWidth: 180,
-                }}
-              >
-                {scanLoading ? "Scanning..." : "Scan Nameplate"}
+          {/* Nameplate Scan */}
+          <Section title="Nameplate Scan" accent={T.blue}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap",marginBottom:16}}>
+              <div style={{color:T.textMid,fontSize:13}}>Upload or capture a nameplate photo. Gemini will extract the visible fields automatically.</div>
+              <button type="button" onClick={handleScanNameplate} disabled={scanLoading||!nameplateFile} style={{padding:"10px 18px",borderRadius:12,border:"none",background:scanLoading||!nameplateFile?"rgba(255,255,255,0.06)":"linear-gradient(135deg,#60a5fa,#22d3ee)",color:scanLoading||!nameplateFile?T.textDim:"#001018",fontWeight:800,fontSize:13,cursor:scanLoading||!nameplateFile?"not-allowed":"pointer",flexShrink:0}}>
+                {scanLoading?"Scanning…":"⚡ Scan Nameplate"}
               </button>
             </div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: nameplatePreview ? "1fr 320px" : "1fr",
-                gap: 18,
-                alignItems: "start",
-              }}
-            >
+            <div className="scan-layout">
               <div>
-                <label style={labelStyle}>Image</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  onChange={handleNameplateSelect}
-                  style={inputStyle}
-                />
-                <div style={{ color: C.muted, fontSize: 12, marginTop: 8 }}>
-                  Use your camera or upload a clear plate photo.
-                </div>
+                <label style={S.label}>Image / Photo</label>
+                <input type="file" accept="image/*" capture="environment" onChange={handleNameplateSelect} style={S.input}/>
+                <div style={{color:T.textDim,fontSize:12,marginTop:8}}>Use your camera or upload a clear plate photo.</div>
               </div>
-
-              {nameplatePreview ? (
-                <div
-                  style={{
-                    border: `1px solid ${C.border}`,
-                    borderRadius: 14,
-                    overflow: "hidden",
-                    background: "rgba(255,255,255,0.03)",
-                  }}
-                >
-                  <img
-                    src={nameplatePreview}
-                    alt="Nameplate preview"
-                    style={{ width: "100%", display: "block", objectFit: "cover" }}
-                  />
-                </div>
-              ) : null}
+              {nameplatePreview&&<div className="scan-preview" style={{border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden",background:T.card}}><img src={nameplatePreview} alt="Nameplate preview" style={{width:"100%",display:"block",objectFit:"cover"}}/></div>}
             </div>
-          </div>
+          </Section>
 
-          <div style={sectionStyle}>
-            <div style={{ ...labelStyle, marginBottom: 16 }}>Client</div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr 1fr",
-                gap: 14,
-              }}
-            >
+          {/* Client */}
+          <Section title="Client">
+            <div className="create-grid-3">
               <div>
-                <label style={labelStyle}>Choose Existing Client</label>
-                <select
-                  value={form.client_id}
-                  onChange={handleClientChange}
-                  style={inputStyle}
-                  disabled={loadingClients}
-                >
+                <label style={S.label}>Choose Existing Client</label>
+                <select value={form.client_id} onChange={handleClientChange} style={S.input} disabled={loadingClients}>
                   <option value="">Select client</option>
-                  {clients.map((client) => (
-                    <option key={client.id} value={client.id}>
-                      {client.company_name}
-                    </option>
-                  ))}
+                  {clients.map(c=><option key={c.id} value={c.id}>{c.company_name}</option>)}
                 </select>
               </div>
+              <FField label="Client Name" value={form.client_name} onChange={v=>setField("client_name",v)} placeholder="Enter client/company name"/>
+              <FField label="Site / Location" value={form.site_name} onChange={v=>setField("site_name",v)} placeholder="Mine / plant / section"/>
+            </div>
+          </Section>
 
+          {/* Equipment Identification */}
+          <Section title="Equipment Identification">
+            <div className="create-grid-4">
+              <FField label="Manufacturer" value={form.manufacturer} onChange={v=>setField("manufacturer",v)}/>
+              <FField label="Model" value={form.model} onChange={v=>setField("model",v)}/>
+              <FField label="Serial Number" value={form.serial_number} onChange={v=>setField("serial_number",v)}/>
+              <FField label="Year Built" value={form.year_built} onChange={v=>setField("year_built",v)}/>
+              <FField label="Equipment ID" value={form.equipment_id} onChange={v=>setField("equipment_id",v)}/>
+              <FField label="Identification Number" value={form.identification_number} onChange={v=>setField("identification_number",v)}/>
+              <FField label="Country of Origin" value={form.country_of_origin} onChange={v=>setField("country_of_origin",v)}/>
+              <FField label="Asset Tag" value={form.asset_tag} onChange={v=>setField("asset_tag",v)}/>
               <div>
-                <label style={labelStyle}>Client Name</label>
-                <input
-                  type="text"
-                  value={form.client_name}
-                  onChange={(e) => setField("client_name", e.target.value)}
-                  style={inputStyle}
-                  placeholder="Enter client/company name"
-                />
+                <label style={S.label}>Equipment Type</label>
+                <select value={form.equipment_type} onChange={e=>setField("equipment_type",e.target.value)} style={S.input}>
+                  {["","PRESSURE_VESSEL","AIR_RECEIVER","LIFTING_EQUIPMENT","BOTTLE_JACK","CHAIN_BLOCK","FORKLIFT_ATTACHMENT","SLING","SHACKLE","CRANE_ACCESSORY"].map(o=><option key={o} value={o}>{o||"Select"}</option>)}
+                </select>
               </div>
-
-              <div>
-                <label style={labelStyle}>Site / Location</label>
-                <input
-                  type="text"
-                  value={form.site_name}
-                  onChange={(e) => setField("site_name", e.target.value)}
-                  style={inputStyle}
-                  placeholder="Mine / plant / section"
-                />
-              </div>
+              <FField label="Equipment Description" value={form.equipment_description} onChange={v=>setField("equipment_description",v)}/>
+              <FField label="Asset Name" value={form.asset_name} onChange={v=>setField("asset_name",v)}/>
+              <FField label="PDF URL" value={form.pdf_url} onChange={v=>setField("pdf_url",v)} placeholder="Optional file URL"/>
             </div>
-          </div>
+          </Section>
 
-          <div style={sectionStyle}>
-            <div style={{ ...labelStyle, marginBottom: 16 }}>Equipment Identification</div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                gap: 14,
-              }}
-            >
-              <Field
-                label="Manufacturer"
-                value={form.manufacturer}
-                onChange={(v) => setField("manufacturer", v)}
-              />
-              <Field
-                label="Model"
-                value={form.model}
-                onChange={(v) => setField("model", v)}
-              />
-              <Field
-                label="Serial Number"
-                value={form.serial_number}
-                onChange={(v) => setField("serial_number", v)}
-              />
-              <Field
-                label="Year Built"
-                value={form.year_built}
-                onChange={(v) => setField("year_built", v)}
-              />
-
-              <Field
-                label="Equipment ID"
-                value={form.equipment_id}
-                onChange={(v) => setField("equipment_id", v)}
-              />
-              <Field
-                label="Identification Number"
-                value={form.identification_number}
-                onChange={(v) => setField("identification_number", v)}
-              />
-              <Field
-                label="Country of Origin"
-                value={form.country_of_origin}
-                onChange={(v) => setField("country_of_origin", v)}
-              />
-              <Field
-                label="Asset Tag"
-                value={form.asset_tag}
-                onChange={(v) => setField("asset_tag", v)}
-              />
-
-              <SelectField
-                label="Equipment Type"
-                value={form.equipment_type}
-                onChange={(v) => setField("equipment_type", v)}
-                options={[
-                  "",
-                  "PRESSURE_VESSEL",
-                  "AIR_RECEIVER",
-                  "LIFTING_EQUIPMENT",
-                  "BOTTLE_JACK",
-                  "CHAIN_BLOCK",
-                  "FORKLIFT_ATTACHMENT",
-                  "SLING",
-                  "SHACKLE",
-                  "CRANE_ACCESSORY",
-                ]}
-              />
-
-              <Field
-                label="Equipment Description"
-                value={form.equipment_description}
-                onChange={(v) => setField("equipment_description", v)}
-              />
-              <Field
-                label="Asset Name"
-                value={form.asset_name}
-                onChange={(v) => setField("asset_name", v)}
-              />
-              <Field
-                label="PDF URL"
-                value={form.pdf_url}
-                onChange={(v) => setField("pdf_url", v)}
-                placeholder="Optional file URL"
-              />
+          {/* Technical Data */}
+          <Section title="Technical Data">
+            <div className="create-grid-4">
+              <FField label="Capacity / Volume" value={form.capacity} onChange={v=>setField("capacity",v)}/>
+              <FField label="SWL" value={form.swl} onChange={v=>setField("swl",v)}/>
+              <FField label="MAWP / Working Pressure" value={form.mawp} onChange={v=>setField("mawp",v)}/>
+              <FField label="Design Pressure" value={form.design_pressure} onChange={v=>setField("design_pressure",v)}/>
+              <FField label="Test Pressure" value={form.test_pressure} onChange={v=>setField("test_pressure",v)}/>
             </div>
-          </div>
+          </Section>
 
-          <div style={sectionStyle}>
-            <div style={{ ...labelStyle, marginBottom: 16 }}>Technical Data</div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                gap: 14,
-              }}
-            >
-              <Field
-                label="Capacity / Volume"
-                value={form.capacity}
-                onChange={(v) => setField("capacity", v)}
-              />
-              <Field
-                label="SWL"
-                value={form.swl}
-                onChange={(v) => setField("swl", v)}
-              />
-              <Field
-                label="MAWP / Working Pressure"
-                value={form.mawp}
-                onChange={(v) => setField("mawp", v)}
-              />
-              <Field
-                label="Design Pressure"
-                value={form.design_pressure}
-                onChange={(v) => setField("design_pressure", v)}
-              />
-              <Field
-                label="Test Pressure"
-                value={form.test_pressure}
-                onChange={(v) => setField("test_pressure", v)}
-              />
+          {/* Certificate Details */}
+          <Section title="Certificate Details">
+            <div className="create-grid-4">
+              <div><label style={S.label}>Certificate Type</label><select value={form.certificate_type} onChange={e=>setField("certificate_type",e.target.value)} style={S.input}>{["Load Test Certificate","Pressure Test Certificate","Certificate of Compliance"].map(o=><option key={o} value={o}>{o}</option>)}</select></div>
+              <div><label style={S.label}>Result</label><select value={form.equipment_status} onChange={e=>setField("equipment_status",e.target.value)} style={S.input}>{["PASS","FAIL","REPAIR_REQUIRED","OUT_OF_SERVICE","UNKNOWN"].map(o=><option key={o} value={o}>{o}</option>)}</select></div>
+              <div><label style={S.label}>Status</label><select value={form.document_status} onChange={e=>setField("document_status",e.target.value)} style={S.input}>{["active","issued","draft","expired","inactive","void"].map(o=><option key={o} value={o}>{o}</option>)}</select></div>
+              <div><label style={S.label}>Expiry Bucket</label><input value={expiryBucket} readOnly style={{...S.input,opacity:.6}}/></div>
+              <FField label="Inspection Date" type="date" value={form.inspection_date} onChange={v=>setField("inspection_date",v)}/>
+              <FField label="Issue Date" type="date" value={form.issue_date} onChange={v=>setField("issue_date",v)}/>
+              <FField label="Expiry Date" type="date" value={form.expiry_date} onChange={v=>setField("expiry_date",v)}/>
+              <div><label style={S.label}>From Nameplate</label><input value={form.detected_from_nameplate?"Yes":"No"} readOnly style={{...S.input,opacity:.6}}/></div>
             </div>
-          </div>
+          </Section>
 
-          <div style={sectionStyle}>
-            <div style={{ ...labelStyle, marginBottom: 16 }}>Certificate Details</div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                gap: 14,
-              }}
-            >
-              <SelectField
-                label="Certificate Type"
-                value={form.certificate_type}
-                onChange={(v) => setField("certificate_type", v)}
-                options={[
-                  "Load Test Certificate",
-                  "Pressure Test Certificate",
-                  "Certificate of Compliance",
-                ]}
-              />
-
-              <SelectField
-                label="Result"
-                value={form.equipment_status}
-                onChange={(v) => setField("equipment_status", v)}
-                options={[
-                  "PASS",
-                  "FAIL",
-                  "REPAIR_REQUIRED",
-                  "OUT_OF_SERVICE",
-                  "UNKNOWN",
-                ]}
-              />
-
-              <SelectField
-                label="Status"
-                value={form.document_status}
-                onChange={(v) => setField("document_status", v)}
-                options={["active", "issued", "draft", "expired", "inactive", "void"]}
-              />
-
-              <Field label="Expiry Bucket" value={expiryBucket} readOnly />
-              <Field
-                label="Inspection Date"
-                type="date"
-                value={form.inspection_date}
-                onChange={(v) => setField("inspection_date", v)}
-              />
-              <Field
-                label="Issue Date"
-                type="date"
-                value={form.issue_date}
-                onChange={(v) => setField("issue_date", v)}
-              />
-              <Field
-                label="Expiry Date"
-                type="date"
-                value={form.expiry_date}
-                onChange={(v) => setField("expiry_date", v)}
-              />
-              <Field
-                label="Detected From Nameplate"
-                value={form.detected_from_nameplate ? "Yes" : "No"}
-                readOnly
-              />
+          {/* Inspector & Comments */}
+          <Section title="Inspector · Comments">
+            <div className="create-grid-3" style={{marginBottom:14}}>
+              <FField label="Inspector Name" value={form.inspector_name} onChange={v=>setField("inspector_name",v)}/>
+              <FField label="Inspector ID" value={form.inspector_id} onChange={v=>setField("inspector_id",v)}/>
+              <FField label="Stored Nameplate Image URL" value={form.nameplate_image_url} onChange={v=>setField("nameplate_image_url",v)} placeholder="Auto after upload"/>
             </div>
-          </div>
-
-          <div style={sectionStyle}>
-            <div style={{ ...labelStyle, marginBottom: 16 }}>Inspector & Comments</div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                gap: 14,
-                marginBottom: 14,
-              }}
-            >
-              <Field
-                label="Inspector Name"
-                value={form.inspector_name}
-                onChange={(v) => setField("inspector_name", v)}
-              />
-              <Field
-                label="Inspector ID"
-                value={form.inspector_id}
-                onChange={(v) => setField("inspector_id", v)}
-              />
-              <Field
-                label="Stored Nameplate Image URL"
-                value={form.nameplate_image_url}
-                onChange={(v) => setField("nameplate_image_url", v)}
-                placeholder="Auto after upload"
-              />
+            <div style={{marginBottom:14}}>
+              <label style={S.label}>Comments / Remarks</label>
+              <textarea value={form.remarks} onChange={e=>setField("remarks",e.target.value)} rows={4} style={{...S.input,resize:"vertical",minHeight:100}} placeholder="Comments, findings, recommendations…"/>
             </div>
-
             <div>
-              <label style={labelStyle}>Comments / Remarks</label>
-              <textarea
-                value={form.remarks}
-                onChange={(e) => setField("remarks", e.target.value)}
-                rows={5}
-                style={{ ...inputStyle, resize: "vertical", minHeight: 120 }}
-                placeholder="Comments, findings, recommendations..."
-              />
+              <label style={S.label}>OCR / Extracted Raw Text</label>
+              <textarea value={form.ocr_raw_text} onChange={e=>setField("ocr_raw_text",e.target.value)} rows={6} style={{...S.input,resize:"vertical",minHeight:140}} placeholder="Raw text from Gemini scan"/>
             </div>
+          </Section>
 
-            <div style={{ marginTop: 14 }}>
-              <label style={labelStyle}>OCR / Extracted Raw Text</label>
-              <textarea
-                value={form.ocr_raw_text}
-                onChange={(e) => setField("ocr_raw_text", e.target.value)}
-                rows={7}
-                style={{ ...inputStyle, resize: "vertical", minHeight: 180 }}
-                placeholder="Raw text captured from Gemini scan"
-              />
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: 12,
-              paddingBottom: 24,
-            }}
-          >
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              style={{
-                ...buttonBase,
-                background: saving ? "#334155" : "linear-gradient(135deg,#00f5c4,#4fc3f7)",
-                color: "#08111f",
-                minWidth: 200,
-              }}
-            >
-              {saving ? "Saving..." : "Save Certificate"}
+          {/* Save */}
+          <div className="save-row" style={{display:"flex",justifyContent:"flex-end",gap:10,paddingBottom:24}}>
+            <button type="button" onClick={()=>router.push("/certificates")} style={S.btnGhost}>Cancel</button>
+            <button type="button" onClick={handleSave} disabled={saving} style={{padding:"12px 28px",borderRadius:12,border:"none",background:saving?"rgba(255,255,255,0.06)":"linear-gradient(135deg,#22d3ee,#60a5fa)",color:saving?T.textDim:"#001018",fontWeight:900,fontSize:14,cursor:saving?"not-allowed":"pointer",minWidth:180,fontFamily:"'IBM Plex Sans',sans-serif"}}>
+              {saving?"Saving…":"Save Certificate"}
             </button>
           </div>
+
         </div>
       </div>
     </AppLayout>
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-  type = "text",
-  placeholder = "",
-  readOnly = false,
-}) {
-  return (
+function Section({title,children,accent}){
+  const color=accent||"#22d3ee";
+  return(
+    <div style={{background:"rgba(10,18,32,0.92)",border:`1px solid rgba(148,163,184,0.12)`,borderRadius:18,padding:20}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+        <div style={{width:4,height:20,borderRadius:2,background:`linear-gradient(to bottom,${color},rgba(34,211,238,0.25))`,flexShrink:0}}/>
+        <div style={{fontSize:15,fontWeight:900,color:"#f0f6ff"}}>{title}</div>
+      </div>
+      {children}
+    </div>
+  );
+}
+function FField({label,value,onChange,type="text",placeholder="",readOnly=false}){
+  return(
     <div>
-      <label style={labelStyle}>{label}</label>
-      <input
-        type={type}
-        value={value || ""}
-        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
-        style={inputStyle}
-        placeholder={placeholder}
-        readOnly={readOnly}
-      />
+      <label style={S.label}>{label}</label>
+      <input type={type} value={value||""} onChange={onChange?(e=>onChange(e.target.value)):undefined} style={readOnly?{...S.input,opacity:.6}:S.input} placeholder={placeholder} readOnly={readOnly}/>
     </div>
   );
 }
 
-function SelectField({ label, value, onChange, options = [] }) {
-  return (
-    <div>
-      <label style={labelStyle}>{label}</label>
-      <select
-        value={value || ""}
-        onChange={(e) => onChange(e.target.value)}
-        style={inputStyle}
-      >
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option || "Select"}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
+const S={
+  label:{display:"block",fontSize:11,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"rgba(240,246,255,0.50)",marginBottom:7},
+  input:{width:"100%",padding:"11px 13px",borderRadius:10,border:`1px solid rgba(148,163,184,0.12)`,background:"rgba(18,30,50,0.70)",color:"#f0f6ff",fontSize:13,fontWeight:500,outline:"none",fontFamily:"'IBM Plex Sans',sans-serif",WebkitAppearance:"none",appearance:"none"},
+  btnGhost:{padding:"10px 18px",borderRadius:12,border:`1px solid rgba(148,163,184,0.18)`,background:"rgba(255,255,255,0.04)",color:"#f0f6ff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"},
+};
