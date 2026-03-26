@@ -5,223 +5,243 @@ import { useEffect, useMemo, useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 
+/* ─── Design tokens ─────────────────────────────────────────── */
 const T = {
-  bg: "#0a111b",
-  surface: "rgba(15, 23, 42, 0.72)",
-  panel: "rgba(15, 23, 42, 0.88)",
-  panel2: "rgba(30, 41, 59, 0.72)",
-  border: "rgba(148, 163, 184, 0.18)",
-  borderMid: "rgba(148, 163, 184, 0.28)",
-  text: "#f8fafc",
-  textMid: "rgba(248,250,252,0.78)",
-  textDim: "rgba(248,250,252,0.48)",
-  accent: "#22d3ee",
-  accentDim: "rgba(34,211,238,0.14)",
-  accentBrd: "rgba(34,211,238,0.28)",
-  green: "#22c55e",
-  greenDim: "rgba(34,197,94,0.14)",
-  greenBrd: "rgba(34,197,94,0.28)",
-  red: "#ef4444",
-  redDim: "rgba(239,68,68,0.14)",
-  redBrd: "rgba(239,68,68,0.28)",
-  amber: "#f59e0b",
-  amberDim: "rgba(245,158,11,0.14)",
-  amberBrd: "rgba(245,158,11,0.28)",
-  purple: "#a78bfa",
-  purpleDim: "rgba(167,139,250,0.14)",
-  purpleBrd: "rgba(167,139,250,0.28)",
-  slate: "rgba(248,250,252,0.10)",
-  slateBrd: "rgba(248,250,252,0.18)",
+  bg:         "#070e18",
+  surface:    "rgba(13,22,38,0.80)",
+  panel:      "rgba(10,18,32,0.92)",
+  panel2:     "rgba(18,30,50,0.70)",
+  card:       "rgba(255,255,255,0.025)",
+  border:     "rgba(148,163,184,0.12)",
+  borderMid:  "rgba(148,163,184,0.22)",
+  text:       "#f0f6ff",
+  textMid:    "rgba(240,246,255,0.72)",
+  textDim:    "rgba(240,246,255,0.40)",
+  accent:     "#22d3ee",
+  accentDim:  "rgba(34,211,238,0.10)",
+  accentBrd:  "rgba(34,211,238,0.25)",
+  accentGlow: "rgba(34,211,238,0.18)",
+  green:      "#34d399",
+  greenDim:   "rgba(52,211,153,0.10)",
+  greenBrd:   "rgba(52,211,153,0.25)",
+  red:        "#f87171",
+  redDim:     "rgba(248,113,113,0.10)",
+  redBrd:     "rgba(248,113,113,0.25)",
+  amber:      "#fbbf24",
+  amberDim:   "rgba(251,191,36,0.10)",
+  amberBrd:   "rgba(251,191,36,0.25)",
+  purple:     "#a78bfa",
+  purpleDim:  "rgba(167,139,250,0.10)",
+  purpleBrd:  "rgba(167,139,250,0.25)",
+  slate:      "rgba(248,250,252,0.06)",
+  slateBrd:   "rgba(248,250,252,0.14)",
 };
 
-function nz(value, fallback = "") {
-  if (value === null || value === undefined) return fallback;
-  const s = String(value).trim();
-  return s || fallback;
+/* ─── Utilities ─────────────────────────────────────────────── */
+function nz(v, fb = "") {
+  if (v === null || v === undefined) return fb;
+  const s = String(v).trim();
+  return s || fb;
 }
-
 function normalizeResult(value) {
   const v = nz(value).toUpperCase().replace(/\s+/g, "_");
   if (!v) return "UNKNOWN";
   if (v === "CONDITIONAL") return "REPAIR_REQUIRED";
   return v;
 }
-
 function formatDate(value) {
   if (!value) return "—";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  return d.toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" });
 }
-
 function getExpiryBucket(expiryDate) {
   if (!expiryDate) return "NO_EXPIRY";
-  const diffDays = Math.ceil((new Date(expiryDate) - new Date()) / 86400000);
-  if (diffDays < 0) return "EXPIRED";
-  if (diffDays <= 30) return "EXPIRING_SOON";
-  if (diffDays <= 90) return "EXPIRING_90";
+  const diff = Math.ceil((new Date(expiryDate) - new Date()) / 86400000);
+  if (diff < 0)   return "EXPIRED";
+  if (diff <= 30) return "EXPIRING_SOON";
+  if (diff <= 90) return "EXPIRING_90";
   return "VALID";
 }
-
 function daysUntil(value) {
   if (!value) return null;
   return Math.ceil((new Date(value) - new Date()) / 86400000);
 }
-
-function safeId(id) {
-  return encodeURIComponent(String(id ?? ""));
-}
-
+function safeId(id) { return encodeURIComponent(String(id ?? "")); }
 function needsNcr(cert) {
-  const result = normalizeResult(cert?.result);
-  return ["FAIL", "REPAIR_REQUIRED", "OUT_OF_SERVICE"].includes(result);
+  return ["FAIL","REPAIR_REQUIRED","OUT_OF_SERVICE"].includes(normalizeResult(cert?.result));
 }
 
+/* ─── Grouping ──────────────────────────────────────────────── */
 function groupCertificates(rows) {
   const grouped = {};
-
   for (const row of rows) {
     const client = nz(row.client_name, "UNASSIGNED CLIENT");
-    const type = nz(row.equipment_type || row.asset_type, "UNCATEGORIZED");
-    const desc = nz(
-      row.equipment_description || row.asset_name || row.asset_tag,
-      "UNNAMED EQUIPMENT"
-    );
-
+    const type   = nz(row.equipment_type || row.asset_type, "UNCATEGORIZED");
+    const desc   = nz(row.equipment_description || row.asset_name || row.asset_tag, "UNNAMED EQUIPMENT");
     if (!grouped[client]) grouped[client] = {};
     if (!grouped[client][type]) grouped[client][type] = {};
     if (!grouped[client][type][desc]) grouped[client][type][desc] = [];
     grouped[client][type][desc].push(row);
   }
-
-  return Object.keys(grouped)
-    .sort()
-    .map((client) => ({
-      client,
-      types: Object.keys(grouped[client])
-        .sort()
-        .map((type) => ({
-          type,
-          items: Object.keys(grouped[client][type])
-            .sort()
-            .map((desc) => ({
-              desc,
-              certs: [...grouped[client][type][desc]].sort(
-                (a, b) =>
-                  new Date(b.issue_date || b.created_at || 0) -
-                  new Date(a.issue_date || a.created_at || 0)
-              ),
-            })),
-        })),
-    }));
+  return Object.keys(grouped).sort().map((client) => ({
+    client,
+    types: Object.keys(grouped[client]).sort().map((type) => ({
+      type,
+      items: Object.keys(grouped[client][type]).sort().map((desc) => ({
+        desc,
+        certs: [...grouped[client][type][desc]].sort(
+          (a, b) => new Date(b.issue_date || b.created_at || 0) - new Date(a.issue_date || a.created_at || 0)
+        ),
+      })),
+    })),
+  }));
 }
 
+/* ─── Result / Expiry config ────────────────────────────────── */
 const RESULT_CFG = {
-  PASS: {
-    label: "Pass",
-    color: T.green,
-    bg: T.greenDim,
-    brd: T.greenBrd,
-  },
-  FAIL: {
-    label: "Fail",
-    color: T.red,
-    bg: T.redDim,
-    brd: T.redBrd,
-  },
-  REPAIR_REQUIRED: {
-    label: "Repair Required",
-    color: T.amber,
-    bg: T.amberDim,
-    brd: T.amberBrd,
-  },
-  OUT_OF_SERVICE: {
-    label: "Out of Service",
-    color: T.purple,
-    bg: T.purpleDim,
-    brd: T.purpleBrd,
-  },
-  UNKNOWN: {
-    label: "Unknown",
-    color: T.textDim,
-    bg: T.slate,
-    brd: T.slateBrd,
-  },
+  PASS:            { label:"Pass",            color:T.green,  bg:T.greenDim,  brd:T.greenBrd  },
+  FAIL:            { label:"Fail",            color:T.red,    bg:T.redDim,    brd:T.redBrd    },
+  REPAIR_REQUIRED: { label:"Repair Required", color:T.amber,  bg:T.amberDim,  brd:T.amberBrd  },
+  OUT_OF_SERVICE:  { label:"Out of Service",  color:T.purple, bg:T.purpleDim, brd:T.purpleBrd },
+  UNKNOWN:         { label:"Unknown",         color:T.textDim,bg:T.slate,     brd:T.slateBrd  },
 };
-
 const EXPIRY_CFG = {
-  EXPIRED: { color: T.red, bg: T.redDim },
-  EXPIRING_SOON: { color: T.amber, bg: T.amberDim },
-  EXPIRING_90: { color: T.accent, bg: T.accentDim },
-  VALID: { color: T.green, bg: T.greenDim },
-  NO_EXPIRY: { color: T.textDim, bg: T.slate },
+  EXPIRED:       { color:T.red,    bg:T.redDim    },
+  EXPIRING_SOON: { color:T.amber,  bg:T.amberDim  },
+  EXPIRING_90:   { color:T.accent, bg:T.accentDim },
+  VALID:         { color:T.green,  bg:T.greenDim  },
+  NO_EXPIRY:     { color:T.textDim,bg:T.slate     },
 };
+const resultCfg = (v) => RESULT_CFG[v] || RESULT_CFG.UNKNOWN;
+const expiryCfg = (v) => EXPIRY_CFG[v] || EXPIRY_CFG.NO_EXPIRY;
 
-function resultCfg(value) {
-  return RESULT_CFG[value] || RESULT_CFG.UNKNOWN;
-}
+/* ══════════════════════════════════════════════════════════════
+   GLOBAL CSS — all responsive rules live here
+══════════════════════════════════════════════════════════════ */
+const GLOBAL_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  *, *::before, *::after { box-sizing: border-box; }
 
-function expiryCfg(value) {
-  return EXPIRY_CFG[value] || EXPIRY_CFG.NO_EXPIRY;
-}
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.2); border-radius: 99px; }
 
+  input::placeholder { color: rgba(240,246,255,0.28); }
+  select option { background: #0a1420; color: #f0f6ff; }
+
+  .cert-card-row:hover td { background: rgba(34,211,238,0.03) !important; }
+  .group-btn:hover  { background: rgba(255,255,255,0.03) !important; }
+  .action-link      { transition: filter .15s, transform .15s; }
+  .action-link:hover{ filter: brightness(1.2); transform: translateY(-1px); }
+  .stat-card        { transition: transform .2s, border-color .2s; }
+  .stat-card:hover  { border-color: rgba(148,163,184,0.26) !important; transform: translateY(-2px); }
+
+  /* ── Layout ── */
+  .page-pad   { padding: 28px 20px; display: grid; gap: 20px; }
+  .page-header{ padding: 22px 24px; }
+
+  /* ── Stats: 5 col ── */
+  .stats-grid { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 10px; }
+
+  /* ── Filters: 6 col ── */
+  .filter-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr; gap: 12px; padding: 16px 20px; border-bottom: 1px solid rgba(148,163,184,0.12); }
+
+  /* ── Table ── */
+  .cert-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .cert-table { width: 100%; border-collapse: collapse; }
+  .cert-table-full    { min-width: 1240px; }
+  .cert-table-compact { min-width: 800px; }
+
+  /* Mobile cards hidden on desktop */
+  .cert-mobile-cards { display: none; }
+
+  /* Action strip */
+  .action-strip { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+
+  /* ════════════════ TABLET ≤ 1024px ════════════════ */
+  @media (max-width: 1024px) {
+    .stats-grid  { grid-template-columns: repeat(3, minmax(0,1fr)); }
+    .filter-grid { grid-template-columns: 1fr 1fr 1fr; }
+    .cert-table-full { min-width: 900px; }
+  }
+
+  /* ════════════════ MOBILE ≤ 768px ════════════════ */
+  @media (max-width: 768px) {
+    .page-pad    { padding: 12px; gap: 12px; }
+    .page-header { padding: 14px 16px; }
+    .page-title  { font-size: 21px !important; }
+    .header-row  { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
+    .header-actions { width: 100%; }
+    .header-actions a { flex: 1; text-align: center; }
+
+    /* 2-col stats */
+    .stats-grid { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
+    .stat-val   { font-size: 26px !important; }
+
+    /* 1-col filters */
+    .filter-grid { grid-template-columns: 1fr; gap: 10px; padding: 12px 14px; }
+
+    /* Toolbar wrap */
+    .toolbar { padding: 10px 14px !important; flex-wrap: wrap; gap: 8px !important; }
+
+    /* Hide desktop table, show mobile cards */
+    .cert-table-wrap    { display: none !important; }
+    .cert-mobile-cards  { display: grid; gap: 10px; }
+
+    /* Section padding */
+    .content-pad    { padding: 12px !important; }
+    .group-hdr-pad  { padding: 12px 14px !important; }
+    .type-inner-pad { padding: 10px !important; }
+
+    /* Link banner stack */
+    .link-banner { flex-direction: column !important; align-items: flex-start !important; }
+    .link-banner-input { width: 100% !important; }
+  }
+
+  /* ════════════════ SMALL ≤ 480px ════════════════ */
+  @media (max-width: 480px) {
+    .stats-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .page-title { font-size: 18px !important; }
+    .stat-val   { font-size: 22px !important; }
+    .action-strip a,
+    .action-strip button { padding: 6px 8px !important; font-size: 10px !important; }
+  }
+`;
+
+/* ══════════════════════════════════════════════════════════════
+   PAGE COMPONENT
+══════════════════════════════════════════════════════════════ */
 export default function CertificatesPageClient() {
-  const [certs, setCerts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [errorText, setErrorText] = useState("");
-  const [search, setSearch] = useState("");
-  const [fResult, setFResult] = useState("ALL");
-  const [fExpiry, setFExpiry] = useState("ALL");
-  const [fClient, setFClient] = useState("ALL");
-  const [fType, setFType] = useState("ALL");
-  const [fLinked, setFLinked] = useState("ALL");
-  const [view, setView] = useState("grouped");
+  const [certs,           setCerts]           = useState([]);
+  const [loading,         setLoading]         = useState(true);
+  const [errorText,       setErrorText]       = useState("");
+  const [search,          setSearch]          = useState("");
+  const [fResult,         setFResult]         = useState("ALL");
+  const [fExpiry,         setFExpiry]         = useState("ALL");
+  const [fClient,         setFClient]         = useState("ALL");
+  const [fType,           setFType]           = useState("ALL");
+  const [fLinked,         setFLinked]         = useState("ALL");
+  const [view,            setView]            = useState("grouped");
   const [expandedClients, setExpandedClients] = useState({});
-  const [expandedTypes, setExpandedTypes] = useState({});
-  const [linkSource, setLinkSource] = useState(null);
-  const [linkName, setLinkName] = useState("");
-  const [busyId, setBusyId] = useState("");
+  const [expandedTypes,   setExpandedTypes]   = useState({});
+  const [linkSource,      setLinkSource]      = useState(null);
+  const [linkName,        setLinkName]        = useState("");
+  const [busyId,          setBusyId]          = useState("");
 
-  useEffect(() => {
-    loadCertificates();
-  }, []);
+  useEffect(() => { loadCertificates(); }, []);
 
   async function loadCertificates() {
     setLoading(true);
     setErrorText("");
-
     const { data, error } = await supabase
       .from("certificates")
-      .select(`
-        id,
-        certificate_number,
-        result,
-        issue_date,
-        issued_at,
-        expiry_date,
-        valid_to,
-        created_at,
-        inspection_number,
-        asset_tag,
-        asset_name,
-        equipment_description,
-        equipment_type,
-        asset_type,
-        client_name,
-        status,
-        folder_id,
-        folder_name,
-        folder_position,
-        extracted_data
-      `)
+      .select(`id,certificate_number,result,issue_date,issued_at,expiry_date,valid_to,created_at,
+               inspection_number,asset_tag,asset_name,equipment_description,equipment_type,
+               asset_type,client_name,status,folder_id,folder_name,folder_position,extracted_data`)
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.error("Failed to load certificates:", error);
       setCerts([]);
       setErrorText(error.message || "Failed to load certificates.");
       setLoading(false);
@@ -229,116 +249,68 @@ export default function CertificatesPageClient() {
     }
 
     const cleaned = (data || []).map((row) => {
-      const extracted = row.extracted_data || {};
-      const issueDate =
-        row.issue_date || row.issued_at || extracted.issue_date || null;
-      const expiryDate =
-        row.expiry_date || row.valid_to || extracted.expiry_date || null;
-
-      const normalized = normalizeResult(row.result || extracted.result);
-
+      const ex         = row.extracted_data || {};
+      const issueDate  = row.issue_date  || row.issued_at || ex.issue_date  || null;
+      const expiryDate = row.expiry_date || row.valid_to  || ex.expiry_date || null;
       return {
         ...row,
-        issue_date: issueDate,
-        expiry_date: expiryDate,
-        result: normalized,
-        client_name: nz(row.client_name || extracted.client_name, "UNASSIGNED CLIENT"),
-        equipment_type: nz(
-          row.equipment_type || row.asset_type || extracted.equipment_type,
-          "UNCATEGORIZED"
-        ),
-        equipment_description: nz(
-          row.equipment_description ||
-            row.asset_name ||
-            row.asset_tag ||
-            extracted.equipment_description,
-          "UNNAMED EQUIPMENT"
-        ),
-        status: nz(row.status, "active"),
-        expiry_bucket: getExpiryBucket(expiryDate),
+        issue_date:            issueDate,
+        expiry_date:           expiryDate,
+        result:                normalizeResult(row.result || ex.result),
+        client_name:           nz(row.client_name           || ex.client_name,           "UNASSIGNED CLIENT"),
+        equipment_type:        nz(row.equipment_type || row.asset_type || ex.equipment_type, "UNCATEGORIZED"),
+        equipment_description: nz(row.equipment_description || row.asset_name || row.asset_tag || ex.equipment_description, "UNNAMED EQUIPMENT"),
+        status:                nz(row.status, "active"),
+        expiry_bucket:         getExpiryBucket(expiryDate),
       };
     });
 
     const openClients = {};
-    cleaned.forEach((row) => {
-      openClients[row.client_name] = true;
-    });
-
+    cleaned.forEach((r) => { openClients[r.client_name] = true; });
     setExpandedClients(openClients);
     setCerts(cleaned);
     setLoading(false);
   }
 
-  const clientOptions = useMemo(
-    () => [...new Set(certs.map((x) => x.client_name))].sort(),
-    [certs]
-  );
-
-  const typeOptions = useMemo(
-    () => [...new Set(certs.map((x) => x.equipment_type))].sort(),
-    [certs]
-  );
+  const clientOptions = useMemo(() => [...new Set(certs.map((x) => x.client_name))].sort(), [certs]);
+  const typeOptions   = useMemo(() => [...new Set(certs.map((x) => x.equipment_type))].sort(),  [certs]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-
     return certs.filter((row) => {
-      const haystack = [
-        row.certificate_number,
-        row.client_name,
-        row.asset_tag,
-        row.asset_name,
-        row.equipment_description,
-        row.equipment_type,
-        row.inspection_number,
-        row.status,
-        row.folder_name,
-      ]
-        .join(" ")
-        .toLowerCase();
-
+      const hay = [row.certificate_number, row.client_name, row.asset_tag, row.asset_name,
+                   row.equipment_description, row.equipment_type, row.inspection_number,
+                   row.status, row.folder_name].join(" ").toLowerCase();
       return (
-        (!q || haystack.includes(q)) &&
-        (fResult === "ALL" || row.result === fResult) &&
-        (fExpiry === "ALL" || row.expiry_bucket === fExpiry) &&
-        (fClient === "ALL" || row.client_name === fClient) &&
-        (fType === "ALL" || row.equipment_type === fType) &&
-        (fLinked === "ALL" ||
-          (fLinked === "YES" && !!row.folder_id) ||
-          (fLinked === "NO" && !row.folder_id))
+        (!q || hay.includes(q)) &&
+        (fResult === "ALL" || row.result         === fResult) &&
+        (fExpiry === "ALL" || row.expiry_bucket  === fExpiry) &&
+        (fClient === "ALL" || row.client_name    === fClient) &&
+        (fType   === "ALL" || row.equipment_type === fType)   &&
+        (fLinked === "ALL" || (fLinked==="YES"&&!!row.folder_id) || (fLinked==="NO"&&!row.folder_id))
       );
     });
   }, [certs, search, fResult, fExpiry, fClient, fType, fLinked]);
 
   const grouped = useMemo(() => groupCertificates(filtered), [filtered]);
 
-  const stats = useMemo(
-    () => ({
-      total: certs.length,
-      pass: certs.filter((x) => x.result === "PASS").length,
-      fail: certs.filter((x) => x.result === "FAIL").length,
-      linked: certs.filter((x) => !!x.folder_id).length,
-      needNcr: certs.filter((x) => needsNcr(x)).length,
-    }),
-    [certs]
-  );
+  const stats = useMemo(() => ({
+    total:   certs.length,
+    pass:    certs.filter((x) => x.result === "PASS").length,
+    fail:    certs.filter((x) => x.result === "FAIL").length,
+    linked:  certs.filter((x) => !!x.folder_id).length,
+    needNcr: certs.filter((x) => needsNcr(x)).length,
+  }), [certs]);
+
+  const hasActiveFilters = search || fResult!=="ALL" || fExpiry!=="ALL" || fClient!=="ALL" || fType!=="ALL" || fLinked!=="ALL";
 
   function clearFilters() {
-    setSearch("");
-    setFResult("ALL");
-    setFExpiry("ALL");
-    setFClient("ALL");
-    setFType("ALL");
-    setFLinked("ALL");
+    setSearch(""); setFResult("ALL"); setFExpiry("ALL");
+    setFClient("ALL"); setFType("ALL"); setFLinked("ALL");
   }
 
-  function toggleClient(client) {
-    setExpandedClients((prev) => ({ ...prev, [client]: !prev[client] }));
-  }
-
-  function toggleType(key) {
-    setExpandedTypes((prev) => ({ ...prev, [key]: !prev[key] }));
-  }
+  const toggleClient = (c) => setExpandedClients((p) => ({ ...p, [c]: !p[c] }));
+  const toggleType   = (k) => setExpandedTypes  ((p) => ({ ...p, [k]: !p[k] }));
 
   function beginLink(cert) {
     setLinkSource(cert);
@@ -347,511 +319,236 @@ export default function CertificatesPageClient() {
 
   async function handleLink(target) {
     if (!linkSource || linkSource.id === target.id) return;
-
-    const groupId =
-      linkSource.folder_id ||
-      target.folder_id ||
-      `LINK-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-
-    const groupName =
-      nz(linkName) ||
-      linkSource.folder_name ||
-      target.folder_name ||
-      `${linkSource.asset_tag || linkSource.certificate_number} Linked Folder`;
-
+    const groupId   = linkSource.folder_id || target.folder_id || `LINK-${Date.now()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
+    const groupName = nz(linkName) || linkSource.folder_name || target.folder_name || `${linkSource.asset_tag||linkSource.certificate_number} Linked Folder`;
     try {
       setBusyId(target.id);
-
-      const { error: e1 } = await supabase
-        .from("certificates")
-        .update({
-          folder_id: groupId,
-          folder_name: groupName,
-          folder_position: 1,
-        })
-        .eq("id", linkSource.id);
-
+      const { error:e1 } = await supabase.from("certificates").update({ folder_id:groupId, folder_name:groupName, folder_position:1 }).eq("id", linkSource.id);
       if (e1) throw e1;
-
-      const { error: e2 } = await supabase
-        .from("certificates")
-        .update({
-          folder_id: groupId,
-          folder_name: groupName,
-          folder_position: 2,
-        })
-        .eq("id", target.id);
-
+      const { error:e2 } = await supabase.from("certificates").update({ folder_id:groupId, folder_name:groupName, folder_position:2 }).eq("id", target.id);
       if (e2) throw e2;
-
-      setLinkSource(null);
-      setLinkName("");
+      setLinkSource(null); setLinkName("");
       await loadCertificates();
-    } catch (err) {
-      setErrorText(err.message || "Failed to link certificates.");
-    } finally {
-      setBusyId("");
-    }
+    } catch (err) { setErrorText(err.message || "Failed to link certificates."); }
+    finally { setBusyId(""); }
   }
 
   async function handleUnlink(cert) {
     if (!cert.folder_id) return;
-    const ok = window.confirm("Unlink all certificates in this folder?");
-    if (!ok) return;
-
+    if (!window.confirm("Unlink all certificates in this folder?")) return;
     try {
       setBusyId(cert.id);
-
-      const { error } = await supabase
-        .from("certificates")
-        .update({
-          folder_id: null,
-          folder_name: null,
-          folder_position: null,
-        })
-        .eq("folder_id", cert.folder_id);
-
+      const { error } = await supabase.from("certificates").update({ folder_id:null, folder_name:null, folder_position:null }).eq("folder_id", cert.folder_id);
       if (error) throw error;
       await loadCertificates();
-    } catch (err) {
-      setErrorText(err.message || "Failed to unlink certificates.");
-    } finally {
-      setBusyId("");
-    }
+    } catch (err) { setErrorText(err.message || "Failed to unlink certificates."); }
+    finally { setBusyId(""); }
   }
+
+  const rowProps = { linkSource, beginLink, handleLink, handleUnlink, busyId };
 
   return (
     <AppLayout title="Certificates Register">
-      <div
-        style={{
-          minHeight: "100vh",
-          background:
-            "radial-gradient(circle at top left, rgba(34,211,238,0.08), transparent 30%), radial-gradient(circle at bottom right, rgba(167,139,250,0.08), transparent 28%), #0a111b",
-          color: T.text,
-          fontFamily: "'IBM Plex Sans', sans-serif",
-        }}
-      >
-        <div style={{ padding: "24px 28px", display: "grid", gap: 18 }}>
-          <div
-            style={{
-              border: `1px solid ${T.border}`,
-              borderRadius: 22,
-              background: T.surface,
-              backdropFilter: "blur(16px)",
-              padding: 20,
-              boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "flex-end",
-                justifyContent: "space-between",
-                gap: 16,
-                flexWrap: "wrap",
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 800,
-                    letterSpacing: "0.12em",
-                    textTransform: "uppercase",
-                    color: T.accent,
-                    marginBottom: 8,
-                  }}
-                >
-                  Certificates Workspace
-                </div>
-                <h1 style={{ margin: 0, fontSize: 32, fontWeight: 900 }}>
-                  Certificates Register
-                </h1>
-                <p style={{ margin: "6px 0 0", color: T.textDim, fontSize: 14 }}>
-                  Better UI, working edit route, working print route, and working certificate linking
-                </p>
-              </div>
+      <style>{GLOBAL_CSS}</style>
 
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <Link href="/certificates/import" style={btnGhost}>
-                  AI Import
-                </Link>
-                <Link href="/certificates/create" style={btnAccent}>
-                  + New Certificate
-                </Link>
+      <div style={{ minHeight:"100vh", background:`radial-gradient(ellipse 70% 50% at 0% 0%,rgba(34,211,238,0.06),transparent),radial-gradient(ellipse 60% 50% at 100% 100%,rgba(167,139,250,0.06),transparent),${T.bg}`, color:T.text, fontFamily:"'IBM Plex Sans',sans-serif" }}>
+        <div className="page-pad" style={{ maxWidth:1600, margin:"0 auto" }}>
+
+          {/* ── HEADER ── */}
+          <div className="page-header" style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:20, backdropFilter:"blur(20px)", boxShadow:"0 24px 64px rgba(0,0,0,0.35),inset 0 1px 0 rgba(255,255,255,0.04)" }}>
+            <div className="header-row" style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:14, marginBottom:18 }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                  <div style={{ width:5, height:22, borderRadius:3, background:`linear-gradient(to bottom,${T.accent},rgba(34,211,238,0.3))`, flexShrink:0 }} />
+                  <span style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", textTransform:"uppercase", color:T.accent }}>Certificates Workspace</span>
+                </div>
+                <h1 className="page-title" style={{ margin:0, fontSize:28, fontWeight:900, letterSpacing:"-0.02em", lineHeight:1.15 }}>Certificates Register</h1>
+                <p style={{ margin:"6px 0 0", color:T.textDim, fontSize:13 }}>Manage, filter and link inspection certificates</p>
+              </div>
+              <div className="header-actions" style={{ display:"flex", gap:8, flexWrap:"wrap", flexShrink:0 }}>
+                <Link href="/certificates/import" style={S.btnGhost}>↑ AI Import</Link>
+                <Link href="/certificates/create" style={S.btnAccent}>+ New</Link>
               </div>
             </div>
 
-            <div
-              style={{
-                marginTop: 18,
-                display: "grid",
-                gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-                gap: 10,
-              }}
-            >
-              <StatCard label="Total" value={stats.total} color={T.accent} />
-              <StatCard label="Passed" value={stats.pass} color={T.green} />
-              <StatCard label="Failed" value={stats.fail} color={T.red} />
-              <StatCard label="Linked" value={stats.linked} color={T.purple} />
-              <StatCard label="Need NCR" value={stats.needNcr} color={T.amber} />
+            {/* Stats */}
+            <div className="stats-grid">
+              {[
+                { label:"Total",    value:stats.total,   color:T.accent,  glow:"rgba(34,211,238,0.15)"  },
+                { label:"Passed",   value:stats.pass,    color:T.green,   glow:"rgba(52,211,153,0.15)"  },
+                { label:"Failed",   value:stats.fail,    color:T.red,     glow:"rgba(248,113,113,0.15)" },
+                { label:"Linked",   value:stats.linked,  color:T.purple,  glow:"rgba(167,139,250,0.15)" },
+                { label:"Need NCR", value:stats.needNcr, color:T.amber,   glow:"rgba(251,191,36,0.15)"  },
+              ].map(({ label, value, color, glow }) => (
+                <div key={label} className="stat-card" style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:13, padding:"14px 16px", position:"relative", overflow:"hidden" }}>
+                  <div style={{ position:"absolute", inset:0, background:`radial-gradient(circle at top right,${glow},transparent 70%)`, pointerEvents:"none" }} />
+                  <div style={{ fontSize:10, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", color:T.textDim, marginBottom:8 }}>{label}</div>
+                  <div className="stat-val" style={{ fontSize:30, fontWeight:900, color, lineHeight:1 }}>{value}</div>
+                </div>
+              ))}
             </div>
           </div>
 
-          {linkSource ? (
-            <div
-              style={{
-                border: `1px solid ${T.purpleBrd}`,
-                borderRadius: 16,
-                background: T.purpleDim,
-                padding: 16,
-                display: "grid",
-                gap: 12,
-              }}
-            >
-              <div style={{ fontWeight: 800, color: T.purple }}>
-                Link mode active
+          {/* ── LINK MODE BANNER ── */}
+          {linkSource && (
+            <div className="link-banner" style={{ background:T.purpleDim, border:`1px solid ${T.purpleBrd}`, borderRadius:14, padding:"14px 18px", display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
+              <div style={{ width:8, height:8, borderRadius:"50%", background:T.purple, boxShadow:`0 0 8px ${T.purple}`, flexShrink:0 }} />
+              <div style={{ flex:1, minWidth:180 }}>
+                <div style={{ fontSize:11, fontWeight:800, color:T.purple, marginBottom:3 }}>Link Mode Active</div>
+                <div style={{ fontSize:13, color:T.textMid }}><strong style={{ color:T.text }}>{linkSource.certificate_number||"—"}</strong> · {linkSource.equipment_description||"—"}</div>
               </div>
-              <div style={{ fontSize: 14, color: T.textMid }}>
-                Source: <strong>{linkSource.certificate_number || "—"}</strong> ·{" "}
-                {linkSource.equipment_description || "—"}
-              </div>
-              <input
-                value={linkName}
-                onChange={(e) => setLinkName(e.target.value)}
-                placeholder="Folder / link name"
-                style={inputStyle}
-              />
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLinkSource(null);
-                    setLinkName("");
-                  }}
-                  style={btnPlain}
-                >
-                  Cancel Link Mode
-                </button>
-              </div>
+              <input value={linkName} onChange={(e) => setLinkName(e.target.value)} placeholder="Folder / link name" style={{ ...S.input, width:240 }} className="link-banner-input" />
+              <button type="button" onClick={() => { setLinkSource(null); setLinkName(""); }} style={S.btnPlain}>✕ Cancel</button>
             </div>
-          ) : null}
+          )}
 
-          <div
-            style={{
-              border: `1px solid ${T.border}`,
-              borderRadius: 18,
-              background: T.surface,
-              backdropFilter: "blur(16px)",
-              overflow: "hidden",
-            }}
-          >
-            <div
-              style={{
-                padding: "14px 16px",
-                borderBottom: `1px solid ${T.border}`,
-                display: "grid",
-                gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr",
-                gap: 0,
-              }}
-            >
-              <div style={{ padding: "0 10px" }}>
-                <div style={filterLabel}>Search</div>
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Certificate no, client, equipment"
-                  style={inputStyle}
-                />
+          {/* ── MAIN PANEL ── */}
+          <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:18, backdropFilter:"blur(20px)", overflow:"hidden" }}>
+
+            {/* Filter grid */}
+            <div className="filter-grid">
+              <div>
+                <div style={S.filterLabel}>Search</div>
+                <div style={{ position:"relative" }}>
+                  <span style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", color:T.textDim, fontSize:14, pointerEvents:"none" }}>⌕</span>
+                  <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Certificate, client, equipment…" style={{ ...S.input, paddingLeft:28 }} />
+                </div>
               </div>
-
-              <FilterCell
-                label="Result"
-                value={fResult}
-                onChange={setFResult}
-                options={[
-                  { v: "ALL", l: "All results" },
-                  { v: "PASS", l: "Pass" },
-                  { v: "FAIL", l: "Fail" },
-                  { v: "REPAIR_REQUIRED", l: "Repair required" },
-                  { v: "OUT_OF_SERVICE", l: "Out of service" },
-                  { v: "UNKNOWN", l: "Unknown" },
-                ]}
-              />
-              <FilterCell
-                label="Expiry"
-                value={fExpiry}
-                onChange={setFExpiry}
-                options={[
-                  { v: "ALL", l: "All expiry" },
-                  { v: "EXPIRED", l: "Expired" },
-                  { v: "EXPIRING_SOON", l: "≤30 days" },
-                  { v: "EXPIRING_90", l: "≤90 days" },
-                  { v: "VALID", l: "Valid" },
-                  { v: "NO_EXPIRY", l: "No expiry" },
-                ]}
-              />
-              <FilterCell
-                label="Client"
-                value={fClient}
-                onChange={setFClient}
-                options={[
-                  { v: "ALL", l: "All clients" },
-                  ...clientOptions.map((c) => ({ v: c, l: c })),
-                ]}
-              />
-              <FilterCell
-                label="Type"
-                value={fType}
-                onChange={setFType}
-                options={[
-                  { v: "ALL", l: "All types" },
-                  ...typeOptions.map((t) => ({ v: t, l: t })),
-                ]}
-              />
-              <FilterCell
-                label="Linked"
-                value={fLinked}
-                onChange={setFLinked}
-                options={[
-                  { v: "ALL", l: "All" },
-                  { v: "YES", l: "Linked" },
-                  { v: "NO", l: "Unlinked" },
-                ]}
-              />
+              {[
+                { label:"Result", value:fResult, set:setFResult, opts:[{v:"ALL",l:"All results"},{v:"PASS",l:"Pass"},{v:"FAIL",l:"Fail"},{v:"REPAIR_REQUIRED",l:"Repair req."},{v:"OUT_OF_SERVICE",l:"Out of service"},{v:"UNKNOWN",l:"Unknown"}] },
+                { label:"Expiry", value:fExpiry, set:setFExpiry, opts:[{v:"ALL",l:"All expiry"},{v:"EXPIRED",l:"Expired"},{v:"EXPIRING_SOON",l:"≤30 days"},{v:"EXPIRING_90",l:"≤90 days"},{v:"VALID",l:"Valid"},{v:"NO_EXPIRY",l:"No expiry"}] },
+                { label:"Client", value:fClient, set:setFClient, opts:[{v:"ALL",l:"All clients"},...clientOptions.map((c)=>({v:c,l:c}))] },
+                { label:"Type",   value:fType,   set:setFType,   opts:[{v:"ALL",l:"All types"},...typeOptions.map((t)=>({v:t,l:t}))] },
+                { label:"Linked", value:fLinked, set:setFLinked, opts:[{v:"ALL",l:"All"},{v:"YES",l:"Linked"},{v:"NO",l:"Unlinked"}] },
+              ].map(({ label, value, set, opts }) => (
+                <div key={label}>
+                  <div style={S.filterLabel}>{label}</div>
+                  <select value={value} onChange={(e) => set(e.target.value)} style={S.input}>
+                    {opts.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+                  </select>
+                </div>
+              ))}
             </div>
 
-            <div
-              style={{
-                padding: "12px 16px",
-                borderBottom: `1px solid ${T.border}`,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <span style={{ fontSize: 12, color: T.textDim }}>
-                {filtered.length} record{filtered.length === 1 ? "" : "s"}
-              </span>
-
-              <div
-                style={{
-                  display: "flex",
-                  border: `1px solid ${T.border}`,
-                  borderRadius: 10,
-                  overflow: "hidden",
-                  background: T.panel,
-                }}
-              >
-                {["grouped", "flat"].map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setView(v)}
-                    style={{
-                      border: "none",
-                      cursor: "pointer",
-                      padding: "8px 14px",
-                      fontSize: 12,
-                      fontWeight: 800,
-                      background: view === v ? T.accentDim : "transparent",
-                      color: view === v ? T.accent : T.textDim,
-                    }}
-                  >
-                    {v === "grouped" ? "Grouped" : "Flat"}
+            {/* Toolbar */}
+            <div className="toolbar" style={{ padding:"10px 20px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", gap:10 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <span style={{ fontSize:12, color:T.textDim }}>
+                  <span style={{ color:T.text, fontWeight:700 }}>{filtered.length}</span> record{filtered.length===1?"":"s"}
+                </span>
+                {hasActiveFilters && (
+                  <button type="button" onClick={clearFilters} style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:6, color:T.textDim, fontSize:11, padding:"3px 8px", cursor:"pointer" }}>
+                    ✕ Clear
+                  </button>
+                )}
+              </div>
+              <div style={{ display:"flex", background:T.card, border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden" }}>
+                {["grouped","flat"].map((v) => (
+                  <button key={v} type="button" onClick={() => setView(v)} style={{ border:"none", cursor:"pointer", padding:"7px 14px", fontSize:11, fontWeight:700, background:view===v?T.accentDim:"transparent", color:view===v?T.accent:T.textDim, transition:"all .15s", minWidth:60 }}>
+                    {v==="grouped" ? "⊞ Group" : "☰ Flat"}
                   </button>
                 ))}
               </div>
             </div>
 
-            {errorText ? (
-              <div
-                style={{
-                  margin: 16,
-                  padding: "12px 14px",
-                  borderRadius: 12,
-                  border: `1px solid ${T.redBrd}`,
-                  background: T.redDim,
-                  color: T.red,
-                  fontSize: 13,
-                }}
-              >
-                {errorText}
+            {/* Error */}
+            {errorText && (
+              <div style={{ margin:"12px 20px", padding:"12px 14px", borderRadius:10, border:`1px solid ${T.redBrd}`, background:T.redDim, color:T.red, fontSize:13, display:"flex", gap:8, alignItems:"flex-start" }}>
+                <span style={{ flexShrink:0 }}>⚠</span> {errorText}
               </div>
-            ) : null}
+            )}
 
-            <div style={{ padding: 16 }}>
-              {loading ? (
-                <LoadingState />
-              ) : filtered.length === 0 ? (
-                <EmptyState onClear={clearFilters} />
-              ) : view === "flat" ? (
-                <FlatView
-                  certs={filtered}
-                  linkSource={linkSource}
-                  beginLink={beginLink}
-                  handleLink={handleLink}
-                  handleUnlink={handleUnlink}
-                  busyId={busyId}
-                />
-              ) : (
-                <GroupedView
-                  grouped={grouped}
-                  expandedClients={expandedClients}
-                  expandedTypes={expandedTypes}
-                  toggleClient={toggleClient}
-                  toggleType={toggleType}
-                  linkSource={linkSource}
-                  beginLink={beginLink}
-                  handleLink={handleLink}
-                  handleUnlink={handleUnlink}
-                  busyId={busyId}
-                />
-              )}
+            {/* Content */}
+            <div className="content-pad" style={{ padding:16 }}>
+              {loading ? <LoadingState /> :
+               filtered.length === 0 ? <EmptyState onClear={clearFilters} /> :
+               view === "flat" ? <FlatView certs={filtered} {...rowProps} /> :
+               <GroupedView grouped={grouped} expandedClients={expandedClients} expandedTypes={expandedTypes} toggleClient={toggleClient} toggleType={toggleType} {...rowProps} />
+              }
             </div>
           </div>
+
         </div>
       </div>
     </AppLayout>
   );
 }
 
-function GroupedView({
-  grouped,
-  expandedClients,
-  expandedTypes,
-  toggleClient,
-  toggleType,
-  linkSource,
-  beginLink,
-  handleLink,
-  handleUnlink,
-  busyId,
-}) {
+/* ══════════════════════════════════════════════════════════════
+   GROUPED VIEW
+══════════════════════════════════════════════════════════════ */
+function GroupedView({ grouped, expandedClients, expandedTypes, toggleClient, toggleType, ...rowProps }) {
   return (
-    <div style={{ display: "grid", gap: 12 }}>
-      {grouped.map((clientGroup) => {
-        const open = !!expandedClients[clientGroup.client];
-        const certCount = clientGroup.types.reduce(
-          (a, t) => a + t.items.reduce((b, i) => b + i.certs.length, 0),
-          0
-        );
-
+    <div style={{ display:"grid", gap:12 }}>
+      {grouped.map((cg) => {
+        const open = !!expandedClients[cg.client];
+        const certCount = cg.types.reduce((a,t) => a + t.items.reduce((b,i) => b+i.certs.length, 0), 0);
         return (
-          <div
-            key={clientGroup.client}
-            style={{
-              background: T.panel,
-              border: `1px solid ${T.border}`,
-              borderRadius: 16,
-              overflow: "hidden",
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => toggleClient(clientGroup.client)}
-              style={groupHeaderBtn}
-            >
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 900 }}>{clientGroup.client}</div>
-                <div style={{ fontSize: 12, color: T.textDim }}>
-                  {certCount} certificate{certCount === 1 ? "" : "s"}
+          <div key={cg.client} style={{ background:T.panel, border:`1px solid ${T.border}`, borderRadius:16, overflow:"hidden" }}>
+            <button type="button" onClick={() => toggleClient(cg.client)} className="group-btn" style={{ width:"100%", border:"none", background:"transparent", cursor:"pointer", padding:"14px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, color:T.text, textAlign:"left", minHeight:60 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:11 }}>
+                <div style={{ width:34, height:34, borderRadius:9, background:T.accentDim, border:`1px solid ${T.accentBrd}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:15, fontWeight:900, color:T.accent, flexShrink:0 }}>
+                  {cg.client.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <div style={{ fontSize:14, fontWeight:800, lineHeight:1.2 }}>{cg.client}</div>
+                  <div style={{ fontSize:11, color:T.textDim, marginTop:3 }}>{certCount} cert{certCount===1?"":"s"} · {cg.types.length} type{cg.types.length===1?"":"s"}</div>
                 </div>
               </div>
               <Chevron open={open} />
             </button>
 
-            {open ? (
-              <div style={{ borderTop: `1px solid ${T.border}`, padding: 14, display: "grid", gap: 12 }}>
-                {clientGroup.types.map((typeGroup) => {
-                  const typeKey = `${clientGroup.client}-${typeGroup.type}`;
-                  const typeOpen = expandedTypes[typeKey] !== false;
-
+            {open && (
+              <div className="group-hdr-pad" style={{ borderTop:`1px solid ${T.border}`, padding:13, display:"grid", gap:10 }}>
+                {cg.types.map((tg) => {
+                  const key = `${cg.client}-${tg.type}`;
+                  const typeOpen = expandedTypes[key] !== false;
+                  const count = tg.items.reduce((a,i) => a+i.certs.length, 0);
                   return (
-                    <div
-                      key={typeKey}
-                      style={{
-                        background: T.panel2,
-                        border: `1px solid ${T.border}`,
-                        borderRadius: 14,
-                        overflow: "hidden",
-                      }}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => toggleType(typeKey)}
-                        style={typeHeaderBtn}
-                      >
-                        <div style={{ fontWeight: 800 }}>{typeGroup.type}</div>
-                        <Chevron open={typeOpen} />
+                    <div key={key} style={{ background:"rgba(255,255,255,0.015)", border:`1px solid ${T.border}`, borderRadius:13, overflow:"hidden" }}>
+                      <button type="button" onClick={() => toggleType(key)} className="group-btn" style={{ width:"100%", border:"none", background:"transparent", cursor:"pointer", padding:"11px 14px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, color:T.text, textAlign:"left", minHeight:48 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                          <span style={{ fontSize:10, fontWeight:800, letterSpacing:"0.1em", textTransform:"uppercase", padding:"3px 8px", borderRadius:5, background:T.accentDim, color:T.accent, border:`1px solid ${T.accentBrd}`, whiteSpace:"nowrap" }}>{tg.type}</span>
+                          <span style={{ fontSize:11, color:T.textDim }}>{count} cert{count===1?"":"s"}</span>
+                        </div>
+                        <Chevron open={typeOpen} size={12} />
                       </button>
 
-                      {typeOpen ? (
-                        <div style={{ padding: 12, display: "grid", gap: 12 }}>
-                          {typeGroup.items.map((item) => (
-                            <div
-                              key={item.desc}
-                              style={{
-                                background: "rgba(255,255,255,0.02)",
-                                border: `1px solid ${T.border}`,
-                                borderRadius: 12,
-                                overflow: "hidden",
-                              }}
-                            >
-                              <div
-                                style={{
-                                  padding: "10px 12px",
-                                  borderBottom: `1px solid ${T.border}`,
-                                  fontWeight: 700,
-                                  color: T.text,
-                                }}
-                              >
-                                {item.desc}
+                      {typeOpen && (
+                        <div className="type-inner-pad" style={{ padding:12, display:"grid", gap:10 }}>
+                          {tg.items.map((item) => (
+                            <div key={item.desc} style={{ background:"rgba(255,255,255,0.02)", border:`1px solid ${T.border}`, borderRadius:11, overflow:"hidden" }}>
+                              <div style={{ padding:"9px 12px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", gap:7 }}>
+                                <span style={{ width:5, height:5, borderRadius:"50%", background:T.accent, display:"inline-block", flexShrink:0 }} />
+                                <span style={{ fontWeight:700, fontSize:13, color:T.text }}>{item.desc}</span>
+                                <span style={{ fontSize:11, color:T.textDim, flexShrink:0 }}>({item.certs.length})</span>
                               </div>
 
-                              <div style={{ overflowX: "auto" }}>
-                                <table style={tableStyle}>
+                              {/* Desktop table */}
+                              <div className="cert-table-wrap">
+                                <table className="cert-table cert-table-compact" style={{ borderCollapse:"collapse" }}>
                                   <thead>
-                                    <tr style={{ background: "rgba(255,255,255,0.02)" }}>
-                                      {[
-                                        "Certificate No.",
-                                        "Result",
-                                        "Issue",
-                                        "Expiry",
-                                        "Linked",
-                                        "Actions",
-                                      ].map((heading) => (
-                                        <td key={heading} style={headCell}>
-                                          {heading}
-                                        </td>
-                                      ))}
-                                    </tr>
+                                    <tr>{["Certificate No.","Result","Issue","Expiry","Linked","Actions"].map((h) => <td key={h} style={S.th}>{h}</td>)}</tr>
                                   </thead>
                                   <tbody>
-                                    {item.certs.map((cert) => (
-                                      <CertRow
-                                        key={cert.id}
-                                        cert={cert}
-                                        compact
-                                        linkSource={linkSource}
-                                        beginLink={beginLink}
-                                        handleLink={handleLink}
-                                        handleUnlink={handleUnlink}
-                                        busyId={busyId}
-                                      />
-                                    ))}
+                                    {item.certs.map((cert) => <CertRow key={cert.id} cert={cert} compact {...rowProps} />)}
                                   </tbody>
                                 </table>
+                              </div>
+
+                              {/* Mobile cards */}
+                              <div className="cert-mobile-cards" style={{ padding:10 }}>
+                                {item.certs.map((cert) => <CertCard key={cert.id} cert={cert} {...rowProps} />)}
                               </div>
                             </div>
                           ))}
                         </div>
-                      ) : null}
+                      )}
                     </div>
                   );
                 })}
               </div>
-            ) : null}
+            )}
           </div>
         );
       })}
@@ -859,484 +556,232 @@ function GroupedView({
   );
 }
 
-function FlatView({
-  certs,
-  linkSource,
-  beginLink,
-  handleLink,
-  handleUnlink,
-  busyId,
-}) {
+/* ══════════════════════════════════════════════════════════════
+   FLAT VIEW
+══════════════════════════════════════════════════════════════ */
+function FlatView({ certs, ...rowProps }) {
   return (
-    <div
-      style={{
-        background: T.panel,
-        border: `1px solid ${T.border}`,
-        borderRadius: 16,
-        overflow: "hidden",
-      }}
-    >
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1280 }}>
+    <div style={{ background:T.panel, border:`1px solid ${T.border}`, borderRadius:16, overflow:"hidden" }}>
+      {/* Desktop table */}
+      <div className="cert-table-wrap">
+        <table className="cert-table cert-table-full" style={{ borderCollapse:"collapse" }}>
           <thead>
-            <tr style={{ background: "rgba(255,255,255,0.02)" }}>
-              {[
-                "Certificate No.",
-                "Client",
-                "Equipment",
-                "Type",
-                "Result",
-                "Issue",
-                "Expiry",
-                "Days",
-                "Linked",
-                "Actions",
-              ].map((heading) => (
-                <td key={heading} style={headCell}>
-                  {heading}
-                </td>
-              ))}
-            </tr>
+            <tr>{["Certificate No.","Client","Equipment","Type","Result","Issue","Expiry","Days","Linked","Actions"].map((h) => <td key={h} style={S.th}>{h}</td>)}</tr>
           </thead>
           <tbody>
-            {certs.map((cert) => (
-              <CertRow
-                key={cert.id}
-                cert={cert}
-                linkSource={linkSource}
-                beginLink={beginLink}
-                handleLink={handleLink}
-                handleUnlink={handleUnlink}
-                busyId={busyId}
-              />
-            ))}
+            {certs.map((cert) => <CertRow key={cert.id} cert={cert} {...rowProps} />)}
           </tbody>
         </table>
+      </div>
+      {/* Mobile cards */}
+      <div className="cert-mobile-cards" style={{ padding:12 }}>
+        {certs.map((cert) => <CertCard key={cert.id} cert={cert} {...rowProps} />)}
       </div>
     </div>
   );
 }
 
-function CertRow({
-  cert,
-  compact = false,
-  linkSource,
-  beginLink,
-  handleLink,
-  handleUnlink,
-  busyId,
-}) {
+/* ══════════════════════════════════════════════════════════════
+   CERT ROW  (desktop)
+══════════════════════════════════════════════════════════════ */
+function CertRow({ cert, compact=false, linkSource, beginLink, handleLink, handleUnlink, busyId }) {
   const result = resultCfg(cert.result);
   const expiry = expiryCfg(cert.expiry_bucket);
-  const days = daysUntil(cert.expiry_date);
-  const id = safeId(cert.id);
+  const days   = daysUntil(cert.expiry_date);
+  const id     = safeId(cert.id);
   const isLinkSource = linkSource?.id === cert.id;
-  const canLinkHere = !!linkSource && linkSource.id !== cert.id;
+  const canLinkHere  = !!linkSource && linkSource.id !== cert.id;
 
-  const linkBadge = cert.folder_id ? (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        fontSize: 10,
-        fontWeight: 800,
-        padding: "4px 8px",
-        borderRadius: 999,
-        background: T.purpleDim,
-        color: T.purple,
-        border: `1px solid ${T.purpleBrd}`,
-      }}
-    >
-      {cert.folder_name || "Linked Folder"}
-      {cert.folder_position ? ` · #${cert.folder_position}` : ""}
-    </span>
-  ) : (
-    <span style={{ color: T.textDim }}>No</span>
-  );
+  const linkedBadge = cert.folder_id
+    ? <span style={{ display:"inline-flex", alignItems:"center", gap:4, fontSize:10, fontWeight:700, padding:"3px 7px", borderRadius:99, background:T.purpleDim, color:T.purple, border:`1px solid ${T.purpleBrd}`, whiteSpace:"nowrap" }}>🔗 {cert.folder_name||"Linked"}{cert.folder_position?` #${cert.folder_position}`:""}</span>
+    : <span style={{ color:T.textDim }}>—</span>;
 
   const actions = (
-    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-      <Link href={`/certificates/${id}`} prefetch={false} style={actionBtn(T.accent, T.accentDim, T.accentBrd)}>
-        View
-      </Link>
-
-      <Link href={`/certificates/${id}/edit`} prefetch={false} style={actionBtn(T.amber, T.amberDim, T.amberBrd)}>
-        Edit
-      </Link>
-
-      <Link href={`/certificates/print/${id}`} prefetch={false} style={actionBtn(T.green, T.greenDim, T.greenBrd)}>
-        Print
-      </Link>
-
-      {needsNcr(cert) ? (
-        <Link href={buildNcrHref(cert)} prefetch={false} style={actionBtn(T.red, T.redDim, T.redBrd)}>
-          Create NCR
-        </Link>
-      ) : null}
-
-      {isLinkSource ? (
-        <button type="button" style={plainActionBtn(T.purple, T.purpleDim, T.purpleBrd)}>
-          Selected
-        </button>
-      ) : canLinkHere ? (
-        <button
-          type="button"
-          onClick={() => handleLink(cert)}
-          disabled={busyId === cert.id}
-          style={plainActionBtn(T.purple, T.purpleDim, T.purpleBrd)}
-        >
-          {busyId === cert.id ? "Linking..." : "Link Here"}
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={() => beginLink(cert)}
-          style={plainActionBtn(T.purple, T.purpleDim, T.purpleBrd)}
-        >
-          Link
-        </button>
-      )}
-
-      {cert.folder_id ? (
-        <button
-          type="button"
-          onClick={() => handleUnlink(cert)}
-          disabled={busyId === cert.id}
-          style={plainActionBtn(T.textMid, T.slate, T.slateBrd)}
-        >
-          {busyId === cert.id ? "Removing..." : "Unlink"}
-        </button>
-      ) : null}
+    <div className="action-strip">
+      <Link href={`/certificates/${id}`}       prefetch={false} className="action-link" style={S.ab(T.accent,T.accentDim,T.accentBrd)}>View</Link>
+      <Link href={`/certificates/${id}/edit`}  prefetch={false} className="action-link" style={S.ab(T.amber,T.amberDim,T.amberBrd)}>Edit</Link>
+      <Link href={`/certificates/print/${id}`} prefetch={false} className="action-link" style={S.ab(T.green,T.greenDim,T.greenBrd)}>Print</Link>
+      {needsNcr(cert) && <Link href={buildNcrHref(cert)} prefetch={false} className="action-link" style={S.ab(T.red,T.redDim,T.redBrd)}>NCR</Link>}
+      {isLinkSource
+        ? <span style={{...S.ab(T.purple,T.purpleDim,T.purpleBrd),opacity:.6}}>Selected</span>
+        : canLinkHere
+          ? <button type="button" onClick={()=>handleLink(cert)} disabled={busyId===cert.id} style={{...S.ab(T.purple,T.purpleDim,T.purpleBrd),cursor:"pointer"}}>{busyId===cert.id?"…":"Link Here"}</button>
+          : <button type="button" onClick={()=>beginLink(cert)} style={{...S.ab(T.purple,T.purpleDim,T.purpleBrd),cursor:"pointer"}}>Link</button>
+      }
+      {cert.folder_id && <button type="button" onClick={()=>handleUnlink(cert)} disabled={busyId===cert.id} style={{...S.ab(T.textDim,T.slate,T.slateBrd),cursor:"pointer"}}>{busyId===cert.id?"…":"Unlink"}</button>}
     </div>
   );
 
-  if (compact) {
-    return (
-      <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-        <td style={tdStyle}>
-          <span style={monoAccent}>{cert.certificate_number || "—"}</span>
-        </td>
-        <td style={tdStyle}>
-          <Badge label={result.label} color={result.color} bg={result.bg} brd={result.brd} />
-        </td>
-        <td style={tdStyle}>{formatDate(cert.issue_date)}</td>
-        <td style={tdStyle}>{formatDate(cert.expiry_date)}</td>
-        <td style={tdStyle}>{linkBadge}</td>
-        <td style={tdStyle}>{actions}</td>
-      </tr>
-    );
-  }
+  if (compact) return (
+    <tr className="cert-card-row" style={{ borderBottom:`1px solid ${T.border}` }}>
+      <td style={S.td}><span style={S.mono}>{cert.certificate_number||"—"}</span></td>
+      <td style={S.td}><Badge {...result} /></td>
+      <td style={S.td}>{formatDate(cert.issue_date)}</td>
+      <td style={S.td}><div style={{ display:"flex", alignItems:"center", gap:5 }}>{formatDate(cert.expiry_date)}{days!==null&&<DaysBadge days={days} expiry={expiry} />}</div></td>
+      <td style={S.td}>{linkedBadge}</td>
+      <td style={S.td}>{actions}</td>
+    </tr>
+  );
 
   return (
-    <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-      <td style={tdStyle}>
-        <span style={monoAccent}>{cert.certificate_number || "—"}</span>
-      </td>
-      <td style={tdStyle}>{cert.client_name}</td>
-      <td style={tdStyle}>
-        <div style={{ maxWidth: 240, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {cert.equipment_description}
-        </div>
-      </td>
-      <td style={tdStyle}>{cert.equipment_type}</td>
-      <td style={tdStyle}>
-        <Badge label={result.label} color={result.color} bg={result.bg} brd={result.brd} />
-      </td>
-      <td style={tdStyle}>{formatDate(cert.issue_date)}</td>
-      <td style={tdStyle}>{formatDate(cert.expiry_date)}</td>
-      <td style={tdStyle}>
-        {days !== null ? (
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              padding: "2px 7px",
-              borderRadius: 4,
-              background: expiry.bg,
-              color: expiry.color,
-            }}
-          >
-            {days < 0 ? `${Math.abs(days)}d ago` : `${days}d`}
-          </span>
-        ) : (
-          <span style={{ color: T.textDim }}>—</span>
-        )}
-      </td>
-      <td style={tdStyle}>{linkBadge}</td>
-      <td style={tdStyle}>{actions}</td>
+    <tr className="cert-card-row" style={{ borderBottom:`1px solid ${T.border}` }}>
+      <td style={S.td}><span style={S.mono}>{cert.certificate_number||"—"}</span></td>
+      <td style={S.td}><span style={{ fontSize:12 }}>{cert.client_name}</span></td>
+      <td style={S.td}><div style={{ maxWidth:200, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cert.equipment_description}</div></td>
+      <td style={S.td}><span style={{ fontSize:11, color:T.textDim }}>{cert.equipment_type}</span></td>
+      <td style={S.td}><Badge {...result} /></td>
+      <td style={S.td}>{formatDate(cert.issue_date)}</td>
+      <td style={S.td}>{formatDate(cert.expiry_date)}</td>
+      <td style={S.td}>{days!==null?<DaysBadge days={days} expiry={expiry} />:<span style={{ color:T.textDim }}>—</span>}</td>
+      <td style={S.td}>{linkedBadge}</td>
+      <td style={S.td}>{actions}</td>
     </tr>
   );
 }
 
-function buildNcrHref(cert) {
-  const params = new URLSearchParams();
+/* ══════════════════════════════════════════════════════════════
+   CERT CARD  (mobile — replaces table row)
+══════════════════════════════════════════════════════════════ */
+function CertCard({ cert, linkSource, beginLink, handleLink, handleUnlink, busyId }) {
+  const result = resultCfg(cert.result);
+  const expiry = expiryCfg(cert.expiry_bucket);
+  const days   = daysUntil(cert.expiry_date);
+  const id     = safeId(cert.id);
+  const isLinkSource = linkSource?.id === cert.id;
+  const canLinkHere  = !!linkSource && linkSource.id !== cert.id;
 
-  params.set("source", "certificate");
-  params.set("certificate_id", nz(cert?.id));
-  params.set("certificate_number", nz(cert?.certificate_number));
-  params.set("inspection_number", nz(cert?.inspection_number));
-  params.set("asset_tag", nz(cert?.asset_tag));
-  params.set("asset_name", nz(cert?.asset_name));
-  params.set("equipment_description", nz(cert?.equipment_description));
-  params.set("equipment_type", nz(cert?.equipment_type || cert?.asset_type));
-  params.set("client_name", nz(cert?.client_name));
-  params.set("result", normalizeResult(cert?.result));
-  params.set("issue_date", nz(cert?.issue_date));
-  params.set("expiry_date", nz(cert?.expiry_date));
-
-  return `/ncr/new?${params.toString()}`;
-}
-
-function FilterCell({ label, value, onChange, options }) {
   return (
-    <div style={{ padding: "0 10px" }}>
-      <div style={filterLabel}>{label}</div>
-      <select value={value} onChange={(e) => onChange(e.target.value)} style={inputStyle}>
-        {options.map((opt) => (
-          <option key={opt.v} value={opt.v} style={{ background: "#0f172a" }}>
-            {opt.l}
-          </option>
-        ))}
-      </select>
+    <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:12, padding:"13px 14px", display:"grid", gap:10 }}>
+      {/* Top: cert number + result */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+        <span style={S.mono}>{cert.certificate_number || "—"}</span>
+        <Badge {...result} />
+      </div>
+
+      {/* Equipment */}
+      <div>
+        <div style={{ fontSize:13, fontWeight:600, color:T.text, lineHeight:1.3 }}>{cert.equipment_description}</div>
+        <div style={{ fontSize:11, color:T.textDim, marginTop:3 }}>
+          {cert.equipment_type}{cert.client_name!=="UNASSIGNED CLIENT"?` · ${cert.client_name}`:""}
+        </div>
+      </div>
+
+      {/* Dates + linked */}
+      <div style={{ display:"flex", gap:16, flexWrap:"wrap" }}>
+        <div>
+          <div style={{ fontSize:10, color:T.textDim, marginBottom:2, letterSpacing:"0.08em", textTransform:"uppercase" }}>Issued</div>
+          <div style={{ fontSize:12, color:T.textMid }}>{formatDate(cert.issue_date)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize:10, color:T.textDim, marginBottom:2, letterSpacing:"0.08em", textTransform:"uppercase" }}>Expires</div>
+          <div style={{ fontSize:12, color:T.textMid, display:"flex", alignItems:"center", gap:5 }}>
+            {formatDate(cert.expiry_date)}
+            {days!==null&&<DaysBadge days={days} expiry={expiry} />}
+          </div>
+        </div>
+        {cert.folder_id && (
+          <div>
+            <div style={{ fontSize:10, color:T.textDim, marginBottom:2, letterSpacing:"0.08em", textTransform:"uppercase" }}>Linked</div>
+            <span style={{ fontSize:11, fontWeight:700, padding:"2px 7px", borderRadius:99, background:T.purpleDim, color:T.purple, border:`1px solid ${T.purpleBrd}` }}>
+              🔗 {cert.folder_name||"Folder"}{cert.folder_position?` #${cert.folder_position}`:""}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="action-strip" style={{ borderTop:`1px solid ${T.border}`, paddingTop:10 }}>
+        <Link href={`/certificates/${id}`}       prefetch={false} className="action-link" style={S.ab(T.accent,T.accentDim,T.accentBrd)}>View</Link>
+        <Link href={`/certificates/${id}/edit`}  prefetch={false} className="action-link" style={S.ab(T.amber,T.amberDim,T.amberBrd)}>Edit</Link>
+        <Link href={`/certificates/print/${id}`} prefetch={false} className="action-link" style={S.ab(T.green,T.greenDim,T.greenBrd)}>Print</Link>
+        {needsNcr(cert) && <Link href={buildNcrHref(cert)} prefetch={false} className="action-link" style={S.ab(T.red,T.redDim,T.redBrd)}>NCR</Link>}
+        {isLinkSource
+          ? <span style={{...S.ab(T.purple,T.purpleDim,T.purpleBrd),opacity:.6}}>Selected</span>
+          : canLinkHere
+            ? <button type="button" onClick={()=>handleLink(cert)} disabled={busyId===cert.id} style={{...S.ab(T.purple,T.purpleDim,T.purpleBrd),cursor:"pointer"}}>{busyId===cert.id?"Linking…":"Link Here"}</button>
+            : <button type="button" onClick={()=>beginLink(cert)} style={{...S.ab(T.purple,T.purpleDim,T.purpleBrd),cursor:"pointer"}}>Link</button>
+        }
+        {cert.folder_id && <button type="button" onClick={()=>handleUnlink(cert)} disabled={busyId===cert.id} style={{...S.ab(T.textDim,T.slate,T.slateBrd),cursor:"pointer"}}>{busyId===cert.id?"…":"Unlink"}</button>}
+      </div>
     </div>
   );
 }
 
-function StatCard({ label, value, color }) {
+/* ══════════════════════════════════════════════════════════════
+   HELPERS
+══════════════════════════════════════════════════════════════ */
+function buildNcrHref(cert) {
+  const p = new URLSearchParams();
+  p.set("source","certificate");
+  p.set("certificate_id",       nz(cert?.id));
+  p.set("certificate_number",   nz(cert?.certificate_number));
+  p.set("inspection_number",    nz(cert?.inspection_number));
+  p.set("asset_tag",            nz(cert?.asset_tag));
+  p.set("asset_name",           nz(cert?.asset_name));
+  p.set("equipment_description",nz(cert?.equipment_description));
+  p.set("equipment_type",       nz(cert?.equipment_type||cert?.asset_type));
+  p.set("client_name",          nz(cert?.client_name));
+  p.set("result",               normalizeResult(cert?.result));
+  p.set("issue_date",           nz(cert?.issue_date));
+  p.set("expiry_date",          nz(cert?.expiry_date));
+  return `/ncr/new?${p.toString()}`;
+}
+
+function DaysBadge({ days, expiry }) {
   return (
-    <div
-      style={{
-        background: "rgba(255,255,255,0.03)",
-        border: `1px solid ${T.border}`,
-        borderRadius: 14,
-        padding: "14px 16px",
-      }}
-    >
-      <div
-        style={{
-          fontSize: 11,
-          color: T.textDim,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          marginBottom: 8,
-        }}
-      >
-        {label}
-      </div>
-      <div style={{ fontSize: 28, fontWeight: 900, color }}>{value}</div>
-    </div>
+    <span style={{ fontSize:10, fontWeight:700, padding:"2px 6px", borderRadius:4, background:expiry.bg, color:expiry.color, whiteSpace:"nowrap" }}>
+      {days < 0 ? `${Math.abs(days)}d ago` : `${days}d`}
+    </span>
   );
 }
 
 function Badge({ label, color, bg, brd }) {
   return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        padding: "4px 8px",
-        borderRadius: 999,
-        background: bg,
-        color,
-        border: `1px solid ${brd}`,
-        fontSize: 10,
-        fontWeight: 800,
-      }}
-    >
+    <span style={{ display:"inline-flex", alignItems:"center", padding:"3px 9px", borderRadius:99, background:bg, color, border:`1px solid ${brd}`, fontSize:10, fontWeight:800, letterSpacing:"0.04em", whiteSpace:"nowrap" }}>
       {label}
     </span>
   );
 }
 
-function Chevron({ open }) {
+function Chevron({ open, size=14 }) {
   return (
-    <svg
-      style={{
-        flexShrink: 0,
-        transform: open ? "rotate(90deg)" : "rotate(0deg)",
-        transition: "transform .2s",
-        color: T.textDim,
-      }}
-      width="14"
-      height="14"
-      viewBox="0 0 14 14"
-      fill="none"
-    >
-      <path
-        d="M5 3l4 4-4 4"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+    <svg style={{ flexShrink:0, transform:open?"rotate(90deg)":"rotate(0)", transition:"transform .2s", color:T.textDim }} width={size} height={size} viewBox="0 0 14 14" fill="none">
+      <path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 
 function LoadingState() {
   return (
-    <div style={{ padding: 24, color: T.textDim, textAlign: "center" }}>
-      Loading certificates...
+    <div style={{ padding:48, textAlign:"center", color:T.textDim }}>
+      <div style={{ fontSize:28, marginBottom:12, opacity:.4 }}>⏳</div>
+      <div style={{ fontSize:13, fontWeight:600 }}>Loading certificates…</div>
     </div>
   );
 }
 
 function EmptyState({ onClear }) {
   return (
-    <div
-      style={{
-        background: T.panel,
-        border: `1px solid ${T.border}`,
-        borderRadius: 16,
-        padding: "40px 24px",
-        textAlign: "center",
-      }}
-    >
-      <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>No certificates found</div>
-      <div style={{ fontSize: 13, color: T.textDim, marginBottom: 18 }}>
-        Try changing your filters.
-      </div>
-      <button type="button" onClick={onClear} style={btnAccent}>
-        Clear filters
-      </button>
+    <div style={{ background:T.panel, border:`1px solid ${T.border}`, borderRadius:16, padding:"48px 20px", textAlign:"center" }}>
+      <div style={{ fontSize:36, marginBottom:14, opacity:.3 }}>📂</div>
+      <div style={{ fontSize:18, fontWeight:800, marginBottom:8 }}>No certificates found</div>
+      <div style={{ fontSize:13, color:T.textDim, marginBottom:20 }}>Try adjusting your search or filters.</div>
+      <button type="button" onClick={onClear} style={{ ...S.btnAccent, cursor:"pointer", border:"none" }}>Clear filters</button>
     </div>
   );
 }
 
-const groupHeaderBtn = {
-  width: "100%",
-  border: "none",
-  background: "transparent",
-  cursor: "pointer",
-  padding: "14px 16px",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 12,
-  color: T.text,
-  textAlign: "left",
-};
-
-const typeHeaderBtn = {
-  width: "100%",
-  border: "none",
-  background: "transparent",
-  cursor: "pointer",
-  padding: "12px 14px",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 12,
-  color: T.text,
-  textAlign: "left",
-};
-
-const filterLabel = {
-  fontSize: 10,
-  letterSpacing: "0.1em",
-  textTransform: "uppercase",
-  marginBottom: 6,
-  color: T.textDim,
-};
-
-const inputStyle = {
-  width: "100%",
-  padding: "10px 12px",
-  borderRadius: 10,
-  border: `1px solid ${T.border}`,
-  background: "rgba(255,255,255,0.03)",
-  color: T.text,
-  fontSize: 13,
-  outline: "none",
-};
-
-const tableStyle = {
-  width: "100%",
-  borderCollapse: "collapse",
-  minWidth: 1080,
-};
-
-const headCell = {
-  padding: "8px 12px",
-  fontSize: 10,
-  color: T.textDim,
-  fontWeight: 800,
-  letterSpacing: "0.1em",
-  textTransform: "uppercase",
-  borderBottom: `1px solid ${T.border}`,
-  whiteSpace: "nowrap",
-};
-
-const tdStyle = {
-  padding: "10px 12px",
-  borderBottom: `1px solid ${T.border}`,
-  verticalAlign: "middle",
-  fontSize: 12,
-  color: T.textMid,
-};
-
-const monoAccent = {
-  fontFamily: "'IBM Plex Mono', monospace",
-  fontSize: 12,
-  color: T.accent,
-};
-
-function actionBtn(color, bg, brd) {
-  return {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "6px 10px",
-    borderRadius: 8,
-    background: bg,
-    border: `1px solid ${brd}`,
-    color,
-    fontSize: 11,
-    fontWeight: 700,
-    textDecoration: "none",
-  };
-}
-
-function plainActionBtn(color, bg, brd) {
-  return {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "6px 10px",
-    borderRadius: 8,
-    background: bg,
-    border: `1px solid ${brd}`,
-    color,
-    fontSize: 11,
-    fontWeight: 700,
-    cursor: "pointer",
-  };
-}
-
-const btnGhost = {
-  display: "inline-flex",
-  alignItems: "center",
-  padding: "10px 14px",
-  borderRadius: 10,
-  background: "rgba(255,255,255,0.03)",
-  color: T.textMid,
-  fontSize: 12,
-  fontWeight: 700,
-  textDecoration: "none",
-  border: `1px solid ${T.border}`,
-};
-
-const btnAccent = {
-  display: "inline-flex",
-  alignItems: "center",
-  padding: "10px 14px",
-  borderRadius: 10,
-  background: T.accent,
-  color: "#001018",
-  fontSize: 12,
-  fontWeight: 800,
-  textDecoration: "none",
-  border: "none",
-  cursor: "pointer",
+/* ══════════════════════════════════════════════════════════════
+   STYLES
+══════════════════════════════════════════════════════════════ */
+const S = {
+  filterLabel: { fontSize:10, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6, color:T.textDim },
+  input: { width:"100%", padding:"10px 12px", borderRadius:9, border:`1px solid ${T.border}`, background:"rgba(255,255,255,0.03)", color:T.text, fontSize:13, outline:"none", fontFamily:"'IBM Plex Sans',sans-serif", WebkitAppearance:"none", appearance:"none" },
+  th: { padding:"9px 13px", fontSize:10, color:T.textDim, fontWeight:800, letterSpacing:"0.1em", textTransform:"uppercase", borderBottom:`1px solid ${T.border}`, whiteSpace:"nowrap", background:"rgba(255,255,255,0.02)" },
+  td: { padding:"11px 13px", verticalAlign:"middle", fontSize:12, color:T.textMid },
+  mono: { fontFamily:"'IBM Plex Mono',monospace", fontSize:12, color:T.accent, fontWeight:500 },
+  btnAccent: { display:"inline-flex", alignItems:"center", justifyContent:"center", padding:"10px 16px", borderRadius:10, background:T.accent, color:"#001018", fontSize:12, fontWeight:800, textDecoration:"none", boxShadow:`0 0 20px ${T.accentGlow}`, whiteSpace:"nowrap" },
+  btnGhost:  { display:"inline-flex", alignItems:"center", justifyContent:"center", padding:"10px 16px", borderRadius:10, background:"rgba(255,255,255,0.03)", color:T.textMid, fontSize:12, fontWeight:700, textDecoration:"none", border:`1px solid ${T.border}`, whiteSpace:"nowrap" },
+  btnPlain:  { display:"inline-flex", alignItems:"center", justifyContent:"center", padding:"9px 14px", borderRadius:9, background:"rgba(255,255,255,0.05)", color:T.textMid, fontSize:12, fontWeight:700, border:`1px solid ${T.border}`, cursor:"pointer", whiteSpace:"nowrap" },
+  ab: (color, bg, brd) => ({ display:"inline-flex", alignItems:"center", justifyContent:"center", padding:"6px 10px", borderRadius:7, background:bg, border:`1px solid ${brd}`, color, fontSize:11, fontWeight:700, textDecoration:"none", whiteSpace:"nowrap", minHeight:32, cursor:"default" }),
 };
