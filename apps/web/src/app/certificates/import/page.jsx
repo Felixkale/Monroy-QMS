@@ -1,775 +1,2017 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useMemo, useRef, useState } from "react";
 import AppLayout from "@/components/AppLayout";
-import { supabase } from "@/lib/supabaseClient";
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+const SYSTEM_PROMPT = `You are an advanced industrial inspection AI for a QMS. Analyze the uploaded document/image and extract structured data. Be adaptive — recognize meaning from scattered, rotated, or poorly formatted data. Handle label aliases: WLL/SWL/Capacity→swl, Tested at X kPa→test_pressure, Next due→next_inspection_due, etc. Prioritize nameplates as most reliable. Detect defects visually and from text. Infer result: PASS if no defects, FAIL/CONDITIONAL if defects present, UNKNOWN if unclear. Return ONLY valid JSON — no markdown, no code fences, no explanation.
 
-function formatBytes(bytes) {
-  if (!bytes && bytes !== 0) return "-";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+{
+  "equipment_type":"","equipment_description":"","manufacturer":"","model":"","serial_number":"",
+  "year_built":"","capacity_volume":"","swl":"","working_pressure":"","design_pressure":"",
+  "test_pressure":"","pressure_unit":"","material":"","standard_code":"","inspection_number":"",
+  "client_name":"","location":"","inspection_date":"","expiry_date":"","next_inspection_due":"",
+  "inspector_name":"","inspection_body":"","result":"","defects_found":"","recommendations":"",
+  "comments":"","qr_code_data":"","nameplate_data":"","raw_text_summary":""
 }
 
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = String(reader.result || "");
-      const base64 = result.includes(",") ? result.split(",")[1] : result;
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-function nonEmptyCount(data = {}) {
-  return Object.values(data).filter(
-    (v) => v !== null && v !== undefined && String(v).trim() !== ""
-  ).length;
-}
-
-function prettyKey(key) {
-  return key.replace(/_/g, " ");
-}
-
-function slugify(str) {
-  return String(str || "")
-    .trim()
-    .toUpperCase()
-    .replace(/[\s\-\/]+/g, "")
-    .replace(/[^A-Z0-9]/g, "")
-    .slice(0, 20);
-}
-
-async function generateCertificateNumber(data = {}, fileName = "") {
-  // Build base from serial → equipment_id → asset_tag → file name slug
-  const base =
-    slugify(data.serial_number) ||
-    slugify(data.equipment_id)  ||
-    slugify(data.asset_tag)     ||
-    slugify(fileName.replace(/\.[^.]+$/, "")).slice(0, 16) ||
-    "UNKNOWN";
-
-  const prefix = `CERT-${base}-`;
-
-  const { data: existing } = await supabase
-    .from("certificates")
-    .select("certificate_number")
-    .like("certificate_number", `${prefix}%`)
-    .order("certificate_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  let next = 1;
-  if (existing?.certificate_number) {
-    const parts = existing.certificate_number.split("-");
-    const seq = parseInt(parts[parts.length - 1], 10);
-    if (!Number.isNaN(seq)) next = seq + 1;
-  }
-
-  return `${prefix}${String(next).padStart(2, "0")}`;
-}
-
-function toCertificatePayload(data = {}, fileName = "", certNumber = "", manualResult = "", manualDefects = "") {
-  const result = manualResult || data.result || "UNKNOWN";
-  const defects = manualDefects || data.defects_found || null;
-  return {
-    certificate_number:    certNumber,
-    inspection_number:     data.inspection_number     || null,
-    result,
-    issue_date:            data.issue_date            || null,
-    expiry_date:           data.expiry_date           || null,
-    equipment_description: data.equipment_description || null,
-    equipment_type:        data.equipment_type        || null,
-    asset_tag:             data.asset_tag             || null,
-    asset_name:            data.equipment_description || fileName || null,
-    asset_type:            data.equipment_type        || null,
-    client_name:           data.client_name           || null,
-    status:                data.status                || "active",
-    manufacturer:          data.manufacturer          || null,
-    model:                 data.model                 || null,
-    serial_number:         data.serial_number         || null,
-    year_built:            data.year_built            || null,
-    country_of_origin:     data.country_of_origin     || null,
-    capacity_volume:       data.capacity_volume       || null,
-    swl:                   data.swl                   || null,
-    proof_load:            data.proof_load            || null,
-    lift_height:           data.lift_height           || null,
-    sling_length:          data.sling_length          || null,
-    working_pressure:      data.working_pressure      || null,
-    design_pressure:       data.design_pressure       || null,
-    test_pressure:         data.test_pressure         || null,
-    pressure_unit:         data.pressure_unit         || null,
-    temperature_range:     data.temperature_range     || null,
-    material:              data.material              || null,
-    standard_code:         data.standard_code         || null,
-    location:              data.location              || null,
-    inspection_date:       data.inspection_date       || null,
-    next_inspection_due:   data.next_inspection_due   || null,
-    inspector_name:        data.inspector_name        || null,
-    inspection_body:       data.inspection_body       || null,
-    defects_found:         defects,
-    recommendations:       data.recommendations       || null,
-    comments:              data.comments              || null,
-    nameplate_data:        data.nameplate_data        || null,
-    raw_text_summary:      data.raw_text_summary      || null,
-  };
-}
+Rules: result must be PASS, FAIL, CONDITIONAL, or UNKNOWN. Use "" for missing fields. Think like a certified inspector, not a form reader.`;
 
 const MAX_FILES = 20;
-const MAX_FILE_MB = 10;
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-const RESULT_OPTIONS = ["PASS", "FAIL", "CONDITIONAL"];
-
-// ─── Styles ──────────────────────────────────────────────────────────────────
-
-const s = {
-  page: {
-    minHeight: "100vh",
-    padding: "28px 24px",
-    background: "#0a0f1a",
-    color: "#f1f5f9",
-    fontFamily: "'DM Sans', 'Inter', system-ui, sans-serif",
-  },
-  header: {
-    display: "flex",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    marginBottom: 24,
-    gap: 16,
-    flexWrap: "wrap",
-  },
-  headingGroup: { display: "flex", flexDirection: "column", gap: 4 },
-  eyebrow: { fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", color: "#64748b", textTransform: "uppercase" },
-  heading: { fontSize: 26, fontWeight: 700, color: "#f1f5f9", lineHeight: 1.2 },
-  headerActions: { display: "flex", gap: 8 },
-  twoCol: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 16, alignItems: "start" },
-  leftCol: { display: "grid", gap: 14 },
-  statRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 10, marginBottom: 16 },
-  statCard: { background: "#111827", border: "1px solid #1e293b", borderRadius: 14, padding: "14px 16px" },
-  statLabel: { fontSize: 11, color: "#64748b", marginBottom: 6, fontWeight: 500 },
-  statVal: { fontSize: 26, fontWeight: 700 },
-  panel: { background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: "18px 20px" },
-  panelHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 14, flexWrap: "wrap" },
-  panelTitle: { fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 2 },
-  panelSub: { fontSize: 12, color: "#64748b" },
-  dropZone: { border: "1.5px dashed #1e293b", borderRadius: 14, padding: "28px 16px", textAlign: "center", background: "#0d1525", cursor: "pointer", marginBottom: 14, transition: "border-color .15s" },
-  dropZoneActive: { borderColor: "#3b82f6" },
-  dropIconWrap: { width: 44, height: 44, borderRadius: 12, background: "#1e293b", border: "1px solid #334155", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" },
-  dropTitle: { fontSize: 14, fontWeight: 600, marginBottom: 4, color: "#e2e8f0" },
-  dropSub: { fontSize: 12, color: "#64748b" },
-  btnRow: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" },
-  btn: { padding: "9px 15px", borderRadius: 10, border: "1px solid #1e293b", background: "#1e293b", color: "#cbd5e1", cursor: "pointer", fontSize: 13, fontWeight: 500, lineHeight: 1 },
-  btnPrimary: { padding: "9px 16px", borderRadius: 10, border: "none", background: "#3b82f6", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, lineHeight: 1 },
-  btnSuccess: { padding: "7px 13px", borderRadius: 9, border: "1px solid #166534", background: "#14532d", color: "#86efac", cursor: "pointer", fontSize: 12, fontWeight: 500 },
-  btnDanger: { padding: "6px 11px", borderRadius: 8, border: "1px solid #7f1d1d", background: "#450a0a", color: "#fca5a5", cursor: "pointer", fontSize: 12, fontWeight: 500 },
-  btnGhost: { padding: "9px 13px", borderRadius: 10, border: "1px solid transparent", background: "transparent", color: "#64748b", cursor: "pointer", fontSize: 13, fontWeight: 500 },
-  linkBtn: { textDecoration: "none", padding: "9px 15px", borderRadius: 10, border: "1px solid #1e293b", background: "#1e293b", color: "#cbd5e1", fontSize: 13, fontWeight: 500, display: "inline-flex", alignItems: "center" },
-  linkBtnPrimary: { textDecoration: "none", padding: "9px 16px", borderRadius: 10, background: "#3b82f6", color: "#fff", fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", border: "none" },
-  fileRow: { display: "flex", alignItems: "center", gap: 10, padding: "9px 11px", borderRadius: 10, border: "1px solid #1e293b", background: "#0d1525" },
-  fileBadge: { width: 36, height: 36, borderRadius: 8, background: "#1e3a5f", color: "#60a5fa", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 },
-  fileName: { fontSize: 13, fontWeight: 500, color: "#e2e8f0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 },
-  fileSize: { fontSize: 11, color: "#64748b" },
-  progTrack: { height: 5, borderRadius: 999, background: "#1e293b", overflow: "hidden", marginTop: 8 },
-  progBar: { height: "100%", borderRadius: 999, background: "linear-gradient(90deg,#3b82f6,#818cf8)", transition: "width .25s ease" },
-  resultCard: { border: "1px solid #1e293b", borderRadius: 14, overflow: "hidden", marginTop: 10 },
-  resultCardErr: { border: "1px solid #7f1d1d" },
-  resultHead: { display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", background: "#0d1525", flexWrap: "wrap" },
-  resultNum: { width: 26, height: 26, borderRadius: 999, background: "#1e3a5f", color: "#60a5fa", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 },
-  resultFname: { fontSize: 13, fontWeight: 600, color: "#e2e8f0", flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-  resultBody: { padding: "14px 16px" },
-  miniGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, marginBottom: 10 },
-  miniCell: { background: "#0d1525", border: "1px solid #1e293b", borderRadius: 10, padding: "9px 11px" },
-  miniLabel: { fontSize: 11, color: "#64748b", marginBottom: 4 },
-  miniVal: { fontSize: 13, fontWeight: 600, color: "#e2e8f0" },
-  summaryStrip: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, padding: "10px 12px", background: "#0d1525", borderRadius: 10, border: "1px solid #1e293b", marginBottom: 10 },
-  sumLabel: { fontSize: 11, color: "#64748b", marginBottom: 3 },
-  sumVal: { fontSize: 12, fontWeight: 600, color: "#e2e8f0" },
-  rawText: { fontSize: 12, color: "#64748b", lineHeight: 1.6, marginBottom: 10 },
-  errBox: { background: "#450a0a", border: "1px solid #7f1d1d", borderRadius: 10, padding: "12px 14px" },
-  errTitle: { fontSize: 13, fontWeight: 600, color: "#fca5a5", marginBottom: 6 },
-  errDetail: { fontSize: 12, color: "#f87171", lineHeight: 1.6 },
-  pill: { display: "inline-flex", alignItems: "center", padding: "3px 9px", borderRadius: 999, fontSize: 11, fontWeight: 600, flexShrink: 0 },
-  drawer: { borderTop: "1px solid #1e293b", background: "#0a0f1a", padding: "14px 16px" },
-  drawerGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 8 },
-  overrideGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 10 },
-  inspectionRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 10, marginBottom: 10, alignItems: "start" },
-  drawerCell: { background: "#111827", border: "1px solid #1e293b", borderRadius: 10, padding: "9px 11px" },
-  drawerKey: { fontSize: 11, color: "#64748b", marginBottom: 4, textTransform: "capitalize" },
-  drawerVal: { fontSize: 12, fontWeight: 600, color: "#e2e8f0", wordBreak: "break-word", lineHeight: 1.5 },
-  empty: { padding: "18px 0", fontSize: 13, color: "#64748b" },
-  overrideField: { display: "flex", flexDirection: "column", gap: 5 },
-  overrideLabel: { fontSize: 11, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "#64748b" },
-  overrideInput: { padding: "8px 11px", borderRadius: 9, border: "1px solid #1e293b", background: "#0d1525", color: "#e2e8f0", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" },
-  overrideBadge: { display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600, background: "#1e3a5f", color: "#60a5fa", border: "1px solid #1e40af" },
-
-  selectInput: { padding: "8px 11px", borderRadius: 9, border: "1px solid #1e293b", background: "#0d1525", color: "#e2e8f0", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box", cursor: "pointer" },
-  textarea: { padding: "8px 11px", borderRadius: 9, border: "1px solid #1e293b", background: "#0d1525", color: "#e2e8f0", fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box", resize: "vertical", minHeight: 70, lineHeight: 1.5 },
-  fieldLabel: { fontSize: 11, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "#64748b", marginBottom: 5, display: "block" },
-
-  // cert number badge
-  certNumBadge: { fontSize: 11, color: "#86efac", background: "#14532d", border: "1px solid #166534", borderRadius: 6, padding: "2px 8px", fontWeight: 600, fontFamily: "monospace" },
-};
-
-function pill(color) {
-  const map = {
-    pass:        { background: "#14532d", color: "#86efac", border: "1px solid #166534" },
-    fail:        { background: "#450a0a", color: "#fca5a5", border: "1px solid #7f1d1d" },
-    conditional: { background: "#431407", color: "#fdba74", border: "1px solid #7c2d12" },
-    info:        { background: "#1e3a5f", color: "#93c5fd", border: "1px solid #1e40af" },
-    neutral:     { background: "#1e293b", color: "#94a3b8", border: "1px solid #334155" },
-    ok:          { background: "#14532d", color: "#86efac", border: "1px solid #166534" },
-    err:         { background: "#450a0a", color: "#fca5a5", border: "1px solid #7f1d1d" },
-  };
-  return { ...s.pill, ...map[color] };
+function uid() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function StatCard({ label, value, color }) {
+function isAllowedFile(file) {
   return (
-    <div style={s.statCard}>
-      <div style={s.statLabel}>{label}</div>
-      <div style={{ ...s.statVal, color }}>{value}</div>
-    </div>
+    file &&
+    (file.type === "application/pdf" || file.type.startsWith("image/")) &&
+    file.size <= MAX_FILE_SIZE
   );
 }
 
-function ResultPill({ result }) {
-  const r = String(result || "UNKNOWN").toUpperCase();
-  const c = r === "PASS" ? "pass" : r === "FAIL" ? "fail" : r === "CONDITIONAL" ? "conditional" : "neutral";
-  return <span style={pill(c)}>{r}</span>;
+function nonEmpty(data) {
+  return Object.values(data || {}).filter(
+    (v) => v != null && String(v).trim() !== ""
+  ).length;
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
+function pillClass(result) {
+  const v = String(result || "").toUpperCase();
+  if (v === "PASS") return "p-pass";
+  if (v === "FAIL") return "p-fail";
+  if (v === "CONDITIONAL") return "p-cond";
+  return "p-neutral";
+}
 
-export default function CertificateImportPage() {
-  const [files, setFiles]           = useState([]);
-  const [results, setResults]       = useState([]);
-  const [extracting, setExtracting] = useState(false);
-  const [savingAll, setSavingAll]   = useState(false);
-  const [progress, setProgress]     = useState(0);
-  const [dragActive, setDragActive] = useState(false);
-  const [expanded, setExpanded]     = useState({});
+function slugify(value) {
+  return (
+    String(value || "")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 16) || "UNKNOWN"
+  );
+}
 
-  const [overrides, setOverrides] = useState({
-    client_name: "", location: "", inspection_date: "", expiry_date: "",
+function fileSizeLabel(file) {
+  if (!file) return "";
+  if (file.size > 1048576) return `${(file.size / 1048576).toFixed(1)} MB`;
+  return `${Math.round(file.size / 1024)} KB`;
+}
+
+function escapeCsv(value) {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+}
+
+function toBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1]);
+    r.onerror = reject;
+    r.readAsDataURL(file);
   });
+}
+
+export default function ImportCertificatesPage() {
+  const [files, setFiles] = useState([]);
+  const [results, setResults] = useState([]);
+  const [dragActive, setDragActive] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [progress, setProgressState] = useState({
+    visible: false,
+    pct: 0,
+    label: "Processing...",
+  });
+  const [overrides, setOverrides] = useState({
+    client_name: "",
+    location: "",
+    inspection_date: "",
+    expiry_date: "",
+  });
+
+  const fileInputRef = useRef(null);
+  const dropInputRef = useRef(null);
+  const certSeqRef = useRef(1);
+
+  const overrideCount = useMemo(
+    () => Object.values(overrides).filter((v) => String(v || "").trim()).length,
+    [overrides]
+  );
+
+  const stats = useMemo(() => {
+    const ok = results.filter((x) => x.ok).length;
+    const err = results.filter((x) => !x.ok).length;
+    const pass = results.filter(
+      (x) => x.ok && (x.manualResult || x.data?.result) === "PASS"
+    ).length;
+
+    return {
+      total: results.length,
+      ok,
+      err,
+      pass,
+      canSaveAll: results.some((x) => x.ok && !x.saved && !x.saving),
+    };
+  }, [results]);
+
+  function setProgress(pct, label) {
+    setProgressState({
+      visible: true,
+      pct: Math.round(pct),
+      label: label || (pct < 100 ? "Processing..." : "Extraction complete"),
+    });
+  }
+
+  function resetFileInputs() {
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (dropInputRef.current) dropInputRef.current.value = "";
+  }
+
+  function addFiles(list) {
+    setFiles((prev) => {
+      const next = [...prev];
+
+      list
+        .filter(isAllowedFile)
+        .forEach((file) => {
+          const exists = next.find(
+            (x) => x.file.name === file.name && x.file.size === file.size
+          );
+          if (!exists && next.length < MAX_FILES) {
+            next.push({ id: uid(), file });
+          }
+        });
+
+      return next;
+    });
+
+    resetFileInputs();
+  }
+
+  function removeFile(id) {
+    setFiles((prev) => prev.filter((x) => x.id !== id));
+  }
+
+  function clearAll() {
+    setFiles([]);
+    setResults([]);
+    setProgressState({ visible: false, pct: 0, label: "Processing..." });
+    resetFileInputs();
+  }
+
+  function clearOverrides() {
+    setOverrides({
+      client_name: "",
+      location: "",
+      inspection_date: "",
+      expiry_date: "",
+    });
+  }
 
   function setOverride(key, value) {
     setOverrides((prev) => ({ ...prev, [key]: value }));
   }
 
-  const activeOverrideCount = Object.values(overrides).filter((v) => v && String(v).trim() !== "").length;
+  function applyOverridesToData(data) {
+    const next = { ...(data || {}) };
 
-  // per-result editable fields
-  function setResultField(index, key, value) {
-    setResults((prev) =>
-      prev.map((item, i) => i === index ? { ...item, [key]: value } : item)
-    );
+    if (overrides.client_name && !next.client_name) next.client_name = overrides.client_name;
+    if (overrides.location && !next.location) next.location = overrides.location;
+    if (overrides.inspection_date && !next.inspection_date) next.inspection_date = overrides.inspection_date;
+    if (overrides.expiry_date && !next.expiry_date) next.expiry_date = overrides.expiry_date;
+
+    return next;
   }
 
-  const stats = useMemo(() => {
-    const total   = results.length;
-    const success = results.filter((x) => x.ok).length;
-    const errors  = results.filter((x) => !x.ok).length;
-    const passed  = results.filter((x) => x.ok && (x.manualResult || x.data?.result) === "PASS").length;
-    return { total, success, errors, passed };
-  }, [results]);
-
-  // ── File management ──────────────────────────────────────────────────────
-
-  function pushFiles(list) {
-    const incoming = Array.from(list || []);
-    if (!incoming.length) return;
-    const allowed = incoming.filter(
-      (f) => (f.type === "application/pdf" || f.type.startsWith("image/")) && f.size <= MAX_FILE_MB * 1024 * 1024
-    );
-    setFiles((prev) => {
-      const merged = [...prev];
-      for (const f of allowed) {
-        const dup = merged.some((x) => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified);
-        if (!dup && merged.length < MAX_FILES) merged.push({ id: crypto.randomUUID(), file: f, name: f.name, size: f.size });
-      }
-      return merged;
-    });
+  function genCert(data, fileName) {
+    const base =
+      slugify(data?.serial_number) ||
+      slugify(data?.inspection_number) ||
+      slugify(String(fileName || "").replace(/\.[^.]+$/, ""));
+    const seq = String(certSeqRef.current++).padStart(2, "0");
+    return `CERT-${base}-${seq}`;
   }
 
-  function removeFile(id) { setFiles((prev) => prev.filter((x) => x.id !== id)); }
-
-  function clearAll() {
-    setFiles([]); setResults([]); setProgress(0); setExpanded({});
-  }
-
-  // ── Extraction ───────────────────────────────────────────────────────────
-
-  async function extractAll() {
+  async function handleExtract() {
     if (!files.length || extracting) return;
+
     setExtracting(true);
     setResults([]);
-    setExpanded({});
-    setProgress(5);
+    setProgress(5, "Preparing files...");
+
     try {
-      const payloadFiles = [];
-      for (let i = 0; i < files.length; i++) {
+      const payloads = [];
+
+      for (let i = 0; i < files.length; i += 1) {
         const item = files[i];
-        const base64Data = await fileToBase64(item.file);
-        payloadFiles.push({ fileName: item.name, mimeType: item.file.type || "application/pdf", base64Data });
-        setProgress(5 + Math.round(((i + 1) / files.length) * 30));
+        setProgress(
+          5 + (i / files.length) * 30,
+          `Reading ${i + 1}/${files.length}: ${item.file.name}`
+        );
+
+        const b64 = await toBase64(item.file);
+        payloads.push({
+          fileName: item.file.name,
+          mimeType: item.file.type || "application/pdf",
+          base64Data: b64,
+        });
       }
-      setProgress(40);
-      const res  = await fetch("/api/ai/extract", {
+
+      setProgress(42, "Sending to Gemini 2.5 Flash...");
+
+      const res = await fetch("/api/ai/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ files: payloadFiles }),
+        body: JSON.stringify({ files: payloads, systemPrompt: SYSTEM_PROMPT }),
       });
-      setProgress(80);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Extraction failed.");
 
-      const mapped = Array.isArray(json?.results)
-        ? json.results.map((item) => {
-            if (!item.ok || !item.data) return { ...item, saved: false, saving: false, saveError: null, savedId: null, manualResult: "PASS", manualDefects: "", certNumber: null };
-            const merged = { ...item.data };
-            if (overrides.client_name     && !merged.client_name)     merged.client_name     = overrides.client_name;
-            if (overrides.location        && !merged.location)        merged.location        = overrides.location;
-            if (overrides.inspection_date && !merged.inspection_date) merged.inspection_date = overrides.inspection_date;
-            if (overrides.expiry_date     && !merged.expiry_date)     merged.expiry_date     = overrides.expiry_date;
-            return {
-              ...item,
-              data: merged,
-              saved: false,
-              saving: false,
-              saveError: null,
-              savedId: null,
-              manualResult: merged.result || "PASS",
-              manualDefects: merged.defects_found || "",
-              certNumber: null, // generated on save
-            };
-          })
-        : [];
+      setProgress(85, "Parsing results...");
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json?.error || `Server error ${res.status}`);
+      }
+
+      if (!Array.isArray(json?.results)) {
+        throw new Error("Unexpected response from /api/ai/extract");
+      }
+
+      const mapped = json.results.map((item) => {
+        if (!item.ok || !item.data) {
+          return {
+            ...item,
+            saved: false,
+            saving: false,
+            saveError: null,
+            expanded: false,
+            certNumber: null,
+            savedId: null,
+            manualResult: "PASS",
+            manualDefects: "",
+          };
+        }
+
+        const data = applyOverridesToData(item.data);
+
+        return {
+          ...item,
+          data,
+          saved: false,
+          saving: false,
+          saveError: null,
+          savedId: null,
+          expanded: false,
+          certNumber: null,
+          manualResult: data.result || "PASS",
+          manualDefects: data.defects_found || "",
+        };
+      });
 
       setResults(mapped);
-      setProgress(100);
-    } catch (err) {
-      setResults([{ fileName: "Extraction request", ok: false, error: err?.message || "Unexpected error.", saved: false, saving: false, saveError: null, savedId: null, manualResult: "PASS", manualDefects: "", certNumber: null }]);
-      setProgress(100);
+      setProgress(100, "Extraction complete");
+    } catch (e) {
+      setResults([
+        {
+          fileName: "Request failed",
+          ok: false,
+          error: e.message || "Unexpected error",
+          saved: false,
+          saving: false,
+          saveError: null,
+          expanded: false,
+          certNumber: null,
+          savedId: null,
+          manualResult: "PASS",
+          manualDefects: "",
+        },
+      ]);
+      setProgress(100, "Extraction failed");
     } finally {
       setExtracting(false);
     }
   }
 
-  // ── Saving ───────────────────────────────────────────────────────────────
+  function setResultField(idx, key, value) {
+    setResults((prev) =>
+      prev.map((item, i) => (i === idx ? { ...item, [key]: value } : item))
+    );
+  }
 
-  async function saveOne(index) {
-    const row = results[index];
-    if (!row?.ok || !row?.data || row.saved || row.saving) return;
+  function toggleExpanded(idx) {
+    setResults((prev) =>
+      prev.map((item, i) =>
+        i === idx ? { ...item, expanded: !item.expanded } : item
+      )
+    );
+  }
+
+  async function saveOne(idx) {
+    const row = results[idx];
+    if (!row?.ok || row.saved || row.saving) return;
 
     setResults((prev) =>
-      prev.map((item, i) => i === index ? { ...item, saving: true, saveError: null } : item)
+      prev.map((item, i) =>
+        i === idx ? { ...item, saving: true, saveError: null } : item
+      )
     );
 
     try {
-      // Auto-generate certificate number
-      const certNumber = await generateCertificateNumber(row.data, row.fileName);
+      const certNumber = genCert(row.data, row.fileName);
 
-      const payload = toCertificatePayload(
-        row.data,
-        row.fileName,
-        certNumber,
-        row.manualResult,
-        row.manualDefects
-      );
+      const payload = {
+        certificate_number: certNumber,
+        inspection_number: row.data.inspection_number || null,
+        result: row.manualResult || row.data.result || "UNKNOWN",
+        issue_date: row.data.issue_date || null,
+        expiry_date: row.data.expiry_date || null,
+        equipment_description: row.data.equipment_description || null,
+        equipment_type: row.data.equipment_type || null,
+        asset_tag: row.data.asset_tag || null,
+        asset_name: row.data.equipment_description || row.fileName || null,
+        asset_type: row.data.equipment_type || null,
+        client_name: row.data.client_name || null,
+        status: row.data.status || "active",
+        manufacturer: row.data.manufacturer || null,
+        model: row.data.model || null,
+        serial_number: row.data.serial_number || null,
+        year_built: row.data.year_built || null,
+        country_of_origin: row.data.country_of_origin || null,
+        capacity_volume: row.data.capacity_volume || null,
+        swl: row.data.swl || null,
+        proof_load: row.data.proof_load || null,
+        lift_height: row.data.lift_height || null,
+        sling_length: row.data.sling_length || null,
+        working_pressure: row.data.working_pressure || null,
+        design_pressure: row.data.design_pressure || null,
+        test_pressure: row.data.test_pressure || null,
+        pressure_unit: row.data.pressure_unit || null,
+        temperature_range: row.data.temperature_range || null,
+        material: row.data.material || null,
+        standard_code: row.data.standard_code || null,
+        location: row.data.location || null,
+        inspection_date: row.data.inspection_date || null,
+        next_inspection_due: row.data.next_inspection_due || null,
+        inspector_name: row.data.inspector_name || null,
+        inspection_body: row.data.inspection_body || null,
+        defects_found: row.manualDefects || row.data.defects_found || null,
+        recommendations: row.data.recommendations || null,
+        comments: row.data.comments || null,
+        nameplate_data: row.data.nameplate_data || null,
+        raw_text_summary: row.data.raw_text_summary || null,
+      };
 
-      const { data, error } = await supabase
-        .from("certificates")
-        .insert(payload)
-        .select("id")
-        .single();
+      const res = await fetch("/api/certificates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-      if (error) throw error;
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json?.error || `Save failed: ${res.status}`);
+      }
+
+      const savedId = json?.id || json?.data?.id || null;
 
       setResults((prev) =>
         prev.map((item, i) =>
-          i === index
-            ? { ...item, saving: false, saved: true, savedId: data?.id || null, saveError: null, certNumber }
+          i === idx
+            ? {
+                ...item,
+                saving: false,
+                saved: true,
+                certNumber,
+                savedId,
+                saveError: null,
+              }
             : item
         )
       );
-    } catch (err) {
+    } catch (e) {
       setResults((prev) =>
         prev.map((item, i) =>
-          i === index
-            ? { ...item, saving: false, saved: false, saveError: err?.message || "Save failed." }
+          i === idx
+            ? {
+                ...item,
+                saving: false,
+                saved: false,
+                saveError: e.message || "Save failed.",
+              }
             : item
         )
       );
     }
   }
 
-  async function saveAllSuccessful() {
-    const pending = results
-      .map((item, index) => ({ item, index }))
-      .filter(({ item }) => item.ok && item.data && !item.saved && !item.saving)
-      .map(({ index }) => index);
-    if (!pending.length) return;
-    setSavingAll(true);
-    try { for (const idx of pending) await saveOne(idx); }
-    finally { setSavingAll(false); }
-  }
+  async function saveAll() {
+    const indexes = results
+      .map((_, i) => i)
+      .filter((i) => results[i].ok && !results[i].saved && !results[i].saving);
 
-  // ── CSV export ───────────────────────────────────────────────────────────
+    for (const idx of indexes) {
+      // eslint-disable-next-line no-await-in-loop
+      await saveOne(idx);
+    }
+  }
 
   function exportCsv() {
     const rows = results
       .filter((x) => x.ok && x.data)
-      .map((x) => ({ file_name: x.fileName, certificate_number: x.certNumber || "", result: x.manualResult, defects_found: x.manualDefects, ...x.data }));
+      .map((x) => ({
+        file_name: x.fileName,
+        certificate_number: x.certNumber || "",
+        result: x.manualResult,
+        defects_found: x.manualDefects,
+        ...x.data,
+      }));
+
     if (!rows.length) return;
-    const headers = [...new Set(rows.flatMap(Object.keys))];
+
+    const headers = [...new Set(rows.flatMap((r) => Object.keys(r)))];
     const csv = [
       headers.join(","),
-      ...rows.map((row) => headers.map((h) => `"${String(row[h] ?? "").replace(/"/g, '""')}"`).join(",")),
+      ...rows.map((row) => headers.map((h) => escapeCsv(row[h])).join(",")),
     ].join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
-    a.download = "certificate-extraction.csv";
+    a.href = URL.createObjectURL(blob);
+    a.download = "certificates.csv";
     a.click();
+    URL.revokeObjectURL(a.href);
   }
 
-  // ── Render ───────────────────────────────────────────────────────────────
-
   return (
-    <AppLayout>
-      <div style={s.page}>
-
-        {/* Header */}
-        <div style={s.header}>
-          <div style={s.headingGroup}>
-            <span style={s.eyebrow}>Monroy QMS · Certificates</span>
-            <h1 style={s.heading}>Import certificates</h1>
-          </div>
-          <div style={s.headerActions}>
-            <Link href="/certificates" style={s.linkBtn}>← Register</Link>
-            <Link href="/certificates/create" style={s.linkBtnPrimary}>+ Create manually</Link>
-          </div>
-        </div>
-
-        {/* Stats */}
-        <div style={s.statRow}>
-          <StatCard label="Processed"  value={stats.total}   color="#60a5fa" />
-          <StatCard label="Successful" value={stats.success} color="#86efac" />
-          <StatCard label="Errors"     value={stats.errors}  color="#f87171" />
-          <StatCard label="Passed"     value={stats.passed}  color="#fbbf24" />
-        </div>
-
-        <div style={s.twoCol}>
-
-          {/* LEFT */}
-          <div style={s.leftCol}>
-
-            {/* Upload panel */}
-            <div style={s.panel}>
-              <div style={s.panelHeader}>
-                <div>
-                  <div style={s.panelTitle}>Upload zone</div>
-                  <div style={s.panelSub}>PDF, PNG, JPG, WEBP · max {MAX_FILES} files · max {MAX_FILE_MB} MB each</div>
-                </div>
-                <label style={{ ...s.btnPrimary, cursor: "pointer" }}>
-                  Select files
-                  <input type="file" accept=".pdf,image/png,image/jpeg,image/jpg,image/webp" multiple style={{ display: "none" }} onChange={(e) => { pushFiles(e.target.files); e.target.value = ""; }} />
-                </label>
-              </div>
-
-              <div
-                style={{ ...s.dropZone, ...(dragActive ? s.dropZoneActive : {}) }}
-                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-                onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
-                onDrop={(e) => { e.preventDefault(); setDragActive(false); pushFiles(e.dataTransfer.files); }}
-              >
-                <div style={s.dropIconWrap}>
-                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                    <path d="M9 2.5v10M4.5 8l4.5-5.5L13.5 8M2 15h14" stroke="#3b82f6" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </div>
-                <div style={s.dropTitle}>Drag &amp; drop certificate files here</div>
-                <div style={s.dropSub}>Multi-page PDFs, sticker photos, nameplates supported</div>
-              </div>
-
-              <div style={s.btnRow}>
-                <button style={s.btnGhost} onClick={clearAll}>Clear all</button>
-                <button
-                  style={{ ...s.btnPrimary, flex: 1, opacity: !files.length || extracting ? 0.5 : 1, cursor: !files.length || extracting ? "not-allowed" : "pointer" }}
-                  disabled={!files.length || extracting}
-                  onClick={extractAll}
-                >
-                  {extracting ? "Extracting…" : "Extract with AI"}
-                </button>
-              </div>
-
-              {progress > 0 && (
-                <div style={{ marginTop: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#64748b", marginBottom: 4 }}>
-                    <span>{extracting ? "Processing files…" : "Extraction complete"}</span>
-                    <span style={{ fontWeight: 600, color: "#e2e8f0" }}>{progress}%</span>
-                  </div>
-                  <div style={s.progTrack}><div style={{ ...s.progBar, width: `${progress}%` }} /></div>
-                </div>
-              )}
-            </div>
-
-            {/* Manual override panel */}
-            <div style={s.panel}>
-              <div style={s.panelHeader}>
-                <div>
-                  <div style={{ ...s.panelTitle, display: "flex", alignItems: "center", gap: 8 }}>
-                    Manual override
-                    {activeOverrideCount > 0 && <span style={s.overrideBadge}>{activeOverrideCount} active</span>}
-                  </div>
-                  <div style={s.panelSub}>Fill blanks the AI couldn't read. Won't overwrite extracted values.</div>
-                </div>
-                {activeOverrideCount > 0 && (
-                  <button style={{ ...s.btnGhost, fontSize: 12, padding: "6px 10px" }} onClick={() => setOverrides({ client_name: "", location: "", inspection_date: "", expiry_date: "" })}>Clear</button>
-                )}
-              </div>
-              <div style={s.overrideGrid}>
-                <div style={s.overrideField}>
-                  <label style={s.overrideLabel}>Client name</label>
-                  <input type="text" placeholder="e.g. Karowe Diamond Mine" value={overrides.client_name} onChange={(e) => setOverride("client_name", e.target.value)} style={s.overrideInput} />
-                </div>
-                <div style={s.overrideField}>
-                  <label style={s.overrideLabel}>Location / Site</label>
-                  <input type="text" placeholder="e.g. Karowe, Processing Plant" value={overrides.location} onChange={(e) => setOverride("location", e.target.value)} style={s.overrideInput} />
-                </div>
-                <div style={s.overrideField}>
-                  <label style={s.overrideLabel}>Inspection date</label>
-                  <input type="date" value={overrides.inspection_date} onChange={(e) => setOverride("inspection_date", e.target.value)} style={s.overrideInput} />
-                </div>
-                <div style={s.overrideField}>
-                  <label style={s.overrideLabel}>Expiry date</label>
-                  <input type="date" value={overrides.expiry_date} onChange={(e) => setOverride("expiry_date", e.target.value)} style={s.overrideInput} />
-                </div>
-              </div>
-            </div>
-
-            {/* Queue panel */}
-            <div style={s.panel}>
-              <div style={s.panelHeader}>
-                <div>
-                  <div style={s.panelTitle}>Queue</div>
-                  <div style={s.panelSub}>{files.length} / {MAX_FILES} selected</div>
-                </div>
-              </div>
-              {files.length === 0 ? (
-                <div style={s.empty}>No files added yet.</div>
-              ) : (
-                <div style={{ display: "grid", gap: 8 }}>
-                  {files.map((item) => (
-                    <div key={item.id} style={s.fileRow}>
-                      <div style={s.fileBadge}>{item.file.type === "application/pdf" ? "PDF" : "IMG"}</div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={s.fileName} title={item.name}>{item.name}</div>
-                        <div style={s.fileSize}>{formatBytes(item.size)}</div>
-                      </div>
-                      <button style={s.btnDanger} onClick={() => removeFile(item.id)}>Remove</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* RIGHT — results */}
-          <div style={s.panel}>
-            <div style={s.panelHeader}>
+    <AppLayout title="Import Certificates">
+      <div className="cert-import-page">
+        <div className="wrap">
+          <div className="top-bar">
+            <div className="brand">
               <div>
-                <div style={s.panelTitle}>Extracted results</div>
-                <div style={s.panelSub}>Set result &amp; defects per certificate before saving</div>
-              </div>
-              <div style={s.btnRow}>
-                <button style={s.btn} onClick={exportCsv}>↓ CSV</button>
-                <button
-                  style={{ ...s.btnPrimary, opacity: savingAll || !results.some((x) => x.ok && !x.saved) ? 0.5 : 1, cursor: savingAll || !results.some((x) => x.ok && !x.saved) ? "not-allowed" : "pointer" }}
-                  disabled={savingAll || !results.some((x) => x.ok && !x.saved)}
-                  onClick={saveAllSuccessful}
-                >
-                  {savingAll ? "Saving…" : "Save all successful"}
-                </button>
+                <div className="brand-label">
+                  <span className="brand-dot" />
+                  Monroy QMS · Certificates
+                </div>
+                <div className="brand-title">Import Certificates</div>
               </div>
             </div>
 
-            {results.length === 0 ? (
-              <div style={s.empty}>No extraction results yet. Upload files and click Extract with AI.</div>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {results.map((item, index) => {
-                  const data       = item.data || {};
-                  const filled     = item.ok ? nonEmptyCount(data) : 0;
-                  const isExpanded = !!expanded[index];
+            <div className="nav-btns">
+              <Link href="/certificates" className="nav-btn">
+                ← Register
+              </Link>
+              <Link href="/certificates/create" className="nav-btn nav-btn-primary">
+                + Create manually
+              </Link>
+            </div>
+          </div>
 
-                  return (
-                    <div key={`${item.fileName}-${index}`} style={{ ...s.resultCard, ...(item.ok ? {} : s.resultCardErr) }}>
+          <div className="stats">
+            <div className="stat-card blue">
+              <div className="stat-lbl">Processed</div>
+              <div className="stat-val blue">{stats.total}</div>
+            </div>
+            <div className="stat-card green">
+              <div className="stat-lbl">Successful</div>
+              <div className="stat-val green">{stats.ok}</div>
+            </div>
+            <div className="stat-card red">
+              <div className="stat-lbl">Errors</div>
+              <div className="stat-val red">{stats.err}</div>
+            </div>
+            <div className="stat-card amber">
+              <div className="stat-lbl">Passed</div>
+              <div className="stat-val amber">{stats.pass}</div>
+            </div>
+          </div>
 
-                      {/* Head */}
-                      <div style={s.resultHead}>
-                        <div style={{ ...s.resultNum, ...(item.ok ? { background: "#14532d", color: "#86efac" } : { background: "#450a0a", color: "#fca5a5" }) }}>
-                          {index + 1}
-                        </div>
-                        <div style={s.resultFname} title={item.fileName}>{item.fileName}</div>
-                        {item.ok && <span style={pill("info")}>{filled} fields</span>}
-                        {item.ok && data.equipment_type && <span style={pill("neutral")}>{data.equipment_type}</span>}
-                        {item.ok && <ResultPill result={item.manualResult || data.result} />}
-                        {item.saved && item.certNumber && <span style={s.certNumBadge}>{item.certNumber}</span>}
-                        <span style={item.ok ? pill("ok") : pill("err")}>{item.ok ? "Success" : "Error"}</span>
-                      </div>
-
-                      {/* Body */}
-                      <div style={s.resultBody}>
-
-                        {!item.ok && (
-                          <div style={s.errBox}>
-                            <div style={s.errTitle}>{item.error || "Extraction error."}</div>
-                            {item.error?.includes("JSON") && (
-                              <div style={s.errDetail}>
-                                Likely cause: the PDF is large and Gemini truncated the response.
-                                Fix: increase <code>maxOutputTokens</code> to <code>4096</code> and set <code>temperature: 0</code>.
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {item.ok && (
-                          <>
-                            {/* Key fields */}
-                            <div style={s.miniGrid}>
-                              <div style={s.miniCell}>
-                                <div style={s.miniLabel}>Certificate no.</div>
-                                <div style={s.miniVal}>{item.certNumber || <span style={{ color: "#64748b", fontWeight: 400 }}>Auto on save</span>}</div>
-                              </div>
-                              <div style={s.miniCell}>
-                                <div style={s.miniLabel}>Equipment type</div>
-                                <div style={s.miniVal}>{data.equipment_type || "—"}</div>
-                              </div>
-                              <div style={s.miniCell}>
-                                <div style={s.miniLabel}>Inspection date</div>
-                                <div style={s.miniVal}>{data.inspection_date || "—"}</div>
-                              </div>
-                              <div style={s.miniCell}>
-                                <div style={s.miniLabel}>Expiry date</div>
-                                <div style={s.miniVal}>{data.expiry_date || "—"}</div>
-                              </div>
-                            </div>
-
-                            {/* Summary strip */}
-                            <div style={s.summaryStrip}>
-                              <div>
-                                <div style={s.sumLabel}>Equipment</div>
-                                <div style={s.sumVal}>{data.equipment_description || "—"}</div>
-                              </div>
-                              <div>
-                                <div style={s.sumLabel}>Client</div>
-                                <div style={s.sumVal}>{data.client_name || "—"}</div>
-                              </div>
-                              <div>
-                                <div style={s.sumLabel}>Serial</div>
-                                <div style={s.sumVal}>{data.serial_number || "—"}</div>
-                              </div>
-                              <div>
-                                <div style={s.sumLabel}>Location</div>
-                                <div style={s.sumVal}>{data.location || "—"}</div>
-                              </div>
-                            </div>
-
-                            {/* ── Result + Defects row ── */}
-                            <div style={s.inspectionRow}>
-                              <div>
-                                <label style={s.fieldLabel}>Inspection result</label>
-                                <select
-                                  value={item.manualResult || "PASS"}
-                                  onChange={(e) => setResultField(index, "manualResult", e.target.value)}
-                                  style={s.selectInput}
-                                  disabled={item.saved}
-                                >
-                                  {RESULT_OPTIONS.map((opt) => (
-                                    <option key={opt} value={opt}>{opt}</option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div>
-                                <label style={s.fieldLabel}>Defects found (if any)</label>
-                                <textarea
-                                  value={item.manualDefects || ""}
-                                  onChange={(e) => setResultField(index, "manualDefects", e.target.value)}
-                                  placeholder="Describe defects, cracks, wear, non-conformances…"
-                                  style={{ ...s.textarea, opacity: item.saved ? 0.5 : 1 }}
-                                  disabled={item.saved}
-                                />
-                              </div>
-                            </div>
-
-                            {data.raw_text_summary && <div style={s.rawText}>{data.raw_text_summary}</div>}
-
-                            {item.saveError && (
-                              <div style={{ ...s.errBox, marginBottom: 10 }}>
-                                <div style={s.errTitle}>{item.saveError}</div>
-                              </div>
-                            )}
-
-                            {/* Footer */}
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                              <button
-                                style={{ background: "none", border: "none", color: "#64748b", fontSize: 12, cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 2, padding: 0 }}
-                                onClick={() => setExpanded((prev) => ({ ...prev, [index]: !prev[index] }))}
-                              >
-                                {isExpanded ? "Hide all fields" : "Show all fields"}
-                              </button>
-
-                              <div style={s.btnRow}>
-                                {item.saved && item.savedId && (
-                                  <>
-                                    <Link href={`/certificates/${item.savedId}`} style={{ ...s.btn, color: "#60a5fa", borderColor: "#1e3a5f", fontSize: 12, padding: "7px 12px" }}>
-                                      View →
-                                    </Link>
-                                    <Link href={`/certificates/${item.savedId}/edit`} style={{ ...s.btn, color: "#fbbf24", borderColor: "#78350f", background: "#1c1008", fontSize: 12, padding: "7px 12px" }}>
-                                      ✏️ Edit
-                                    </Link>
-                                  </>
-                                )}
-                                <button
-                                  style={{ ...s.btnSuccess, opacity: item.saved || item.saving ? 0.5 : 1, cursor: item.saved || item.saving ? "not-allowed" : "pointer" }}
-                                  disabled={item.saved || item.saving}
-                                  onClick={() => saveOne(index)}
-                                >
-                                  {item.saved ? "Saved ✓" : item.saving ? "Saving…" : "Save to register"}
-                                </button>
-                              </div>
-                            </div>
-                          </>
-                        )}
-                      </div>
-
-                      {/* Expandable drawer */}
-                      {item.ok && isExpanded && (
-                        <div style={s.drawer}>
-                          <div style={s.drawerGrid}>
-                            {Object.entries(data).map(([key, value]) => (
-                              <div key={key} style={s.drawerCell}>
-                                <div style={s.drawerKey}>{prettyKey(key)}</div>
-                                <div style={s.drawerVal}>{value || "—"}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+          <div className="layout">
+            <div className="left-col">
+              <div className="card">
+                <div className="card-header">
+                  <div>
+                    <div className="card-title">
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                        <path
+                          d="M8 2v8M4 7l4-5 4 5M2 14h12"
+                          stroke="var(--blue-t)"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                      Upload zone
                     </div>
-                  );
-                })}
+                    <div className="card-sub">
+                      PDF · PNG · JPG · WEBP — max 20 files, 10 MB each
+                    </div>
+                  </div>
+
+                  <label className="browse-label">
+                    Browse
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      accept=".pdf,image/png,image/jpeg,image/webp"
+                      style={{ display: "none" }}
+                      onChange={(e) => addFiles(Array.from(e.target.files || []))}
+                    />
+                  </label>
+                </div>
+
+                <div className="card-body">
+                  <div
+                    className={`drop-area ${dragActive ? "drag" : ""}`}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDragActive(true);
+                    }}
+                    onDragLeave={() => setDragActive(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragActive(false);
+                      addFiles(Array.from(e.dataTransfer.files || []));
+                    }}
+                  >
+                    <input
+                      ref={dropInputRef}
+                      type="file"
+                      multiple
+                      accept=".pdf,image/png,image/jpeg,image/webp"
+                      onChange={(e) => addFiles(Array.from(e.target.files || []))}
+                    />
+                    <div className="drop-icon-ring">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                        <path
+                          d="M12 3v13M6 9l6-6 6 6"
+                          stroke="var(--accent)"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                        <path
+                          d="M3 20h18"
+                          stroke="var(--accent)"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    </div>
+                    <div className="drop-h">Drop files here</div>
+                    <div className="drop-p">Certificates, nameplates, equipment photos</div>
+                    <div className="type-chips">
+                      <span className="chip">PDF</span>
+                      <span className="chip">PNG</span>
+                      <span className="chip">JPG</span>
+                      <span className="chip">WEBP</span>
+                    </div>
+                  </div>
+
+                  <div className="action-row">
+                    <button className="btn btn-ghost" type="button" onClick={clearAll}>
+                      Clear all
+                    </button>
+
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      onClick={handleExtract}
+                      disabled={!files.length || extracting}
+                    >
+                      <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        style={{ flexShrink: 0 }}
+                      >
+                        <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.4" />
+                        <path
+                          d="M8 5v3l2 2"
+                          stroke="currentColor"
+                          strokeWidth="1.4"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                      {extracting ? "Extracting..." : "Extract with AI"}
+                    </button>
+                  </div>
+
+                  <div
+                    className="prog-wrap"
+                    style={{ display: progress.visible ? "" : "none" }}
+                  >
+                    <div className="prog-meta">
+                      <span>{progress.label}</span>
+                      <span className="prog-pct">{progress.pct}%</span>
+                    </div>
+                    <div className="prog-track">
+                      <div className="prog-fill" style={{ width: `${progress.pct}%` }} />
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
+
+              <div className="card">
+                <div className="card-header">
+                  <div>
+                    <div className="card-title" style={{ gap: 8 }}>
+                      Manual override
+                      {overrideCount ? (
+                        <span className="abadge">{overrideCount} active</span>
+                      ) : null}
+                    </div>
+                    <div className="card-sub">
+                      Fills missing fields. Won&apos;t overwrite extracted values.
+                    </div>
+                  </div>
+
+                  {overrideCount ? (
+                    <button
+                      className="btn btn-ghost"
+                      type="button"
+                      style={{ fontSize: 11, padding: "5px 10px" }}
+                      onClick={clearOverrides}
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="card-body">
+                  <div className="override-grid">
+                    <div className="ov-f">
+                      <label className="ov-lbl">Client name</label>
+                      <input
+                        className="ov-input"
+                        type="text"
+                        placeholder="e.g. Karowe Mine"
+                        value={overrides.client_name}
+                        onChange={(e) => setOverride("client_name", e.target.value)}
+                      />
+                    </div>
+
+                    <div className="ov-f">
+                      <label className="ov-lbl">Location / Site</label>
+                      <input
+                        className="ov-input"
+                        type="text"
+                        placeholder="e.g. Processing Plant"
+                        value={overrides.location}
+                        onChange={(e) => setOverride("location", e.target.value)}
+                      />
+                    </div>
+
+                    <div className="ov-f">
+                      <label className="ov-lbl">Inspection date</label>
+                      <input
+                        className="ov-input"
+                        type="date"
+                        value={overrides.inspection_date}
+                        onChange={(e) => setOverride("inspection_date", e.target.value)}
+                      />
+                    </div>
+
+                    <div className="ov-f">
+                      <label className="ov-lbl">Expiry date</label>
+                      <input
+                        className="ov-input"
+                        type="date"
+                        value={overrides.expiry_date}
+                        onChange={(e) => setOverride("expiry_date", e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-header">
+                  <div>
+                    <div className="card-title">Queue</div>
+                    <div className="card-sub">{files.length} / 20 selected</div>
+                  </div>
+                </div>
+
+                <div className="card-body" style={{ paddingBottom: 10 }}>
+                  {!files.length ? (
+                    <div className="empty-state">No files added yet.</div>
+                  ) : (
+                    files.map((item) => {
+                      const ext = item.file.type === "application/pdf" ? "PDF" : "IMG";
+                      return (
+                        <div className="q-item" key={item.id}>
+                          <div className="q-icon">{ext}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div className="q-name" title={item.file.name}>
+                              {item.file.name}
+                            </div>
+                            <div className="q-size">{fileSizeLabel(item.file)}</div>
+                          </div>
+                          <button
+                            className="btn-remove"
+                            type="button"
+                            onClick={() => removeFile(item.id)}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="card" style={{ borderRadius: "var(--rxl)" }}>
+              <div className="card-header">
+                <div>
+                  <div className="card-title">Extracted results</div>
+                  <div className="card-sub">
+                    Review, set result & defects, then save to register
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button className="btn-csv" type="button" onClick={exportCsv}>
+                    ↓ CSV
+                  </button>
+                  <button
+                    className="btn-saveall"
+                    type="button"
+                    onClick={saveAll}
+                    disabled={!stats.canSaveAll}
+                  >
+                    Save all successful
+                  </button>
+                </div>
+              </div>
+
+              <div className="card-body">
+                <div className="result-list">
+                  {!results.length ? (
+                    <div className="empty-state" style={{ padding: "32px 0" }}>
+                      <svg
+                        width="36"
+                        height="36"
+                        viewBox="0 0 36 36"
+                        fill="none"
+                        style={{ margin: "0 auto 12px", display: "block", opacity: 0.3 }}
+                      >
+                        <rect
+                          x="6"
+                          y="4"
+                          width="24"
+                          height="28"
+                          rx="3"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                        />
+                        <path
+                          d="M12 12h12M12 17h12M12 22h7"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                      Upload files and click Extract with AI to begin
+                    </div>
+                  ) : (
+                    results.map((item, idx) => {
+                      const d = item.data || {};
+                      const filled = item.ok ? nonEmpty(d) : 0;
+                      const r = item.manualResult || d.result || "UNKNOWN";
+                      const disabled = item.saved || item.saving;
+
+                      return (
+                        <div
+                          key={`${item.fileName}-${idx}`}
+                          className={`rcard${
+                            item.ok ? (item.saved ? " is-saved" : "") : " is-err"
+                          }`}
+                        >
+                          <div className="rhead">
+                            <div
+                              className="rnum"
+                              style={
+                                item.ok
+                                  ? { background: "var(--green-bg)", color: "var(--green-t)" }
+                                  : { background: "var(--red-bg)", color: "var(--red-t)" }
+                              }
+                            >
+                              {idx + 1}
+                            </div>
+
+                            <div className="rfname" title={item.fileName}>
+                              {item.fileName}
+                            </div>
+
+                            {item.ok ? (
+                              <span className="pill p-info">{filled} fields</span>
+                            ) : null}
+
+                            {item.ok && d.equipment_type ? (
+                              <span className="pill p-neutral">{d.equipment_type}</span>
+                            ) : null}
+
+                            {item.ok ? (
+                              <span className={`pill ${pillClass(r)}`}>{r}</span>
+                            ) : null}
+
+                            {item.saved && item.certNumber ? (
+                              <span className="cert-num">{item.certNumber}</span>
+                            ) : null}
+
+                            <span className={`pill ${item.ok ? "p-ok" : "p-err"}`}>
+                              {item.ok ? "OK" : "Error"}
+                            </span>
+                          </div>
+
+                          {!item.ok ? (
+                            <div className="rbody">
+                              <div className="err-box">
+                                <div className="err-title">
+                                  {item.error || "Extraction failed."}
+                                </div>
+                                <div className="err-detail">
+                                  Check that /api/ai/extract is deployed and your AI API key is set.
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="rbody">
+                                <div className="kv-grid">
+                                  <div className="kv">
+                                    <div className="kv-lbl">Certificate no.</div>
+                                    <div className="kv-val">
+                                      {item.certNumber || (
+                                        <span style={{ color: "var(--hint)", fontWeight: 400 }}>
+                                          Auto on save
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="kv">
+                                    <div className="kv-lbl">Equipment type</div>
+                                    <div className="kv-val">{d.equipment_type || "—"}</div>
+                                  </div>
+                                  <div className="kv">
+                                    <div className="kv-lbl">Inspection date</div>
+                                    <div className="kv-val">{d.inspection_date || "—"}</div>
+                                  </div>
+                                  <div className="kv">
+                                    <div className="kv-lbl">Expiry date</div>
+                                    <div className="kv-val">{d.expiry_date || "—"}</div>
+                                  </div>
+                                </div>
+
+                                <div className="strip">
+                                  <div>
+                                    <div className="strip-lbl">Equipment</div>
+                                    <div className="strip-val">
+                                      {d.equipment_description || "—"}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="strip-lbl">Client</div>
+                                    <div className="strip-val">{d.client_name || "—"}</div>
+                                  </div>
+                                  <div>
+                                    <div className="strip-lbl">Serial no.</div>
+                                    <div className="strip-val">{d.serial_number || "—"}</div>
+                                  </div>
+                                  <div>
+                                    <div className="strip-lbl">Location</div>
+                                    <div className="strip-val">{d.location || "—"}</div>
+                                  </div>
+                                </div>
+
+                                {d.raw_text_summary ? (
+                                  <div className="raw-sum">{d.raw_text_summary}</div>
+                                ) : null}
+
+                                <div className="two-fields">
+                                  <div>
+                                    <label className="field-lbl">Inspection result</label>
+                                    <select
+                                      className="sel"
+                                      value={item.manualResult}
+                                      disabled={disabled}
+                                      onChange={(e) =>
+                                        setResultField(idx, "manualResult", e.target.value)
+                                      }
+                                    >
+                                      <option value="PASS">PASS</option>
+                                      <option value="FAIL">FAIL</option>
+                                      <option value="CONDITIONAL">CONDITIONAL</option>
+                                      <option value="UNKNOWN">UNKNOWN</option>
+                                    </select>
+                                  </div>
+
+                                  <div>
+                                    <label className="field-lbl">Defects found</label>
+                                    <textarea
+                                      className="ta"
+                                      value={item.manualDefects}
+                                      disabled={disabled}
+                                      placeholder="Describe defects, cracks, wear, non-conformances..."
+                                      onChange={(e) =>
+                                        setResultField(idx, "manualDefects", e.target.value)
+                                      }
+                                    />
+                                  </div>
+                                </div>
+
+                                {item.saveError ? (
+                                  <div className="save-err">{item.saveError}</div>
+                                ) : null}
+
+                                <div className="rfoot">
+                                  <button
+                                    className="expand-btn"
+                                    type="button"
+                                    onClick={() => toggleExpanded(idx)}
+                                  >
+                                    {item.expanded
+                                      ? "Hide all fields ↑"
+                                      : "Show all fields ↓"}
+                                  </button>
+
+                                  <div className="foot-actions">
+                                    {item.saved && item.savedId ? (
+                                      <>
+                                        <Link
+                                          href={`/certificates/${item.savedId}`}
+                                          className="view-btn"
+                                        >
+                                          View →
+                                        </Link>
+                                        <Link
+                                          href={`/certificates/${item.savedId}/edit`}
+                                          className="edit-btn"
+                                        >
+                                          Edit
+                                        </Link>
+                                      </>
+                                    ) : null}
+
+                                    <button
+                                      className="btn-save"
+                                      type="button"
+                                      disabled={disabled}
+                                      onClick={() => saveOne(idx)}
+                                    >
+                                      {item.saved ? (
+                                        "Saved ✓"
+                                      ) : item.saving ? (
+                                        <>
+                                          <span className="spinner" />
+                                          Saving...
+                                        </>
+                                      ) : (
+                                        "Save to register"
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {item.expanded ? (
+                                <div className="drawer">
+                                  <div className="drawer-grid">
+                                    {Object.entries(d).map(([key, value]) => (
+                                      <div className="dc" key={key}>
+                                        <div className="dc-k">
+                                          {key.replace(/_/g, " ")}
+                                        </div>
+                                        <div className="dc-v">
+                                          {value != null && String(value).trim() !== ""
+                                            ? String(value)
+                                            : "—"}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
+
+        <style jsx global>{`
+          .cert-import-page * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+          }
+
+          .cert-import-page {
+            --bg: #060c18;
+            --s1: #0d1526;
+            --s2: #111d30;
+            --s3: #162038;
+            --b1: #1a2740;
+            --b2: #243450;
+            --b3: #2e4060;
+            --text: #eef2f8;
+            --sub: #7a8fa8;
+            --hint: #4a5f78;
+            --blue: #4a90e2;
+            --blue2: #2d6bc4;
+            --blue-dim: #122040;
+            --blue-t: #7eb8f7;
+            --green: #22c55e;
+            --green-bg: #0a2818;
+            --green-b: #145228;
+            --green-t: #4ade80;
+            --red: #ef4444;
+            --red-bg: #200a0a;
+            --red-b: #5c1a1a;
+            --red-t: #f87171;
+            --amber: #f59e0b;
+            --amber-bg: #1e1208;
+            --amber-b: #6b3d08;
+            --amber-t: #fbbf24;
+            --accent: #00d4ff;
+            --accent2: #0099cc;
+            --r: 8px;
+            --rl: 12px;
+            --rxl: 16px;
+            background: var(--bg);
+            color: var(--text);
+            font-family: "IBM Plex Sans", "DM Sans", system-ui, sans-serif;
+            font-size: 13px;
+            line-height: 1.5;
+            min-height: 100vh;
+          }
+
+          .cert-import-page .wrap {
+            padding: 28px 24px;
+            max-width: 1160px;
+          }
+
+          .cert-import-page .top-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 32px;
+            gap: 16px;
+            flex-wrap: wrap;
+          }
+
+          .cert-import-page .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+          }
+
+          .cert-import-page .brand-dot {
+            display: inline-block;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--accent);
+            margin-right: 6px;
+            vertical-align: middle;
+            animation: pulse 2s infinite;
+          }
+
+          @keyframes pulse {
+            0%,
+            100% {
+              opacity: 1;
+              box-shadow: 0 0 0 0 rgba(0, 212, 255, 0.4);
+            }
+            50% {
+              opacity: 0.8;
+              box-shadow: 0 0 0 6px rgba(0, 212, 255, 0);
+            }
+          }
+
+          .cert-import-page .brand-label {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--sub);
+          }
+
+          .cert-import-page .brand-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text);
+            letter-spacing: -0.02em;
+            margin-top: 2px;
+          }
+
+          .cert-import-page .nav-btns {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+          }
+
+          .cert-import-page .nav-btn {
+            padding: 8px 16px;
+            border-radius: var(--r);
+            border: 1px solid var(--b2);
+            background: var(--s1);
+            color: var(--sub);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: inherit;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: border-color 0.15s, color 0.15s;
+          }
+
+          .cert-import-page .nav-btn:hover {
+            border-color: var(--b3);
+            color: var(--text);
+          }
+
+          .cert-import-page .nav-btn-primary {
+            background: var(--blue2);
+            border-color: var(--blue2);
+            color: #fff;
+          }
+
+          .cert-import-page .nav-btn-primary:hover {
+            background: var(--blue);
+            border-color: var(--blue);
+          }
+
+          .cert-import-page .stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-bottom: 24px;
+          }
+
+          .cert-import-page .stat-card {
+            background: var(--s1);
+            border: 1px solid var(--b1);
+            border-radius: var(--rl);
+            padding: 16px 18px;
+            position: relative;
+            overflow: hidden;
+          }
+
+          .cert-import-page .stat-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            border-radius: var(--rl) var(--rl) 0 0;
+          }
+
+          .cert-import-page .stat-card.blue::before {
+            background: var(--blue);
+          }
+
+          .cert-import-page .stat-card.green::before {
+            background: var(--green);
+          }
+
+          .cert-import-page .stat-card.red::before {
+            background: var(--red);
+          }
+
+          .cert-import-page .stat-card.amber::before {
+            background: var(--amber);
+          }
+
+          .cert-import-page .stat-lbl {
+            font-size: 11px;
+            color: var(--sub);
+            font-weight: 500;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+          }
+
+          .cert-import-page .stat-val {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.03em;
+          }
+
+          .cert-import-page .stat-val.blue {
+            color: var(--blue-t);
+          }
+
+          .cert-import-page .stat-val.green {
+            color: var(--green-t);
+          }
+
+          .cert-import-page .stat-val.red {
+            color: var(--red-t);
+          }
+
+          .cert-import-page .stat-val.amber {
+            color: var(--amber-t);
+          }
+
+          .cert-import-page .layout {
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            gap: 16px;
+            align-items: start;
+          }
+
+          .cert-import-page .left-col {
+            display: grid;
+            gap: 14px;
+          }
+
+          .cert-import-page .card {
+            background: var(--s1);
+            border: 1px solid var(--b1);
+            border-radius: var(--rxl);
+            overflow: hidden;
+          }
+
+          .cert-import-page .card-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--b1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+          }
+
+          .cert-import-page .card-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+          }
+
+          .cert-import-page .card-sub {
+            font-size: 11px;
+            color: var(--sub);
+            margin-top: 2px;
+          }
+
+          .cert-import-page .card-body {
+            padding: 16px 20px;
+          }
+
+          .cert-import-page .browse-label {
+            padding: 8px 14px;
+            border-radius: var(--r);
+            background: var(--blue2);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: inherit;
+          }
+
+          .cert-import-page .drop-area {
+            border: 1.5px dashed var(--b2);
+            border-radius: var(--rl);
+            padding: 28px 20px;
+            text-align: center;
+            background: var(--s2);
+            cursor: pointer;
+            position: relative;
+            transition: border-color 0.2s, background 0.2s;
+            margin-bottom: 14px;
+          }
+
+          .cert-import-page .drop-area:hover,
+          .cert-import-page .drop-area.drag {
+            border-color: var(--accent);
+            background: rgba(0, 212, 255, 0.04);
+          }
+
+          .cert-import-page .drop-area input {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+            width: 100%;
+            height: 100%;
+          }
+
+          .cert-import-page .drop-icon-ring {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            border: 1.5px solid var(--b3);
+            background: var(--s3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 14px;
+          }
+
+          .cert-import-page .drop-h {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 4px;
+          }
+
+          .cert-import-page .drop-p {
+            font-size: 12px;
+            color: var(--sub);
+          }
+
+          .cert-import-page .type-chips {
+            display: flex;
+            gap: 5px;
+            justify-content: center;
+            margin-top: 12px;
+            flex-wrap: wrap;
+          }
+
+          .cert-import-page .chip {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: var(--s3);
+            border: 1px solid var(--b2);
+            color: var(--sub);
+            letter-spacing: 0.06em;
+          }
+
+          .cert-import-page .action-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+          }
+
+          .cert-import-page .btn {
+            padding: 9px 16px;
+            border-radius: var(--r);
+            border: 1px solid var(--b2);
+            background: var(--s2);
+            color: var(--sub);
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            font-family: inherit;
+            transition: all 0.15s;
+          }
+
+          .cert-import-page .btn:hover {
+            border-color: var(--b3);
+            color: var(--text);
+          }
+
+          .cert-import-page .btn-ghost {
+            background: transparent;
+            border-color: transparent;
+            color: var(--hint);
+          }
+
+          .cert-import-page .btn-ghost:hover {
+            color: var(--sub);
+            border-color: transparent;
+          }
+
+          .cert-import-page .btn-primary {
+            background: var(--blue2);
+            border-color: var(--blue2);
+            color: #fff;
+            flex: 1;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+          }
+
+          .cert-import-page .btn-primary:hover:not(:disabled) {
+            background: var(--blue);
+            border-color: var(--blue);
+          }
+
+          .cert-import-page .btn-primary:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+          }
+
+          .cert-import-page .btn-save {
+            padding: 7px 14px;
+            border-radius: var(--r);
+            border: 1px solid var(--green-b);
+            background: var(--green-bg);
+            color: var(--green-t);
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            font-family: inherit;
+            transition: opacity 0.15s;
+          }
+
+          .cert-import-page .btn-save:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+          }
+
+          .cert-import-page .btn-remove {
+            padding: 4px 9px;
+            border-radius: 6px;
+            border: 1px solid var(--red-b);
+            background: var(--red-bg);
+            color: var(--red-t);
+            cursor: pointer;
+            font-size: 11px;
+            font-family: inherit;
+          }
+
+          .cert-import-page .btn-csv {
+            padding: 7px 13px;
+            border-radius: var(--r);
+            border: 1px solid var(--b2);
+            background: var(--s2);
+            color: var(--sub);
+            cursor: pointer;
+            font-size: 12px;
+            font-family: inherit;
+          }
+
+          .cert-import-page .btn-saveall {
+            padding: 9px 16px;
+            border-radius: var(--r);
+            border: none;
+            background: var(--blue2);
+            color: #fff;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: inherit;
+          }
+
+          .cert-import-page .btn-saveall:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+          }
+
+          .cert-import-page .prog-wrap {
+            margin-top: 12px;
+          }
+
+          .cert-import-page .prog-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: var(--sub);
+            margin-bottom: 6px;
+          }
+
+          .cert-import-page .prog-pct {
+            font-weight: 700;
+            color: var(--text);
+          }
+
+          .cert-import-page .prog-track {
+            height: 3px;
+            background: var(--b1);
+            border-radius: 999px;
+            overflow: hidden;
+          }
+
+          .cert-import-page .prog-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 999px;
+            transition: width 0.3s ease;
+          }
+
+          .cert-import-page .override-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+          }
+
+          .cert-import-page .ov-f {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+          }
+
+          .cert-import-page .ov-lbl {
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--hint);
+          }
+
+          .cert-import-page .ov-input {
+            padding: 8px 10px;
+            border-radius: var(--r);
+            border: 1px solid var(--b1);
+            background: var(--s2);
+            color: var(--text);
+            font-size: 12px;
+            outline: none;
+            font-family: inherit;
+            width: 100%;
+            transition: border-color 0.15s;
+          }
+
+          .cert-import-page .ov-input:focus {
+            border-color: var(--blue);
+          }
+
+          .cert-import-page .abadge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 700;
+            background: var(--blue-dim);
+            color: var(--blue-t);
+            border: 1px solid #1a3a6a;
+            letter-spacing: 0.04em;
+          }
+
+          .cert-import-page .q-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 12px;
+            border-radius: var(--r);
+            border: 1px solid var(--b1);
+            background: var(--s2);
+            margin-bottom: 6px;
+          }
+
+          .cert-import-page .q-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 7px;
+            background: var(--blue-dim);
+            color: var(--blue-t);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 700;
+            flex-shrink: 0;
+            letter-spacing: 0.04em;
+          }
+
+          .cert-import-page .q-name {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-width: 0;
+          }
+
+          .cert-import-page .q-size {
+            font-size: 11px;
+            color: var(--hint);
+          }
+
+          .cert-import-page .empty-state {
+            padding: 20px 0;
+            font-size: 12px;
+            color: var(--hint);
+            text-align: center;
+          }
+
+          .cert-import-page .result-list {
+            display: grid;
+            gap: 10px;
+          }
+
+          .cert-import-page .rcard {
+            border: 1px solid var(--b1);
+            border-radius: var(--rl);
+            overflow: hidden;
+            transition: border-color 0.2s;
+          }
+
+          .cert-import-page .rcard.is-err {
+            border-color: var(--red-b);
+          }
+
+          .cert-import-page .rcard.is-saved {
+            border-color: var(--green-b);
+          }
+
+          .cert-import-page .rhead {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 11px 16px;
+            background: var(--s2);
+            flex-wrap: wrap;
+            border-bottom: 1px solid var(--b1);
+          }
+
+          .cert-import-page .rnum {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 700;
+            flex-shrink: 0;
+          }
+
+          .cert-import-page .rfname {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text);
+            flex: 1;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+
+          .cert-import-page .pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 700;
+            flex-shrink: 0;
+            letter-spacing: 0.04em;
+          }
+
+          .cert-import-page .p-info {
+            background: var(--blue-dim);
+            color: var(--blue-t);
+            border: 1px solid #1a3a6a;
+          }
+
+          .cert-import-page .p-pass {
+            background: var(--green-bg);
+            color: var(--green-t);
+            border: 1px solid var(--green-b);
+          }
+
+          .cert-import-page .p-fail {
+            background: var(--red-bg);
+            color: var(--red-t);
+            border: 1px solid var(--red-b);
+          }
+
+          .cert-import-page .p-cond {
+            background: var(--amber-bg);
+            color: var(--amber-t);
+            border: 1px solid var(--amber-b);
+          }
+
+          .cert-import-page .p-ok {
+            background: var(--green-bg);
+            color: var(--green-t);
+            border: 1px solid var(--green-b);
+          }
+
+          .cert-import-page .p-err {
+            background: var(--red-bg);
+            color: var(--red-t);
+            border: 1px solid var(--red-b);
+          }
+
+          .cert-import-page .p-neutral {
+            background: var(--s3);
+            color: var(--sub);
+            border: 1px solid var(--b2);
+          }
+
+          .cert-import-page .cert-num {
+            font-size: 10px;
+            font-family: "IBM Plex Mono", monospace;
+            color: var(--green-t);
+            background: var(--green-bg);
+            border: 1px solid var(--green-b);
+            border-radius: 5px;
+            padding: 2px 8px;
+            font-weight: 700;
+          }
+
+          .cert-import-page .rbody {
+            padding: 16px 18px;
+          }
+
+          .cert-import-page .kv-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 12px;
+          }
+
+          .cert-import-page .kv {
+            background: var(--s2);
+            border: 1px solid var(--b1);
+            border-radius: var(--r);
+            padding: 9px 11px;
+          }
+
+          .cert-import-page .kv-lbl {
+            font-size: 10px;
+            color: var(--hint);
+            margin-bottom: 3px;
+            letter-spacing: 0.05em;
+          }
+
+          .cert-import-page .kv-val {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text);
+          }
+
+          .cert-import-page .strip {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            padding: 10px 12px;
+            background: var(--s2);
+            border: 1px solid var(--b1);
+            border-radius: var(--r);
+            margin-bottom: 12px;
+          }
+
+          .cert-import-page .strip-lbl {
+            font-size: 10px;
+            color: var(--hint);
+            margin-bottom: 2px;
+          }
+
+          .cert-import-page .strip-val {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+
+          .cert-import-page .two-fields {
+            display: grid;
+            grid-template-columns: 1fr 1.6fr;
+            gap: 10px;
+            margin-bottom: 12px;
+          }
+
+          .cert-import-page .field-lbl {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--hint);
+            margin-bottom: 5px;
+            display: block;
+          }
+
+          .cert-import-page .sel {
+            padding: 8px 10px;
+            border-radius: var(--r);
+            border: 1px solid var(--b1);
+            background: var(--s2);
+            color: var(--text);
+            font-size: 12px;
+            outline: none;
+            width: 100%;
+            font-family: inherit;
+            cursor: pointer;
+          }
+
+          .cert-import-page .sel:disabled {
+            opacity: 0.45;
+          }
+
+          .cert-import-page .sel:focus {
+            border-color: var(--blue);
+          }
+
+          .cert-import-page .ta {
+            padding: 8px 10px;
+            border-radius: var(--r);
+            border: 1px solid var(--b1);
+            background: var(--s2);
+            color: var(--text);
+            font-size: 12px;
+            outline: none;
+            width: 100%;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 64px;
+            line-height: 1.5;
+          }
+
+          .cert-import-page .ta:disabled {
+            opacity: 0.45;
+          }
+
+          .cert-import-page .ta:focus {
+            border-color: var(--blue);
+          }
+
+          .cert-import-page .raw-sum {
+            font-size: 11px;
+            color: var(--hint);
+            line-height: 1.65;
+            margin-bottom: 10px;
+            padding: 10px 12px;
+            background: var(--s2);
+            border-radius: var(--r);
+            border-left: 2px solid var(--b3);
+          }
+
+          .cert-import-page .err-box {
+            background: var(--red-bg);
+            border: 1px solid var(--red-b);
+            border-radius: var(--r);
+            padding: 12px 14px;
+            margin-bottom: 10px;
+          }
+
+          .cert-import-page .err-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--red-t);
+            margin-bottom: 4px;
+          }
+
+          .cert-import-page .err-detail {
+            font-size: 11px;
+            color: #f87171;
+            line-height: 1.6;
+          }
+
+          .cert-import-page .save-err {
+            background: var(--red-bg);
+            border: 1px solid var(--red-b);
+            border-radius: var(--r);
+            padding: 8px 12px;
+            font-size: 11px;
+            color: var(--red-t);
+            margin-bottom: 10px;
+          }
+
+          .cert-import-page .rfoot {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            padding-top: 10px;
+            border-top: 1px solid var(--b1);
+            margin-top: 2px;
+          }
+
+          .cert-import-page .expand-btn {
+            background: none;
+            border: none;
+            color: var(--hint);
+            font-size: 11px;
+            cursor: pointer;
+            padding: 0;
+            font-family: inherit;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+          }
+
+          .cert-import-page .expand-btn:hover {
+            color: var(--sub);
+          }
+
+          .cert-import-page .foot-actions {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex-wrap: wrap;
+          }
+
+          .cert-import-page .view-btn {
+            padding: 6px 12px;
+            border-radius: var(--r);
+            border: 1px solid var(--blue-dim);
+            background: transparent;
+            color: var(--blue-t);
+            font-size: 11px;
+            cursor: pointer;
+            font-family: inherit;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+          }
+
+          .cert-import-page .edit-btn {
+            padding: 6px 12px;
+            border-radius: var(--r);
+            border: 1px solid var(--amber-b);
+            background: var(--amber-bg);
+            color: var(--amber-t);
+            font-size: 11px;
+            cursor: pointer;
+            font-family: inherit;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+          }
+
+          .cert-import-page .drawer {
+            border-top: 1px solid var(--b1);
+            background: var(--bg);
+            padding: 14px 18px;
+          }
+
+          .cert-import-page .drawer-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 7px;
+          }
+
+          .cert-import-page .dc {
+            background: var(--s1);
+            border: 1px solid var(--b1);
+            border-radius: var(--r);
+            padding: 8px 10px;
+          }
+
+          .cert-import-page .dc-k {
+            font-size: 10px;
+            color: var(--hint);
+            margin-bottom: 3px;
+            text-transform: capitalize;
+            letter-spacing: 0.03em;
+          }
+
+          .cert-import-page .dc-v {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text);
+            word-break: break-word;
+            line-height: 1.4;
+          }
+
+          .cert-import-page .spinner {
+            display: inline-block;
+            width: 11px;
+            height: 11px;
+            border: 2px solid var(--b3);
+            border-top-color: var(--blue-t);
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            vertical-align: middle;
+            margin-right: 4px;
+          }
+
+          @keyframes spin {
+            to {
+              transform: rotate(360deg);
+            }
+          }
+
+          @media (max-width: 780px) {
+            .cert-import-page .layout {
+              grid-template-columns: 1fr;
+            }
+            .cert-import-page .stats {
+              grid-template-columns: repeat(2, 1fr);
+            }
+            .cert-import-page .kv-grid,
+            .cert-import-page .strip {
+              grid-template-columns: repeat(2, 1fr);
+            }
+            .cert-import-page .two-fields {
+              grid-template-columns: 1fr;
+            }
+          }
+        `}</style>
       </div>
     </AppLayout>
   );
