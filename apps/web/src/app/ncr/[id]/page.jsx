@@ -25,10 +25,11 @@ const CSS = `
   ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.2);border-radius:99px}
   .nd-hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
   .nd-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .nd-btn-row{display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap}
   @media(max-width:768px){
     .nd-page{padding:12px!important}
     .nd-hdr{flex-direction:column!important;gap:10px!important}
-    .nd-hdr-btns{width:100%;display:flex;gap:8px}.nd-hdr-btns a,.nd-hdr-btns button{flex:1;text-align:center;justify-content:center}
+    .nd-btn-row{width:100%}.nd-btn-row a,.nd-btn-row button{flex:1;text-align:center;justify-content:center}
     .nd-grid{grid-template-columns:1fr!important}
   }
   @media(max-width:480px){.nd-grid{grid-template-columns:1fr}}
@@ -46,6 +47,16 @@ const stCfg = s => ({
   in_progress:{color:T.amber,bg:T.amberDim,brd:T.amberBrd,label:"In Progress"},
 }[s] || {color:T.textDim,bg:T.card,brd:T.border,label:s||"Unknown"});
 
+const capaStageCfg = s => ({
+  identification: {label:"Identification", color:T.blue},
+  investigation:  {label:"Investigation",  color:T.purple},
+  root_cause:     {label:"Root Cause",     color:T.amber},
+  action_plan:    {label:"Action Plan",    color:T.accent},
+  implementation: {label:"Implementation", color:T.amber},
+  verification:   {label:"Verification",   color:T.purple},
+  closed:         {label:"Closed",         color:T.green},
+}[s] || {label:s||"Unknown", color:T.textDim});
+
 function fd(v){if(!v)return "—";const d=new Date(v);return isNaN(d)?"—":d.toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"});}
 function nz(v,fb="—"){if(!v&&v!==0)return fb;const s=String(v).trim();return s||fb;}
 
@@ -60,12 +71,12 @@ function Row({label,value,mono=false}){
     </div>
   );
 }
-function Sec({icon,title,children}){
+function Sec({icon,title,children,accent=false}){
   return(
-    <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:16,padding:18}}>
+    <div style={{background:accent?`rgba(34,211,238,0.04)`:T.panel,border:`1px solid ${accent?T.accentBrd:T.border}`,borderRadius:16,padding:18}}>
       <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:14,paddingBottom:12,borderBottom:`1px solid ${T.border}`}}>
         <span style={{fontSize:15}}>{icon}</span>
-        <div style={{fontSize:14,fontWeight:800,color:T.text}}>{title}</div>
+        <div style={{fontSize:14,fontWeight:800,color:accent?T.accent:T.text}}>{title}</div>
       </div>
       {children}
     </div>
@@ -78,41 +89,47 @@ export default function NCRDetailPage() {
   const id = params?.id;
 
   const [ncr,setNcr]=useState(null);
+  const [linkedCapa,setLinkedCapa]=useState(null);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
   const [closing,setClosing]=useState(false);
 
   useEffect(()=>{
-    if(!id) return;
+    if(!id)return;
     async function load(){
       setLoading(true);setError("");
-      const{data,error:e}=await supabase
-        .from("ncrs")
-        .select(`
+      const[ncrRes,capaRes]=await Promise.all([
+        supabase.from("ncrs").select(`
           *,
-          assets(
-            id, asset_tag, asset_name, asset_type, location, serial_number,
-            clients(id, company_name)
-          )
-        `)
-        .eq("id",id)
-        .maybeSingle();
-      if(e||!data){setError(e?.message||"NCR not found.");setLoading(false);return;}
-      setNcr(data);setLoading(false);
+          assets(id,asset_tag,asset_name,asset_type,location,serial_number,clients(id,company_name))
+        `).eq("id",id).maybeSingle(),
+        supabase.from("capas").select("id,capa_number,stage,priority,title").eq("ncr_id",id).maybeSingle(),
+      ]);
+      if(ncrRes.error||!ncrRes.data){setError(ncrRes.error?.message||"NCR not found.");setLoading(false);return;}
+      setNcr(ncrRes.data);
+      setLinkedCapa(capaRes.data||null);
+      setLoading(false);
     }
     load();
   },[id]);
 
   async function handleClose(){
-    if(!ncr) return;
+    if(!ncr)return;
     setClosing(true);
-    const{error:e}=await supabase.from("ncrs").update({status:"closed",closed_date:new Date().toISOString().slice(0,10)}).eq("id",ncr.id);
-    if(!e) setNcr(p=>({...p,status:"closed",closed_date:new Date().toISOString().slice(0,10)}));
+    const{error:e}=await supabase.from("ncrs")
+      .update({status:"closed",closed_date:new Date().toISOString().slice(0,10)})
+      .eq("id",ncr.id);
+    if(!e)setNcr(p=>({...p,status:"closed",closed_date:new Date().toISOString().slice(0,10)}));
     setClosing(false);
   }
 
   const sv = ncr ? sevCfg(ncr.severity) : null;
   const st = ncr ? stCfg(ncr.status)   : null;
+
+  // Build CAPA creation URL with pre-filled params
+  const capaNewUrl = ncr
+    ? `/capa/new?ncr_id=${id}&asset_id=${ncr.asset_id||""}`
+    : "/capa/new";
 
   return(
     <AppLayout title="NCR Detail">
@@ -137,23 +154,48 @@ export default function NCRDetailPage() {
                         Due: {fd(ncr.due_date)}
                       </span>
                     )}
+                    {/* CAPA linked indicator */}
+                    {linkedCapa&&(
+                      <span style={{padding:"4px 12px",borderRadius:99,background:T.purpleDim,border:`1px solid ${T.purpleBrd}`,fontSize:11,fontWeight:800,color:T.purple}}>
+                        🔧 CAPA Linked
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
-              <div className="nd-hdr-btns" style={{display:"flex",gap:8,flexShrink:0,flexWrap:"wrap"}}>
+
+              <div className="nd-btn-row">
                 <button type="button" onClick={()=>router.push("/ncr")}
                   style={{padding:"9px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:T.card,color:T.textMid,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>
                   ← Back
                 </button>
+
+                {/* Create CAPA — only if no CAPA linked yet */}
+                {ncr&&!linkedCapa&&(
+                  <Link href={capaNewUrl}
+                    style={{padding:"9px 14px",borderRadius:10,border:`1px solid ${T.purpleBrd}`,background:T.purpleDim,color:T.purple,fontWeight:800,fontSize:13,textDecoration:"none",display:"inline-flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
+                    🔧 Create CAPA
+                  </Link>
+                )}
+
+                {/* View existing CAPA */}
+                {linkedCapa&&(
+                  <Link href={`/capa/${linkedCapa.id}`}
+                    style={{padding:"9px 14px",borderRadius:10,border:`1px solid ${T.purpleBrd}`,background:T.purpleDim,color:T.purple,fontWeight:800,fontSize:13,textDecoration:"none",display:"inline-flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
+                    🔧 View CAPA
+                  </Link>
+                )}
+
                 {ncr&&ncr.status!=="closed"&&(
                   <button type="button" onClick={handleClose} disabled={closing}
-                    style={{padding:"9px 16px",borderRadius:10,border:`1px solid ${T.greenBrd}`,background:T.greenDim,color:T.green,fontWeight:800,fontSize:13,cursor:closing?"not-allowed":"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>
+                    style={{padding:"9px 14px",borderRadius:10,border:`1px solid ${T.greenBrd}`,background:T.greenDim,color:T.green,fontWeight:800,fontSize:13,cursor:closing?"not-allowed":"pointer",fontFamily:"'IBM Plex Sans',sans-serif",whiteSpace:"nowrap"}}>
                     {closing?"Closing…":"✓ Close NCR"}
                   </button>
                 )}
+
                 {ncr&&(
                   <Link href={`/ncr/${id}/edit`}
-                    style={{padding:"9px 16px",borderRadius:10,border:`1px solid ${T.amberBrd}`,background:T.amberDim,color:T.amber,fontWeight:800,fontSize:13,textDecoration:"none",display:"inline-flex",alignItems:"center"}}>
+                    style={{padding:"9px 14px",borderRadius:10,border:`1px solid ${T.amberBrd}`,background:T.amberDim,color:T.amber,fontWeight:800,fontSize:13,textDecoration:"none",display:"inline-flex",alignItems:"center"}}>
                     Edit
                   </Link>
                 )}
@@ -170,19 +212,45 @@ export default function NCRDetailPage() {
             </div>
           ):ncr&&(
             <>
-              <div className="nd-grid">
+              {/* LINKED CAPA CARD — shown at top if exists */}
+              {linkedCapa&&(()=>{
+                const sc=capaStageCfg(linkedCapa.stage);
+                return(
+                  <Sec icon="🔧" title="Linked CAPA" accent>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                      <div>
+                        <div style={{fontSize:12,fontFamily:"'IBM Plex Mono',monospace",color:T.accent,fontWeight:800,marginBottom:4}}>{linkedCapa.capa_number}</div>
+                        <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:6}}>{linkedCapa.title}</div>
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                          <span style={{padding:"3px 10px",borderRadius:99,background:"rgba(255,255,255,0.06)",border:`1px solid ${T.border}`,fontSize:10,fontWeight:800,color:sc.color}}>
+                            Stage: {sc.label}
+                          </span>
+                          <span style={{padding:"3px 10px",borderRadius:99,background:"rgba(255,255,255,0.06)",border:`1px solid ${T.border}`,fontSize:10,fontWeight:700,color:T.textDim,textTransform:"capitalize"}}>
+                            Priority: {linkedCapa.priority}
+                          </span>
+                        </div>
+                      </div>
+                      <Link href={`/capa/${linkedCapa.id}`}
+                        style={{padding:"9px 16px",borderRadius:10,border:`1px solid ${T.purpleBrd}`,background:T.purpleDim,color:T.purple,textDecoration:"none",fontSize:13,fontWeight:800,whiteSpace:"nowrap"}}>
+                        Open CAPA →
+                      </Link>
+                    </div>
+                  </Sec>
+                );
+              })()}
 
+              <div className="nd-grid">
                 {/* NCR Info */}
                 <Sec icon="📋" title="NCR Information">
-                  <Row label="NCR Number"   value={ncr.ncr_number} mono />
-                  <Row label="Title"        value={ncr.title} />
-                  <Row label="Severity"     value={sv.label} />
-                  <Row label="Status"       value={st.label} />
-                  <Row label="Due Date"     value={fd(ncr.due_date)} />
-                  <Row label="Closed Date"  value={fd(ncr.closed_date)} />
-                  <Row label="Raised By"    value={ncr.raised_by} />
-                  <Row label="Assigned To"  value={ncr.assigned_to} />
-                  <Row label="Created"      value={fd(ncr.created_at)} />
+                  <Row label="NCR Number"  value={ncr.ncr_number} mono />
+                  <Row label="Title"       value={ncr.title} />
+                  <Row label="Severity"    value={sv.label} />
+                  <Row label="Status"      value={st.label} />
+                  <Row label="Due Date"    value={fd(ncr.due_date)} />
+                  <Row label="Closed Date" value={fd(ncr.closed_date)} />
+                  <Row label="Raised By"   value={ncr.raised_by} />
+                  <Row label="Assigned To" value={ncr.assigned_to} />
+                  <Row label="Created"     value={fd(ncr.created_at)} />
                 </Sec>
 
                 {/* Equipment */}
@@ -195,7 +263,7 @@ export default function NCRDetailPage() {
                       <Row label="Location"    value={ncr.assets.location} />
                       <Row label="Serial No."  value={ncr.assets.serial_number} />
                       <Row label="Client"      value={ncr.assets.clients?.company_name} />
-                      <div style={{marginTop:12,display:"flex",gap:8}}>
+                      <div style={{marginTop:12,display:"flex",gap:8,flexWrap:"wrap"}}>
                         <Link href={`/equipment/${ncr.assets.asset_tag}`}
                           style={{padding:"7px 12px",borderRadius:9,border:`1px solid ${T.accentBrd}`,background:T.accentDim,color:T.accent,textDecoration:"none",fontSize:12,fontWeight:700}}>
                           View Equipment
@@ -214,32 +282,42 @@ export default function NCRDetailPage() {
                 </Sec>
               </div>
 
-              {/* Description */}
               {ncr.description&&(
                 <Sec icon="📝" title="Description">
                   <p style={{fontSize:14,color:T.textMid,lineHeight:1.7,margin:0,whiteSpace:"pre-wrap"}}>{ncr.description}</p>
                 </Sec>
               )}
 
-              {/* Details */}
               {ncr.details&&(
                 <Sec icon="📄" title="Details">
                   <p style={{fontSize:13,color:T.textMid,lineHeight:1.75,margin:0,whiteSpace:"pre-wrap",fontFamily:"'IBM Plex Mono',monospace"}}>{ncr.details}</p>
                 </Sec>
               )}
 
-              {/* Corrective Action */}
               {ncr.corrective_action&&(
                 <Sec icon="🔧" title="Corrective Action">
                   <p style={{fontSize:14,color:T.textMid,lineHeight:1.7,margin:0,whiteSpace:"pre-wrap"}}>{ncr.corrective_action}</p>
                 </Sec>
               )}
 
-              {/* Root Cause */}
               {ncr.root_cause&&(
                 <Sec icon="🔍" title="Root Cause">
                   <p style={{fontSize:14,color:T.textMid,lineHeight:1.7,margin:0,whiteSpace:"pre-wrap"}}>{ncr.root_cause}</p>
                 </Sec>
+              )}
+
+              {/* CTA if no CAPA yet and NCR is open */}
+              {!linkedCapa&&ncr.status!=="closed"&&(
+                <div style={{background:"rgba(167,139,250,0.06)",border:`1px solid ${T.purpleBrd}`,borderRadius:16,padding:18,display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:800,color:T.purple,marginBottom:4}}>No CAPA raised yet</div>
+                    <div style={{fontSize:12,color:T.textDim}}>Create a Corrective &amp; Preventive Action to track the root cause and resolution of this NCR.</div>
+                  </div>
+                  <Link href={capaNewUrl}
+                    style={{padding:"10px 18px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#a78bfa,#60a5fa)",color:"#fff",fontWeight:900,fontSize:13,textDecoration:"none",whiteSpace:"nowrap",flexShrink:0}}>
+                    🔧 Create CAPA
+                  </Link>
+                </div>
               )}
             </>
           )}
