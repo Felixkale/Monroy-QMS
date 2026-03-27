@@ -1,153 +1,477 @@
 // src/components/certificates/CertificateSheet.jsx
 "use client";
 
-const PRINT_CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
-  .cert-sheet {
-    background: #ffffff;
-    color: #0f1923;
-    font-family: 'IBM Plex Sans', sans-serif;
-    width: 100%;
-    max-width: 794px;
-    margin: 0 auto;
-    box-shadow: 0 4px 32px rgba(0,0,0,0.18);
-    border-radius: 4px;
-    overflow: hidden;
-    min-height: 1080px;
-    display: flex;
-    flex-direction: column;
-  }
-  .cert-sheet.print-mode {
-    box-shadow: none; border-radius: 0; min-height: unset;
-  }
-  .cert-header {
-    background: #0b1929; color: #ffffff;
-    padding: 20px 28px 18px;
-    display: flex; align-items: flex-start;
-    justify-content: space-between; gap: 16px;
-  }
-  .cert-header-left { flex: 1; min-width: 0; }
-  .cert-company-name {
-    font-size: 10px; font-weight: 700; letter-spacing: 0.18em;
-    text-transform: uppercase; color: #22d3ee; margin-bottom: 6px;
-  }
-  .cert-doc-title {
-    font-size: 22px; font-weight: 900; letter-spacing: -0.02em;
-    color: #ffffff; line-height: 1.1; margin-bottom: 4px;
-  }
-  .cert-doc-subtitle { font-size: 11px; color: rgba(255,255,255,0.55); font-weight: 500; }
-  .cert-header-right {
-    display: flex; flex-direction: column;
-    align-items: flex-end; gap: 8px; flex-shrink: 0;
-  }
-  .cert-logo {
-    width: 56px; height: 56px; border-radius: 10px; overflow: hidden;
-    border: 1px solid rgba(34,211,238,0.25); background: rgba(34,211,238,0.08);
-    display: flex; align-items: center; justify-content: center;
-  }
-  .cert-logo img { width: 100%; height: 100%; object-fit: contain; }
-  .cert-logo-fallback {
-    font-size: 22px; font-weight: 900; color: #22d3ee;
-    font-family: 'IBM Plex Mono', monospace;
-  }
-  .cert-result-badge {
-    font-size: 11px; font-weight: 800; padding: 4px 12px;
-    border-radius: 99px; letter-spacing: 0.08em; text-transform: uppercase;
-  }
-  .cert-accent-bar {
-    height: 3px;
-    background: linear-gradient(90deg, #22d3ee 0%, #60a5fa 50%, #a78bfa 100%);
-  }
-  .cert-body { flex: 1; padding: 18px 28px 14px; display: grid; gap: 14px; }
-  .cert-section { border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
-  .cert-section-title {
-    background: #f1f5f9; padding: 6px 12px;
-    font-size: 9px; font-weight: 800; letter-spacing: 0.14em;
-    text-transform: uppercase; color: #475569; border-bottom: 1px solid #e2e8f0;
-  }
-  .cert-fields   { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 0; }
-  .cert-fields-3 { grid-template-columns: repeat(3,minmax(0,1fr)); }
-  .cert-fields-2 { grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .cert-fields-1 { grid-template-columns: 1fr; }
-  .cert-field {
-    padding: 8px 12px;
-    border-right: 1px solid #e2e8f0;
-    border-bottom: 1px solid #e2e8f0;
-  }
-  .cert-field:last-child { border-right: none; }
-  .cert-field-label {
-    font-size: 8px; font-weight: 700; letter-spacing: 0.12em;
-    text-transform: uppercase; color: #94a3b8; margin-bottom: 3px;
-  }
-  .cert-field-value { font-size: 12px; font-weight: 600; color: #0f1923; line-height: 1.3; word-break: break-word; }
-  .cert-field-value.mono  { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0e7490; }
-  .cert-field-value.large { font-size: 14px; font-weight: 800; }
-  .cert-field-value.empty { color: #cbd5e1; }
-  .cert-remarks-text { font-size: 11px; color: #334155; line-height: 1.6; padding: 8px 12px; }
-  .cert-footer {
-    background: #f8fafc; border-top: 2px solid #e2e8f0;
-    padding: 14px 28px 12px;
-  }
-  .cert-footer-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 12px; }
-  .cert-sig-box { display: flex; flex-direction: column; gap: 4px; }
-  .cert-sig-label {
-    font-size: 8px; font-weight: 700; letter-spacing: 0.12em;
-    text-transform: uppercase; color: #94a3b8; margin-bottom: 2px;
-  }
-  .cert-sig-line {
-    border-bottom: 1px solid #cbd5e1; height: 36px;
-    margin-bottom: 4px; display: flex; align-items: flex-end; padding-bottom: 4px;
-  }
-  .cert-sig-line img { max-height: 30px; max-width: 100%; object-fit: contain; }
-  .cert-sig-name { font-size: 11px; font-weight: 600; color: #334155; }
-  .cert-sig-id   { font-size: 10px; color: #94a3b8; }
-  .cert-footer-legal {
-    border-top: 1px solid #e2e8f0; padding-top: 8px;
-    display: flex; justify-content: space-between;
-    align-items: flex-end; gap: 12px; flex-wrap: wrap;
-  }
-  .cert-legal-text { font-size: 8px; color: #94a3b8; line-height: 1.5; max-width: 480px; }
-  .cert-page-info {
-    font-size: 9px; font-weight: 700; color: #cbd5e1;
-    letter-spacing: 0.08em; text-transform: uppercase;
-    white-space: nowrap; text-align: right;
-  }
-  .cert-sheet-wrap {
+  /* ── Screen dark wrapper ── */
+  .cs-wrap {
     background: rgba(10,18,32,0.92);
     border: 1px solid rgba(148,163,184,0.12);
-    border-radius: 16px; padding: 20px;
+    border-radius: 16px;
+    padding: 20px;
   }
 
+  /* ── A4 sheet ── */
+  .cs {
+    background: #ffffff;
+    font-family: 'IBM Plex Sans', sans-serif;
+    color: #1a2744;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    box-shadow: 0 6px 40px rgba(0,0,0,0.22);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .cs.pm {
+    box-shadow: none;
+    width: 100%;
+    min-height: unset;
+  }
+
+  /* ════════════════════════════════════
+     HEADER — hardcoded, always present
+  ════════════════════════════════════ */
+  .cs-hdr {
+    background: #1a2744;
+    padding: 14px 24px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+
+  /* Left: logo + brand name */
+  .cs-hdr-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  /* Hardcoded logo mark — geometric crane icon in navy/blue */
+  .cs-logo-mark {
+    width: 54px;
+    height: 54px;
+    background: #ffffff;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .cs-logo-mark img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  /* SVG fallback crane icon when no logo uploaded */
+  .cs-logo-svg {
+    width: 42px;
+    height: 42px;
+  }
+
+  .cs-brand {
+    min-width: 0;
+  }
+
+  .cs-brand-name {
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    color: #ffffff;
+    line-height: 1;
+  }
+
+  .cs-brand-tagline {
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.50);
+    margin-top: 4px;
+  }
+
+  /* Right: certificate number badge */
+  .cs-cert-badge {
+    border: 1.5px solid rgba(255,255,255,0.28);
+    border-radius: 10px;
+    padding: 10px 18px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .cs-cert-badge-label {
+    font-size: 7.5px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.50);
+    margin-bottom: 5px;
+  }
+
+  .cs-cert-badge-value {
+    font-size: 15px;
+    font-weight: 900;
+    color: #ffffff;
+    letter-spacing: 0.05em;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  /* Blue accent stripe under header */
+  .cs-hdr-stripe {
+    height: 4px;
+    background: linear-gradient(90deg, #1d4ed8 0%, #3b82f6 50%, #60a5fa 100%);
+    flex-shrink: 0;
+  }
+
+  /* ════════════════════════════════════
+     TITLE BLOCK
+  ════════════════════════════════════ */
+  .cs-title-block {
+    padding: 18px 24px 14px;
+    text-align: center;
+    border-bottom: 1px solid #e8ecf4;
+    flex-shrink: 0;
+  }
+
+  .cs-doc-title {
+    font-size: 20px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #1a2744;
+    line-height: 1.2;
+    margin-bottom: 8px;
+  }
+
+  /* Two-bar decoration */
+  .cs-title-bars {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    margin-bottom: 12px;
+  }
+
+  .cs-bar-navy { width: 44px; height: 3px; background: #1a2744; border-radius: 2px; }
+  .cs-bar-red  { width: 26px; height: 3px; background: #cc1111; border-radius: 2px; }
+
+  /* Result badge */
+  .cs-result {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 16px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border: 1.5px solid;
+  }
+
+  .cs-result-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* ════════════════════════════════════
+     INTRO TEXT
+  ════════════════════════════════════ */
+  .cs-intro {
+    font-size: 10.5px;
+    color: #475569;
+    line-height: 1.65;
+    padding: 10px 24px 4px;
+    flex-shrink: 0;
+  }
+
+  /* ════════════════════════════════════
+     BODY (grows to fill page)
+  ════════════════════════════════════ */
+  .cs-body {
+    flex: 1;
+    padding: 12px 24px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* ── Section wrapper ── */
+  .cs-sec {
+    border: 1px solid #d1d9e8;
+    border-radius: 7px;
+    overflow: hidden;
+  }
+
+  .cs-sec-head {
+    background: #1a2744;
+    padding: 7px 14px;
+    font-size: 8.5px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #ffffff;
+  }
+
+  /* ── Two-column detail rows ── */
+  .cs-row {
+    display: grid;
+    grid-template-columns: 190px 1fr;
+    border-bottom: 1px solid #e8ecf4;
+  }
+  .cs-row:last-child { border-bottom: none; }
+  .cs-row.alt { background: #f8fafc; }
+
+  .cs-row-label {
+    padding: 8px 13px;
+    font-size: 8.5px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #64748b;
+    border-right: 1px solid #e8ecf4;
+    display: flex;
+    align-items: center;
+  }
+
+  .cs-row-val {
+    padding: 8px 13px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #1a2744;
+    display: flex;
+    align-items: center;
+  }
+
+  .cs-row-val.mono { font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#0e7490; }
+  .cs-row-val.empty { color: #cbd5e1; }
+
+  /* ── Tech grid (4 col) ── */
+  .cs-tech {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0,1fr));
+  }
+
+  .cs-tech-cell {
+    padding: 9px 12px;
+    border-right: 1px solid #e8ecf4;
+    border-bottom: 1px solid #e8ecf4;
+  }
+  .cs-tech-cell:nth-child(4n) { border-right: none; }
+  .cs-tech-cell:nth-last-child(-n+4) { border-bottom: none; }
+
+  .cs-tech-label {
+    font-size: 7.5px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #94a3b8;
+    margin-bottom: 3px;
+  }
+
+  .cs-tech-val {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #1a2744;
+  }
+  .cs-tech-val.empty { color: #cbd5e1; }
+
+  /* ── Date boxes ── */
+  .cs-dates {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .cs-date-box {
+    border-radius: 7px;
+    padding: 11px 15px;
+    border: 1.5px solid;
+  }
+
+  .cs-date-box.issue  { border-color:#93c5fd; background:#eff6ff; }
+  .cs-date-box.expiry { border-color:#fca5a5; background:#fff1f2; }
+
+  .cs-date-lbl {
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+  }
+  .cs-date-box.issue  .cs-date-lbl { color:#1d4ed8; }
+  .cs-date-box.expiry .cs-date-lbl { color:#dc2626; }
+
+  .cs-date-val {
+    font-size: 15px;
+    font-weight: 800;
+    color: #1a2744;
+  }
+
+  /* ── Signature section ── */
+  .cs-sigs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border: 1px solid #d1d9e8;
+    border-radius: 7px;
+    overflow: hidden;
+  }
+
+  .cs-sig {
+    padding: 12px 16px;
+  }
+  .cs-sig:first-child { border-right: 1px solid #d1d9e8; }
+
+  .cs-sig-lbl {
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin-bottom: 8px;
+  }
+
+  .cs-sig-line {
+    border-bottom: 1.5px solid #cbd5e1;
+    height: 44px;
+    display: flex;
+    align-items: flex-end;
+    padding-bottom: 4px;
+    margin-bottom: 6px;
+  }
+
+  .cs-sig-line img {
+    max-height: 38px;
+    max-width: 170px;
+    object-fit: contain;
+  }
+
+  .cs-sig-name { font-size: 11px; font-weight: 700; color: #1a2744; }
+  .cs-sig-meta { font-size: 9.5px; color: #64748b; margin-top: 2px; line-height: 1.5; }
+  .cs-sig-ghost { font-size: 9.5px; color: #cbd5e1; font-style: italic; }
+
+  /* ════════════════════════════════════
+     FOOTER — hardcoded red banner
+     No image file needed — pure CSS/HTML
+  ════════════════════════════════════ */
+  .cs-footer {
+    flex-shrink: 0;
+    margin-top: auto;
+  }
+
+  /* Top section: blue-grey geometric shapes + white space (matches letterhead top) */
+  .cs-footer-top {
+    background: #f0f4f8;
+    padding: 6px 0 0;
+    position: relative;
+    height: 10px;
+    overflow: hidden;
+  }
+
+  /* Red services banner */
+  .cs-footer-red {
+    background: #cc1111;
+    padding: 11px 24px 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .cs-footer-services {
+    font-size: 9px;
+    font-weight: 700;
+    color: #ffffff;
+    text-align: center;
+    line-height: 1.85;
+    letter-spacing: 0.01em;
+  }
+
+  .cs-footer-services .bold { font-weight: 900; }
+  .cs-footer-services .sep  { color: rgba(255,255,255,0.60); margin: 0 4px; }
+
+  /* Optional page number */
+  .cs-footer-pg {
+    background: #1a2744;
+    padding: 4px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .cs-footer-pg-text {
+    font-size: 7.5px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+  }
+
+  /* ════════════════════════════════════
+     PRINT
+  ════════════════════════════════════ */
   @media print {
-    .cert-sheet { box-shadow:none!important; border-radius:0!important; min-height:unset!important; max-width:100%!important; }
-    .cert-header,.cert-accent-bar,.cert-section-title,.cert-result-badge,.cert-footer {
-      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    .cs {
+      box-shadow: none !important;
+      width: 210mm !important;
+      min-height: 297mm !important;
+    }
+    .cs-hdr, .cs-hdr-stripe, .cs-footer-red, .cs-footer-pg,
+    .cs-result, .cs-date-box, .cs-sec-head, .cs-bar-navy, .cs-bar-red {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
     }
   }
-  @media (max-width:860px) {
-    .cert-sheet-wrap { padding: 10px; }
-    .cert-fields { grid-template-columns: repeat(2,minmax(0,1fr))!important; }
-    .cert-fields-3 { grid-template-columns: repeat(2,minmax(0,1fr)); }
-    .cert-footer-grid { grid-template-columns: 1fr 1fr; }
+
+  /* ════════════════════════════════════
+     RESPONSIVE (screen view)
+  ════════════════════════════════════ */
+  @media (max-width: 860px) {
+    .cs-wrap { padding: 10px; }
+    .cs { width: 100%; min-height: unset; }
+    .cs-tech { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .cs-tech-cell:nth-child(4n) { border-right: 1px solid #e8ecf4; }
+    .cs-tech-cell:nth-child(2n) { border-right: none; }
   }
-  @media (max-width:540px) {
-    .cert-header { flex-direction: column; }
-    .cert-header-right { flex-direction: row; align-items: center; }
-    .cert-fields,.cert-fields-3,.cert-fields-2 { grid-template-columns: 1fr 1fr!important; }
-    .cert-doc-title { font-size: 17px; }
-    .cert-body { padding: 12px 14px 10px; gap: 10px; }
-    .cert-footer { padding: 12px 14px 10px; }
-    .cert-footer-grid { grid-template-columns: 1fr; gap: 12px; }
+
+  @media (max-width: 600px) {
+    .cs-hdr { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .cs-cert-badge { text-align: left; }
+    .cs-doc-title { font-size: 15px; }
+    .cs-body { padding: 10px 14px 8px; }
+    .cs-intro { padding: 8px 14px 2px; }
+    .cs-dates { grid-template-columns: 1fr; gap: 8px; }
+    .cs-sigs { grid-template-columns: 1fr; }
+    .cs-sig:first-child { border-right: none; border-bottom: 1px solid #d1d9e8; }
+    .cs-row { grid-template-columns: 130px 1fr; }
+    .cs-tech { grid-template-columns: 1fr 1fr; }
+    .cs-footer-services { font-size: 8px; }
+  }
+
+  @media (max-width: 400px) {
+    .cs-row { grid-template-columns: 1fr; }
+    .cs-row-label { border-right: none; border-bottom: 1px solid #e8ecf4; }
+    .cs-brand-name { font-size: 17px; }
+    .cs-doc-title { font-size: 13px; }
   }
 `;
 
-/* ─── Helpers ───────────────────────────────────────────────── */
+/* ── Helpers ─────────────────────────────────────────────────── */
 function formatDate(v) {
   if (!v) return "—";
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return String(v);
-  return d.toLocaleDateString("en-GB", { day:"2-digit", month:"long", year:"numeric" });
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
 }
 
 function nz(v, fb = "—") {
@@ -156,73 +480,54 @@ function nz(v, fb = "—") {
   return s || fb;
 }
 
-/**
- * ✅ KEY FIX: iterate all candidate fields and return the first one
- * that normalises to something other than "UNKNOWN".
- * Using simple || chains fails because a stored "UNKNOWN" string is
- * truthy and blocks every subsequent check.
- */
 function pickResult(c) {
   const ex = c?.extracted_data || {};
   const candidates = [
-    c?.result,
-    c?.equipment_status,
-    ex.result,
-    ex.equipment_status,
-    ex.inspection_result,
+    c?.result, c?.equipment_status,
+    ex.result, ex.equipment_status, ex.inspection_result,
   ];
-
   for (const raw of candidates) {
     if (!raw) continue;
-    const normalised = String(raw).trim().toUpperCase().replace(/\s+/g, "_");
-    // skip stored UNKNOWN — keep looking for the real value
-    if (normalised === "UNKNOWN") continue;
-    if (normalised === "CONDITIONAL") return "REPAIR_REQUIRED";
-    if (normalised === "REPAIR REQUIRED") return "REPAIR_REQUIRED";
-    if (normalised === "OUT OF SERVICE") return "OUT_OF_SERVICE";
-    if (["PASS", "FAIL", "REPAIR_REQUIRED", "OUT_OF_SERVICE"].includes(normalised)) {
-      return normalised;
-    }
+    const n = String(raw).trim().toUpperCase().replace(/\s+/g, "_");
+    if (n === "UNKNOWN") continue;
+    if (n === "CONDITIONAL" || n === "REPAIR REQUIRED") return "REPAIR_REQUIRED";
+    if (n === "OUT OF SERVICE") return "OUT_OF_SERVICE";
+    if (["PASS", "FAIL", "REPAIR_REQUIRED", "OUT_OF_SERVICE"].includes(n)) return n;
   }
-
   return "UNKNOWN";
 }
 
 function resultStyle(v) {
-  if (v === "PASS")            return { bg:"#dcfce7", color:"#15803d", label:"PASS" };
-  if (v === "FAIL")            return { bg:"#fee2e2", color:"#b91c1c", label:"FAIL" };
-  if (v === "REPAIR_REQUIRED") return { bg:"#fef9c3", color:"#92400e", label:"Repair Required" };
-  if (v === "OUT_OF_SERVICE")  return { bg:"#ede9fe", color:"#5b21b6", label:"Out of Service" };
-  return { bg:"#f1f5f9", color:"#475569", label:"Unknown" };
+  if (v === "PASS")            return { bg:"#dcfce7", color:"#15803d", brd:"#86efac",  label:"PASS",            dot:"#15803d" };
+  if (v === "FAIL")            return { bg:"#fee2e2", color:"#b91c1c", brd:"#fca5a5",  label:"FAIL",            dot:"#b91c1c" };
+  if (v === "REPAIR_REQUIRED") return { bg:"#fef9c3", color:"#92400e", brd:"#fde68a",  label:"Repair Required", dot:"#d97706" };
+  if (v === "OUT_OF_SERVICE")  return { bg:"#ede9fe", color:"#5b21b6", brd:"#c4b5fd",  label:"Out of Service",  dot:"#7c3aed" };
+  return                              { bg:"#f1f5f9", color:"#475569", brd:"#cbd5e1",  label:"Unknown",         dot:"#94a3b8" };
 }
 
-/* ─── Sub-components ────────────────────────────────────────── */
-function Field({ label, value, mono = false, large = false }) {
-  const isEmpty = !value || value === "—";
+function Row({ label, value, mono = false, alt = false }) {
+  const empty = !value || value === "—";
   return (
-    <div className="cert-field">
-      <div className="cert-field-label">{label}</div>
-      <div className={`cert-field-value${mono?" mono":""}${large?" large":""}${isEmpty?" empty":""}`}>
-        {isEmpty ? "—" : value}
+    <div className={`cs-row${alt ? " alt" : ""}`}>
+      <div className="cs-row-label">{label}</div>
+      <div className={`cs-row-val${mono ? " mono" : ""}${empty ? " empty" : ""}`}>
+        {empty ? "—" : value}
       </div>
     </div>
   );
 }
 
-function Section({ title, children, cols = 4 }) {
-  const cls = cols===3 ? "cert-fields cert-fields-3"
-            : cols===2 ? "cert-fields cert-fields-2"
-            : cols===1 ? "cert-fields cert-fields-1"
-            : "cert-fields";
+function TechCell({ label, value }) {
+  const empty = !value || value === "—";
   return (
-    <div className="cert-section">
-      {title && <div className="cert-section-title">{title}</div>}
-      <div className={cls}>{children}</div>
+    <div className="cs-tech-cell">
+      <div className="cs-tech-label">{label}</div>
+      <div className={`cs-tech-val${empty ? " empty" : ""}`}>{empty ? "—" : value}</div>
     </div>
   );
 }
 
-/* ─── Main export ───────────────────────────────────────────── */
+/* ── Main ───────────────────────────────────────────────────── */
 export default function CertificateSheet({ certificate: c, index = 0, total = 1, printMode = false }) {
   if (!c) return null;
 
@@ -252,150 +557,229 @@ export default function CertificateSheet({ certificate: c, index = 0, total = 1,
   const legalFmwk    = nz(c.legal_framework, "Mines, Quarries, Works and Machinery Act Cap 44:02");
   const inspName     = nz(c.inspector_name || ex.inspector_name);
   const inspId       = nz(c.inspector_id || ex.inspector_id);
+  const inspContact  = nz(c.inspector_contact || ex.inspector_contact);
   const logoUrl      = c.logo_url || "/logo.png";
   const sigUrl       = c.signature_url || "";
   const remarks      = nz(c.remarks || c.comments || ex.remarks, "");
 
-  /* ✅ Use pickResult — skips stored "UNKNOWN" and finds the real value */
   const resolvedResult = pickResult(c);
   const tone = resultStyle(resolvedResult);
 
   const isPressure = /pressure|boiler|vessel|air receiver/i.test(certType + " " + equipType);
   const hasLanyard = lanyardSN && lanyardSN !== "—";
 
+  const techFields = isPressure ? [
+    { label:"MAWP / Working Pressure", value:mawp },
+    { label:"Design Pressure",         value:designP },
+    { label:"Test Pressure",           value:testP },
+    { label:"Capacity / Volume",       value:capacity },
+  ] : [
+    { label:"Safe Working Load (SWL)", value:swl },
+    { label:"Capacity",                value:capacity },
+    { label:"Test Load",               value:testP },
+    { label:"Design Pressure",         value:designP },
+  ];
+
   return (
     <>
-      <style>{PRINT_CSS}</style>
+      <style>{CSS}</style>
 
-      <div className={printMode ? "" : "cert-sheet-wrap"}>
-        <div className={`cert-sheet${printMode ? " print-mode" : ""}`}>
+      <div className={printMode ? "" : "cs-wrap"}>
+        <div className={`cs${printMode ? " pm" : ""}`}>
 
-          {/* HEADER */}
-          <div className="cert-header">
-            <div className="cert-header-left">
-              <div className="cert-company-name">{company}</div>
-              <div className="cert-doc-title">{certType}</div>
-              <div className="cert-doc-subtitle">
-                Page {index + 1} of {total}
-                {total > 1 && c.folder_name ? ` · ${c.folder_name}` : ""}
-              </div>
-            </div>
-            <div className="cert-header-right">
-              <div className="cert-logo">
+          {/* ══ HARDCODED HEADER ══ */}
+          <div className="cs-hdr">
+            <div className="cs-hdr-left">
+              {/* Logo box — shows logo.png or falls back to text mark */}
+              <div className="cs-logo-mark">
                 <img
                   src={logoUrl}
-                  alt="Logo"
+                  alt="Monroy Logo"
                   onError={e => { e.currentTarget.style.display = "none"; }}
                 />
-                <span className="cert-logo-fallback">M</span>
+                {/* Inline SVG crane icon fallback */}
+                <svg className="cs-logo-svg" viewBox="0 0 42 42" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect width="42" height="42" fill="#ffffff"/>
+                  <rect x="20" y="8" width="3" height="26" fill="#1a2744"/>
+                  <rect x="8"  y="8" width="15" height="3" fill="#1a2744"/>
+                  <rect x="8"  y="8" width="3"  height="8"  fill="#1a2744"/>
+                  <rect x="20" y="11" width="1.5" height="12" fill="#3b82f6" transform="rotate(30 20 11)"/>
+                  <circle cx="21" cy="34" r="3" stroke="#1a2744" strokeWidth="2" fill="none"/>
+                  <circle cx="11" cy="34" r="3" stroke="#1a2744" strokeWidth="2" fill="none"/>
+                  <rect x="11" y="32" width="10" height="2" fill="#1a2744"/>
+                </svg>
               </div>
-              <span className="cert-result-badge" style={{ background: tone.bg, color: tone.color }}>
-                {tone.label}
-              </span>
+              <div className="cs-brand">
+                <div className="cs-brand-name">MONROY</div>
+                <div className="cs-brand-tagline">Quality Management System</div>
+              </div>
+            </div>
+
+            <div className="cs-cert-badge">
+              <div className="cs-cert-badge-label">Certificate No.</div>
+              <div className="cs-cert-badge-value">{certNumber}</div>
             </div>
           </div>
 
-          <div className="cert-accent-bar" />
+          {/* Blue accent stripe */}
+          <div className="cs-hdr-stripe" />
 
-          {/* BODY */}
-          <div className="cert-body">
+          {/* ══ TITLE BLOCK ══ */}
+          <div className="cs-title-block">
+            <div className="cs-doc-title">{certType}</div>
+            <div className="cs-title-bars">
+              <div className="cs-bar-navy" />
+              <div className="cs-bar-red"  />
+            </div>
+            <span
+              className="cs-result"
+              style={{ background:tone.bg, color:tone.color, borderColor:tone.brd }}
+            >
+              <span className="cs-result-dot" style={{ background:tone.dot }} />
+              {tone.label}
+            </span>
+          </div>
 
-            <Section title="Certificate Details" cols={4}>
-              <Field label="Certificate Number"       value={certNumber} mono large />
-              <Field label="Inspection Number"        value={inspNumber} mono />
-              <Field label="Issue Date"               value={issueDate} />
-              <Field label="Expiry / Next Inspection" value={expiryDate} />
-            </Section>
-
-            <Section title="Client & Location" cols={3}>
-              <Field label="Client / Company"   value={company} />
-              <Field label="Equipment Location" value={location} />
-              <Field label="Certificate Type"   value={certType} />
-            </Section>
-
-            <Section title="Equipment Information" cols={4}>
-              <Field label="Equipment Description" value={equipDesc} />
-              <Field label="Equipment Type"        value={equipType} />
-              <Field label="Equipment ID"          value={equipId}   mono />
-              <Field label="Identification No."    value={idNumber}  mono />
-              <Field label="Manufacturer"          value={manufacturer} />
-              <Field label="Model"                 value={model} />
-              <Field label="Year Built"            value={yearBuilt} />
-              <Field label="Country of Origin"     value={countryOrig} />
-              {hasLanyard && <Field label="Lanyard Serial No." value={lanyardSN} mono />}
-            </Section>
-
-            {isPressure ? (
-              <Section title="Pressure Vessel Technical Data" cols={4}>
-                <Field label="MAWP / Working Pressure" value={mawp} />
-                <Field label="Design Pressure"         value={designP} />
-                <Field label="Test Pressure"           value={testP} />
-                <Field label="Capacity / Volume"       value={capacity} />
-              </Section>
-            ) : (
-              <Section title="Lifting Equipment Technical Data" cols={4}>
-                <Field label="Safe Working Load (SWL)" value={swl} />
-                <Field label="Capacity"                value={capacity} />
-                <Field label="Test Load"               value={testP} />
-                <Field label="Design Pressure"         value={designP} />
-              </Section>
+          {/* ══ INTRO TEXT ══ */}
+          <div className="cs-intro">
+            This is to certify that the equipment described below has been inspected and tested in
+            accordance with the applicable standards and regulations, and is hereby declared to be
+            in a safe and serviceable condition.
+            {total > 1 && (
+              <span style={{ marginLeft:6, color:"#1a2744", fontWeight:700 }}>
+                (Page {index + 1} of {total}{c.folder_name ? ` · ${c.folder_name}` : ""})
+              </span>
             )}
+          </div>
 
+          {/* ══ BODY ══ */}
+          <div className="cs-body">
+
+            {/* Equipment Details */}
+            <div className="cs-sec">
+              <div className="cs-sec-head">Equipment Details</div>
+              <Row label="Company / Client"       value={company}     />
+              <Row label="Equipment Description"  value={equipDesc}   alt />
+              <Row label="Equipment Type"         value={equipType}   />
+              <Row label="Equipment Location"     value={location}    alt />
+              <Row label="Serial Number / ID"     value={equipId}     mono />
+              {idNumber !== "—" && <Row label="Identification Number"  value={idNumber}    mono alt />}
+              {inspNumber !== "—" && <Row label="Inspection Number"    value={inspNumber}  mono />}
+              {hasLanyard && <Row label="Lanyard Serial No."          value={lanyardSN}   mono alt />}
+              {manufacturer !== "—" && <Row label="Manufacturer"      value={manufacturer} />}
+              {model !== "—" && <Row label="Model"                    value={model}        alt />}
+              {yearBuilt !== "—" && <Row label="Year Built"           value={yearBuilt}   />}
+              {countryOrig !== "—" && <Row label="Country of Origin"  value={countryOrig} alt />}
+            </div>
+
+            {/* Technical Data */}
+            <div className="cs-sec">
+              <div className="cs-sec-head">{isPressure ? "Pressure Vessel Technical Data" : "Lifting Equipment Technical Data"}</div>
+              <div className="cs-tech">
+                {techFields.map((f, i) => <TechCell key={i} label={f.label} value={f.value} />)}
+              </div>
+            </div>
+
+            {/* Dates */}
+            <div className="cs-dates">
+              <div className="cs-date-box issue">
+                <div className="cs-date-lbl">Date of Issue</div>
+                <div className="cs-date-val">{issueDate}</div>
+              </div>
+              <div className="cs-date-box expiry">
+                <div className="cs-date-lbl">Expiry Date</div>
+                <div className="cs-date-val">{expiryDate}</div>
+              </div>
+            </div>
+
+            {/* Legal Framework */}
+            <div className="cs-sec">
+              <div className="cs-sec-head">Legal Framework</div>
+              <div style={{ padding:"9px 14px", fontSize:"10.5px", color:"#334155", fontWeight:500, lineHeight:1.55 }}>
+                {legalFmwk}
+              </div>
+            </div>
+
+            {/* Remarks */}
             {remarks && remarks !== "—" && (
-              <div className="cert-section">
-                <div className="cert-section-title">Remarks / Conditions</div>
-                <div className="cert-remarks-text">{remarks}</div>
+              <div className="cs-sec">
+                <div className="cs-sec-head">Remarks / Conditions</div>
+                <div style={{ padding:"9px 14px", fontSize:"10.5px", color:"#334155", lineHeight:1.6 }}>
+                  {remarks}
+                </div>
               </div>
             )}
 
-          </div>
-
-          {/* FOOTER */}
-          <div className="cert-footer">
-            <div className="cert-footer-grid">
-
-              <div className="cert-sig-box">
-                <div className="cert-sig-label">Authorised Inspector</div>
-                <div className="cert-sig-line">
+            {/* Signatures */}
+            <div className="cs-sigs">
+              <div className="cs-sig">
+                <div className="cs-sig-lbl">Inspector</div>
+                <div className="cs-sig-line">
                   {sigUrl && (
-                    <img src={sigUrl} alt="Signature" onError={e => { e.currentTarget.style.display = "none"; }} />
+                    <img
+                      src={sigUrl}
+                      alt="Inspector signature"
+                      onError={e => { e.currentTarget.style.display = "none"; }}
+                    />
                   )}
                 </div>
-                <div className="cert-sig-name">{inspName !== "—" ? inspName : "Inspector"}</div>
-                <div className="cert-sig-id">{inspId !== "—" ? `ID: ${inspId}` : ""}</div>
-              </div>
-
-              <div className="cert-sig-box" style={{ alignItems:"center" }}>
-                <div className="cert-sig-label">Company Stamp</div>
-                <div className="cert-sig-line" style={{ width:"100%", justifyContent:"center" }}>
-                  <div style={{ width:64, height:64, borderRadius:"50%", border:"2px dashed #cbd5e1", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                    <img src={logoUrl} alt="" style={{ width:48, height:48, objectFit:"contain", opacity:0.25 }} onError={e => { e.currentTarget.style.display = "none"; }} />
-                  </div>
+                <div className="cs-sig-name">{inspName !== "—" ? inspName : "Authorised Inspector"}</div>
+                <div className="cs-sig-meta">
+                  {inspId !== "—" ? `ID: ${inspId}` : ""}
+                  {inspContact !== "—" && inspContact ? `\nContact: ${inspContact}` : ""}
                 </div>
               </div>
 
-              <div className="cert-sig-box" style={{ alignItems:"flex-end" }}>
-                <div className="cert-sig-label">Date Issued</div>
-                <div className="cert-sig-line" style={{ justifyContent:"flex-end" }}>
-                  <span style={{ fontSize:13, fontWeight:700, color:"#334155" }}>{issueDate}</span>
+              <div className="cs-sig">
+                <div className="cs-sig-lbl">Customer Acknowledgement</div>
+                <div className="cs-sig-line">
+                  <span className="cs-sig-ghost">Signature &amp; Date</span>
                 </div>
-                <div className="cert-sig-name" style={{ textAlign:"right" }}>Next Inspection</div>
-                <div className="cert-sig-id" style={{ textAlign:"right", color:"#0e7490", fontWeight:600 }}>{expiryDate}</div>
+                <div className="cs-sig-meta" style={{ color:"#cbd5e1" }}>Authorised representative</div>
               </div>
-
             </div>
 
-            <div className="cert-footer-legal">
-              <div className="cert-legal-text">
-                Issued in accordance with: {legalFmwk}.
-                This certificate is valid only for the equipment and conditions stated herein.
-                Any alterations render this certificate void.
+          </div>{/* end body */}
+
+          {/* ══ HARDCODED FOOTER — no image file needed ══ */}
+          <div className="cs-footer">
+
+            {/* Red services banner — matches the letterhead exactly */}
+            <div className="cs-footer-red">
+              <div className="cs-footer-services">
+                Mobile Crane Hire
+                <span className="sep">|</span>
+                <span className="bold">Rigging</span>
+                <span className="sep">|</span>
+                NDT Test
+                <span className="sep">|</span>
+                <span className="bold">Scaffolding</span>
+                <span className="sep">|</span>
+                Painting
+                <span className="sep">|</span>
+                <span className="bold">Inspection of Lifting Equipment and Machinery, Pressure Vessels &amp; Air Receiver</span>
+                <span className="sep">|</span>
+                Inspection of Lifting Equipment
+                <span className="sep">|</span>
+                <span className="bold">Steel Fabricating and Structural</span>
+                <span className="sep">|</span>
+                Mechanical Engineering
+                <span className="sep">|</span>
+                <span className="bold">Fencing</span>
+                <span className="sep">|</span>
+                Maintenance
               </div>
-              <div className="cert-page-info">
+            </div>
+
+            {/* Page info bar */}
+            <div className="cs-footer-pg">
+              <span className="cs-footer-pg-text">Monroy (Pty) Ltd — Quality Management System</span>
+              <span className="cs-footer-pg-text">
                 Page {index + 1} / {total}
                 {c.folder_name ? ` · ${c.folder_name}` : ""}
-              </div>
+              </span>
             </div>
+
           </div>
 
         </div>
