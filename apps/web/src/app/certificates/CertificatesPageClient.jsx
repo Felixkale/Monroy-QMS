@@ -75,14 +75,28 @@ function Badge({label,color,bg,brd}){
 
 function groupCerts(rows){
   const g={};
-  for(const r of rows){
-    const cl=nz(r.client_name,"UNASSIGNED");
-    const tp=nz(r.equipment_type||r.asset_type,"UNCATEGORIZED");
-    const ds=nz(r.equipment_description||r.asset_name||r.asset_tag,"UNNAMED");
-    if(!g[cl])g[cl]={};if(!g[cl][tp])g[cl][tp]={};if(!g[cl][tp][ds])g[cl][tp][ds]=[];
+  for (const r of rows) {
+    const cl = nz(r.client_name, "UNASSIGNED");
+    const tp = nz(r.equipment_type || r.asset_type, "UNCATEGORIZED");
+    const ds = nz(r.equipment_description || r.asset_name || r.asset_tag, "UNNAMED");
+    if (!g[cl]) g[cl] = {};
+    if (!g[cl][tp]) g[cl][tp] = {};
+    if (!g[cl][tp][ds]) g[cl][tp][ds] = [];
     g[cl][tp][ds].push(r);
   }
-  return Object.keys(g).sort().map(cl=>({client:cl,types:Object.keys(g[cl]).sort().map(tp=>({type:tp,items:Object.keys(g[cl][tp]).sort().map(ds=>({desc:ds,certs:[...g[cl][tp][ds]].sort((a,b)=>new Date(b.issue_date||b.created_at||0)-new Date(a.issue_date||a.created_at||0))}))}))});}
+  return Object.keys(g).sort().map(cl => ({
+    client: cl,
+    types: Object.keys(g[cl]).sort().map(tp => ({
+      type: tp,
+      items: Object.keys(g[cl][tp]).sort().map(ds => ({
+        desc: ds,
+        certs: [...g[cl][tp][ds]].sort(
+          (a, b) => new Date(b.issue_date || b.created_at || 0) - new Date(a.issue_date || a.created_at || 0)
+        ),
+      })),
+    })),
+  }));
+}
 
 export default function CertificatesPageClient() {
   const [certs,setCerts]=useState([]);
