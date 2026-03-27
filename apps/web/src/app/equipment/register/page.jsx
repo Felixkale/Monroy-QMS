@@ -1,3 +1,4 @@
+// src/app/equipment/register/page.jsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -6,1077 +7,362 @@ import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 import { registerEquipment } from "@/services/equipment";
 
-const C = { green:"#00f5c4", purple:"#7c5cfc", blue:"#4fc3f7", pink:"#f472b6" };
+const T = {
+  bg:"#070e18",surface:"rgba(13,22,38,0.80)",panel:"rgba(10,18,32,0.92)",
+  panel2:"rgba(18,30,50,0.70)",card:"rgba(255,255,255,0.025)",
+  border:"rgba(148,163,184,0.12)",text:"#f0f6ff",
+  textMid:"rgba(240,246,255,0.72)",textDim:"rgba(240,246,255,0.40)",
+  accent:"#22d3ee",accentDim:"rgba(34,211,238,0.10)",accentBrd:"rgba(34,211,238,0.25)",accentGlow:"rgba(34,211,238,0.18)",
+  green:"#34d399",greenDim:"rgba(52,211,153,0.10)",greenBrd:"rgba(52,211,153,0.25)",
+  red:"#f87171",redDim:"rgba(248,113,113,0.10)",redBrd:"rgba(248,113,113,0.25)",
+};
+
+const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500&display=swap');
+  *,*::before,*::after{box-sizing:border-box}
+  input::placeholder,textarea::placeholder{color:rgba(240,246,255,0.28)}
+  select option{background:#0a1420;color:#f0f6ff}
+  ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.2);border-radius:99px}
+  input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:pointer}
+  .reg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+  .reg-btn-row{display:flex;gap:10px;flex-wrap:wrap}
+  @media(max-width:768px){
+    .reg-page-pad{padding:12px!important}
+    .reg-hdr{flex-direction:column!important;gap:12px!important}
+    .reg-grid{grid-template-columns:1fr}
+    .reg-btn-row{width:100%}.reg-btn-row button{flex:1}
+  }
+`;
 
 const BOTSWANA_LOCATIONS = [
   "Gaborone","Francistown","Maun","Lobatse","Selebi-Phikwe","Jwaneng","Orapa",
-  "Sowa Town","Kasane","Ghanzi","Tsabong","Shakawe","Serowe","Molepolole","Kanye",
-  "Mahalapye","Palapye","Mochudi","Ramotswa","Mogoditshane","Tlokweng","Gabane",
-  "Letlhakane","Bobonong","Tutume","Tonota","Tati Siding","Mmadinare","Sefhare",
-  "Mmashoro","Machaneng","Lerala","Maunatlala","Artesia","Dibete","Palla Road",
-  "Moshupa","Thamaga","Kopong","Otse","Mogobane","Ramatlabama","Pitsane","Goodhope",
-  "Mabule","Moshaneng","Phitshane Molopo","Metlojane","Barolong","Mmathethe",
-  "Molapowabojang","Sekoma","Werda","Khakhea","Pilane","Bokaa","Mmathubudukwane",
-  "Sikwane","Oodi","Modipane","Boatlaname","Rasesa","Malolwane","Khumaga",
-  "Letlhakeng","Takatokwane","Dutlwe","Shoshong","Paje","Mookane","Mosolotshane",
-  "Ramokgonami","Tamasane","Gweta","Nata","Dukwi","Nkange","Tobane","Tsetsebjwe",
-  "Sefophe","Mathangwane","Chadibe","Mosetse","Matshelagabedi","Tsamaya","Goshwe",
-  "Masunga","Gulumani","Matsinde","Zwenshambe","Mapoka","Siviya","Ramokgwebana",
-  "Kazungula","Kavimba","Pandamatenga","Kachikau","Satau","Muchenje","Sehithwa",
-  "Nokaneng","Gumare","Etsha 6","Etsha 13","Seronga","Beetsha","Tsau","Kareng",
-  "Toteng","Bodibeng","Shorobe","Khwai","Sankoyo","Hukuntsi","Tshane","Lehututu",
-  "Kang","Charleshill","Bere","Ncojane","Hunhukwe","Kokotsha","Zutshwa","Struizendam",
-  "Morupule Colliery","Sua Pan (Botash)","Damtshaa Mine","Letlhakane Mine",
-  "Jwaneng Mine Complex","BCL Smelter (Selebi-Phikwe)","Morupule Power Station",
-  "Gaborone Industrial","Francistown Industrial","Lobatse Industrial",
+  "Sowa Town","Kasane","Ghanzi","Serowe","Molepolole","Kanye","Mahalapye","Palapye",
+  "Mochudi","Letlhakane","Bobonong","Morupule Colliery","Sua Pan (Botash)",
+  "Damtshaa Mine","Letlhakane Mine","Jwaneng Mine Complex","BCL Smelter (Selebi-Phikwe)",
+  "Morupule Power Station","Gaborone Industrial","Francistown Industrial","Lobatse Industrial",
 ];
-
 const EQUIPMENT_TYPES = [
   "Pressure Vessel","Boiler","Air Receiver","Trestle Jack","Air Compressor",
   "Lever Hoist","Bottle Jack","Safety Harness","Jack Stand","Oil Separator",
   "Chain Block","Bow Shackle","Mobile Crane","Trolley Jack","Step Ladders",
   "Tifor","Crawl Beam","Beam Crawl","Beam Clamp","Webbing Sling","Nylon Sling",
-  "Wire Sling","Fall Arrest","Man Cage","Shutter Clamp","Drum Clamp",
-  "Manual Rod Handlers",
+  "Wire Sling","Fall Arrest","Man Cage","Shutter Clamp","Drum Clamp","Manual Rod Handlers",
 ];
+const PRESSURE_TYPES = ["Pressure Vessel","Boiler","Air Receiver","Air Compressor","Oil Separator"];
+const LIFTING_TYPES  = ["Trestle Jack","Lever Hoist","Bottle Jack","Safety Harness","Jack Stand","Chain Block","Bow Shackle","Mobile Crane","Trolley Jack","Step Ladders","Tifor","Crawl Beam","Beam Crawl","Beam Clamp","Webbing Sling","Nylon Sling","Wire Sling","Fall Arrest","Man Cage","Shutter Clamp","Drum Clamp","Manual Rod Handlers"];
+const LANYARD_TYPES  = ["Safety Harness","Fall Arrest"];
+const CERT_TYPES     = ["Load Test Certificate","Pressure Test Certificate","Certificate of Statutory Inspection","Inspection Certificate","Compliance Certificate","NDT Certificate"];
+const STANDARDS      = ["ASME Section VIII Div 1","ASME Section VIII Div 2","BS PD 5500","EN 13445","Mines, Quarries, Works and Machinery Act Cap 44:02","SANS 347 (South Africa)","Local / In-house","Other"];
+const MATERIALS      = ["Carbon Steel","Stainless Steel 304","Stainless Steel 316","Duplex Stainless","Low Alloy Steel","Aluminium","Fibreglass (GRP)","Other"];
+const FLUID_TYPES    = ["Air / Compressed Air","Steam","Water","Hot Oil","Natural Gas","LPG / Propane","Hydrogen","Nitrogen","Oxygen","Ammonia","Chemicals / Corrosive","Other"];
+const INSP_FREQS     = ["3 Months","6 Months","12 Months","24 Months"];
 
-const PRESSURE_EQUIPMENT_TYPES = [
-  "Pressure Vessel","Boiler","Air Receiver","Air Compressor","Oil Separator",
-];
+function san(v,max=200){if(!v&&v!==0)return "";return String(v).replace(/<[^>]*>/g,"").replace(/\s+/g," ").trim().slice(0,max);}
 
-const LIFTING_EQUIPMENT_TYPES = [
-  "Trestle Jack","Lever Hoist","Bottle Jack","Safety Harness","Jack Stand",
-  "Chain Block","Bow Shackle","Mobile Crane","Trolley Jack","Step Ladders",
-  "Tifor","Crawl Beam","Beam Crawl","Beam Clamp","Webbing Sling","Nylon Sling",
-  "Wire Sling","Fall Arrest","Man Cage","Shutter Clamp","Drum Clamp",
-  "Manual Rod Handlers",
-];
-
-const LANYARD_EQUIPMENT_TYPES = ["Safety Harness","Fall Arrest"];
-
-const STANDARDS = [
-  "ASME Section VIII Div 1","ASME Section VIII Div 2","BS PD 5500","EN 13445",
-  "AD 2000 (Germany)","AS 1210 (Australia)","SANS 347 (South Africa)","Local / In-house","Other",
-];
-
-const MATERIALS = [
-  "Carbon Steel","Stainless Steel 304","Stainless Steel 316","Duplex Stainless",
-  "Low Alloy Steel","Hastelloy","Inconel","Aluminium","Copper","Fibreglass (GRP)","Other",
-];
-
-const FLUID_TYPES = [
-  "Air / Compressed Air","Steam","Water","Hot Oil","Natural Gas","LPG / Propane",
-  "Hydrogen","Nitrogen","Oxygen","Ammonia","Hydrocarbons","Chemicals / Corrosive","Other",
-];
-
-const CERT_TYPES = [
-  "Load Test Certificate",
-  "Pressure Test Certificate",
-  "Certificate of Statutory Inspection",
-  "Inspection Certificate",
-  "Compliance Certificate",
-  "NDT Certificate",
-  "Compliance and Test Certificate",
-];
-
-const INSPECTION_FREQS = ["3 Months","6 Months","12 Months","24 Months"];
-
-const inputStyle = {
-  width:"100%", padding:"11px 14px",
-  background:"rgba(255,255,255,0.04)",
-  border:"1px solid rgba(102,126,234,0.25)",
-  borderRadius:8, color:"#e2e8f0", fontSize:13,
-  fontFamily:"inherit", outline:"none",
-  boxSizing:"border-box", transition:"border-color .2s",
+const EMPTY = {
+  serial_number:"",equipment_id:"",identification_number:"",inspection_no:"",
+  equipment_type:"Pressure Vessel",manufacturer:"",model:"",year_built:"",country_of_origin:"",
+  client_id:"",location:"",department:"",inspector_name:"",inspector_id:"",
+  cert_type:"Pressure Test Certificate",design_standard:"ASME Section VIII Div 1",
+  inspection_freq:"12 Months",shell_material:"Carbon Steel",fluid_type:"Air / Compressed Air",
+  design_pressure:"",working_pressure:"",test_pressure:"",design_temperature:"",
+  capacity_volume:"",safe_working_load:"",proof_load:"",lifting_height:"",
+  sling_length:"",chain_size:"",rope_diameter:"",lanyard_serial_no:"",
+  last_inspection_date:"",next_inspection_date:"",license_expiry:"",
+  license_status:"valid",condition:"Good",status:"active",notes:"",
 };
 
-const labelStyle = {
-  fontSize:11, fontWeight:700, color:"rgba(255,255,255,0.5)",
-  textTransform:"uppercase", letterSpacing:"0.08em",
-  marginBottom:6, display:"block",
-};
+const IS = { width:"100%",padding:"11px 13px",borderRadius:10,border:"1px solid rgba(148,163,184,0.12)",background:"rgba(18,30,50,0.70)",color:"#f0f6ff",fontSize:13,fontWeight:500,outline:"none",fontFamily:"'IBM Plex Sans',sans-serif",WebkitAppearance:"none",appearance:"none" };
+const LS = { display:"block",fontSize:11,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"rgba(240,246,255,0.50)",marginBottom:7 };
 
-const sectionHeadStyle = {
-  fontSize:11, fontWeight:800, color:"#667eea",
-  textTransform:"uppercase", letterSpacing:"0.12em",
-  borderBottom:"1px solid rgba(102,126,234,0.2)",
-  paddingBottom:8, marginBottom:16, marginTop:8,
-  display:"flex", alignItems:"center", gap:8,
-};
-
-function sanitizeText(val, maxLen = 200) {
-  if (val === undefined || val === null) return "";
-  return String(val)
-    .replace(/<[^>]*>/g, "")
-    .replace(/[^\x20-\x7E\u00C0-\u024F]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maxLen);
+function F({label,name,value,onChange,type="text",placeholder="",readOnly=false}){
+  return(<div><label style={LS}>{label}</label><input type={type} name={name} value={value??""} onChange={onChange} placeholder={placeholder} readOnly={readOnly} style={{...IS,...(readOnly?{opacity:.5,cursor:"not-allowed"}:{})}} /></div>);
 }
-
-function normalizeText(value, fallback = "") {
-  if (value === undefined || value === null) return fallback;
-  return String(value).replace(/\s+/g, " ").trim() || fallback;
+function S({label,name,value,onChange,children,disabled=false}){
+  return(<div><label style={LS}>{label}</label><select name={name} value={value??""} onChange={onChange} disabled={disabled} style={{...IS,cursor:disabled?"not-allowed":"pointer",...(disabled?{opacity:.5}:{})}}>{children}</select></div>);
 }
-
-function SelectField({ name, value, onChange, required=false, disabled=false, children }) {
-  return (
-    <div style={{ position:"relative" }}>
-      <select
-        name={name}
-        value={value}
-        onChange={onChange}
-        required={required}
-        disabled={disabled}
-        style={{
-          ...inputStyle,
-          cursor:disabled?"not-allowed":"pointer",
-          appearance:"none",
-          WebkitAppearance:"none",
-          MozAppearance:"none",
-          paddingRight:40,
-          background:"#1a1f2e",
-          color:"#e2e8f0",
-        }}
-      >
-        {children}
-      </select>
-      <span
-        style={{
-          position:"absolute",
-          right:12,
-          top:"50%",
-          transform:"translateY(-50%)",
-          color:"#94a3b8",
-          pointerEvents:"none",
-          fontSize:12,
-        }}
-      >
-        ▾
-      </span>
+function Sec({icon,title,children}){
+  return(
+    <div style={{background:T.panel,border:"1px solid rgba(148,163,184,0.12)",borderRadius:18,padding:20}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,paddingBottom:12,borderBottom:"1px solid rgba(148,163,184,0.12)"}}>
+        <span style={{fontSize:16}}>{icon}</span>
+        <div style={{fontSize:14,fontWeight:800,color:"#f0f6ff"}}>{title}</div>
+      </div>
+      {children}
     </div>
   );
 }
-
-function BotswanaLocationPicker({ name, value, onChange, required }) {
-  const [manual, setManual] = useState(
-    value && !BOTSWANA_LOCATIONS.includes(value) && value !== ""
-  );
-
-  const handleSelect = (e) => {
-    if (e.target.value === "__manual__") {
-      setManual(true);
-      onChange({ target:{ name, value:"" } });
-    } else {
-      setManual(false);
-      onChange(e);
-    }
-  };
-
-  return (
-    <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-      <SelectField
-        name={name}
-        value={manual ? "__manual__" : (value || "")}
-        onChange={handleSelect}
-        required={required && !manual}
-      >
+function LocationPicker({name,value,onChange}){
+  const [manual,setManual]=useState(value&&!BOTSWANA_LOCATIONS.includes(value));
+  const hSel=e=>{if(e.target.value==="__manual__"){setManual(true);onChange({target:{name,value:""}});}else{setManual(false);onChange(e);}};
+  return(
+    <div style={{display:"grid",gap:6}}>
+      <select name={name} value={manual?"__manual__":(value||"")} onChange={hSel} style={{...IS,cursor:"pointer"}}>
         <option value="">Select location</option>
-        {BOTSWANA_LOCATIONS.map((loc) => (
-          <option key={loc} value={loc}>{loc}</option>
-        ))}
-        <option value="__manual__">Type manually…</option>
-      </SelectField>
-
-      {manual && (
-        <input
-          style={{ ...inputStyle, borderColor:"rgba(0,245,196,0.4)" }}
-          type="text"
-          name={name}
-          placeholder="Enter location / site name"
-          value={value}
-          onChange={onChange}
-          required={required}
-          autoFocus
-        />
-      )}
+        {BOTSWANA_LOCATIONS.map(l=><option key={l} value={l}>{l}</option>)}
+        <option value="__manual__">Type manually...</option>
+      </select>
+      {manual&&<input name={name} type="text" value={value||""} onChange={onChange} placeholder="Enter location / site name" style={{...IS,borderColor:"rgba(34,211,238,0.25)"}} autoFocus />}
     </div>
   );
 }
-
-const emptyForm = {
-  serial_number:"",
-  equipment_id:"",
-  identification_number:"",
-  inspection_no:"",
-  equipment_type:"Pressure Vessel",
-  manufacturer:"",
-  model:"",
-  year_built:"",
-  country_of_origin:"",
-  client_id:"",
-  location:"",
-  department:"",
-  inspector_name:"",
-  inspector_id:"",
-  cert_type:"Pressure Test Certificate",
-  design_standard:"ASME Section VIII Div 1",
-  inspection_freq:"12 Months",
-  shell_material:"Carbon Steel",
-  fluid_type:"Air / Compressed Air",
-  design_pressure:"",
-  working_pressure:"",
-  test_pressure:"",
-  design_temperature:"",
-  capacity_volume:"",
-  safe_working_load:"",
-  proof_load:"",
-  lifting_height:"",
-  sling_length:"",
-  chain_size:"",
-  rope_diameter:"",
-  lanyard_serial_no:"",
-  last_inspection_date:"",
-  next_inspection_date:"",
-  license_status:"valid",
-  license_expiry:"",
-  condition:"Good",
-  status:"active",
-  notes:"",
-};
 
 export default function RegisterEquipmentPage() {
   const router = useRouter();
-  const [formData, setFormData] = useState(emptyForm);
-  const [clients, setClients] = useState([]);
-  const [clientsLoading, setClientsLoading] = useState(true);
-  const [loading, setLoading] = useState(false);
-  const [submitError, setSubmitError] = useState(null);
+  const [form,setForm]=useState(EMPTY);
+  const [clients,setClients]=useState([]);
+  const [clientsLoading,setClientsLoading]=useState(true);
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
 
-  useEffect(() => {
-    async function loadClients() {
-      setClientsLoading(true);
-      const { data, error } = await supabase
-        .from("clients")
-        .select("id,company_name,company_code,status")
-        .eq("status", "active")
-        .order("company_name", { ascending:true });
+  useEffect(()=>{
+    supabase.from("clients").select("id,company_name,company_code,status").eq("status","active").order("company_name",{ascending:true})
+      .then(({data})=>{setClients(data||[]);setClientsLoading(false);});
+  },[]);
 
-      setClients(error ? [] : (data || []));
-      setClientsLoading(false);
-    }
-    loadClients();
-  }, []);
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => {
-      const next = { ...prev, [name]: value };
-
-      if (name === "equipment_type") {
-        const pressure = PRESSURE_EQUIPMENT_TYPES.includes(value);
-        const lifting = LIFTING_EQUIPMENT_TYPES.includes(value);
-        const hasLanyard = LANYARD_EQUIPMENT_TYPES.includes(value);
-
-        if (pressure) {
-          next.safe_working_load = "";
-          next.proof_load = "";
-          next.lifting_height = "";
-          next.sling_length = "";
-          next.chain_size = "";
-          next.rope_diameter = "";
-          next.lanyard_serial_no = "";
-          next.cert_type = "Pressure Test Certificate";
-        }
-
-        if (lifting && !hasLanyard) {
-          next.design_pressure = "";
-          next.working_pressure = "";
-          next.test_pressure = "";
-          next.design_temperature = "";
-          next.capacity_volume = "";
-          next.fluid_type = "";
-          next.lanyard_serial_no = "";
-          if (!["Load Test Certificate", "Inspection Certificate", "Certificate of Statutory Inspection"].includes(next.cert_type)) {
-            next.cert_type = "Load Test Certificate";
-          }
-        }
-
-        if (!pressure && !lifting) {
-          next.design_pressure = "";
-          next.working_pressure = "";
-          next.test_pressure = "";
-          next.design_temperature = "";
-          next.capacity_volume = "";
-          next.fluid_type = "";
-          next.safe_working_load = "";
-          next.proof_load = "";
-          next.lifting_height = "";
-          next.sling_length = "";
-          next.chain_size = "";
-          next.rope_diameter = "";
-          next.lanyard_serial_no = "";
-        }
+  const hc=e=>{
+    const {name,value}=e.target;
+    setForm(prev=>{
+      const next={...prev,[name]:value};
+      if(name==="equipment_type"){
+        const isPv=PRESSURE_TYPES.includes(value);
+        const isLft=LIFTING_TYPES.includes(value);
+        if(isPv){next.cert_type="Pressure Test Certificate";["safe_working_load","proof_load","lifting_height","sling_length","chain_size","rope_diameter","lanyard_serial_no"].forEach(k=>next[k]="");}
+        if(isLft){next.cert_type="Load Test Certificate";["design_pressure","working_pressure","test_pressure","design_temperature","capacity_volume","fluid_type"].forEach(k=>next[k]="");if(!LANYARD_TYPES.includes(value))next.lanyard_serial_no="";}
       }
-
       return next;
     });
   };
 
-  const handleClear = () => {
-    setFormData(emptyForm);
-    setSubmitError(null);
-  };
-
-  async function generateCertNumber(serialNumber, assetId) {
-    const base = serialNumber
-      ? serialNumber.replace(/[\s\-\/]+/g, "").toUpperCase()
-      : `ASSET${assetId}`;
-
-    const prefix = `CERT-${base}-`;
-
-    const { data: existing } = await supabase
-      .from("certificates")
-      .select("certificate_number")
-      .like("certificate_number", `${prefix}%`)
-      .order("certificate_number", { ascending:false })
-      .limit(1)
-      .maybeSingle();
-
-    let nextSeq = 1;
-    if (existing?.certificate_number) {
-      const parts = existing.certificate_number.split("-");
-      const last = parseInt(parts[parts.length - 1], 10);
-      if (!isNaN(last)) nextSeq = last + 1;
-    }
-
-    return `${prefix}${String(nextSeq).padStart(2, "0")}`;
+  async function generateCertNumber(serial,assetId){
+    const base=serial?serial.replace(/[\s\-\/]+/g,"").toUpperCase():`ASSET${assetId}`;
+    const prefix=`CERT-${base}-`;
+    const {data}=await supabase.from("certificates").select("certificate_number").like("certificate_number",`${prefix}%`).order("certificate_number",{ascending:false}).limit(1).maybeSingle();
+    let seq=1;
+    if(data?.certificate_number){const p=data.certificate_number.split("-");const n=parseInt(p[p.length-1],10);if(!isNaN(n))seq=n+1;}
+    return `${prefix}${String(seq).padStart(2,"0")}`;
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setSubmitError(null);
+  async function handleSubmit(e){
+    e.preventDefault();setLoading(true);setError("");
+    try{
+      const client=clients.find(c=>c.id===form.client_id);
+      if(!client)throw new Error("Please select a registered client.");
+      if(!form.serial_number.trim())throw new Error("Serial number is required.");
+      if(!form.manufacturer.trim())throw new Error("Manufacturer is required.");
+      if(form.last_inspection_date&&form.next_inspection_date&&new Date(form.next_inspection_date)<=new Date(form.last_inspection_date))
+        throw new Error("Next inspection date must be after last inspection date.");
 
-    try {
-      const selectedClient = clients.find((c) => c.id === formData.client_id);
-      if (!selectedClient) throw new Error("Please select a registered client.");
+      const assetName=form.model?`${form.equipment_type} - ${form.model}`:`${form.equipment_type} - ${form.serial_number}`;
+      const {data:asset,error:ae}=await registerEquipment({
+        asset_name:san(assetName,150),client_id:form.client_id,asset_type:san(form.equipment_type,100),
+        serial_number:san(form.serial_number,80),manufacturer:san(form.manufacturer,100),
+        model:san(form.model,100)||null,year_built:san(form.year_built,20)||null,
+        location:san(form.location,150),department:san(form.department,100)||null,
+        cert_type:san(form.cert_type,100),design_standard:san(form.design_standard,120)||null,
+        inspection_freq:san(form.inspection_freq,50)||null,shell_material:san(form.shell_material,80)||null,
+        fluid_type:san(form.fluid_type,80)||null,design_pressure:san(form.design_pressure,50)||null,
+        working_pressure:san(form.working_pressure,50)||null,test_pressure:san(form.test_pressure,50)||null,
+        design_temperature:san(form.design_temperature,50)||null,capacity_volume:san(form.capacity_volume,50)||null,
+        safe_working_load:san(form.safe_working_load,50)||null,proof_load:san(form.proof_load,50)||null,
+        lifting_height:san(form.lifting_height,50)||null,sling_length:san(form.sling_length,50)||null,
+        chain_size:san(form.chain_size,50)||null,rope_diameter:san(form.rope_diameter,50)||null,
+        lanyard_serial_no:san(form.lanyard_serial_no,80)||null,identification_number:san(form.identification_number,80)||null,
+        inspection_no:san(form.inspection_no,80)||null,equipment_id:san(form.equipment_id,80)||null,
+        country_of_origin:san(form.country_of_origin,80)||null,inspector_name:san(form.inspector_name,100)||null,
+        inspector_id:san(form.inspector_id,80)||null,last_inspection_date:form.last_inspection_date||null,
+        next_inspection_date:form.next_inspection_date||null,expiry_date:form.next_inspection_date||null,
+        license_status:san(form.license_status,30),license_expiry:form.license_expiry||null,
+        condition:san(form.condition,50)||null,status:san(form.status,30),notes:san(form.notes,1000)||null,
+        description:form.notes?`${form.equipment_type} | ${san(form.notes,300)}`:san(form.equipment_type,100),
+      });
+      if(ae)throw ae;
+      if(!asset?.id)throw new Error("Equipment created but no asset ID returned.");
 
-      if (!formData.serial_number.trim()) throw new Error("Serial number / ID No. is required.");
-      if (!formData.manufacturer.trim()) throw new Error("Manufacturer is required.");
-      if (formData.last_inspection_date && formData.next_inspection_date) {
-        if (new Date(formData.next_inspection_date) <= new Date(formData.last_inspection_date)) {
-          throw new Error("Next inspection date must be after last inspection date.");
-        }
-      }
-
-      const assetName = formData.model
-        ? `${formData.equipment_type} - ${formData.model}`
-        : `${formData.equipment_type} - ${formData.serial_number}`;
-
-      const payload = {
-        asset_name: assetName,
-        client_id: formData.client_id,
-        asset_type: sanitizeText(formData.equipment_type, 100),
-        serial_number: sanitizeText(formData.serial_number, 80),
-        manufacturer: sanitizeText(formData.manufacturer, 100),
-        model: sanitizeText(formData.model, 100) || null,
-        year_built: sanitizeText(formData.year_built, 20) || null,
-        location: sanitizeText(formData.location, 150),
-        department: sanitizeText(formData.department, 100) || null,
-        cert_type: sanitizeText(formData.cert_type, 100),
-        design_standard: sanitizeText(formData.design_standard, 120) || null,
-        inspection_freq: sanitizeText(formData.inspection_freq, 50) || null,
-        shell_material: sanitizeText(formData.shell_material, 80) || null,
-        fluid_type: sanitizeText(formData.fluid_type, 80) || null,
-        design_pressure: sanitizeText(formData.design_pressure, 50) || null,
-        working_pressure: sanitizeText(formData.working_pressure, 50) || null,
-        test_pressure: sanitizeText(formData.test_pressure, 50) || null,
-        design_temperature: sanitizeText(formData.design_temperature, 50) || null,
-        capacity_volume: sanitizeText(formData.capacity_volume, 50) || null,
-        safe_working_load: sanitizeText(formData.safe_working_load, 50) || null,
-        proof_load: sanitizeText(formData.proof_load, 50) || null,
-        lifting_height: sanitizeText(formData.lifting_height, 50) || null,
-        sling_length: sanitizeText(formData.sling_length, 50) || null,
-        chain_size: sanitizeText(formData.chain_size, 50) || null,
-        rope_diameter: sanitizeText(formData.rope_diameter, 50) || null,
-        lanyard_serial_no: sanitizeText(formData.lanyard_serial_no, 80) || null,
-        identification_number: sanitizeText(formData.identification_number, 80) || null,
-        inspection_no: sanitizeText(formData.inspection_no, 80) || null,
-        equipment_id: sanitizeText(formData.equipment_id, 80) || null,
-        country_of_origin: sanitizeText(formData.country_of_origin, 80) || null,
-        inspector_name: sanitizeText(formData.inspector_name, 100) || null,
-        inspector_id: sanitizeText(formData.inspector_id, 80) || null,
-        last_inspection_date: formData.last_inspection_date || null,
-        next_inspection_date: formData.next_inspection_date || null,
-        license_status: sanitizeText(formData.license_status, 30),
-        license_expiry: formData.license_expiry || null,
-        condition: sanitizeText(formData.condition, 50) || null,
-        status: sanitizeText(formData.status, 30),
-        notes: sanitizeText(formData.notes, 1000) || null,
-        description: formData.notes
-          ? `${formData.equipment_type} | ${sanitizeText(formData.notes, 300)}`
-          : sanitizeText(formData.equipment_type, 100),
-      };
-
-      const { data: asset, error: assetError } = await registerEquipment(payload);
-      if (assetError) throw assetError;
-      if (!asset?.id) throw new Error("Equipment was created but asset ID was not returned.");
-
-      const certNumber = await generateCertNumber(formData.serial_number, asset.id);
-
-      const certificatePayload = {
-        certificate_number: certNumber,
-        certificate_type: formData.cert_type || "Inspection Certificate",
-        asset_id: asset.id,
-        company: selectedClient.company_name,
-        equipment_description: sanitizeText(formData.equipment_type, 100),
-        equipment_location: sanitizeText(formData.location, 150) || null,
-        equipment_id:
-          sanitizeText(formData.identification_number, 80) ||
-          sanitizeText(formData.equipment_id, 80) ||
-          sanitizeText(formData.serial_number, 80) ||
-          asset.asset_tag,
-        lanyard_serial_no: sanitizeText(formData.lanyard_serial_no, 80) || null,
-        swl: sanitizeText(formData.safe_working_load, 50) || null,
-        mawp: sanitizeText(formData.working_pressure, 50) || null,
-        capacity: sanitizeText(formData.capacity_volume, 50) || null,
-        country_of_origin: sanitizeText(formData.country_of_origin, 80) || null,
-        year_built: sanitizeText(formData.year_built, 20) || null,
-        manufacturer: sanitizeText(formData.manufacturer, 100) || null,
-        model: sanitizeText(formData.model, 100) || null,
-        equipment_status: "PASS",
-        issued_at: formData.last_inspection_date
-          ? new Date(formData.last_inspection_date).toISOString()
-          : new Date().toISOString(),
-        valid_to: formData.next_inspection_date || null,
-        status: "issued",
-        legal_framework: sanitizeText(formData.design_standard, 120) || null,
-        inspector_name: sanitizeText(formData.inspector_name, 100) || null,
-        inspector_id: sanitizeText(formData.inspector_id, 80) || null,
-        logo_url: "/logo.png",
-      };
-
-      const { error: certError } = await supabase
-        .from("certificates")
-        .insert([certificatePayload]);
-
-      if (certError) throw certError;
-
+      const certNumber=await generateCertNumber(form.serial_number,asset.id);
+      const {error:ce}=await supabase.from("certificates").insert([{
+        certificate_number:certNumber,certificate_type:form.cert_type||"Inspection Certificate",
+        asset_id:asset.id,company:client.company_name,client_name:client.company_name,
+        equipment_description:san(form.equipment_type,100),equipment_type:san(form.equipment_type,100),
+        equipment_location:san(form.location,150)||null,
+        equipment_id:san(form.identification_number,80)||san(form.equipment_id,80)||san(form.serial_number,80)||asset.asset_tag,
+        identification_number:san(form.identification_number,80)||null,inspection_no:san(form.inspection_no,80)||null,
+        lanyard_serial_no:san(form.lanyard_serial_no,80)||null,swl:san(form.safe_working_load,50)||null,
+        mawp:san(form.working_pressure,50)||null,capacity:san(form.capacity_volume,50)||null,
+        country_of_origin:san(form.country_of_origin,80)||null,year_built:san(form.year_built,20)||null,
+        manufacturer:san(form.manufacturer,100)||null,model:san(form.model,100)||null,
+        design_pressure:san(form.design_pressure,50)||null,test_pressure:san(form.test_pressure,50)||null,
+        equipment_status:"PASS",result:"PASS",
+        issued_at:form.last_inspection_date?new Date(form.last_inspection_date).toISOString():new Date().toISOString(),
+        issue_date:form.last_inspection_date||new Date().toISOString().slice(0,10),
+        valid_to:form.next_inspection_date||null,expiry_date:form.next_inspection_date||null,
+        next_inspection_date:form.next_inspection_date||null,
+        status:"issued",legal_framework:san(form.design_standard,120)||null,
+        inspector_name:san(form.inspector_name,100)||null,inspector_id:san(form.inspector_id,80)||null,logo_url:"/logo.png",
+      }]);
+      if(ce)throw ce;
       router.push(`/equipment/${asset.asset_tag}`);
-    } catch (err) {
-      setSubmitError(err?.message || "Failed to register equipment.");
-    } finally {
-      setLoading(false);
-    }
-  };
+    }catch(err){setError(err?.message||"Failed to register equipment.");}
+    finally{setLoading(false);}
+  }
 
-  const isPressureEquipment = PRESSURE_EQUIPMENT_TYPES.includes(formData.equipment_type);
-  const isLiftingEquipment = LIFTING_EQUIPMENT_TYPES.includes(formData.equipment_type);
-  const hasLanyardField = LANYARD_EQUIPMENT_TYPES.includes(formData.equipment_type);
+  const isPv=PRESSURE_TYPES.includes(form.equipment_type);
+  const isLft=LIFTING_TYPES.includes(form.equipment_type);
+  const hasLanyard=LANYARD_TYPES.includes(form.equipment_type);
 
-  return (
+  return(
     <AppLayout title="Register Equipment">
-      <style>{`
-        select { background:#1a1f2e !important; color:#e2e8f0 !important; }
-        select option { background:#111827 !important; color:#f8fafc !important; }
-        input[type="date"]::-webkit-calendar-picker-indicator { filter:invert(0.8); cursor:pointer; }
-      `}</style>
+      <style>{CSS}</style>
+      <div className="reg-page-pad" style={{minHeight:"100vh",background:`radial-gradient(ellipse 70% 50% at 0% 0%,rgba(34,211,238,0.05),transparent),${T.bg}`,color:T.text,fontFamily:"'IBM Plex Sans',sans-serif",padding:24}}>
+        <div style={{maxWidth:1100,margin:"0 auto",display:"grid",gap:18}}>
 
-      <div style={{ marginBottom:24 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
-          <button
-            type="button"
-            onClick={() => router.push("/equipment")}
-            style={{
-              display:"inline-flex",
-              alignItems:"center",
-              gap:6,
-              padding:"7px 14px",
-              borderRadius:8,
-              cursor:"pointer",
-              background:"rgba(255,255,255,0.04)",
-              border:"1px solid rgba(255,255,255,0.1)",
-              color:"#94a3b8",
-              fontSize:12,
-              fontWeight:600,
-              fontFamily:"inherit",
-            }}
-          >
-            ← Back to Equipment
-          </button>
-          <span style={{ color:"#334155" }}>›</span>
-          <span style={{ fontSize:11, color:"#64748b", fontWeight:600 }}>Register</span>
-        </div>
-
-        <h1 style={{ margin:0, fontSize:"clamp(22px,4vw,32px)", fontWeight:900, color:"#fff" }}>
-          Register Equipment
-        </h1>
-        <div
-          style={{
-            marginTop:8,
-            width:72,
-            height:4,
-            borderRadius:999,
-            background:`linear-gradient(90deg,${C.green},${C.purple},${C.blue})`,
-          }}
-        />
-        <p style={{ color:"rgba(255,255,255,0.4)", fontSize:13, margin:"8px 0 0" }}>
-          Asset tag is auto generated by the system. Certificate number stays auto generated in this format:
-          <strong style={{ color:"#e2e8f0" }}> CERT - Serial Number - 01</strong> and continues upward automatically.
-        </p>
-      </div>
-
-      {submitError && (
-        <div
-          style={{
-            background:"rgba(244,114,182,0.1)",
-            border:"1px solid rgba(244,114,182,0.3)",
-            borderRadius:12,
-            padding:"12px 16px",
-            marginBottom:20,
-            color:C.pink,
-            fontSize:13,
-          }}
-        >
-          ⚠️ {submitError}
-        </div>
-      )}
-
-      <form
-        onSubmit={handleSubmit}
-        style={{
-          background:"linear-gradient(135deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))",
-          border:"1px solid rgba(102,126,234,0.2)",
-          borderRadius:16,
-          padding:28,
-          maxWidth:900,
-        }}
-      >
-        <div style={sectionHeadStyle}>⚙️ Equipment Identity</div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16, marginBottom:24 }}>
-          <div>
-            <label style={labelStyle}>Asset Tag</label>
-            <input
-              style={{ ...inputStyle, opacity:0.7, cursor:"not-allowed" }}
-              type="text"
-              value="Auto generated by system"
-              readOnly
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>Serial Number / ID No. *</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="serial_number"
-              value={formData.serial_number}
-              onChange={handleChange}
-              required
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>Equipment ID</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="equipment_id"
-              value={formData.equipment_id}
-              onChange={handleChange}
-              placeholder="Optional equipment ID"
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>Identification Number</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="identification_number"
-              value={formData.identification_number}
-              onChange={handleChange}
-              placeholder="Optional identification number"
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>Inspection No.</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="inspection_no"
-              value={formData.inspection_no}
-              onChange={handleChange}
-              placeholder="Optional inspection number"
-            />
-          </div>
-
-          {hasLanyardField && (
-            <div>
-              <label style={labelStyle}>
-                Lanyard Serial No.
-                <span
-                  style={{
-                    marginLeft:6,
-                    fontSize:9,
-                    color:"#00f5c4",
-                    background:"rgba(0,245,196,0.1)",
-                    border:"1px solid rgba(0,245,196,0.3)",
-                    borderRadius:4,
-                    padding:"1px 5px",
-                  }}
-                >
-                  displayed on certificate
-                </span>
-              </label>
-              <input
-                style={{ ...inputStyle, borderColor:"rgba(0,245,196,0.35)" }}
-                type="text"
-                name="lanyard_serial_no"
-                value={formData.lanyard_serial_no}
-                onChange={handleChange}
-                placeholder="e.g. 0135"
-              />
+          <div style={{background:T.surface,border:"1px solid rgba(148,163,184,0.12)",borderRadius:20,padding:"20px 22px",backdropFilter:"blur(20px)"}}>
+            <div className="reg-hdr" style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:14,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.14em",textTransform:"uppercase",color:T.accent,marginBottom:8}}>Equipment Register</div>
+                <h1 style={{margin:0,fontSize:"clamp(20px,3vw,26px)",fontWeight:900,letterSpacing:"-0.02em"}}>Register Equipment</h1>
+                <p style={{margin:"6px 0 0",color:T.textDim,fontSize:13}}>
+                  Asset tag auto-generated. Certificate: <span style={{color:T.textMid,fontFamily:"'IBM Plex Mono',monospace",fontSize:12}}>CERT-SerialNo-01</span>
+                </p>
+              </div>
+              <div className="reg-btn-row">
+                <button type="button" onClick={()=>router.push("/equipment")} style={{padding:"10px 16px",borderRadius:11,border:"1px solid rgba(148,163,184,0.12)",background:T.card,color:T.textMid,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>
+                  &larr; Back
+                </button>
+              </div>
             </div>
-          )}
-
-          <div>
-            <label style={labelStyle}>Equipment Type *</label>
-            <SelectField name="equipment_type" value={formData.equipment_type} onChange={handleChange}>
-              {EQUIPMENT_TYPES.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </SelectField>
           </div>
 
-          <div>
-            <label style={labelStyle}>Manufacturer *</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="manufacturer"
-              value={formData.manufacturer}
-              onChange={handleChange}
-              required
-            />
-          </div>
+          {error&&<div style={{padding:"12px 16px",borderRadius:12,border:"1px solid rgba(248,113,113,0.25)",background:"rgba(248,113,113,0.10)",color:"#f87171",fontSize:13,fontWeight:700}}>&#9888; {error}</div>}
 
-          <div>
-            <label style={labelStyle}>Model / Drawing No.</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="model"
-              value={formData.model}
-              onChange={handleChange}
-            />
-          </div>
+          <form onSubmit={handleSubmit} style={{display:"grid",gap:18}}>
 
-          <div>
-            <label style={labelStyle}>Year Built</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="year_built"
-              placeholder="Type freely"
-              value={formData.year_built}
-              onChange={handleChange}
-            />
-          </div>
+            <Sec icon="&#9881;" title="Equipment Identity">
+              <div className="reg-grid">
+                <F label="Asset Tag" value="Auto-generated" readOnly />
+                <F label="Serial Number / ID No. *" name="serial_number" value={form.serial_number} onChange={hc} />
+                <F label="Equipment ID" name="equipment_id" value={form.equipment_id} onChange={hc} placeholder="Optional" />
+                <F label="Identification Number" name="identification_number" value={form.identification_number} onChange={hc} placeholder="Optional" />
+                <F label="Inspection No." name="inspection_no" value={form.inspection_no} onChange={hc} placeholder="Optional" />
+                {hasLanyard&&(
+                  <div>
+                    <label style={LS}>Lanyard Serial No. <span style={{color:T.accent,fontSize:9,background:T.accentDim,border:"1px solid rgba(34,211,238,0.25)",borderRadius:4,padding:"1px 5px"}}>on certificate</span></label>
+                    <input name="lanyard_serial_no" value={form.lanyard_serial_no} onChange={hc} style={{...IS,borderColor:"rgba(34,211,238,0.25)"}} placeholder="e.g. 0135" />
+                  </div>
+                )}
+                <S label="Equipment Type *" name="equipment_type" value={form.equipment_type} onChange={hc}>
+                  {EQUIPMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+                </S>
+                <F label="Manufacturer *" name="manufacturer" value={form.manufacturer} onChange={hc} />
+                <F label="Model / Drawing No." name="model" value={form.model} onChange={hc} />
+                <F label="Year Built" name="year_built" value={form.year_built} onChange={hc} placeholder="e.g. 2018" />
+                <F label="Country of Origin" name="country_of_origin" value={form.country_of_origin} onChange={hc} placeholder="e.g. South Africa" />
+              </div>
+            </Sec>
 
-          <div>
-            <label style={labelStyle}>Country of Origin</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="country_of_origin"
-              value={formData.country_of_origin}
-              onChange={handleChange}
-              placeholder="e.g. South Africa"
-            />
-          </div>
+            <Sec icon="&#127970;" title="Ownership and Site">
+              <div className="reg-grid">
+                <S label="Client *" name="client_id" value={form.client_id} onChange={hc} disabled={clientsLoading}>
+                  <option value="">{clientsLoading?"Loading clients...":"Select registered client"}</option>
+                  {clients.map(c=><option key={c.id} value={c.id}>{c.company_name}{c.company_code?` (${c.company_code})`:""}</option>)}
+                </S>
+                <div>
+                  <label style={LS}>Location / Town *</label>
+                  <LocationPicker name="location" value={form.location} onChange={hc} />
+                </div>
+                <F label="Department / Plant" name="department" value={form.department} onChange={hc} />
+              </div>
+            </Sec>
+
+            <Sec icon="&#128220;" title="Certificate Information">
+              <div className="reg-grid">
+                <S label="Certificate Type *" name="cert_type" value={form.cert_type} onChange={hc}>
+                  {CERT_TYPES.map(c=><option key={c} value={c}>{c}</option>)}
+                </S>
+                <S label="Inspection Frequency" name="inspection_freq" value={form.inspection_freq} onChange={hc}>
+                  {INSP_FREQS.map(f=><option key={f} value={f}>{f}</option>)}
+                </S>
+                <S label="License Status" name="license_status" value={form.license_status} onChange={hc}>
+                  <option value="valid">Valid</option>
+                  <option value="expiring">Expiring</option>
+                  <option value="expired">Expired</option>
+                </S>
+              </div>
+            </Sec>
+
+            <Sec icon="&#128208;" title="Technical Parameters">
+              <div className="reg-grid">
+                <S label="Shell / Body Material" name="shell_material" value={form.shell_material} onChange={hc}>
+                  {MATERIALS.map(m=><option key={m} value={m}>{m}</option>)}
+                </S>
+                <S label="Design Standard" name="design_standard" value={form.design_standard} onChange={hc}>
+                  {STANDARDS.map(s=><option key={s} value={s}>{s}</option>)}
+                </S>
+                {isPv&&<>
+                  <S label="Fluid / Contents Type" name="fluid_type" value={form.fluid_type} onChange={hc}>
+                    {FLUID_TYPES.map(f=><option key={f} value={f}>{f}</option>)}
+                  </S>
+                  <F label="Design Pressure" name="design_pressure" value={form.design_pressure} onChange={hc} placeholder="e.g. 1500 kPa" />
+                  <F label="Working Pressure (MAWP)" name="working_pressure" value={form.working_pressure} onChange={hc} placeholder="e.g. 1200 kPa" />
+                  <F label="Test Pressure" name="test_pressure" value={form.test_pressure} onChange={hc} placeholder="e.g. 2250 kPa" />
+                  <F label="Design Temperature" name="design_temperature" value={form.design_temperature} onChange={hc} />
+                  <F label="Volume / Capacity" name="capacity_volume" value={form.capacity_volume} onChange={hc} placeholder="e.g. 200 L" />
+                </>}
+                {isLft&&<>
+                  <F label="Safe Working Load (SWL)" name="safe_working_load" value={form.safe_working_load} onChange={hc} placeholder="e.g. 2.5T" />
+                  <F label="Proof Load" name="proof_load" value={form.proof_load} onChange={hc} placeholder="e.g. 3T" />
+                  <F label="Lift Height" name="lifting_height" value={form.lifting_height} onChange={hc} />
+                  <F label="Sling Length" name="sling_length" value={form.sling_length} onChange={hc} />
+                  <F label="Chain Size" name="chain_size" value={form.chain_size} onChange={hc} />
+                  <F label="Rope / Wire Diameter" name="rope_diameter" value={form.rope_diameter} onChange={hc} />
+                </>}
+              </div>
+            </Sec>
+
+            <Sec icon="&#128119;" title="Inspector Details">
+              <div className="reg-grid">
+                <F label="Inspector Name" name="inspector_name" value={form.inspector_name} onChange={hc} />
+                <F label="Inspector ID" name="inspector_id" value={form.inspector_id} onChange={hc} />
+              </div>
+            </Sec>
+
+            <Sec icon="&#128197;" title="Inspection and Expiry Dates">
+              <div className="reg-grid">
+                <F label="Last Inspection Date" name="last_inspection_date" type="date" value={form.last_inspection_date} onChange={hc} />
+                <F label="Next Inspection / Expiry Date" name="next_inspection_date" type="date" value={form.next_inspection_date} onChange={hc} />
+                <F label="License Expiry" name="license_expiry" type="date" value={form.license_expiry} onChange={hc} />
+              </div>
+            </Sec>
+
+            <Sec icon="&#128218;" title="Operational Status and Notes">
+              <div className="reg-grid" style={{marginBottom:14}}>
+                <F label="Condition" name="condition" value={form.condition} onChange={hc} />
+                <S label="Status" name="status" value={form.status} onChange={hc}>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="suspended">Suspended</option>
+                </S>
+              </div>
+              <div>
+                <label style={LS}>Notes</label>
+                <textarea name="notes" value={form.notes} onChange={hc} rows={4} style={{...IS,resize:"vertical",minHeight:90}} placeholder="Comments, findings, conditions..." />
+              </div>
+            </Sec>
+
+            <div className="reg-btn-row" style={{paddingBottom:8}}>
+              <button type="button" onClick={()=>setForm(EMPTY)} style={{padding:"11px 20px",borderRadius:12,border:"1px solid rgba(148,163,184,0.18)",background:"rgba(255,255,255,0.04)",color:"#f0f6ff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>
+                Clear Form
+              </button>
+              <button type="button" onClick={()=>router.push("/equipment")} style={{padding:"11px 20px",borderRadius:12,border:"1px solid rgba(148,163,184,0.18)",background:"rgba(255,255,255,0.04)",color:"#f0f6ff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>
+                Cancel
+              </button>
+              <button type="submit" disabled={loading||clientsLoading} style={{padding:"11px 28px",borderRadius:12,border:"none",background:loading?"rgba(255,255,255,0.06)":"linear-gradient(135deg,#22d3ee,#60a5fa)",color:loading?"rgba(240,246,255,0.4)":"#001018",fontWeight:900,fontSize:13,cursor:loading?"not-allowed":"pointer",fontFamily:"'IBM Plex Sans',sans-serif",flex:1,maxWidth:260}}>
+                {loading?"Saving...":"Register Equipment"}
+              </button>
+            </div>
+          </form>
         </div>
-
-        <div style={sectionHeadStyle}>🏢 Ownership & Site</div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16, marginBottom:24 }}>
-          <div>
-            <label style={labelStyle}>Client *</label>
-            <SelectField
-              name="client_id"
-              value={formData.client_id}
-              onChange={handleChange}
-              required
-              disabled={clientsLoading}
-            >
-              <option value="">{clientsLoading ? "Loading clients..." : "Select registered client"}</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.company_name} {c.company_code ? `(${c.company_code})` : ""}
-                </option>
-              ))}
-            </SelectField>
-          </div>
-
-          <div>
-            <label style={labelStyle}>Location / Town *</label>
-            <BotswanaLocationPicker
-              name="location"
-              value={formData.location}
-              onChange={handleChange}
-              required
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>Department / Plant</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="department"
-              value={formData.department}
-              onChange={handleChange}
-            />
-          </div>
-        </div>
-
-        <div style={sectionHeadStyle}>📜 Certificate Information</div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16, marginBottom:24 }}>
-          <div>
-            <label style={labelStyle}>Certificate Type *</label>
-            <SelectField name="cert_type" value={formData.cert_type} onChange={handleChange}>
-              {CERT_TYPES.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </SelectField>
-          </div>
-
-          <div>
-            <label style={labelStyle}>Inspection Frequency</label>
-            <SelectField name="inspection_freq" value={formData.inspection_freq} onChange={handleChange}>
-              {INSPECTION_FREQS.map((f) => (
-                <option key={f} value={f}>{f}</option>
-              ))}
-            </SelectField>
-          </div>
-
-          <div>
-            <label style={labelStyle}>License Status</label>
-            <SelectField name="license_status" value={formData.license_status} onChange={handleChange}>
-              <option value="valid">valid</option>
-              <option value="expiring">expiring</option>
-              <option value="expired">expired</option>
-            </SelectField>
-          </div>
-        </div>
-
-        <div style={sectionHeadStyle}>📐 Design & Technical Parameters</div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16, marginBottom:24 }}>
-          <div>
-            <label style={labelStyle}>Shell / Body Material</label>
-            <SelectField name="shell_material" value={formData.shell_material} onChange={handleChange}>
-              {MATERIALS.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </SelectField>
-          </div>
-
-          <div>
-            <label style={labelStyle}>Design Standard</label>
-            <SelectField name="design_standard" value={formData.design_standard} onChange={handleChange}>
-              {STANDARDS.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </SelectField>
-          </div>
-
-          {isPressureEquipment && (
-            <>
-              <div>
-                <label style={labelStyle}>Fluid / Contents Type</label>
-                <SelectField name="fluid_type" value={formData.fluid_type} onChange={handleChange}>
-                  {FLUID_TYPES.map((f) => (
-                    <option key={f} value={f}>{f}</option>
-                  ))}
-                </SelectField>
-              </div>
-
-              <div>
-                <label style={labelStyle}>Design Pressure</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="design_pressure"
-                  value={formData.design_pressure}
-                  onChange={handleChange}
-                  placeholder="e.g. 1500 kPa"
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Working Pressure</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="working_pressure"
-                  value={formData.working_pressure}
-                  onChange={handleChange}
-                  placeholder="e.g. 1200 kPa"
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Test Pressure</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="test_pressure"
-                  value={formData.test_pressure}
-                  onChange={handleChange}
-                  placeholder="e.g. 2250 kPa"
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Design Temperature</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="design_temperature"
-                  value={formData.design_temperature}
-                  onChange={handleChange}
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Volume / Capacity</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="capacity_volume"
-                  value={formData.capacity_volume}
-                  onChange={handleChange}
-                  placeholder="e.g. 200 L"
-                />
-              </div>
-            </>
-          )}
-
-          {isLiftingEquipment && (
-            <>
-              <div>
-                <label style={labelStyle}>SWL</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="safe_working_load"
-                  value={formData.safe_working_load}
-                  onChange={handleChange}
-                  placeholder="e.g. STANDARD or 2.5 Tons"
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Proof Load</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="proof_load"
-                  value={formData.proof_load}
-                  onChange={handleChange}
-                  placeholder="e.g. 3 Tons"
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Lift Height</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="lifting_height"
-                  value={formData.lifting_height}
-                  onChange={handleChange}
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Sling Length</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="sling_length"
-                  value={formData.sling_length}
-                  onChange={handleChange}
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Chain Size</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="chain_size"
-                  value={formData.chain_size}
-                  onChange={handleChange}
-                />
-              </div>
-
-              <div>
-                <label style={labelStyle}>Rope / Wire Diameter</label>
-                <input
-                  style={inputStyle}
-                  type="text"
-                  name="rope_diameter"
-                  value={formData.rope_diameter}
-                  onChange={handleChange}
-                />
-              </div>
-            </>
-          )}
-        </div>
-
-        <div style={sectionHeadStyle}>👷 Inspector Details</div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16, marginBottom:24 }}>
-          <div>
-            <label style={labelStyle}>Inspector Name</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="inspector_name"
-              value={formData.inspector_name}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>Inspector ID</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="inspector_id"
-              value={formData.inspector_id}
-              onChange={handleChange}
-            />
-          </div>
-        </div>
-
-        <div style={sectionHeadStyle}>📅 Inspection & Service Dates</div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16, marginBottom:24 }}>
-          <div>
-            <label style={labelStyle}>Last Inspection Date</label>
-            <input
-              style={inputStyle}
-              type="date"
-              name="last_inspection_date"
-              value={formData.last_inspection_date}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>Next Inspection Due</label>
-            <input
-              style={inputStyle}
-              type="date"
-              name="next_inspection_date"
-              value={formData.next_inspection_date}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>License Expiry</label>
-            <input
-              style={inputStyle}
-              type="date"
-              name="license_expiry"
-              value={formData.license_expiry}
-              onChange={handleChange}
-            />
-          </div>
-        </div>
-
-        <div style={sectionHeadStyle}>📘 Operational Status</div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16, marginBottom:24 }}>
-          <div>
-            <label style={labelStyle}>Condition</label>
-            <input
-              style={inputStyle}
-              type="text"
-              name="condition"
-              value={formData.condition}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div>
-            <label style={labelStyle}>Status</label>
-            <SelectField name="status" value={formData.status} onChange={handleChange}>
-              <option value="active">active</option>
-              <option value="inactive">inactive</option>
-              <option value="suspended">suspended</option>
-            </SelectField>
-          </div>
-        </div>
-
-        <div style={sectionHeadStyle}>📝 Notes</div>
-        <div style={{ marginBottom:24 }}>
-          <textarea
-            style={{ ...inputStyle, minHeight:100, resize:"vertical" }}
-            name="notes"
-            value={formData.notes}
-            onChange={handleChange}
-          />
-        </div>
-
-        <div
-          style={{
-            display:"flex",
-            gap:12,
-            justifyContent:"flex-end",
-            paddingTop:16,
-            borderTop:"1px solid rgba(102,126,234,0.12)",
-            flexWrap:"wrap",
-          }}
-        >
-          <button
-            type="button"
-            onClick={handleClear}
-            style={{
-              padding:"11px 24px",
-              borderRadius:8,
-              cursor:"pointer",
-              fontFamily:"inherit",
-              fontWeight:700,
-              background:"rgba(102,126,234,0.1)",
-              border:"1px solid rgba(102,126,234,0.25)",
-              color:"#667eea",
-            }}
-          >
-            Clear Form
-          </button>
-
-          <button
-            type="submit"
-            disabled={loading || clientsLoading}
-            style={{
-              padding:"11px 28px",
-              borderRadius:8,
-              cursor:loading ? "wait" : "pointer",
-              fontFamily:"inherit",
-              fontWeight:700,
-              background:"linear-gradient(135deg,#667eea,#764ba2)",
-              border:"none",
-              color:"#fff",
-              boxShadow:"0 0 20px rgba(102,126,234,0.4)",
-              opacity:loading ? 0.7 : 1,
-            }}
-          >
-            {loading ? "Saving..." : "Register Equipment"}
-          </button>
-        </div>
-      </form>
+      </div>
     </AppLayout>
   );
 }
