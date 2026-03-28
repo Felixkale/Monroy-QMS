@@ -133,50 +133,80 @@ export default function ImportCertificatesPage() {
     if (!files.length || extracting) return;
     setExtracting(true);
     setResults([]);
-    setProgress(5, "Preparing...");
+    setProgress(5, "Preparing files...");
     const total = files.length;
 
     // Pre-populate all placeholders so indexes are stable
-    const placeholders = files.map(item => ({
+    setResults(files.map(item => ({
       fileName: item.file.name, ok: false, scanning: true,
       data: null, error: null, saved: false, saving: false,
       saveError: null, expanded: false, certNumber: null, savedId: null,
       manualResult: "PASS", manualDefects: "", manualComments: "",
-    }));
-    setResults(placeholders);
+    })));
 
+    // Convert all files to base64
+    const payloads = [];
     for (let i = 0; i < files.length; i++) {
-      const item = files[i];
-      setProgress(10 + ((i / total) * 85), `Scanning ${i+1}/${total}: ${item.file.name}`);
-
-      try {
-        const body = new FormData();
-        body.append("file", item.file);
-        body.append("overrides", JSON.stringify(overrides));
-
-        const res = await fetch("/api/certificates/import", { method:"POST", body });
-        let json;
-        try { json = await res.json(); }
-        catch { throw new Error("Server returned HTML — check GEMINI_API_KEY is set in Render.com environment variables."); }
-        if (!res.ok)       throw new Error(json?.error || `Server error ${res.status}`);
-        if (!json.success) throw new Error(json?.error || "Extraction failed.");
-
-        const data = applyOverridesToData(json.extracted || {});
-        setResults(prev => prev.map((r, ri) => ri !== i ? r : {
-          ...r, scanning:false, ok:true, data,
-          manualResult:  data.result        || "PASS",
-          manualDefects: data.defects_found || "",
-          manualComments:data.comments      || "",
-        }));
-      } catch(e) {
-        setResults(prev => prev.map((r, ri) => ri !== i ? r : {
-          ...r, scanning:false, ok:false, error:e.message || "Extraction failed.",
-        }));
-      }
+      setProgress(5 + (i / total) * 25, `Reading ${i+1}/${total}: ${files[i].file.name}`);
+      const b64 = await toBase64(files[i].file);
+      payloads.push({ fileName: files[i].file.name, mimeType: files[i].file.type || "application/pdf", base64Data: b64 });
     }
 
-    setProgress(100, "Extraction complete");
-    setExtracting(false);
+    setProgress(35, "Sending to Gemini 2.5 Flash...");
+
+    try {
+      const res = await fetch("/api/ai/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files: payloads, systemPrompt: SYSTEM_PROMPT }),
+      });
+
+      // If response is not JSON (HTML error page), surface a clear message
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        const text = await res.text();
+        const preview = text.slice(0, 120).replace(/\n/g, " ");
+        throw new Error(`API returned non-JSON response (${res.status}): ${preview}`);
+      }
+
+      setProgress(85, "Parsing results...");
+      const json = await res.json();
+
+      if (!res.ok) throw new Error(json?.error || `Server error ${res.status}`);
+      if (!Array.isArray(json?.results)) throw new Error("Unexpected response shape from /api/ai/extract");
+
+      setResults(json.results.map(item => {
+        if (!item.ok || !item.data) {
+          return {
+            fileName: item.fileName, ok: false, scanning: false,
+            error: item.error || "Extraction failed.",
+            data: null, saved: false, saving: false, saveError: null,
+            expanded: false, certNumber: null, savedId: null,
+            manualResult: "PASS", manualDefects: "", manualComments: "",
+          };
+        }
+        const data = applyOverridesToData(item.data);
+        return {
+          fileName: item.fileName, ok: true, scanning: false,
+          data, saved: false, saving: false, saveError: null,
+          expanded: false, certNumber: null, savedId: null,
+          manualResult:   data.result        || "PASS",
+          manualDefects:  data.defects_found || "",
+          manualComments: data.comments      || "",
+        };
+      }));
+
+      setProgress(100, "Extraction complete");
+    } catch(e) {
+      // Mark all still-scanning results as errored
+      setResults(prev => prev.map(r => r.scanning
+        ? { ...r, scanning: false, ok: false, error: e.message || "Extraction failed." }
+        : r
+      ));
+      setProgress(100, "Extraction failed");
+    } finally {
+      setExtracting(false);
+    }
   }
 
   function setResultField(idx, key, value) {
