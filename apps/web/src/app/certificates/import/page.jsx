@@ -132,81 +132,67 @@ export default function ImportCertificatesPage() {
   async function handleExtract() {
     if (!files.length || extracting) return;
     setExtracting(true);
-    setResults([]);
-    setProgress(5, "Preparing files...");
-    const total = files.length;
+    setProgress(5, "Preparing…");
 
-    // Pre-populate all placeholders so indexes are stable
-    setResults(files.map(item => ({
+    // Snapshot files array so indexes can't shift during async loop
+    const snapshot = [...files];
+    const total    = snapshot.length;
+
+    // Pre-populate all placeholders with stable indexes
+    setResults(snapshot.map(item => ({
       fileName: item.file.name, ok: false, scanning: true,
       data: null, error: null, saved: false, saving: false,
       saveError: null, expanded: false, certNumber: null, savedId: null,
       manualResult: "PASS", manualDefects: "", manualComments: "",
     })));
 
-    // Convert all files to base64
-    const payloads = [];
-    for (let i = 0; i < files.length; i++) {
-      setProgress(5 + (i / total) * 25, `Reading ${i+1}/${total}: ${files[i].file.name}`);
-      const b64 = await toBase64(files[i].file);
-      payloads.push({ fileName: files[i].file.name, mimeType: files[i].file.type || "application/pdf", base64Data: b64 });
-    }
+    for (let i = 0; i < total; i++) {
+      const item = snapshot[i];
+      setProgress(10 + (i / total) * 85, `Scanning ${i+1}/${total}: ${item.file.name}`);
 
-    setProgress(35, "Sending to Gemini 2.5 Flash...");
+      try {
+        const body = new FormData();
+        body.append("file", item.file);
+        body.append("overrides", JSON.stringify(overrides));
 
-    try {
-      const res = await fetch("/api/ai/extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ files: payloads, systemPrompt: SYSTEM_PROMPT }),
-      });
+        const res = await fetch("/api/certificates/import", { method: "POST", body });
 
-      // If response is not JSON (HTML error page), surface a clear message
-      const contentType = res.headers.get("content-type") || "";
-      if (!contentType.includes("application/json")) {
-        const text = await res.text();
-        const preview = text.slice(0, 120).replace(/\n/g, " ");
-        throw new Error(`API returned non-JSON response (${res.status}): ${preview}`);
-      }
-
-      setProgress(85, "Parsing results...");
-      const json = await res.json();
-
-      if (!res.ok) throw new Error(json?.error || `Server error ${res.status}`);
-      if (!Array.isArray(json?.results)) throw new Error("Unexpected response shape from /api/ai/extract");
-
-      setResults(json.results.map(item => {
-        if (!item.ok || !item.data) {
-          return {
-            fileName: item.fileName, ok: false, scanning: false,
-            error: item.error || "Extraction failed.",
-            data: null, saved: false, saving: false, saveError: null,
-            expanded: false, certNumber: null, savedId: null,
-            manualResult: "PASS", manualDefects: "", manualComments: "",
-          };
+        // Catch HTML responses (route not found / server crash)
+        const ct = res.headers.get("content-type") || "";
+        if (!ct.includes("application/json")) {
+          const text = await res.text();
+          throw new Error(`Server error ${res.status}: ${text.slice(0, 200).replace(/<[^>]+>/g, "").trim()}`);
         }
-        const data = applyOverridesToData(item.data);
-        return {
-          fileName: item.fileName, ok: true, scanning: false,
-          data, saved: false, saving: false, saveError: null,
-          expanded: false, certNumber: null, savedId: null,
-          manualResult:   data.result        || "PASS",
-          manualDefects:  data.defects_found || "",
-          manualComments: data.comments      || "",
-        };
-      }));
 
-      setProgress(100, "Extraction complete");
-    } catch(e) {
-      // Mark all still-scanning results as errored
-      setResults(prev => prev.map(r => r.scanning
-        ? { ...r, scanning: false, ok: false, error: e.message || "Extraction failed." }
-        : r
-      ));
-      setProgress(100, "Extraction failed");
-    } finally {
-      setExtracting(false);
+        const json = await res.json();
+        if (!res.ok)       throw new Error(json?.error || `Server error ${res.status}`);
+        if (!json.success) throw new Error(json?.error  || "Extraction failed.");
+
+        const data = applyOverridesToData(json.extracted || {});
+
+        // Update exactly index i — no math, no race
+        setResults(prev => {
+          const next = [...prev];
+          next[i] = {
+            ...next[i], scanning: false, ok: true, data,
+            manualResult:   data.result        || "PASS",
+            manualDefects:  data.defects_found || "",
+            manualComments: data.comments      || "",
+          };
+          return next;
+        });
+
+      } catch (e) {
+        setResults(prev => {
+          const next = [...prev];
+          next[i] = { ...next[i], scanning: false, ok: false, error: e.message || "Extraction failed." };
+          return next;
+        });
+      }
     }
+
+    setProgress(100, "Extraction complete");
+    setExtracting(false);
   }
 
   function setResultField(idx, key, value) {
