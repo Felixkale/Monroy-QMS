@@ -1,9 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  experimental: {
-    esmExternals: "loose",
-  },
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -18,6 +15,8 @@ const nextConfig = {
       },
     ],
   },
+  experimental: {
+    missingSuspenseWithCSRBailout: false,
+  },
 };
-
 module.exports = nextConfig;
