@@ -1,5 +1,6 @@
 // src/app/layout.jsx
 import "./globals.css";
+import { AuthProvider } from "@/components/AuthContext";
 
 export const metadata = {
   title: "Monroy QMS",
@@ -17,7 +18,11 @@ export default function RootLayout({ children }) {
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
+      </body>
     </html>
   );
 }
