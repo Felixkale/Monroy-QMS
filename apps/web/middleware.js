@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 
-// Public routes that don't require authentication
 const publicRoutes = ["/login"];
 
-export async function middleware(request) {
+export function middleware(request) {
   const { pathname } = request.nextUrl;
 
   // Allow public routes
@@ -11,10 +10,10 @@ export async function middleware(request) {
     return NextResponse.next();
   }
 
-  // Check for auth token in cookies
-  const token = request.cookies.get("sb-access-token");
+  // Check for auth token cookie
+  const token = request.cookies.get("sb-access-token")?.value;
 
-  // If no token and not a public route, redirect to login
+  // Redirect only page routes, not API/static/internal routes
   if (!token) {
     const loginUrl = new URL("/login", request.url);
     return NextResponse.redirect(loginUrl);
@@ -26,12 +25,12 @@ export async function middleware(request) {
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
+     * Protect app pages only.
+     * Exclude:
+     * - api routes
+     * - Next internals
+     * - all files with extensions
      */
-    "/((?!_next/static|_next/image|favicon.ico|public).*)",
+    "/((?!api|_next|favicon.ico|.*\\..*).*)",
   ],
 };
