@@ -197,7 +197,15 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
   const legalFmwk  = val(c.legal_framework) || "Mines, Quarries, Works and Machinery Act Cap 44:02";
   const inspName   = val(c.inspector_name || ex.inspector_name) || "Moemedi Masupe";
   const inspId     = val(c.inspector_id   || ex.inspector_id)   || "700117910";
-  const remarks    = val(c.remarks || c.comments || ex.remarks);
+  const remarks    = val(
+    c.remarks ||
+    c.comments ||
+    ex.remarks ||
+    c.notes ||           // from asset notes when synced
+    c.description ||     // from asset description
+    ex.comments ||
+    ex.notes
+  );
   const sigUrl     = val(c.signature_url) || "/Signature.png";
   const logoUrl    = c.logo_url || "/logo.png";
 
@@ -319,10 +327,11 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
                 <div>
                   <div className="cs-sig-label">Inspector Signature</div>
                   <div className="cs-sig-line">
-                    {sigUrl && (
-                      <img src={sigUrl} alt="Signature"
-                        onError={e => { e.currentTarget.style.display = "none"; }} />
-                    )}
+                    <img
+                      src={sigUrl || "/Signature.png"}
+                      alt="Inspector Signature"
+                      style={{ maxHeight:38, maxWidth:"100%", objectFit:"contain" }}
+                    />
                   </div>
                   <div className="cs-sig-name">{inspName}</div>
                   <div className="cs-sig-id">Inspector ID: {inspId}</div>
