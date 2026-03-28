@@ -198,7 +198,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
   const inspName   = val(c.inspector_name || ex.inspector_name) || "Moemedi Masupe";
   const inspId     = val(c.inspector_id   || ex.inspector_id)   || "700117910";
   const remarks    = val(c.remarks || c.comments || ex.remarks);
-  const sigUrl     = val(c.signature_url);
+  const sigUrl     = val(c.signature_url) || "/Signature.png";
   const logoUrl    = c.logo_url || "/logo.png";
 
   const tone = resultStyle(pickResult(c));
