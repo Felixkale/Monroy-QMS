@@ -668,7 +668,7 @@ function ImportInner() {
                       <div style={{fontSize:13,fontWeight:800,color:T.text}}>Extracted results</div>
                       <div style={{fontSize:10,color:T.textDim,marginTop:2}}>Review, set result &amp; defects, then save to register</div>
                     </div>
-                    <div style={{display:"flex",gap:8"}}>
+                    <div style={{display:"flex",gap:8}}>
                       <button type="button" className="btn-ghost" onClick={handleCSV}>↓ CSV</button>
                       <button type="button" className="btn-green"
                         disabled={!results.some(r => !r.error && !r.saved && !r.scanning)}
