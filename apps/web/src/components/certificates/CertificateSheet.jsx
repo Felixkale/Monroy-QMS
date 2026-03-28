@@ -283,6 +283,22 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
               <Field label="Test Pressure"            value={testP} />
             </Section>
 
+            {/* ── LEGAL FRAMEWORK — just below technical data ── */}
+            <div className="cs-sec" style={{borderColor:"#b8cce4",background:"#eaf2fb"}}>
+              <div className="cs-sec-ttl" style={{background:"#d0e8f8",color:"#0b1d3a",borderBottomColor:"#b8cce4"}}>
+                Legal Framework &amp; Compliance Declaration
+              </div>
+              <div style={{padding:"9px 13px",fontSize:"8px",color:"#1e3a5f",lineHeight:1.7}}>
+                This inspection has been performed by a <b style={{fontWeight:900,color:"#0b1d3a"}}>competent person</b> as
+                defined under the <b style={{fontWeight:900,color:"#0b1d3a"}}>Mines, Quarries, Works and Machinery Act Cap 44:02</b> of
+                the Laws of Botswana. The inspection, testing and certification of the above equipment has been carried out
+                in full compliance with the requirements of the said Act and applicable regulations.
+                {legalFmwk && legalFmwk !== "Mines, Quarries, Works and Machinery Act Cap 44:02" && (
+                  <span> Additional standard applied: <b style={{fontWeight:900}}>{legalFmwk}</b>.</span>
+                )}
+              </div>
+            </div>
+
             {remarks && (
               <div className="cs-sec">
                 <div className="cs-sec-ttl">Remarks / Conditions</div>
@@ -326,19 +342,6 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
                 </div>
 
               </div>
-            </div>
-          </div>
-
-          {/* ── LEGAL FRAMEWORK BOX ── */}
-          <div className="cs-legal-box">
-            <div className="cs-legal-box-title">Legal Framework &amp; Compliance Declaration</div>
-            <div className="cs-legal-box-body">
-              This inspection has been performed by a <b>competent person</b> as defined under the{" "}
-              <b>Mines, Quarries, Works and Machinery Act Cap 44:02</b> of the Laws of Botswana.
-              The inspection, testing and certification of the above equipment has been carried out in full compliance with the requirements of the said Act and applicable regulations.
-              {legalFmwk && legalFmwk !== "Mines, Quarries, Works and Machinery Act Cap 44:02" && (
-                <span> Additional standard applied: <b>{legalFmwk}</b>.</span>
-              )}
             </div>
           </div>
 
