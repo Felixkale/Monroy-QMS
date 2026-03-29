@@ -1,7 +1,7 @@
 // src/app/certificates/[id]/edit/page.jsx
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
@@ -74,7 +74,7 @@ function Sec({icon,title,children}){
 
 const TABS=["Certificate","Equipment","Technical","Inspector","Link / Folder"];
 
-export default function CertificateEditPage(){
+function CertificateEditInner(){
   const params=useParams();
   const router=useRouter();
   const id=normalizeId(params?.id);
@@ -183,6 +183,40 @@ export default function CertificateEditPage(){
       // Keep result and equipment_status in sync
       if(name==="result")next.equipment_status=value;
       if(name==="equipment_status")next.result=value;
+      // Auto-detect equipment type from description
+      if(name==="equipment_description"&&!p.equipment_type){
+        const t=value.toLowerCase();
+        const detected=
+          /harness|safety harness/i.test(t)?"Safety Harness":
+          /lanyard/i.test(t)?"Lanyard":
+          /rope shock|shock absorber/i.test(t)?"Rope":
+          /chain sling|chain block/i.test(t)?"Chain Sling":
+          /wire rope sling/i.test(t)?"Wire Rope Sling":
+          /web sling|webbing sling/i.test(t)?"Web Sling":
+          /shackle/i.test(t)?"Shackle":
+          /hook/i.test(t)?"Hook":
+          /swivel/i.test(t)?"Swivel":
+          /eye.?bolt/i.test(t)?"Eye Bolt":
+          /beam clamp/i.test(t)?"Beam Clamp":
+          /spreader beam/i.test(t)?"Spreader Beam":
+          /lifting beam/i.test(t)?"Lifting Beam":
+          /mobile crane/i.test(t)?"Mobile Crane":
+          /overhead crane|gantry crane/i.test(t)?"Overhead Crane":
+          /hoist/i.test(t)?"Hoist":
+          /winch/i.test(t)?"Winch":
+          /pulley.?block|snatch block/i.test(t)?"Pulley Block":
+          /pressure vessel/i.test(t)?"Pressure Vessel":
+          /air receiver/i.test(t)?"Air Receiver":
+          /boiler/i.test(t)?"Boiler":
+          /autoclave/i.test(t)?"Autoclave":
+          /compressor/i.test(t)?"Compressor":
+          /forklift/i.test(t)?"Forklift":
+          /scaffold/i.test(t)?"Scaffold":
+          /fire.?extinguisher/i.test(t)?"Fire Extinguisher":
+          null;
+        if(detected)next.equipment_type=detected;
+      }
+      // Also auto-detect from equipment_type field itself for cert type
       return next;
     });
   };
@@ -573,5 +607,17 @@ export default function CertificateEditPage(){
         </div>
       </div>
     </AppLayout>
+  );
+}
+
+export default function CertificateEditPage(){
+  return(
+    <Suspense fallback={
+      <div style={{minHeight:"100vh",background:"#070e18",display:"flex",alignItems:"center",
+        justifyContent:"center",color:"rgba(240,246,255,0.4)",fontSize:14,
+        fontFamily:"'IBM Plex Sans',sans-serif"}}>Loading…</div>
+    }>
+      <CertificateEditInner/>
+    </Suspense>
   );
 }
