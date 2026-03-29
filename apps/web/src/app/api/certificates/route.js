@@ -2,6 +2,66 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+// ── Robust date normalizer ──────────────────────────────────────────────────
+// Handles: YYYY-MM-DD, DD/MM/YYYY, MM/YYYY, MM/YY, YYYY, "March 2030", etc.
+function normalizeDate(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (!s || s === "—" || s === "-" || s.toLowerCase() === "null") return null;
+
+  // Already ISO format YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  // YYYY-MM (year-month only) → last day of month
+  if (/^\d{4}-\d{2}$/.test(s)) {
+    const [y, m] = s.split("-").map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    return `${y}-${String(m).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`;
+  }
+
+  // DD/MM/YYYY
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
+    const [d, m, y] = s.split("/").map(Number);
+    return `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  }
+
+  // MM/YYYY → last day of that month
+  if (/^\d{1,2}\/\d{4}$/.test(s)) {
+    const [m, y] = s.split("/").map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    return `${y}-${String(m).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`;
+  }
+
+  // MM/YY → assume 20YY, last day of month
+  if (/^\d{1,2}\/\d{2}$/.test(s)) {
+    const [m, y] = s.split("/").map(Number);
+    const fullYear = 2000 + y;
+    const lastDay = new Date(fullYear, m, 0).getDate();
+    return `${fullYear}-${String(m).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`;
+  }
+
+  // YYYY only → Jan 1st of that year
+  if (/^\d{4}$/.test(s)) return `${s}-01-01`;
+
+  // "Month YYYY" or "Month, YYYY" → first day of that month
+  const monthNames = ["january","february","march","april","may","june","july","august","september","october","november","december"];
+  const monthMatch = s.toLowerCase().match(/([a-z]+)\s*,?\s*(\d{4})/);
+  if (monthMatch) {
+    const mIdx = monthNames.indexOf(monthMatch[1]);
+    if (mIdx >= 0) {
+      const y = parseInt(monthMatch[2]);
+      const lastDay = new Date(y, mIdx + 1, 0).getDate();
+      return `${y}-${String(mIdx+1).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`;
+    }
+  }
+
+  // Try native Date parse as last resort
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d.toISOString().slice(0,10);
+
+  return null; // give up — don't insert garbage
+}
+
 function supabaseAdmin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -117,11 +177,11 @@ export async function POST(request) {
         certificate_type:      certType,
         result:                body.result                || "UNKNOWN",
         equipment_status:      body.result                || "UNKNOWN",
-        issue_date:            body.issue_date            || body.inspection_date || null,
-        inspection_date:       body.inspection_date       || null,
-        expiry_date:           body.expiry_date           || null,
-        next_inspection_date:  body.next_inspection_due   || null,
-        next_inspection_due:   body.next_inspection_due   || null,
+        issue_date:            normalizeDate(body.issue_date || body.inspection_date) || null,
+        inspection_date:       normalizeDate(body.inspection_date) || null,
+        expiry_date:           normalizeDate(body.expiry_date) || null,
+        next_inspection_date:  normalizeDate(body.next_inspection_due) || null,
+        next_inspection_due:   normalizeDate(body.next_inspection_due) || null,
         asset_id:              assetId                    || null,
         client_id:             clientId                   || null,
         client_name:           body.client_name           || null,
