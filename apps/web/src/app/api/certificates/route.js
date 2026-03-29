@@ -114,7 +114,6 @@ export async function POST(request) {
         nameplate_data:     body.nameplate_data     || null,
         raw_text_summary:   body.raw_text_summary   || null,
         status:             "active",
-        source:             "import",
       })
       .select("id")
       .single();
