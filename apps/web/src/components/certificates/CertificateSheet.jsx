@@ -57,9 +57,14 @@ const CSS = `
   .cs-stamp{width:52px;height:52px;border-radius:50%;border:1.5px dashed rgba(34,211,238,0.35);display:flex;align-items:center;justify-content:center;color:rgba(34,211,238,0.28);font-size:8px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
 
   /* LEGAL */
-  .cs-legal{padding:6px 22px 7px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-shrink:0}
-  .cs-legal-txt{font-size:7.5px;color:#94a3b8;line-height:1.5;max-width:500px}
-  .cs-page-info{font-size:8px;font-weight:700;color:#cbd5e1;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
+  /* LEGAL FRAMEWORK BOX */
+  .cs-legal-box{margin:0 22px 8px;padding:10px 14px;border:1px solid #b8cce4;border-radius:7px;background:#eaf2fb;flex-shrink:0}
+  .cs-legal-box-title{font-size:8px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:#0b1d3a;margin-bottom:5px}
+  .cs-legal-box-body{font-size:8px;color:#1e3a5f;line-height:1.65}
+  .cs-legal-box-body b{font-weight:800;color:#0b1d3a}
+  .cs-legal{padding:5px 22px 6px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-shrink:0}
+  .cs-legal-txt{font-size:7px;color:#94a3b8;line-height:1.5;max-width:500px}
+  .cs-page-info{font-size:7.5px;font-weight:700;color:#cbd5e1;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
 
   /* RED SERVICES BANNER */
   .cs-services{background:#cc1111;padding:10px 28px;text-align:center;flex-shrink:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -192,8 +197,16 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
   const legalFmwk  = val(c.legal_framework) || "Mines, Quarries, Works and Machinery Act Cap 44:02";
   const inspName   = val(c.inspector_name || ex.inspector_name) || "Moemedi Masupe";
   const inspId     = val(c.inspector_id   || ex.inspector_id)   || "700117910";
-  const remarks    = val(c.remarks || c.comments || ex.remarks);
-  const sigUrl     = val(c.signature_url);
+  const remarks    = val(
+    c.remarks ||
+    c.comments ||
+    ex.remarks ||
+    c.notes ||           // from asset notes when synced
+    c.description ||     // from asset description
+    ex.comments ||
+    ex.notes
+  );
+  const sigUrl     = val(c.signature_url) || "/Signature.png";
   const logoUrl    = c.logo_url || "/logo.png";
 
   const tone = resultStyle(pickResult(c));
@@ -278,6 +291,24 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
               <Field label="Test Pressure"            value={testP} />
             </Section>
 
+            {/* ── LEGAL FRAMEWORK — just below technical data ── */}
+            <div className="cs-sec" style={{borderColor:"#b8cce4",background:"#eaf2fb"}}>
+              <div className="cs-sec-ttl" style={{background:"#d0e8f8",color:"#0b1d3a",borderBottomColor:"#b8cce4",fontSize:"10px",padding:"8px 14px",letterSpacing:"0.1em"}}>
+                Legal Framework &amp; Compliance Declaration
+              </div>
+              <div style={{padding:"12px 14px",fontSize:"11px",color:"#1e3a5f",lineHeight:1.8,fontWeight:500}}>
+                This inspection has been performed by a{" "}
+                <b style={{fontWeight:900,color:"#0b1d3a"}}>competent person</b>{" "}
+                as defined under the{" "}
+                <b style={{fontWeight:900,color:"#0b1d3a"}}>Mines, Quarries, Works and Machinery Act Cap 44:02</b>{" "}
+                of the Laws of Botswana. The inspection, testing and certification of the above equipment
+                has been carried out in full compliance with the requirements of the said Act and applicable regulations.
+                {legalFmwk && legalFmwk !== "Mines, Quarries, Works and Machinery Act Cap 44:02" && (
+                  <span>{" "}Additional standard applied: <b style={{fontWeight:900}}>{legalFmwk}</b>.</span>
+                )}
+              </div>
+            </div>
+
             {remarks && (
               <div className="cs-sec">
                 <div className="cs-sec-ttl">Remarks / Conditions</div>
@@ -296,10 +327,11 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
                 <div>
                   <div className="cs-sig-label">Inspector Signature</div>
                   <div className="cs-sig-line">
-                    {sigUrl && (
-                      <img src={sigUrl} alt="Signature"
-                        onError={e => { e.currentTarget.style.display = "none"; }} />
-                    )}
+                    <img
+                      src={sigUrl || "/Signature.png"}
+                      alt="Inspector Signature"
+                      style={{ maxHeight:38, maxWidth:"100%", objectFit:"contain" }}
+                    />
                   </div>
                   <div className="cs-sig-name">{inspName}</div>
                   <div className="cs-sig-id">Inspector ID: {inspId}</div>
@@ -327,7 +359,8 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
           {/* ── LEGAL ── */}
           <div className="cs-legal">
             <div className="cs-legal-txt">
-              Issued in accordance with: {legalFmwk}. This certificate is valid only for the equipment and conditions stated herein. Any alterations render this certificate void.
+              This certificate is valid only for the equipment and conditions stated herein. Any alterations or unauthorised modifications render this certificate void.
+              Monroy (Pty) Ltd accepts no liability for use of this equipment beyond the scope of this inspection.
             </div>
             <div className="cs-page-info">{index + 1} / {total}{c.folder_name ? ` · ${c.folder_name}` : ""}</div>
           </div>
