@@ -73,8 +73,26 @@ function Badge({label,color,bg,brd}){
 }
 
 function groupCerts(rows){
+  // First, collapse rows with same folder_id into a single entry
+  const folderMap={};
+  const standalone=[];
+  for(const r of rows){
+    if(r.folder_id){
+      if(!folderMap[r.folder_id]){folderMap[r.folder_id]=[];}
+      folderMap[r.folder_id].push(r);
+    }else{
+      standalone.push(r);
+    }
+  }
+  // For each folder, keep only the first cert as the "row" but attach siblings
+  const folderLeaders=Object.values(folderMap).map(certs=>{
+    const sorted=[...certs].sort((a,b)=>(a.folder_position||99)-(b.folder_position||99));
+    return {...sorted[0],_folderCerts:sorted};
+  });
+  const allRows=[...standalone,...folderLeaders];
+
   const g={};
-  for (const r of rows) {
+  for (const r of allRows) {
     const cl = nz(r.client_name, "UNASSIGNED");
     const tp = nz(r.equipment_type || r.asset_type, "UNCATEGORIZED");
     const ds = nz(r.equipment_description || r.asset_name || r.asset_tag, "UNNAMED");
@@ -110,6 +128,42 @@ export default function CertificatesPageClient() {
   const [view,setView]=useState("grouped");
   const [openClients,setOpenClients]=useState({});
   const [openTypes,setOpenTypes]=useState({});
+  const [selected,setSelected]=useState(new Set());
+  const [linking,setLinking]=useState(false);
+  const [linkMsg,setLinkMsg]=useState("");
+
+  const selectMode=selected.size>0;
+
+  function toggleSelect(id){
+    setSelected(prev=>{
+      const next=new Set(prev);
+      if(next.has(id))next.delete(id);else next.add(id);
+      return next;
+    });
+    setLinkMsg("");
+  }
+
+  async function linkSelected(){
+    if(selected.size<2){setLinkMsg("Select at least 2 certificates to link.");return;}
+    setLinking(true);setLinkMsg("");
+    const ids=[...selected];
+    const folderId=crypto.randomUUID();
+    const firstCert=certs.find(c=>c.id===ids[0]);
+    const folderName=`Folder-${firstCert?.certificate_number||ids[0].slice(0,8)}`;
+    const updates=ids.map((id,i)=>
+      supabase.from("certificates").update({folder_id:folderId,folder_name:folderName,folder_position:i+1}).eq("id",id)
+    );
+    await Promise.all(updates);
+    setSelected(new Set());
+    setLinkMsg(`Linked ${ids.length} certificates into folder.`);
+    setLinking(false);
+    await loadCerts();
+  }
+
+  async function unlinkCert(id){
+    await supabase.from("certificates").update({folder_id:null,folder_name:null,folder_position:null}).eq("id",id);
+    await loadCerts();
+  }
 
   useEffect(()=>{loadCerts();},[]);
 
@@ -219,6 +273,30 @@ export default function CertificatesPageClient() {
 
           {errTxt&&<div style={{padding:"10px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,background:T.redDim,color:T.red,fontSize:13,fontWeight:600}}>⚠ {errTxt}</div>}
 
+          {/* LINK TOOLBAR */}
+          {(selectMode||linkMsg)&&(
+            <div style={{background:T.surface,border:`1px solid ${T.purpleBrd}`,borderRadius:14,padding:"12px 16px",backdropFilter:"blur(20px)",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+              <span style={{fontSize:13,fontWeight:700,color:T.purple}}>
+                {selectMode?`${selected.size} certificate${selected.size===1?"":"s"} selected`:""}
+              </span>
+              {linkMsg&&<span style={{fontSize:12,fontWeight:700,color:T.green}}>{linkMsg}</span>}
+              <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
+                {selectMode&&selected.size>=2&&(
+                  <button type="button" onClick={linkSelected} disabled={linking}
+                    style={{padding:"8px 16px",borderRadius:9,border:"none",background:"linear-gradient(135deg,#a78bfa,#60a5fa)",color:"#fff",fontWeight:900,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent"}}>
+                    {linking?"Linking…":`🔗 Link ${selected.size} Certificates`}
+                  </button>
+                )}
+                {selectMode&&(
+                  <button type="button" onClick={()=>{setSelected(new Set());setLinkMsg("");}}
+                    style={{padding:"8px 14px",borderRadius:9,border:`1px solid ${T.border}`,background:T.card,color:T.textMid,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent"}}>
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* FILTERS */}
           <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden",backdropFilter:"blur(20px)"}}>
             <div style={{padding:"10px 14px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
@@ -262,12 +340,14 @@ export default function CertificatesPageClient() {
               {hasFilters&&<button type="button" onClick={clearFilters} style={{padding:"9px 18px",borderRadius:9,border:`1px solid ${T.accentBrd}`,background:T.accentDim,color:T.accent,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>Clear Filters</button>}
             </div>
           ):view==="flat"?(
-            <FlatView certs={filtered}/>
+            <FlatView certs={filtered} onUnlink={unlinkCert} onSelect={toggleSelect} selected={selected} selectMode={selectMode}/>
           ):(
             <GroupedView grouped={grouped} openClients={openClients} openTypes={openTypes}
               toggleClient={cl=>setOpenClients(p=>({...p,[cl]:!p[cl]}))}
               toggleType={k=>setOpenTypes(p=>({...p,[k]:!p[k]}))}
-              allCerts={filtered}/>
+              allCerts={filtered}
+              onUnlink={unlinkCert} onSelect={toggleSelect}
+              selected={selected} selectMode={selectMode}/>
           )}
         </div>
       </div>
@@ -275,7 +355,7 @@ export default function CertificatesPageClient() {
   );
 }
 
-function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allCerts=[]}){
+function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allCerts=[],onUnlink,onSelect,selected,selectMode}){
   return(
     <div style={{display:"grid",gap:10}}>
       {grouped.map(cg=>{
@@ -316,12 +396,20 @@ function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allC
                                       ))}
                                     </tr>
                                   </thead>
-                                  <tbody>{item.certs.map(cert=><CertRow key={cert.id} cert={cert} compact allCerts={allCerts}/>)}</tbody>
+                                  <tbody>{item.certs.map(cert=>{
+                                if(cert._folderCerts&&cert._folderCerts.length>1){
+                                  return cert._folderCerts.map((fc,fi)=>(
+                                    <CertRow key={fc.id} cert={fc} compact allCerts={allCerts} onUnlink={onUnlink} onSelect={onSelect} selected={selected} selectMode={selectMode}
+                                      folderRow={true} folderFirst={fi===0} folderLast={fi===cert._folderCerts.length-1} folderSize={cert._folderCerts.length}/>
+                                  ));
+                                }
+                                return <CertRow key={cert.id} cert={cert} compact allCerts={allCerts} onUnlink={onUnlink} onSelect={onSelect} selected={selected} selectMode={selectMode}/>;
+                              })}</tbody>
                                 </table>
                               </div>
                               {/* Mobile cards */}
                               <div className="cert-mob">
-                                {item.certs.map(cert=><CertMobCard key={cert.id} cert={cert}/>)}
+                                {item.certs.map(cert=><CertMobCard key={cert.id} cert={cert} onUnlink={onUnlink} onSelect={onSelect} selected={selected} selectMode={selectMode}/>)}
                               </div>
                             </div>
                           ))}
@@ -339,7 +427,7 @@ function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allC
   );
 }
 
-function FlatView({certs}){
+function FlatView({certs,onUnlink,onSelect,selected,selectMode}){
   return(
     <div style={{border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden",background:T.panel}}>
       <div className="cert-tbl" style={{overflowX:"auto"}}>
@@ -351,29 +439,34 @@ function FlatView({certs}){
               ))}
             </tr>
           </thead>
-          <tbody>{certs.map(cert=><CertRow key={cert.id} cert={cert} allCerts={certs}/>)}</tbody>
+          <tbody>{certs.map(cert=><CertRow key={cert.id} cert={cert} allCerts={certs} onUnlink={onUnlink} onSelect={onSelect} selected={selected} selectMode={selectMode}/>)}</tbody>
         </table>
       </div>
       <div className="cert-mob">
-        {certs.map(cert=><CertMobCard key={cert.id} cert={cert}/>)}
+        {certs.map(cert=><CertMobCard key={cert.id} cert={cert} onUnlink={onUnlink} onSelect={onSelect} selected={selected} selectMode={selectMode}/>)}
       </div>
     </div>
   );
 }
 
-function CertRow({cert,compact=false,allCerts=[]}){
+function CertRow({cert,compact=false,allCerts=[],onUnlink,onSelect,selected,selectMode,folderRow=false,folderFirst=false,folderLast=false,folderSize=0}){
   const r=rc(cert.result);const e=ec(cert.expiry_bucket);
   const days=daysDiff(cert.expiry_date);
   const id=encodeURIComponent(String(cert.id??""));
   if(compact){
     return(
       <tr className="cr" style={{borderBottom:`1px solid ${T.border}`}}>
-        <td style={TD}><span style={{color:T.accent,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",fontSize:12}}>{cert.certificate_number||"—"}</span></td>
+        <td style={{...TD,paddingLeft:folderRow?22:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            {folderRow&&<span style={{color:T.purple,fontSize:10}}>{folderFirst?"📁":"  └"}</span>}
+            <span style={{color:T.accent,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",fontSize:12}}>{cert.certificate_number||"—"}</span>
+          </div>
+        </td>
         <td style={TD}><Badge label={r.label} color={r.color} bg={r.bg} brd={r.brd}/></td>
         <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.issue_date)}</td>
         <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.expiry_date)}</td>
         <td style={{...TD,fontSize:12,color:T.textMid,textTransform:"capitalize"}}>{nz(cert.status,"active")}</td>
-        <td style={TD}><ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={allCerts} certId={cert.id}/></td>
+        <td style={TD}><ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={allCerts} certId={cert.id} onUnlink={onUnlink} onSelect={onSelect} selected={selected?.has(id)} selectMode={selectMode}/></td>
       </tr>
     );
   }
@@ -390,12 +483,12 @@ function CertRow({cert,compact=false,allCerts=[]}){
         {days!==null?<span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:5,background:e.bg,color:e.color}}>{days<0?`${Math.abs(days)}d ago`:`${days}d`}</span>:<span style={{color:T.textDim,fontSize:12}}>—</span>}
       </td>
       <td style={{...TD,fontSize:12,color:T.textMid,textTransform:"capitalize"}}>{nz(cert.status,"active")}</td>
-      <td style={TD}><ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={allCerts} certId={cert.id}/></td>
+      <td style={TD}><ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={allCerts} certId={cert.id} onUnlink={onUnlink} onSelect={onSelect} selected={selected?.has(id)} selectMode={selectMode}/></td>
     </tr>
   );
 }
 
-function CertMobCard({cert}){
+function CertMobCard({cert,onUnlink,onSelect,selected,selectMode}){
   const r=rc(cert.result);const e=ec(cert.expiry_bucket);
   const days=daysDiff(cert.expiry_date);
   const id=encodeURIComponent(String(cert.id??""));
@@ -414,16 +507,15 @@ function CertMobCard({cert}){
         <span>Issue: {formatDate(cert.issue_date)}</span>
         <span>Expiry: {formatDate(cert.expiry_date)}</span>
       </div>
-      <ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={[]} certId={cert.id}/>
+      <ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={[]} certId={cert.id} onUnlink={onUnlink} onSelect={onSelect} selected={selected?.has(id)} selectMode={selectMode}/>
     </div>
   );
 }
 
-function ActBtns({id,folderId,folderName,allCerts,certId}){
+function ActBtns({id,folderId,folderName,allCerts,certId,onUnlink,onSelect,selected,selectMode}){
   function handlePrint(e){
     e.preventDefault();
     if(folderId&&allCerts){
-      // Open each cert in the folder as a separate print tab
       const folderCerts=allCerts.filter(c=>c.folder_id===folderId);
       if(folderCerts.length>1){
         folderCerts.forEach((c,i)=>{
@@ -436,13 +528,28 @@ function ActBtns({id,folderId,folderName,allCerts,certId}){
   }
   return(
     <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+      {selectMode&&(
+        <input type="checkbox" checked={!!selected} onChange={()=>onSelect&&onSelect(id)}
+          style={{width:16,height:16,cursor:"pointer",accentColor:T.accent}}/>
+      )}
       <Link href={`/certificates/${id}`}      prefetch={false} style={AB(T.accent,T.accentDim,T.accentBrd)}>View</Link>
       <Link href={`/certificates/${id}/edit`} prefetch={false} style={AB(T.amber,T.amberDim,T.amberBrd)}>Edit</Link>
-      <Link href={`/certificates/${id}/edit?tab=link`} prefetch={false} style={AB(T.purple,T.purpleDim,T.purpleBrd)}>Link</Link>
+      {folderId?(
+        <button type="button" onClick={()=>onUnlink&&onUnlink(id)}
+          style={{...AB(T.red,T.redDim,T.redBrd),border:`1px solid ${T.redBrd}`,cursor:"pointer",fontFamily:"inherit"}}>
+          Unlink
+        </button>
+      ):(
+        <button type="button" onClick={()=>onSelect&&onSelect(id)}
+          style={{...AB(T.purple,T.purpleDim,T.purpleBrd),border:`1px solid ${T.purpleBrd}`,cursor:"pointer",fontFamily:"inherit",
+            outline:selected?`2px solid ${T.purple}`:"none"}}>
+          {selected?"✓ Selected":"Select"}
+        </button>
+      )}
       <button type="button" onClick={handlePrint} style={{...AB(T.green,T.greenDim,T.greenBrd),border:`1px solid ${T.greenBrd}`,cursor:"pointer",fontFamily:"inherit"}}>
         {folderId?"Print All":"Print"}
       </button>
-      {folderId&&<span style={{fontSize:10,fontWeight:800,padding:"5px 9px",borderRadius:99,background:T.purpleDim,color:T.purple,border:`1px solid ${T.purpleBrd}`,whiteSpace:"nowrap"}}>{folderName||"Folder"}</span>}
+      {folderId&&<span style={{fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:99,background:T.purpleDim,color:T.purple,border:`1px solid ${T.purpleBrd}`,whiteSpace:"nowrap"}}>📁 {folderName||"Folder"}</span>}
     </div>
   );
 }
