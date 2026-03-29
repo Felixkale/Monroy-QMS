@@ -24,6 +24,8 @@ const CSS = `
     font-family: 'IBM Plex Sans', -apple-system, sans-serif;
     color: #f0f6ff;
     -webkit-font-smoothing: antialiased;
+    height: 100%;
+    overflow: hidden;
   }
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -36,6 +38,7 @@ const CSS = `
       radial-gradient(ellipse 50% 40% at 100% 100%,rgba(167,139,250,0.06), transparent),
       #070e18;
     display: flex;
+    align-items: stretch;
   }
 
   /* ── SIDEBAR ── */
@@ -156,7 +159,7 @@ const CSS = `
   .qms-logout-btn:hover { background: rgba(248,113,113,0.08); border-color: rgba(248,113,113,0.22); color: #f87171; }
 
   /* ── MAIN ── */
-  .qms-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .qms-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
 
   .qms-topbar {
     position: sticky; top: 0; z-index: 30;
@@ -229,7 +232,7 @@ const CSS = `
   .qms-page-title-accent span:nth-child(2) { height: 18px; opacity: .55; }
   .qms-page-title-accent span:nth-child(3) { height: 11px; opacity: .28; }
 
-  .qms-page-body { flex: 1; min-width: 0; padding: 18px 22px 26px; }
+  .qms-page-body { min-width: 0; padding: 18px 22px 40px; }
 
   /* ── MOBILE OVERLAY ── */
   .qms-overlay {
