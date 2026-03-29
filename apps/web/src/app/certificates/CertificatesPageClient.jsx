@@ -316,7 +316,7 @@ function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allC
                                       ))}
                                     </tr>
                                   </thead>
-                                  <tbody>{item.certs.map(cert=><CertRow key={cert.id} cert={cert} compact allCerts={filtered}/>)}</tbody>
+                                  <tbody>{item.certs.map(cert=><CertRow key={cert.id} cert={cert} compact allCerts={allCerts}/>)}</tbody>
                                 </table>
                               </div>
                               {/* Mobile cards */}
