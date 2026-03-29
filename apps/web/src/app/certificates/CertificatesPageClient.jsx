@@ -19,7 +19,6 @@ const T = {
 };
 
 const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500&display=swap');
   *,*::before,*::after{box-sizing:border-box}
   ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.2);border-radius:99px}
   input::placeholder{color:rgba(240,246,255,0.28)}select option{background:#0a1420;color:#f0f6ff}
@@ -119,17 +118,35 @@ export default function CertificatesPageClient() {
     const{data,error}=await supabase.from("certificates").select(`
       id,certificate_number,result,issue_date,issued_at,expiry_date,valid_to,created_at,
       inspection_number,inspection_no,asset_tag,asset_name,equipment_description,equipment_type,
-      asset_type,client_name,company,status,folder_id,folder_name,folder_position,extracted_data
+      asset_type,client_name,company,status,folder_id,folder_name,folder_position,extracted_data,
+      assets(id,asset_tag,asset_name,asset_type,location,clients(id,company_name)),
+      clients(id,company_name)
     `).order("created_at",{ascending:false});
     if(error){setCerts([]);setErrTxt(error.message||"Failed to load.");setLoading(false);return;}
     const cleaned=(data||[]).map(r=>{
       const ex=r.extracted_data||{};
       const issue=r.issue_date||r.issued_at||ex.issue_date||null;
       const expiry=r.expiry_date||r.valid_to||ex.expiry_date||null;
+      // Resolve client name from join or direct column
+      const resolvedClient=
+        nz(r.client_name||r.company||ex.client_name,null)||
+        nz(r.clients?.company_name,null)||
+        nz(r.assets?.clients?.company_name,null)||
+        "UNASSIGNED";
+      // Resolve equipment from join or direct column
+      const resolvedEquipDesc=
+        nz(r.equipment_description||r.asset_name||ex.equipment_description,null)||
+        nz(r.assets?.asset_name,null)||
+        nz(r.asset_tag||r.assets?.asset_tag,null)||
+        "UNNAMED";
+      const resolvedEquipType=
+        nz(r.equipment_type||r.asset_type||ex.equipment_type,null)||
+        nz(r.assets?.asset_type,null)||
+        "UNCATEGORIZED";
       return{...r,issue_date:issue,expiry_date:expiry,result:normalizeResult(r.result||ex.result),
-        client_name:nz(r.client_name||r.company||ex.client_name,"UNASSIGNED"),
-        equipment_type:nz(r.equipment_type||r.asset_type||ex.equipment_type,"UNCATEGORIZED"),
-        equipment_description:nz(r.equipment_description||r.asset_name||r.asset_tag||ex.equipment_description,"UNNAMED"),
+        client_name:resolvedClient,
+        equipment_type:resolvedEquipType,
+        equipment_description:resolvedEquipDesc,
         status:nz(r.status,"active"),expiry_bucket:expiryBucket(expiry)};
     });
     const oc={};cleaned.forEach(r=>{oc[r.client_name]=true;});
@@ -249,7 +266,8 @@ export default function CertificatesPageClient() {
           ):(
             <GroupedView grouped={grouped} openClients={openClients} openTypes={openTypes}
               toggleClient={cl=>setOpenClients(p=>({...p,[cl]:!p[cl]}))}
-              toggleType={k=>setOpenTypes(p=>({...p,[k]:!p[k]}))}/>
+              toggleType={k=>setOpenTypes(p=>({...p,[k]:!p[k]}))}
+              allCerts={filtered}/>
           )}
         </div>
       </div>
@@ -257,7 +275,7 @@ export default function CertificatesPageClient() {
   );
 }
 
-function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType}){
+function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allCerts=[]}){
   return(
     <div style={{display:"grid",gap:10}}>
       {grouped.map(cg=>{
@@ -298,7 +316,7 @@ function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType}){
                                       ))}
                                     </tr>
                                   </thead>
-                                  <tbody>{item.certs.map(cert=><CertRow key={cert.id} cert={cert} compact/>)}</tbody>
+                                  <tbody>{item.certs.map(cert=><CertRow key={cert.id} cert={cert} compact allCerts={filtered}/>)}</tbody>
                                 </table>
                               </div>
                               {/* Mobile cards */}
@@ -333,7 +351,7 @@ function FlatView({certs}){
               ))}
             </tr>
           </thead>
-          <tbody>{certs.map(cert=><CertRow key={cert.id} cert={cert}/>)}</tbody>
+          <tbody>{certs.map(cert=><CertRow key={cert.id} cert={cert} allCerts={certs}/>)}</tbody>
         </table>
       </div>
       <div className="cert-mob">
@@ -343,7 +361,7 @@ function FlatView({certs}){
   );
 }
 
-function CertRow({cert,compact=false}){
+function CertRow({cert,compact=false,allCerts=[]}){
   const r=rc(cert.result);const e=ec(cert.expiry_bucket);
   const days=daysDiff(cert.expiry_date);
   const id=encodeURIComponent(String(cert.id??""));
@@ -355,7 +373,7 @@ function CertRow({cert,compact=false}){
         <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.issue_date)}</td>
         <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.expiry_date)}</td>
         <td style={{...TD,fontSize:12,color:T.textMid,textTransform:"capitalize"}}>{nz(cert.status,"active")}</td>
-        <td style={TD}><ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name}/></td>
+        <td style={TD}><ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={allCerts} certId={cert.id}/></td>
       </tr>
     );
   }
@@ -372,7 +390,7 @@ function CertRow({cert,compact=false}){
         {days!==null?<span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:5,background:e.bg,color:e.color}}>{days<0?`${Math.abs(days)}d ago`:`${days}d`}</span>:<span style={{color:T.textDim,fontSize:12}}>—</span>}
       </td>
       <td style={{...TD,fontSize:12,color:T.textMid,textTransform:"capitalize"}}>{nz(cert.status,"active")}</td>
-      <td style={TD}><ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name}/></td>
+      <td style={TD}><ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={allCerts} certId={cert.id}/></td>
     </tr>
   );
 }
@@ -396,17 +414,34 @@ function CertMobCard({cert}){
         <span>Issue: {formatDate(cert.issue_date)}</span>
         <span>Expiry: {formatDate(cert.expiry_date)}</span>
       </div>
-      <ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name}/>
+      <ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={[]} certId={cert.id}/>
     </div>
   );
 }
 
-function ActBtns({id,folderId,folderName}){
+function ActBtns({id,folderId,folderName,allCerts,certId}){
+  function handlePrint(e){
+    e.preventDefault();
+    if(folderId&&allCerts){
+      // Open each cert in the folder as a separate print tab
+      const folderCerts=allCerts.filter(c=>c.folder_id===folderId);
+      if(folderCerts.length>1){
+        folderCerts.forEach((c,i)=>{
+          setTimeout(()=>window.open(`/certificates/print/${encodeURIComponent(String(c.id))}`,"_blank"),i*400);
+        });
+        return;
+      }
+    }
+    window.open(`/certificates/print/${id}`,"_blank");
+  }
   return(
     <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-      <Link href={`/certificates/${id}`}       prefetch={false} style={AB(T.accent,T.accentDim,T.accentBrd)}>View</Link>
-      <Link href={`/certificates/${id}/edit`}  prefetch={false} style={AB(T.amber,T.amberDim,T.amberBrd)}>Edit</Link>
-      <Link href={`/certificates/print/${id}`} prefetch={false} style={AB(T.green,T.greenDim,T.greenBrd)}>Print</Link>
+      <Link href={`/certificates/${id}`}      prefetch={false} style={AB(T.accent,T.accentDim,T.accentBrd)}>View</Link>
+      <Link href={`/certificates/${id}/edit`} prefetch={false} style={AB(T.amber,T.amberDim,T.amberBrd)}>Edit</Link>
+      <Link href={`/certificates/${id}/edit?tab=link`} prefetch={false} style={AB(T.purple,T.purpleDim,T.purpleBrd)}>Link</Link>
+      <button type="button" onClick={handlePrint} style={{...AB(T.green,T.greenDim,T.greenBrd),border:`1px solid ${T.greenBrd}`,cursor:"pointer",fontFamily:"inherit"}}>
+        {folderId?"Print All":"Print"}
+      </button>
       {folderId&&<span style={{fontSize:10,fontWeight:800,padding:"5px 9px",borderRadius:99,background:T.purpleDim,color:T.purple,border:`1px solid ${T.purpleBrd}`,whiteSpace:"nowrap"}}>{folderName||"Folder"}</span>}
     </div>
   );
