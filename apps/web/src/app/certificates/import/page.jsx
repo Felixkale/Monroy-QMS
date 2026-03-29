@@ -25,15 +25,19 @@ DATE FIELD RULES — CRITICAL, DO NOT MIX THESE UP:
 
 DATE FORMAT: Return all dates as MM/YYYY or DD/MM/YYYY or YYYY — never use dots as separators in output.
 
-EQUIPMENT TYPE MAPPING:
-- "CHAIN HOIST", "CHAIN BLOCK", "MANUAL CHAIN HOIST" → equipment_type: "Chain Hoist"
-- "WIRE ROPE HOIST" → "Wire Rope Hoist"
-- "SAFETY HARNESS", "FALL ARREST HARNESS" → "Safety Harness"
-- "LANYARD", "ENERGY ABSORBER" → "Lanyard"
-- "SHACKLE" → "Shackle"
-- "WEB SLING" → "Web Sling"
-- "CRANE" → identify crane type specifically
-- "AIR RECEIVER", "PRESSURE VESSEL" → "Pressure Vessel"
+EQUIPMENT TYPE MAPPING — be specific, use these exact values:
+Chain & Block Hoists: "Chain Block", "Manual Chain Hoist", "Electric Chain Hoist", "Lever Hoist / Tirfor", "Chain Pulley Block"
+Wire Rope: "Electric Wire Rope Hoist", "Manual Wire Rope Hoist", "Wire Rope Winch"
+Cranes: "Mobile Crane", "Overhead Crane / EOT Crane", "Gantry Crane", "Jib Crane", "Knuckle Boom Crane", "Loader Crane", "Crawler Crane", "Davit Crane"
+Slings: "Chain Sling", "Wire Rope Sling", "Web Sling / Flat Sling", "Round Sling", "Multi-Leg Chain Sling", "Multi-Leg Wire Rope Sling"
+Rigging: "Shackle — Bow / Anchor", "Shackle — D / Dee", "Hook — Swivel", "Hook — Eye", "Swivel", "Eye Bolt", "Eye Nut", "Turnbuckle", "Master Link"
+Beams: "Spreader Beam", "Lifting Beam", "Adjustable Spreader Beam", "Magnetic Lifter", "Vacuum Lifter Pad"
+Clamps: "Beam Clamp", "Plate Clamp — Vertical", "Plate Clamp — Horizontal", "Pipe Clamp"
+Fall Protection: "Safety Harness — Full Body", "Lanyard — Energy Absorbing", "Lanyard — Twin Leg", "Self-Retracting Lifeline (SRL)", "Fall Arrest Block", "Rope Grab / Fall Arrester"
+Winches: "Electric Winch", "Hydraulic Winch", "Air / Pneumatic Winch", "Hand Winch", "Snatch Block", "Pulley Block"
+Forklifts: "Counterbalance Forklift", "Reach Truck", "Telehandler / Telescopic Forklift", "Pallet Jack — Electric", "Scissor Lift", "Boom Lift / Cherry Picker", "Personnel Basket / Man Basket"
+Pressure: "Pressure Vessel", "Air Receiver", "Boiler", "Autoclave", "Compressor — Air", "Gas Cylinder", "Heat Exchanger"
+Mine: "Underground Mine Cage", "Skip Hoist", "Rock Drill Rig", "Scaffold", "Fire Extinguisher"
 
 CONDITION ASSESSMENT:
 - PASS: equipment appears serviceable, no visible damage
