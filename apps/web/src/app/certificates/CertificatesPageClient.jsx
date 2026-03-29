@@ -235,7 +235,7 @@ export default function CertificatesPageClient() {
   return(
     <AppLayout title="Certificates Register">
       <style>{CSS}</style>
-      <div className="cert-page" style={{minHeight:"100vh",background:`radial-gradient(ellipse 70% 50% at 0% 0%,rgba(34,211,238,0.06),transparent),radial-gradient(ellipse 60% 50% at 100% 100%,rgba(167,139,250,0.05),transparent),${T.bg}`,color:T.text,fontFamily:"'IBM Plex Sans',sans-serif",padding:20}}>
+      <div className="cert-page" style={{background:`radial-gradient(ellipse 70% 50% at 0% 0%,rgba(34,211,238,0.06),transparent),radial-gradient(ellipse 60% 50% at 100% 100%,rgba(167,139,250,0.05),transparent),${T.bg}`,color:T.text,fontFamily:"'IBM Plex Sans',sans-serif",padding:20,paddingBottom:60}}>
         <div style={{maxWidth:1500,margin:"0 auto",display:"grid",gap:16}}>
 
           {/* HEADER */}
