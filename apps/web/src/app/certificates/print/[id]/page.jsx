@@ -1,8 +1,8 @@
 // src/app/certificates/print/[id]/page.jsx
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState, useRef } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import CertificateSheet from "@/components/certificates/CertificateSheet";
 
@@ -16,9 +16,17 @@ export default function PrintCertificatePage() {
   const [loading, setLoading] = useState(true);
   const [rows,    setRows]    = useState([]);
   const [error,   setError]   = useState("");
-  const [saving,  setSaving]  = useState(false);
+  const autoTriggered = useRef(false);
 
   useEffect(() => { if (id) loadPrintRows(); }, [id]);
+
+  // Auto-trigger print dialog once loaded — so opening in new tab immediately saves as PDF
+  useEffect(() => {
+    if (!loading && rows.length > 0 && !error && !autoTriggered.current) {
+      autoTriggered.current = true;
+      setTimeout(() => window.print(), 600);
+    }
+  }, [loading, rows, error]);
 
   async function loadPrintRows() {
     setLoading(true); setError("");
@@ -28,40 +36,20 @@ export default function PrintCertificatePage() {
       setRows([]); setError(e?.message || "Certificate not found.");
       setLoading(false); return;
     }
-    if (cert.folder_id) {
-      const { data: fr, error: fe } = await supabase
-        .from("certificates").select("*")
-        .eq("folder_id", cert.folder_id)
-        .order("folder_position", { ascending: true })
-        .order("created_at",      { ascending: true });
-      setRows(fe || !fr?.length ? [cert] : fr);
-    } else {
-      setRows([cert]);
-    }
+    // Always render single cert — folder certs open in their own tabs
+    setRows([cert]);
     setLoading(false);
   }
-
-  // Save as PDF — triggers browser print dialog with PDF destination
-  function handleSaveAsPDF() {
-    setSaving(true);
-    // Give the UI a moment to update before print dialog opens
-    setTimeout(() => {
-      window.print();
-      setSaving(false);
-    }, 120);
-  }
-
-  const title = rows.length > 1 ? "Linked Certificate Folder" : "Single Certificate";
 
   return (
     <div style={{ background:"#0d1117", minHeight:"100vh", fontFamily:"'IBM Plex Sans',-apple-system,sans-serif" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap');
         *,*::before,*::after{box-sizing:border-box}
-        @page{size:A4;margin:12mm}
+        @page{size:A4;margin:0}
         @media print{
           .print-toolbar{display:none!important}
           body{background:#ffffff!important}
+          .print-page-wrap{padding:0!important;margin:0!important;max-width:100%!important}
         }
         .print-btn-row{display:flex;gap:10px;flex-wrap:wrap}
         @media(max-width:600px){
@@ -72,29 +60,31 @@ export default function PrintCertificatePage() {
         }
       `}</style>
 
-      {/* Toolbar */}
+      {/* Toolbar — hidden on print */}
       <div className="print-toolbar" style={{ position:"sticky", top:0, zIndex:20, background:"rgba(7,14,24,0.96)", backdropFilter:"blur(16px)", borderBottom:"1px solid rgba(34,211,238,0.12)", padding:"14px 20px" }}>
         <div className="print-toolbar-inner" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, maxWidth:980, margin:"0 auto", flexWrap:"wrap" }}>
           <div>
-            <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", textTransform:"uppercase", color:"#22d3ee", marginBottom:4 }}>Print Mode</div>
-            <div className="print-toolbar-title" style={{ fontSize:18, fontWeight:900, color:"#f0f6ff" }}>{title}</div>
+            <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", textTransform:"uppercase", color:"#22d3ee", marginBottom:4 }}>Print / Save as PDF</div>
+            <div className="print-toolbar-title" style={{ fontSize:18, fontWeight:900, color:"#f0f6ff" }}>
+              {loading ? "Loading…" : rows[0]?.certificate_number || "Certificate"}
+            </div>
           </div>
           <div className="print-btn-row">
             <button type="button"
-              onClick={() => router.push(`/certificates/${id}`)}
-              style={{ padding:"10px 16px", borderRadius:12, border:"1px solid rgba(148,163,184,0.18)", background:"rgba(255,255,255,0.04)", color:"#f0f6ff", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"'IBM Plex Sans',sans-serif", WebkitTapHighlightColor:"transparent" }}>
-              ← Back
+              onClick={() => window.close()}
+              style={{ padding:"10px 16px", borderRadius:12, border:"1px solid rgba(148,163,184,0.18)", background:"rgba(255,255,255,0.04)", color:"rgba(240,246,255,0.7)", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"'IBM Plex Sans',sans-serif", WebkitTapHighlightColor:"transparent" }}>
+              ✕ Close
             </button>
             <button type="button"
               onClick={() => window.print()}
-              style={{ padding:"10px 16px", borderRadius:12, border:"none", background:"rgba(96,165,250,0.15)", color:"#60a5fa", border:"1px solid rgba(96,165,250,0.25)", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"'IBM Plex Sans',sans-serif", WebkitTapHighlightColor:"transparent" }}>
-              🖨 Print Now
+              style={{ padding:"10px 16px", borderRadius:12, border:"1px solid rgba(96,165,250,0.25)", background:"rgba(96,165,250,0.12)", color:"#60a5fa", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"'IBM Plex Sans',sans-serif", WebkitTapHighlightColor:"transparent" }}>
+              🖨 Print
             </button>
             <button type="button"
-              onClick={handleSaveAsPDF}
-              disabled={saving || loading}
-              style={{ padding:"10px 16px", borderRadius:12, border:"none", background: saving || loading ? "rgba(255,255,255,0.06)" : "linear-gradient(135deg,#34d399,#14b8a6)", color: saving || loading ? "rgba(240,246,255,0.3)" : "#052e16", fontWeight:900, fontSize:13, cursor: saving || loading ? "not-allowed" : "pointer", fontFamily:"'IBM Plex Sans',sans-serif", WebkitTapHighlightColor:"transparent", display:"inline-flex", alignItems:"center", gap:6 }}>
-              {saving ? "Opening…" : "⬇ Save as PDF"}
+              onClick={() => window.print()}
+              disabled={loading}
+              style={{ padding:"10px 16px", borderRadius:12, border:"none", background: loading ? "rgba(255,255,255,0.06)" : "linear-gradient(135deg,#34d399,#14b8a6)", color: loading ? "rgba(240,246,255,0.3)" : "#052e16", fontWeight:900, fontSize:13, cursor: loading ? "not-allowed" : "pointer", fontFamily:"'IBM Plex Sans',sans-serif", WebkitTapHighlightColor:"transparent" }}>
+              ⬇ Save as PDF
             </button>
           </div>
         </div>
@@ -102,19 +92,17 @@ export default function PrintCertificatePage() {
 
       {/* Content */}
       {loading ? (
-        <div style={{ maxWidth:960, margin:"32px auto", background:"rgba(13,22,38,0.80)", border:"1px solid rgba(148,163,184,0.12)", borderRadius:16, padding:24, textAlign:"center", color:"rgba(240,246,255,0.5)" }}>
-          Loading print pages…
+        <div style={{ maxWidth:960, margin:"40px auto", textAlign:"center", color:"rgba(240,246,255,0.4)", fontSize:14 }}>
+          Loading certificate…
         </div>
       ) : error ? (
         <div style={{ maxWidth:960, margin:"32px auto", background:"rgba(248,113,113,0.10)", border:"1px solid rgba(248,113,113,0.25)", borderRadius:16, padding:18, color:"#f87171", fontWeight:700 }}>
           ⚠ {error}
         </div>
       ) : (
-        <div style={{ maxWidth:980, margin:"0 auto", padding:20 }}>
+        <div className="print-page-wrap" style={{ maxWidth:980, margin:"0 auto", padding:20 }}>
           {rows.map((row, index) => (
-            <div key={row.id} style={{ marginBottom:20, breakAfter:index === rows.length - 1 ? "auto" : "page", pageBreakAfter:index === rows.length - 1 ? "auto" : "always" }}>
-              <CertificateSheet certificate={row} index={index} total={rows.length} printMode />
-            </div>
+            <CertificateSheet key={row.id} certificate={row} index={index} total={rows.length} printMode />
           ))}
         </div>
       )}
