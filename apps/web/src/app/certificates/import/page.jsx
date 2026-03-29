@@ -5,18 +5,51 @@ import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import AppLayout from "@/components/AppLayout";
 
-const SYSTEM_PROMPT = `You are an advanced industrial inspection AI for a QMS. Analyze the uploaded document/image and extract structured data. Be adaptive — recognize meaning from scattered, rotated, or poorly formatted data. Handle label aliases: WLL/SWL/Capacity→swl, Tested at X kPa→test_pressure, Next due→next_inspection_due, etc. Prioritize nameplates as most reliable. Detect defects visually and from text. Infer result: PASS if no defects, FAIL/CONDITIONAL if defects present, UNKNOWN if unclear. Return ONLY valid JSON — no markdown, no code fences, no explanation.
+const SYSTEM_PROMPT = `You are a senior industrial inspection AI for a QMS system. Your job is to extract ALL visible data from the image or document with maximum precision. Read every character carefully.
 
+NAMEPLATE READING RULES (highest priority):
+- Read brand/manufacturer name exactly as printed (e.g. "GIANT", "YALE", "KITO", "CM", "BUDGIT")
+- Equipment type: identify precisely — "Chain Hoist", "Chain Block", "Wire Rope Hoist", "Manual Chain Hoist", "Electric Chain Hoist", "Web Sling", "Round Sling", "Safety Harness", "Shackle", "Hook", "Crane", etc.
+- SWL/WLL/Capacity: read the LARGE number (e.g. "2 TON", "5000 KG", "3.2T") → put in swl field with unit
+- Serial number: read S/No., Serial No., S/N exactly — no guessing
+- Asset tag written in marker/paint (e.g. "GIMC/CH/008") → put in asset_tag field
+- CE marks, TÜV, SABS, standards visible on nameplate → put in standard_code
+
+DATE FIELD RULES — CRITICAL, DO NOT MIX THESE UP:
+- "Date:" or "Date of Manufacture:" or "Mfg Date:" on the equipment/nameplate = MANUFACTURE DATE → put ONLY in year_built field. NEVER put this in inspection_date or expiry_date.
+- "inspection_date" = the date the inspection was actually performed (from inspection certificate document, NOT nameplate)
+- "expiry_date" = the date the certificate expires (from inspection certificate document, NOT nameplate)
+- "next_inspection_due" = next scheduled inspection date (from inspection certificate document, NOT nameplate)
+- If you are looking at a NAMEPLATE PHOTO only (no certificate document), leave inspection_date, expiry_date, and next_inspection_due as "" — they will be filled by the inspector manually.
+- If you are looking at an INSPECTION CERTIFICATE DOCUMENT, all date fields may be populated from the document.
+
+DATE FORMAT: Return all dates as MM/YYYY or DD/MM/YYYY or YYYY — never use dots as separators in output.
+
+EQUIPMENT TYPE MAPPING:
+- "CHAIN HOIST", "CHAIN BLOCK", "MANUAL CHAIN HOIST" → equipment_type: "Chain Hoist"
+- "WIRE ROPE HOIST" → "Wire Rope Hoist"
+- "SAFETY HARNESS", "FALL ARREST HARNESS" → "Safety Harness"
+- "LANYARD", "ENERGY ABSORBER" → "Lanyard"
+- "SHACKLE" → "Shackle"
+- "WEB SLING" → "Web Sling"
+- "CRANE" → identify crane type specifically
+- "AIR RECEIVER", "PRESSURE VESSEL" → "Pressure Vessel"
+
+CONDITION ASSESSMENT:
+- PASS: equipment appears serviceable, no visible damage
+- FAIL: visible cracks, deformation, corrosion, damage
+- CONDITIONAL: minor wear but still usable with conditions
+- UNKNOWN: cannot assess from image
+
+Return ONLY valid JSON, no markdown, no code fences:
 {
   "equipment_type":"","equipment_description":"","manufacturer":"","model":"","serial_number":"",
-  "year_built":"","capacity_volume":"","swl":"","working_pressure":"","design_pressure":"",
+  "asset_tag":"","year_built":"","capacity_volume":"","swl":"","working_pressure":"","design_pressure":"",
   "test_pressure":"","pressure_unit":"","material":"","standard_code":"","inspection_number":"",
   "client_name":"","location":"","inspection_date":"","expiry_date":"","next_inspection_due":"",
   "inspector_name":"","inspection_body":"","result":"","defects_found":"","recommendations":"",
-  "comments":"","qr_code_data":"","nameplate_data":"","raw_text_summary":""
-}
-
-Rules: result must be PASS, FAIL, CONDITIONAL, or UNKNOWN. Use "" for missing fields. Think like a certified inspector, not a form reader.`;
+  "comments":"","nameplate_data":"","raw_text_summary":""
+}`;
 
 const MAX_FILES = 20;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -77,6 +110,17 @@ function normalizeDate(raw) {
     const [y, m] = s.split("-").map(Number);
     const last = new Date(y, m, 0).getDate();
     return `${y}-${String(m).padStart(2,"0")}-${String(last).padStart(2,"0")}`;
+  }
+  // MM.YYYY (dot separator — common on nameplates e.g. "12.2024")
+  if (/^\d{1,2}\.\d{4}$/.test(s)) {
+    const [m, y] = s.split(".").map(Number);
+    const last = new Date(y, m, 0).getDate();
+    return `${y}-${String(m).padStart(2,"0")}-${String(last).padStart(2,"0")}`;
+  }
+  // DD.MM.YYYY (dot separator)
+  if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(s)) {
+    const [d, m, y] = s.split(".").map(Number);
+    return `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
   }
   // MM/YYYY
   if (/^\d{1,2}\/\d{4}$/.test(s)) {
