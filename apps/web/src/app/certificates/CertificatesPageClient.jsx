@@ -526,30 +526,26 @@ function ActBtns({id,folderId,folderName,allCerts,certId,onUnlink,onSelect,selec
     }
     window.open(`/certificates/print/${id}`,"_blank");
   }
+  const btnBase={display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"6px 11px",borderRadius:8,fontSize:11,fontWeight:800,textDecoration:"none",whiteSpace:"nowrap",cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent",minHeight:32,border:"1px solid"};
   return(
     <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-      {selectMode&&(
-        <input type="checkbox" checked={!!selected} onChange={()=>onSelect&&onSelect(id)}
-          style={{width:16,height:16,cursor:"pointer",accentColor:T.accent}}/>
-      )}
-      <Link href={`/certificates/${id}`}      prefetch={false} style={AB(T.accent,T.accentDim,T.accentBrd)}>View</Link>
-      <Link href={`/certificates/${id}/edit`} prefetch={false} style={AB(T.amber,T.amberDim,T.amberBrd)}>Edit</Link>
+      <Link href={`/certificates/${id}`}      prefetch={false} style={{...btnBase,background:T.accentDim,color:T.accent,borderColor:T.accentBrd}}>View</Link>
+      <Link href={`/certificates/${id}/edit`} prefetch={false} style={{...btnBase,background:T.amberDim,color:T.amber,borderColor:T.amberBrd}}>Edit</Link>
       {folderId?(
         <button type="button" onClick={()=>onUnlink&&onUnlink(id)}
-          style={{...AB(T.red,T.redDim,T.redBrd),border:`1px solid ${T.redBrd}`,cursor:"pointer",fontFamily:"inherit"}}>
+          style={{...btnBase,background:T.redDim,color:T.red,borderColor:T.redBrd}}>
           Unlink
         </button>
       ):(
         <button type="button" onClick={()=>onSelect&&onSelect(id)}
-          style={{...AB(T.purple,T.purpleDim,T.purpleBrd),border:`1px solid ${T.purpleBrd}`,cursor:"pointer",fontFamily:"inherit",
-            outline:selected?`2px solid ${T.purple}`:"none"}}>
+          style={{...btnBase,background:selected?T.purpleDim:T.card,color:selected?T.purple:T.textDim,borderColor:selected?T.purpleBrd:T.border}}>
           {selected?"✓ Selected":"Select"}
         </button>
       )}
-      <button type="button" onClick={handlePrint} style={{...AB(T.green,T.greenDim,T.greenBrd),border:`1px solid ${T.greenBrd}`,cursor:"pointer",fontFamily:"inherit"}}>
+      <button type="button" onClick={handlePrint}
+        style={{...btnBase,background:T.greenDim,color:T.green,borderColor:T.greenBrd}}>
         {folderId?"Print All":"Print"}
       </button>
-      {folderId&&<span style={{fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:99,background:T.purpleDim,color:T.purple,border:`1px solid ${T.purpleBrd}`,whiteSpace:"nowrap"}}>📁 {folderName||"Folder"}</span>}
     </div>
   );
 }
