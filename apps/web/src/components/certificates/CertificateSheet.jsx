@@ -173,6 +173,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
   const ex = c.extracted_data || {};
 
   const company    = val(c.company      || c.client_name    || ex.client_name) || "Monroy (Pty) Ltd";
+  const equipType  = val(c.equipment_type        || c.asset_type   || ex.equipment_type);
   const _rawType   = String(equipType || "").toLowerCase();
   const _isLifting = /lift|hoist|crane|sling|chain|shackle|hook|swivel|beam|spreader|harness|lanyard|rope|rigging|winch|pulley|block|tackle|eyebolt|ring|clamp|grab|magnet|vacuum|below.the.hook|btl|wll|swl/i.test(_rawType);
   const _isPressure= /pressure|vessel|boiler|autoclave|receiver|accumulator|compressor|hydraulic|tank|cylinder|drum|pipeline|heat.exchanger|separator|filter.vessel/i.test(_rawType);
@@ -185,7 +186,6 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
   const issueDate  = formatDate(c.issue_date  || c.issued_at  || ex.issue_date);
   const expiryDate = formatDate(c.expiry_date || c.valid_to   || c.next_inspection_date || ex.expiry_date || ex.next_inspection_date);
   const equipDesc  = val(c.equipment_description || c.asset_name   || ex.equipment_description);
-  const equipType  = val(c.equipment_type        || c.asset_type   || ex.equipment_type);
   const equipId    = val(c.equipment_id           || c.asset_tag   || ex.equipment_id);
   const idNumber   = val(c.identification_number  || ex.identification_number);
   const lanyardSN  = val(c.lanyard_serial_no       || ex.lanyard_serial_no);
