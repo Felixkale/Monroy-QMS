@@ -174,7 +174,13 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
   const ex = c.extracted_data || {};
 
   const company    = val(c.company      || c.client_name    || ex.client_name) || "Monroy (Pty) Ltd";
-  const certType   = val(c.certificate_type || ex.certificate_type || c.document_category) || "Certificate of Inspection";
+  const _rawType   = String(equipType || "").toLowerCase();
+  const _isLifting = /lift|hoist|crane|sling|chain|shackle|hook|swivel|beam|spreader|harness|lanyard|rope|rigging|winch|pulley|block|tackle|eyebolt|ring|clamp|grab|magnet|vacuum|below.the.hook|btl|wll|swl/i.test(_rawType);
+  const _isPressure= /pressure|vessel|boiler|autoclave|receiver|accumulator|compressor|hydraulic|tank|cylinder|drum|pipeline|heat.exchanger|separator|filter.vessel/i.test(_rawType);
+  const certType   = val(c.certificate_type || ex.certificate_type || c.document_category) ||
+    (_isLifting  ? "Load Test Certificate" :
+     _isPressure ? "Pressure Test Certificate" :
+                   "Certificate of Inspection");
   const certNumber = val(c.certificate_number);
   const inspNumber = val(c.inspection_no || c.inspection_number || ex.inspection_no);
   const issueDate  = formatDate(c.issue_date  || c.issued_at  || ex.issue_date);
