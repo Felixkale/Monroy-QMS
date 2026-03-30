@@ -1,111 +1,130 @@
 // src/app/certificates/print/[id]/page.jsx
 "use client";
 
-import { useEffect, useState, useRef } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import CertificateSheet from "@/components/certificates/CertificateSheet";
 
-function normalizeId(v) { return Array.isArray(v) ? v[0] : v; }
-
-export default function PrintCertificatePage() {
-  const params  = useParams();
-  const router  = useRouter();
-  const id      = normalizeId(params?.id);
-
+export default function PrintPage() {
+  const params = useParams();
+  const id = Array.isArray(params?.id) ? params.id[0] : params?.id;
+  const [cert, setCert] = useState(null);
+  const [bundle, setBundle] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [rows,    setRows]    = useState([]);
-  const [error,   setError]   = useState("");
-  const autoTriggered = useRef(false);
+  const [error, setError] = useState("");
+  const printed = useRef(false);
 
-  useEffect(() => { if (id) loadPrintRows(); }, [id]);
-
-  // Auto-trigger print dialog once loaded — so opening in new tab immediately saves as PDF
   useEffect(() => {
-    if (!loading && rows.length > 0 && !error && !autoTriggered.current) {
-      autoTriggered.current = true;
-      setTimeout(() => window.print(), 600);
+    if (!id) return;
+    async function load() {
+      const { data, error: e } = await supabase
+        .from("certificates").select("*").eq("id", id).maybeSingle();
+      if (e || !data) { setError("Certificate not found."); setLoading(false); return; }
+      setCert(data);
+      if (data.folder_id) {
+        const { data: linked } = await supabase
+          .from("certificates").select("*")
+          .eq("folder_id", data.folder_id)
+          .order("folder_position", { ascending: true });
+        setBundle(linked?.length ? linked : [data]);
+      } else {
+        setBundle([data]);
+      }
+      setLoading(false);
     }
-  }, [loading, rows, error]);
+    load();
+  }, [id]);
 
-  async function loadPrintRows() {
-    setLoading(true); setError("");
-    const { data: cert, error: e } = await supabase
-      .from("certificates").select("*").eq("id", id).maybeSingle();
-    if (e || !cert) {
-      setRows([]); setError(e?.message || "Certificate not found.");
-      setLoading(false); return;
+  useEffect(() => {
+    if (!loading && cert && !printed.current) {
+      printed.current = true;
+      setTimeout(() => window.print(), 900);
     }
-    // Always render single cert — folder certs open in their own tabs
-    setRows([cert]);
-    setLoading(false);
-  }
+  }, [loading, cert]);
+
+  if (loading) return (
+    <div style={{ minHeight:"100vh", background:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'IBM Plex Sans',sans-serif", color:"#334155", fontSize:14 }}>
+      Preparing certificate…
+    </div>
+  );
+
+  if (error) return (
+    <div style={{ minHeight:"100vh", background:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'IBM Plex Sans',sans-serif", color:"#dc2626", fontSize:14 }}>
+      {error}
+    </div>
+  );
 
   return (
-    <div style={{ background:"#0d1117", minHeight:"100vh", fontFamily:"'IBM Plex Sans',-apple-system,sans-serif" }}>
+    <>
       <style>{`
-        *,*::before,*::after{box-sizing:border-box}
-        @page{size:A4;margin:0}
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+        html,body{background:#e2e8f0;font-family:'IBM Plex Sans',sans-serif}
+
+        .print-toolbar{
+          position:fixed;top:0;left:0;right:0;z-index:100;
+          background:#0b1929;padding:10px 20px;
+          display:flex;align-items:center;justify-content:space-between;gap:12px;
+          box-shadow:0 2px 16px rgba(0,0,0,0.4);
+        }
+        .tb-left{display:flex;align-items:center;gap:10px}
+        .tb-title{font-size:13px;font-weight:700;color:#fff}
+        .tb-sub{font-size:11px;color:rgba(255,255,255,0.45);margin-top:1px}
+        .tb-right{display:flex;align-items:center;gap:10px}
+        .tb-hint{font-size:11px;color:rgba(255,255,255,0.4);text-align:right;line-height:1.5}
+        .tb-hint b{color:rgba(255,255,255,0.65)}
+        .btn-close{padding:7px 13px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:rgba(255,255,255,0.6);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
+        .btn-print{padding:8px 16px;border-radius:8px;border:none;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px}
+        .btn-pdf{padding:8px 18px;border-radius:8px;border:none;background:linear-gradient(135deg,#34d399,#14b8a6);color:#052e16;font-size:13px;font-weight:900;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:7px}
+
+        .print-content{padding-top:60px;padding-bottom:30px}
+
         @media print{
           .print-toolbar{display:none!important}
-          body{background:#ffffff!important}
-          .print-page-wrap{padding:0!important;margin:0!important;max-width:100%!important}
-        }
-        .print-btn-row{display:flex;gap:10px;flex-wrap:wrap}
-        @media(max-width:600px){
-          .print-toolbar-inner{flex-direction:column!important;gap:12px!important}
-          .print-btn-row{width:100%}
-          .print-btn-row button{flex:1}
-          .print-toolbar-title{font-size:16px!important}
+          .print-content{padding:0!important}
+          html,body{background:#fff!important}
+          @page{size:A4;margin:0}
         }
       `}</style>
 
-      {/* Toolbar — hidden on print */}
-      <div className="print-toolbar" style={{ position:"sticky", top:0, zIndex:20, background:"rgba(7,14,24,0.96)", backdropFilter:"blur(16px)", borderBottom:"1px solid rgba(34,211,238,0.12)", padding:"14px 20px" }}>
-        <div className="print-toolbar-inner" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, maxWidth:980, margin:"0 auto", flexWrap:"wrap" }}>
+      <div className="print-toolbar">
+        <div className="tb-left">
+          <button className="btn-close" type="button" onClick={()=>window.close()}>← Close</button>
           <div>
-            <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", textTransform:"uppercase", color:"#22d3ee", marginBottom:4 }}>Print / Save as PDF</div>
-            <div className="print-toolbar-title" style={{ fontSize:18, fontWeight:900, color:"#f0f6ff" }}>
-              {loading ? "Loading…" : rows[0]?.certificate_number || "Certificate"}
+            <div className="tb-title">
+              {bundle.length>1?`${bundle.length} Certificates — Folder Print`:cert?.certificate_number||"Certificate"}
+            </div>
+            <div className="tb-sub">
+              {bundle.length>1?"All linked certificates will print on separate pages":cert?.equipment_description||cert?.equipment_type||""}
             </div>
           </div>
-          <div className="print-btn-row">
-            <button type="button"
-              onClick={() => window.close()}
-              style={{ padding:"10px 16px", borderRadius:12, border:"1px solid rgba(148,163,184,0.18)", background:"rgba(255,255,255,0.04)", color:"rgba(240,246,255,0.7)", fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"'IBM Plex Sans',sans-serif", WebkitTapHighlightColor:"transparent" }}>
-              ✕ Close
-            </button>
-            <button type="button"
-              onClick={() => window.print()}
-              style={{ padding:"10px 16px", borderRadius:12, border:"1px solid rgba(96,165,250,0.25)", background:"rgba(96,165,250,0.12)", color:"#60a5fa", fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"'IBM Plex Sans',sans-serif", WebkitTapHighlightColor:"transparent" }}>
-              🖨 Print
-            </button>
-            <button type="button"
-              onClick={() => window.print()}
-              disabled={loading}
-              style={{ padding:"10px 16px", borderRadius:12, border:"none", background: loading ? "rgba(255,255,255,0.06)" : "linear-gradient(135deg,#34d399,#14b8a6)", color: loading ? "rgba(240,246,255,0.3)" : "#052e16", fontWeight:900, fontSize:13, cursor: loading ? "not-allowed" : "pointer", fontFamily:"'IBM Plex Sans',sans-serif", WebkitTapHighlightColor:"transparent" }}>
-              ⬇ Save as PDF
-            </button>
+        </div>
+        <div className="tb-right">
+          <div className="tb-hint">
+            To save as PDF: click <b>⬇ Save PDF</b> →<br/>
+            then select <b>Save as PDF</b> as the printer
           </div>
+          <button className="btn-print" type="button" onClick={()=>window.print()}>
+            🖨 Print
+          </button>
+          <button className="btn-pdf" type="button" onClick={()=>window.print()}>
+            ⬇ Save PDF
+          </button>
         </div>
       </div>
 
-      {/* Content */}
-      {loading ? (
-        <div style={{ maxWidth:960, margin:"40px auto", textAlign:"center", color:"rgba(240,246,255,0.4)", fontSize:14 }}>
-          Loading certificate…
-        </div>
-      ) : error ? (
-        <div style={{ maxWidth:960, margin:"32px auto", background:"rgba(248,113,113,0.10)", border:"1px solid rgba(248,113,113,0.25)", borderRadius:16, padding:18, color:"#f87171", fontWeight:700 }}>
-          ⚠ {error}
-        </div>
-      ) : (
-        <div className="print-page-wrap" style={{ maxWidth:980, margin:"0 auto", padding:20 }}>
-          {rows.map((row, index) => (
-            <CertificateSheet key={row.id} certificate={row} index={index} total={rows.length} printMode />
-          ))}
-        </div>
-      )}
-    </div>
+      <div className="print-content">
+        {bundle.map((c, i) => (
+          <div key={c.id} style={{ pageBreakAfter: i < bundle.length-1 ? "always" : "auto" }}>
+            <CertificateSheet
+              certificate={c}
+              index={i}
+              total={bundle.length}
+              printMode={true}
+            />
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
