@@ -247,47 +247,43 @@ export default function AdminPage() {
                 + Register Client
               </button>
             </div>
-            <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden"}}>
-              {loading?(
-                <div style={{padding:"40px 0",textAlign:"center",color:T.textDim,fontSize:13}}>Loading…</div>
-              ):(
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                  <thead>
-                    <tr>
-                      {["Company","Status","Registered","Actions"].map(h=>(
-                        <th key={h} style={{padding:"11px 16px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:T.textDim,borderBottom:`1px solid ${T.border}`}}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {clients.length===0?(
-                      <tr><td colSpan={4} style={{padding:"32px",textAlign:"center",color:T.textDim}}>No clients found.</td></tr>
-                    ):clients.map(c=>(
-                      <tr key={c.id} className="cl-row" style={{borderBottom:`1px solid ${T.border}`}}>
-                        <td style={{padding:"12px 16px",fontWeight:600,color:T.text}}>{c.company_name}</td>
-                        <td style={{padding:"12px 16px"}}>
-                          <span style={{padding:"3px 9px",borderRadius:99,fontSize:10,fontWeight:800,
-                            background:c.status==="active"?T.greenDim:T.redDim,
-                            border:`1px solid ${c.status==="active"?T.greenBrd:T.redBrd}`,
-                            color:c.status==="active"?T.green:T.red}}>
-                            {c.status||"active"}
-                          </span>
-                        </td>
-                        <td style={{padding:"12px 16px",color:T.textDim,fontSize:12}}>
-                          {c.created_at?new Date(c.created_at).toLocaleDateString("en-GB"):"—"}
-                        </td>
-                        <td style={{padding:"12px 16px"}}>
-                          <button type="button" onClick={()=>router.push(`/clients/${c.id}`)}
-                            style={{padding:"5px 12px",borderRadius:7,border:`1px solid ${T.accentBrd}`,background:T.accentDim,color:T.accent,fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
-                            View
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+            {loading?(
+              <div style={{padding:"40px 0",textAlign:"center",color:T.textDim,fontSize:13}}>Loading…</div>
+            ):clients.length===0?(
+              <div style={{padding:"40px 0",textAlign:"center",color:T.textDim,fontSize:13}}>No clients registered yet.</div>
+            ):(
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:12}}>
+                {clients.map(c=>(
+                  <div key={c.id}
+                    onClick={()=>router.push(`/clients/${c.id}`)}
+                    style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:14,padding:18,cursor:"pointer",transition:"border-color .2s,transform .2s"}}
+                    onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accentBrd;e.currentTarget.style.transform="translateY(-2px)";}}
+                    onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.transform="none";}}>
+                    {/* Client initials */}
+                    <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                      <div style={{width:44,height:44,borderRadius:12,background:`linear-gradient(135deg,${T.accent},${T.blue})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:900,color:"#052e16",flexShrink:0}}>
+                        {(c.company_name||"C").charAt(0).toUpperCase()}
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:800,fontSize:13,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.company_name}</div>
+                        <div style={{fontSize:11,color:T.textDim,marginTop:2}}>
+                          {c.created_at?`Since ${new Date(c.created_at).toLocaleDateString("en-GB",{month:"short",year:"numeric"})}`:"-"}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:12,borderTop:`1px solid ${T.border}`}}>
+                      <span style={{padding:"3px 9px",borderRadius:99,fontSize:10,fontWeight:800,
+                        background:c.status==="active"?T.greenDim:T.redDim,
+                        border:`1px solid ${c.status==="active"?T.greenBrd:T.redBrd}`,
+                        color:c.status==="active"?T.green:T.red}}>
+                        {c.status||"active"}
+                      </span>
+                      <span style={{fontSize:11,color:T.accent,fontWeight:700}}>View →</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -300,7 +296,7 @@ export default function AdminPage() {
                 {label:"Platform",  value:"Monroy QMS"},
                 {label:"Version",   value:"v1.0.0"},
                 {label:"Database",  value:"Supabase (PostgreSQL)"},
-                {label:"Auth",      value:"Supabase Auth"},
+                {label:"Auth",      value:"Supabase Auth — Email & Password"},
                 {label:"Hosting",   value:"Render.com"},
                 {label:"Domain",    value:"monroy-qms.co.bw"},
               ].map(item=>(
@@ -311,11 +307,17 @@ export default function AdminPage() {
               ))}
             </div>
             <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:14,padding:20}}>
-              <div style={{fontSize:13,fontWeight:800,color:T.text,marginBottom:14}}>Database Tables</div>
-              {["clients","assets","certificates","users","ncrs","capas","inspections"].map(t=>(
-                <div key={t} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:`1px solid ${T.border}`,fontSize:13}}>
-                  <span style={{color:T.textDim,fontFamily:"'IBM Plex Mono',monospace"}}>{t}</span>
-                  <span style={{fontSize:11,fontWeight:700,color:T.green}}>● Connected</span>
+              <div style={{fontSize:13,fontWeight:800,color:T.text,marginBottom:14}}>Live Record Counts</div>
+              {[
+                {label:"clients",      value:stats.clients},
+                {label:"assets",       value:stats.equipment},
+                {label:"certificates", value:stats.certificates},
+                {label:"users",        value:users.length},
+                {label:"ncrs",         value:stats.ncrs},
+              ].map(t=>(
+                <div key={t.label} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:`1px solid ${T.border}`,fontSize:13}}>
+                  <span style={{color:T.textDim,fontFamily:"'IBM Plex Mono',monospace"}}>{t.label}</span>
+                  <span style={{fontSize:13,fontWeight:800,color:T.accent}}>{loading?"…":t.value.toLocaleString()} records</span>
                 </div>
               ))}
             </div>
