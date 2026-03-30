@@ -1,8 +1,8 @@
 // src/app/login/page.jsx
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 const T = {
@@ -14,14 +14,24 @@ const T = {
   input:"rgba(15,25,45,0.80)", inputBrd:"rgba(148,163,184,0.15)",
 };
 
-export default function LoginPage() {
+function LoginInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [showPw,   setShowPw]   = useState(false);
   const [loading,  setLoading]  = useState(false);
   const [gLoading, setGLoading] = useState(false);
-  const [error,    setError]    = useState("");
+
+  // Read error from URL (set by auth callback after failed OAuth)
+  const urlErr = searchParams.get("error");
+  const blockedEmail = searchParams.get("email");
+  const urlErrMsg =
+    urlErr === "not_whitelisted" ? `Access denied for ${blockedEmail||"this account"}. Your email is not registered in Monroy QMS. Contact your administrator.` :
+    urlErr === "account_inactive" ? "Your account has been deactivated. Contact your administrator." :
+    urlErr === "auth_failed" ? "Authentication failed. Please try again." :
+    "";
+  const [error, setError] = useState(urlErrMsg);
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -160,5 +170,17 @@ export default function LoginPage() {
 
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight:"100vh", background:"#060d1a", display:"flex", alignItems:"center", justifyContent:"center" }}>
+        <div style={{ width:24, height:24, border:"2px solid rgba(34,211,238,0.2)", borderTopColor:"#22d3ee", borderRadius:"50%", animation:"spin .8s linear infinite" }}/>
+      </div>
+    }>
+      <LoginInner/>
+    </Suspense>
   );
 }
