@@ -76,8 +76,9 @@ export default function AdminUsersPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to invite user.");
+      // Show warning (partial success) or full success
       if (json.warning) {
-        setSuccess(`✉ Invitation sent to ${form.email}. Note: ${json.warning}`);
+        setSuccess(`✉ Invitation sent to ${form.email}. Warning: ${json.warning}`);
       } else {
         setSuccess(`✉ Invitation sent to ${form.email}. They will receive an email to set their password.`);
       }
@@ -151,7 +152,7 @@ export default function AdminUsersPage() {
         </div>
 
         {/* Feedback */}
-        {error  &&<div style={{padding:"10px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,  background:T.redDim,  color:T.red,  fontSize:13,fontWeight:700,lineHeight:1.6}}>⚠ {error}</div>}
+        {error  &&<div style={{padding:"10px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,  background:T.redDim,  color:T.red,  fontSize:12,fontWeight:600,lineHeight:1.8,wordBreak:"break-word"}}>⚠ {error}</div>}
         {success&&<div style={{padding:"10px 14px",borderRadius:10,border:`1px solid ${T.greenBrd}`,background:T.greenDim,color:T.green,fontSize:13,fontWeight:700,lineHeight:1.6}}>✓ {success}</div>}
 
         {/* Create user form */}
