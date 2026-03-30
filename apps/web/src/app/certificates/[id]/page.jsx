@@ -171,7 +171,7 @@ function CertificateDetailsInner(){
 
   function handleSavePdf(){
     setSavingPdf(true);
-    window.open(`/certificates/print/${id}`,"_blank","noopener,noreferrer");
+    window.open(`/certificates/print/${id}?pdf=1`,"_blank","noopener,noreferrer");
     setTimeout(()=>setSavingPdf(false),2000);
   }
 
