@@ -51,7 +51,7 @@ export default function AdminUsersPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving,   setSaving]   = useState(false);
   const [deleting, setDeleting] = useState(null);
-  const [form, setForm] = useState({ email:"", full_name:"", role:"inspector", password:"" });
+  const [form, setForm] = useState({ email:"", full_name:"", role:"inspector" });
 
   useEffect(()=>{ loadUsers(); },[]);
 
@@ -65,20 +65,19 @@ export default function AdminUsersPage() {
 
   async function handleCreate(e) {
     e.preventDefault();
-    if (!form.email||!form.password||!form.full_name) { setError("All fields are required."); return; }
-    if (form.password.length < 8) { setError("Password must be at least 8 characters."); return; }
+    if (!form.email||!form.full_name) { setError("Name and email are required."); return; }
     setSaving(true); setError(""); setSuccess("");
     try {
       // Create auth user via admin API (requires service role — use API route)
       const res = await fetch("/api/admin/create-user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: form.email, password: form.password, full_name: form.full_name, role: form.role }),
+        body: JSON.stringify({ email: form.email, full_name: form.full_name, role: form.role }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to create user.");
       setSuccess(`User ${form.full_name} created. A confirmation email has been sent to ${form.email}.`);
-      setForm({ email:"", full_name:"", role:"inspector", password:"" });
+      setForm({ email:"", full_name:"", role:"inspector" });
       setShowForm(false);
       await loadUsers();
     } catch(err) { setError(err.message); }
@@ -161,10 +160,7 @@ export default function AdminUsersPage() {
                   <label style={LS}>Email Address</label>
                   <input style={IS} type="email" value={form.email} onChange={e=>hf("email",e.target.value)} placeholder="user@monroy.co.bw" required/>
                 </div>
-                <div>
-                  <label style={LS}>Temporary Password</label>
-                  <input style={IS} type="password" value={form.password} onChange={e=>hf("password",e.target.value)} placeholder="Min. 8 characters" required minLength={8}/>
-                </div>
+
                 <div>
                   <label style={LS}>Role</label>
                   <select style={IS} value={form.role} onChange={e=>hf("role",e.target.value)}>
@@ -173,10 +169,10 @@ export default function AdminUsersPage() {
                 </div>
               </div>
               <div style={{background:T.accentDim,border:`1px solid ${T.accentBrd}`,borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:12,color:T.textMid,lineHeight:1.8}}>
-                <strong style={{color:T.accent}}>📋 Whitelist note:</strong> Adding a user here registers their email as approved. They can then sign in using <strong style={{color:T.text}}>Google Sign-In</strong> with this exact email, or use the email/password you set. A <strong style={{color:T.text}}>confirmation email</strong> will be sent automatically — they must confirm it before their first login.
+                <strong style={{color:T.accent}}>📧 Invite flow:</strong> The user will receive an <strong style={{color:T.text}}>email invitation</strong> with a link to set their own password. They cannot log in until they click the link and create their password. Their email is added to the approved list automatically.
               </div>
               <button type="submit" disabled={saving} style={{padding:"11px 24px",borderRadius:10,border:"none",background:saving?"rgba(255,255,255,0.06)":"linear-gradient(135deg,#34d399,#14b8a6)",color:saving?"rgba(240,246,255,0.4)":"#052e16",fontWeight:900,fontSize:13,cursor:saving?"not-allowed":"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>
-                {saving?"Creating user…":"✉ Create & Send Invitation"}
+                {saving?"Sending invitation…":"✉ Send Invitation"}
               </button>
             </form>
           </div>
