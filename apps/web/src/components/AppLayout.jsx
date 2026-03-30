@@ -15,6 +15,7 @@ const navItems = [
   { id:"capa",            label:"CAPA",             icon:"🔧", href:"/capa" },
   { id:"reports",         label:"Reports",          icon:"📈", href:"/reports" },
   { id:"admin",           label:"Admin",            icon:"⚡", href:"/admin" },
+  { id:"users",           label:"Users",            icon:"👥", href:"/admin/users" },
 ];
 
 const CSS = `
@@ -311,8 +312,8 @@ export default function AppLayout({ children, title = "Monroy QMS" }) {
   const userName    = user?.email?.split("@")[0] || "User";
 
   // Separate admin from main nav
-  const mainNav  = navItems.filter(i => i.id !== "admin");
-  const adminNav = navItems.filter(i => i.id === "admin");
+  const mainNav  = navItems.filter(i => i.id !== "admin" && i.id !== "users");
+  const adminNav = navItems.filter(i => i.id === "admin" || i.id === "users");
 
   return (
     <>
