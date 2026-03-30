@@ -50,7 +50,8 @@ export default function AdminUsersPage() {
   const [success,  setSuccess]  = useState("");
   const [showForm, setShowForm] = useState(false);
   const [saving,   setSaving]   = useState(false);
-  const [deleting, setDeleting] = useState(null);
+  const [deleting,  setDeleting]  = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const [form, setForm] = useState({ email:"", full_name:"", role:"inspector" });
 
   useEffect(()=>{ loadUsers(); },[]);
@@ -102,6 +103,23 @@ export default function AdminUsersPage() {
     if (e) setError(e.message);
     else { setSuccess(`User ${newStatus === "active" ? "activated" : "deactivated"}.`); await loadUsers(); }
     setDeleting(null);
+  }
+
+  async function handleDelete(userId, name) {
+    if (!window.confirm(`Permanently delete ${name}? This cannot be undone and will remove them from the system completely.`)) return;
+    setDeletingId(userId);
+    try {
+      const res = await fetch("/api/admin/delete-user", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Delete failed.");
+      setSuccess(`User ${name} permanently deleted.`);
+      await loadUsers();
+    } catch(err) { setError(err.message); }
+    finally { setDeletingId(null); }
   }
 
   async function handleResendConfirmation(email) {
@@ -251,6 +269,10 @@ export default function AdminUsersPage() {
                               style={{padding:"5px 10px",borderRadius:7,border:`1px solid ${u.status==="active"?T.redBrd:T.greenBrd}`,background:u.status==="active"?T.redDim:T.greenDim,color:u.status==="active"?T.red:T.green,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",opacity:deleting===u.id?.5:1}}>
                               {deleting===u.id?"…":u.status==="active"?"Deactivate":"Activate"}
                             </button>
+                            <button type="button" onClick={()=>handleDelete(u.id,u.full_name||u.email)} disabled={deletingId===u.id}
+                              style={{padding:"5px 10px",borderRadius:7,border:`1px solid ${T.redBrd}`,background:"rgba(127,29,29,0.3)",color:"#fca5a5",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",opacity:deletingId===u.id?.5:1}}>
+                              {deletingId===u.id?"Deleting…":"🗑 Delete"}
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -281,6 +303,10 @@ export default function AdminUsersPage() {
                       <button type="button" onClick={()=>handleDeactivate(u.id,u.status)}
                         style={{padding:"6px 10px",borderRadius:7,border:`1px solid ${u.status==="active"?T.redBrd:T.greenBrd}`,background:u.status==="active"?T.redDim:T.greenDim,color:u.status==="active"?T.red:T.green,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
                         {u.status==="active"?"Deactivate":"Activate"}
+                      </button>
+                      <button type="button" onClick={()=>handleDelete(u.id,u.full_name||u.email)} disabled={deletingId===u.id}
+                        style={{padding:"6px 10px",borderRadius:7,border:`1px solid ${T.redBrd}`,background:"rgba(127,29,29,0.3)",color:"#fca5a5",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",opacity:deletingId===u.id?.5:1}}>
+                        {deletingId===u.id?"Deleting…":"🗑 Delete"}
                       </button>
                     </div>
                   </div>
