@@ -8,8 +8,11 @@ export const dynamic = "force-dynamic";
 function adminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("SUPABASE_SERVICE_ROLE_KEY not set in environment variables.");
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
+  if (!url || !key) throw new Error("SUPABASE_SERVICE_ROLE_KEY not set in Render environment variables.");
+  return createClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+    db: { schema: "public" },
+  });
 }
 
 export async function POST(request) {
@@ -18,65 +21,50 @@ export async function POST(request) {
     const { email, full_name, role } = body || {};
 
     if (!email || !full_name) {
-      return NextResponse.json({ error: "email and full_name are required." }, { status: 400 });
+      return NextResponse.json({ error: "Email and full name are required." }, { status: 400 });
     }
 
     const validRoles = ["admin", "inspector", "viewer"];
-    const userRole = validRoles.includes(role) ? role : "inspector";
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://monroy-qms.co.bw";
+    const userRole   = validRoles.includes(role) ? role : "inspector";
+    const baseUrl    = process.env.NEXT_PUBLIC_BASE_URL || "https://monroy-qms.co.bw";
 
-    const supabaseAdmin = adminClient();
+    const admin = adminClient();
 
-    // 1. Invite user — Supabase sends email with set-password link
-    const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+    // ── Step 1: Send invite email via Supabase Auth ────────────────────────
+    const { data: authData, error: authErr } = await admin.auth.admin.inviteUserByEmail(email, {
       data: { full_name, role: userRole },
       redirectTo: `${baseUrl}/reset-password`,
     });
 
     if (authErr) {
+      // Handle already invited
+      if (authErr.message?.includes("already been invited") || authErr.message?.includes("already registered")) {
+        return NextResponse.json({ error: `${email} is already registered or has a pending invite.` }, { status: 409 });
+      }
       return NextResponse.json({ error: authErr.message }, { status: 400 });
     }
 
-    const userId = authData.user?.id;
+    const userId = authData?.user?.id;
     if (!userId) {
-      return NextResponse.json({ error: "Auth user created but no ID returned." }, { status: 500 });
+      return NextResponse.json({ error: "Invite sent but could not get user ID." }, { status: 500 });
     }
 
-    // 2. Check if user already exists in users table
-    const { data: existing } = await supabaseAdmin
+    // ── Step 2: Upsert into users table using service role (bypasses RLS) ──
+    const { error: dbErr } = await admin
       .from("users")
-      .select("id")
-      .eq("id", userId)
-      .maybeSingle();
+      .upsert(
+        { id: userId, email, full_name, role: userRole, status: "active", created_at: new Date().toISOString() },
+        { onConflict: "id" }
+      );
 
-    if (existing) {
-      // Already exists — just update role and status
-      await supabaseAdmin.from("users").update({
-        full_name,
-        role: userRole,
-        status: "active",
-        email,
-      }).eq("id", userId);
-    } else {
-      // Insert new record — only include columns that exist
-      const { error: dbErr } = await supabaseAdmin.from("users").insert({
-        id: userId,
-        email,
-        full_name,
-        role: userRole,
-        status: "active",
+    if (dbErr) {
+      console.error("DB upsert error:", dbErr.message);
+      // Invite was sent — partial success
+      return NextResponse.json({
+        success: true,
+        warning: `Invitation sent to ${email} but profile could not be saved (${dbErr.message}). Ask the user to log in — the trigger will create their profile automatically.`,
+        user: { id: userId, email, full_name, role: userRole },
       });
-
-      if (dbErr) {
-        // Log but don't fail — auth invite was sent successfully
-        console.error("users table insert failed:", dbErr.message);
-        // Return partial success — invite sent, profile may need manual fix
-        return NextResponse.json({
-          success: true,
-          warning: `Invitation sent but profile DB insert failed: ${dbErr.message}. The user can still log in.`,
-          user: { id: userId, email, full_name, role: userRole },
-        });
-      }
     }
 
     return NextResponse.json({
@@ -87,6 +75,6 @@ export async function POST(request) {
 
   } catch (err) {
     console.error("create-user error:", err);
-    return NextResponse.json({ error: err?.message || "Unexpected error." }, { status: 500 });
+    return NextResponse.json({ error: err?.message || "Unexpected server error." }, { status: 500 });
   }
 }
