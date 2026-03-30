@@ -20,7 +20,6 @@ const T = {
 };
 
 const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@500&display=swap');
   *,*::before,*::after{box-sizing:border-box}
   ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.2);border-radius:99px}
   .db-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px;margin-bottom:20px}
@@ -61,20 +60,41 @@ export default function DashboardPage() {
   const [capaStats,setCapaStats]=useState({total:0,open:0});
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState(null);
+  const [user,setUser]=useState({name:"",email:"",role:"",avatar:""});
 
   useEffect(()=>{
     async function load(){
       setLoading(true);
       try{
-        const[dashData,capaRes]=await Promise.all([
+        const[dashData,capaRes,authRes]=await Promise.all([
           getDashboardStats(),
           supabase.from("capas").select("id,status"),
+          supabase.auth.getUser(),
         ]);
         setStats(dashData);
         if(!capaRes.error&&capaRes.data){
           setCapaStats({
             total:capaRes.data.length,
             open:capaRes.data.filter(c=>c.status!=="closed").length,
+          });
+        }
+        // Load user profile
+        const authUser=authRes?.data?.user;
+        if(authUser){
+          const{data:profile}=await supabase.from("users")
+            .select("full_name,role,email")
+            .eq("id",authUser.id)
+            .maybeSingle();
+          const displayName=
+            profile?.full_name ||
+            authUser.user_metadata?.full_name ||
+            authUser.email?.split("@")[0] ||
+            "User";
+          setUser({
+            name:displayName,
+            email:authUser.email||"",
+            role:profile?.role||authUser.user_metadata?.role||"inspector",
+            avatar:displayName.charAt(0).toUpperCase(),
           });
         }
       }catch(e){setError("Failed to load dashboard data.");}
@@ -113,6 +133,39 @@ export default function DashboardPage() {
     <AppLayout title="Dashboard">
       <style>{CSS}</style>
       <div style={{fontFamily:"'IBM Plex Sans',sans-serif",color:T.text}}>
+
+        {/* PERSONALIZED GREETING */}
+        <div style={{marginBottom:20,padding:"18px 22px",borderRadius:16,background:T.surface,border:`1px solid ${T.border}`,backdropFilter:"blur(20px)",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:14}}>
+            <div style={{width:48,height:48,borderRadius:14,background:`linear-gradient(135deg,${T.accent},${T.blue})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:900,color:"#052e16",flexShrink:0}}>
+              {user.avatar||"U"}
+            </div>
+            <div>
+              <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",color:T.textDim,marginBottom:3}}>
+                {loading?"Loading…":`${(user.role||"inspector").charAt(0).toUpperCase()+(user.role||"inspector").slice(1)} · Monroy QMS`}
+              </div>
+              <div style={{fontSize:22,fontWeight:900,letterSpacing:"-0.02em",color:T.text}}>
+                {loading?"Welcome…":`Hello, ${user.name}! 👋`}
+              </div>
+              <div style={{fontSize:12,color:T.textDim,marginTop:2}}>{user.email}</div>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+            {stats&&stats.expiringSoon>0&&(
+              <div style={{padding:"8px 14px",borderRadius:10,background:T.amberDim,border:`1px solid ${T.amberBrd}`,color:T.amber,fontSize:12,fontWeight:700}}>
+                ⏰ {stats.expiringSoon} cert{stats.expiringSoon>1?"s":""} expiring soon
+              </div>
+            )}
+            {capaStats.open>0&&(
+              <div style={{padding:"8px 14px",borderRadius:10,background:T.purpleDim,border:`1px solid ${T.purpleBrd}`,color:T.purple,fontSize:12,fontWeight:700}}>
+                🔧 {capaStats.open} open CAPA{capaStats.open>1?"s":""}
+              </div>
+            )}
+            <div style={{padding:"8px 14px",borderRadius:10,background:T.accentDim,border:`1px solid ${T.accentBrd}`,color:T.accent,fontSize:12,fontWeight:700}}>
+              {new Date().toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short",year:"numeric"})}
+            </div>
+          </div>
+        </div>
 
         {error&&(
           <div style={{padding:"11px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,background:T.redDim,color:T.red,fontSize:13,marginBottom:16,fontWeight:600}}>⚠ {error}</div>
