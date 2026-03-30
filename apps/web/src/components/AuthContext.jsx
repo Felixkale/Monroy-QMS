@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabaseClient";
 
 const AuthContext = createContext({});
 
-// Pages that do NOT require authentication
+// Pages that never require authentication
 const PUBLIC_ROUTES = [
   "/login",
   "/forgot-password",
@@ -22,13 +22,11 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       setLoading(false);
     });
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       setLoading(false);
@@ -40,17 +38,23 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (loading) return;
 
-    const isPublic = PUBLIC_ROUTES.some(route => pathname.startsWith(route));
+    // Never redirect public routes
+    const isPublic = PUBLIC_ROUTES.some(r => pathname.startsWith(r));
+    if (isPublic) return;
 
-    if (!user && !isPublic) {
-      // Not logged in and on a protected page — go to login
-      router.replace("/login");
+    // Never redirect if URL hash contains auth tokens (invite/reset links)
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash;
+      if (hash && hash.includes("access_token")) return;
     }
+
+    if (!user) router.replace("/login");
   }, [user, loading, pathname]);
 
   async function logout() {
     await supabase.auth.signOut();
     setUser(null);
+    router.replace("/login");
   }
 
   return (
