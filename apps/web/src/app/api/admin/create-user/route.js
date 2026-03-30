@@ -11,7 +11,6 @@ function adminClient() {
   if (!url || !key) throw new Error("SUPABASE_SERVICE_ROLE_KEY not set in Render environment variables.");
   return createClient(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
-    db: { schema: "public" },
   });
 }
 
@@ -30,47 +29,61 @@ export async function POST(request) {
 
     const admin = adminClient();
 
-    // ── Step 1: Send invite email via Supabase Auth ────────────────────────
+    // ── Step 1: Send invite email ──────────────────────────────────────────
     const { data: authData, error: authErr } = await admin.auth.admin.inviteUserByEmail(email, {
       data: { full_name, role: userRole },
       redirectTo: `${baseUrl}/reset-password`,
     });
 
     if (authErr) {
-      // Handle already invited
-      if (authErr.message?.includes("already been invited") || authErr.message?.includes("already registered")) {
-        return NextResponse.json({ error: `${email} is already registered or has a pending invite.` }, { status: 409 });
+      if (authErr.message?.toLowerCase().includes("already")) {
+        return NextResponse.json({
+          error: `${email} already has an account or pending invite. Use "Resend Email" instead.`
+        }, { status: 409 });
       }
-      return NextResponse.json({ error: authErr.message }, { status: 400 });
+      return NextResponse.json({ error: `Auth error: ${authErr.message}` }, { status: 400 });
     }
 
     const userId = authData?.user?.id;
     if (!userId) {
-      return NextResponse.json({ error: "Invite sent but could not get user ID." }, { status: 500 });
+      return NextResponse.json({ error: "Invite sent but no user ID returned from Supabase." }, { status: 500 });
     }
 
-    // ── Step 2: Upsert into users table using service role (bypasses RLS) ──
-    const { error: dbErr } = await admin
-      .from("users")
-      .upsert(
-        { id: userId, email, full_name, role: userRole, status: "active", created_at: new Date().toISOString() },
-        { onConflict: "id" }
-      );
+    // ── Step 2: Pre-register in users table so admin can see them ──────────
+    // Use raw SQL via rpc to bypass any RLS issues
+    const { error: dbErr } = await admin.rpc("upsert_user_profile", {
+      p_id:         userId,
+      p_email:      email,
+      p_full_name:  full_name,
+      p_role:       userRole,
+      p_status:     "active",
+    });
 
     if (dbErr) {
-      console.error("DB upsert error:", dbErr.message);
-      // Invite was sent — partial success
-      return NextResponse.json({
-        success: true,
-        warning: `Invitation sent to ${email} but profile could not be saved (${dbErr.message}). Ask the user to log in — the trigger will create their profile automatically.`,
-        user: { id: userId, email, full_name, role: userRole },
-      });
+      // RPC not available — try direct upsert
+      const { error: directErr } = await admin
+        .from("users")
+        .upsert(
+          { id: userId, email, full_name, role: userRole, status: "active" },
+          { onConflict: "id", ignoreDuplicates: false }
+        );
+
+      if (directErr) {
+        console.error("users upsert failed:", directErr.message);
+        // Invitation was sent successfully — user can still log in
+        // The trigger will create their profile when they confirm
+        return NextResponse.json({
+          success: true,
+          warning: `Invitation sent but profile pre-registration failed: ${directErr.message}. The user's profile will be created automatically when they confirm their email.`,
+          user: { id: userId, email, full_name, role: userRole },
+        });
+      }
     }
 
     return NextResponse.json({
       success: true,
       user: { id: userId, email, full_name, role: userRole },
-      message: `Invitation sent to ${email}. They will receive an email to set their password.`,
+      message: `Invitation sent to ${email}.`,
     });
 
   } catch (err) {
