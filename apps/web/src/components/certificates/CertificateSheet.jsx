@@ -48,7 +48,7 @@ const CSS = `
   .cs-sig-card-title::before{content:'';width:3px;height:10px;background:#22d3ee;border-radius:2px}
   .cs-sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
   .cs-sig-label{font-size:7.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#4fc3f7;margin-bottom:4px}
-  .cs-sig-line{border-bottom:1px solid rgba(34,211,238,0.35);height:44px;margin-bottom:5px;display:flex;align-items:flex-end;padding-bottom:4px}
+  .cs-sig-line{border-bottom:1px solid rgba(34,211,238,0.35);height:54px;margin-bottom:5px;display:flex;align-items:flex-end;padding-bottom:4px;background:rgba(255,255,255,0.92);border-radius:6px 6px 0 0;padding:6px 8px 4px}
   .cs-sig-line img{max-height:38px;max-width:100%;object-fit:contain}
   .cs-sig-name{font-size:11px;font-weight:700;color:#fff}
   .cs-sig-id{font-size:9.5px;color:rgba(255,255,255,0.50);margin-top:2px}
@@ -79,9 +79,17 @@ const CSS = `
   @media print{
     .cs-wrap{background:none!important;border:none!important;border-radius:0!important;padding:0!important}
     .cs-page{box-shadow:none!important;width:210mm!important;min-height:297mm!important}
-    .cs-hdr,.cs-accent,.cs-sec-ttl,.cs-badge,.cs-services,.cs-footer,.cs-sig-card{
+    .cs-hdr,.cs-accent,.cs-sec-ttl,.cs-badge,.cs-services,.cs-footer,.cs-sig-card,
+    .cs-field,.cs-sec,.cs-legal-box,.cs-body{
       -webkit-print-color-adjust:exact;print-color-adjust:exact
     }
+    .cs-sig-card{background:#0b1d3a!important}
+    .cs-field{background:#f4f8ff!important}
+    .cs-field:nth-child(odd){background:#eef4ff!important}
+    .cs-hdr{background:#0b1d3a!important}
+    .cs-sec-ttl{background:#0b1d3a!important}
+    .cs-services{background:#cc1111!important}
+    .cs-footer{background:#0b1d3a!important}
   }
 
   /* RESPONSIVE */
@@ -211,7 +219,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
     ex.comments ||
     ex.notes
   );
-  const sigUrl     = (val(c.signature_url) && val(c.signature_url) !== "null") ? val(c.signature_url) : "/Signature";
+  const sigUrl     = "/Signature"; // Hardcoded — file at apps/web/public/Signature
   const logoUrl    = c.logo_url || "/logo.png";
 
   const tone = resultStyle(pickResult(c));
@@ -335,7 +343,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
                     <img
                       src={sigUrl}
                       alt="Inspector Signature"
-                      style={{ maxHeight:38, maxWidth:"100%", objectFit:"contain" }}
+                      style={{ maxHeight:42, maxWidth:"100%", objectFit:"contain", display:"block" }}
                       onError={e => { e.currentTarget.src = "/Signature"; e.currentTarget.onerror = null; }}
                     />
                   </div>
