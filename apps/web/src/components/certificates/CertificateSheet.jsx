@@ -211,7 +211,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
     ex.comments ||
     ex.notes
   );
-  const sigUrl     = val(c.signature_url) || "/Signature.png";
+  const sigUrl     = (val(c.signature_url) && val(c.signature_url) !== "null") ? val(c.signature_url) : "/Signature";
   const logoUrl    = c.logo_url || "/logo.png";
 
   const tone = resultStyle(pickResult(c));
@@ -333,9 +333,10 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
                   <div className="cs-sig-label">Inspector Signature</div>
                   <div className="cs-sig-line">
                     <img
-                      src={sigUrl || "/Signature.png"}
+                      src={sigUrl}
                       alt="Inspector Signature"
                       style={{ maxHeight:38, maxWidth:"100%", objectFit:"contain" }}
+                      onError={e => { e.currentTarget.src = "/Signature"; e.currentTarget.onerror = null; }}
                     />
                   </div>
                   <div className="cs-sig-name">{inspName}</div>
