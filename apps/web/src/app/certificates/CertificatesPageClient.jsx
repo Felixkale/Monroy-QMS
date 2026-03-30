@@ -1,579 +1,390 @@
-// src/app/certificates/CertificatesPageClient.jsx
+// src/components/certificates/CertificateSheet.jsx
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import AppLayout from "@/components/AppLayout";
-import { supabase } from "@/lib/supabaseClient";
-
-const T = {
-  bg:"#070e18",surface:"rgba(13,22,38,0.80)",panel:"rgba(10,18,32,0.92)",
-  panel2:"rgba(18,30,50,0.70)",card:"rgba(255,255,255,0.025)",
-  border:"rgba(148,163,184,0.12)",borderMid:"rgba(148,163,184,0.22)",
-  text:"#f0f6ff",textMid:"rgba(240,246,255,0.72)",textDim:"rgba(240,246,255,0.40)",
-  accent:"#22d3ee",accentDim:"rgba(34,211,238,0.10)",accentBrd:"rgba(34,211,238,0.25)",
-  green:"#34d399",greenDim:"rgba(52,211,153,0.10)",greenBrd:"rgba(52,211,153,0.25)",
-  red:"#f87171",  redDim:"rgba(248,113,113,0.10)",  redBrd:"rgba(248,113,113,0.25)",
-  amber:"#fbbf24",amberDim:"rgba(251,191,36,0.10)", amberBrd:"rgba(251,191,36,0.25)",
-  purple:"#a78bfa",purpleDim:"rgba(167,139,250,0.10)",purpleBrd:"rgba(167,139,250,0.25)",
-};
-
 const CSS = `
-  *,*::before,*::after{box-sizing:border-box}
-  ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.2);border-radius:99px}
-  input::placeholder{color:rgba(240,246,255,0.28)}select option{background:#0a1420;color:#f0f6ff}
-  .cr{transition:background .12s}.cr:hover{background:rgba(34,211,238,0.03)!important}
-  .cert-mob{display:none}
-  .cert-tbl{display:block}
-  .cert-filters{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr}
 
-  @media(max-width:1100px){.cert-filters{grid-template-columns:1fr 1fr 1fr}}
-  @media(max-width:768px){
-    .cert-page{padding:10px!important}
-    .cert-top{flex-direction:column!important;gap:10px!important;align-items:flex-start!important}
-    .cert-top-btns{width:100%;display:flex!important;gap:8px}
-    .cert-top-btns a{flex:1;text-align:center;justify-content:center}
-    .cert-filters{grid-template-columns:1fr 1fr}
-    .cert-tbl{display:none!important}
-    .cert-mob{display:grid!important;gap:10px;padding:12px}
-    .view-toggle{display:none!important}
+  .cs-wrap{background:rgba(10,18,32,0.92);border:1px solid rgba(148,163,184,0.12);border-radius:16px;padding:20px;display:flex;justify-content:center}
+  .cs-page{background:#fff;width:210mm;min-height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28);overflow:hidden}
+  .cs-page.print-mode{box-shadow:none;width:100%;min-height:unset}
+
+  /* HEADER */
+  .cs-hdr{background:#0b1d3a;position:relative;overflow:hidden;flex-shrink:0}
+  .cs-geo{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
+  .cs-hdr-inner{position:relative;z-index:2;display:flex;align-items:stretch;min-height:120px}
+  .cs-logo-box{background:#fff;width:140px;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:14px;position:relative}
+  .cs-logo-box::after{content:'';position:absolute;right:-24px;top:0;width:0;height:0;border-top:60px solid #fff;border-bottom:60px solid #fff;border-right:24px solid transparent}
+  .cs-logo-box img{width:108px;height:108px;object-fit:contain}
+  .cs-logo-fb{width:108px;height:108px;display:none;align-items:center;justify-content:center;background:#0b1d3a;border:2px solid #22d3ee;border-radius:8px;font-size:36px;font-weight:900;color:#22d3ee;font-family:'IBM Plex Mono',monospace}
+  .cs-hdr-text{flex:1;padding:20px 20px 20px 44px;display:flex;flex-direction:column;justify-content:center}
+  .cs-brand{font-size:9px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#4fc3f7;margin-bottom:5px}
+  .cs-title{font-size:21px;font-weight:900;letter-spacing:-.02em;color:#fff;line-height:1.1;margin-bottom:6px}
+  .cs-sub{font-size:10px;color:rgba(255,255,255,0.50);font-weight:500}
+  .cs-hdr-right{padding:20px 22px;display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:10px;flex-shrink:0}
+  .cs-badge{font-size:11px;font-weight:900;padding:6px 16px;border-radius:99px;letter-spacing:.10em;text-transform:uppercase}
+  .cs-certno{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;color:rgba(255,255,255,0.50)}
+  .cs-accent{height:4px;background:linear-gradient(90deg,#22d3ee 0%,#3b82f6 55%,#a78bfa 100%);flex-shrink:0}
+
+  /* BODY */
+  .cs-body{flex:1;padding:14px 22px 10px;display:flex;flex-direction:column;gap:9px}
+
+  /* Sections — dark navy headers matching the main header */
+  .cs-sec{border:1px solid #1e3a5f;border-radius:7px;overflow:hidden}
+  .cs-sec-ttl{background:#0b1d3a;border-bottom:1px solid #22d3ee;padding:6px 12px;font-size:8.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4fc3f7;display:flex;align-items:center;gap:8px}
+  .cs-sec-ttl::before{content:'';width:3px;height:10px;background:#22d3ee;border-radius:2px;flex-shrink:0}
+  .cs-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr))}
+  .cs-field{padding:8px 12px;border-right:1px solid #dbeafe;border-bottom:1px solid #dbeafe;background:#f4f8ff}
+  .cs-field:nth-child(odd){background:#eef4ff}
+  .cs-field:last-child{border-right:none}
+  .cs-fl{font-size:7.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#3b6ea5;margin-bottom:3px}
+  .cs-fv{font-size:11.5px;font-weight:600;color:#0b1d3a;line-height:1.3;word-break:break-word}
+  .cs-fv.mono{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#0e7490}
+  .cs-fv.large{font-size:13px;font-weight:900;color:#0b1d3a}
+  .cs-remarks{font-size:11px;color:#334155;line-height:1.65;padding:9px 12px;background:#f4f8ff}
+
+  /* SIGNATURES — always at bottom, dark navy card */
+  .cs-sig-wrap{padding:0 22px 10px;flex-shrink:0}
+  .cs-sig-card{background:#0b1d3a;border-radius:8px;padding:14px 16px}
+  .cs-sig-card-title{font-size:8.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4fc3f7;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .cs-sig-card-title::before{content:'';width:3px;height:10px;background:#22d3ee;border-radius:2px}
+  .cs-sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+  .cs-sig-label{font-size:7.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#4fc3f7;margin-bottom:4px}
+  .cs-sig-line{border-bottom:1px solid rgba(34,211,238,0.35);height:44px;margin-bottom:5px;display:flex;align-items:flex-end;padding-bottom:4px}
+  .cs-sig-line img{max-height:38px;max-width:100%;object-fit:contain}
+  .cs-sig-name{font-size:11px;font-weight:700;color:#fff}
+  .cs-sig-id{font-size:9.5px;color:rgba(255,255,255,0.50);margin-top:2px}
+  .cs-sig-hint{font-size:9px;color:rgba(255,255,255,0.28);font-style:italic;margin-top:3px}
+  .cs-stamp{width:52px;height:52px;border-radius:50%;border:1.5px dashed rgba(34,211,238,0.35);display:flex;align-items:center;justify-content:center;color:rgba(34,211,238,0.28);font-size:8px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+
+  /* LEGAL */
+  /* LEGAL FRAMEWORK BOX */
+  .cs-legal-box{margin:0 22px 8px;padding:10px 14px;border:1px solid #b8cce4;border-radius:7px;background:#eaf2fb;flex-shrink:0}
+  .cs-legal-box-title{font-size:8px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:#0b1d3a;margin-bottom:5px}
+  .cs-legal-box-body{font-size:8px;color:#1e3a5f;line-height:1.65}
+  .cs-legal-box-body b{font-weight:800;color:#0b1d3a}
+  .cs-legal{padding:5px 22px 6px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-shrink:0}
+  .cs-legal-txt{font-size:7px;color:#94a3b8;line-height:1.5;max-width:500px}
+  .cs-page-info{font-size:7.5px;font-weight:700;color:#cbd5e1;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
+
+  /* RED SERVICES BANNER */
+  .cs-services{background:#cc1111;padding:10px 28px;text-align:center;flex-shrink:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .cs-services p{font-size:8.5px;font-weight:500;color:#fff;line-height:1.75;letter-spacing:.01em}
+  .cs-services p b{font-weight:800}
+
+  /* FOOTER STRIP */
+  .cs-footer{background:#0b1d3a;padding:5px 22px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .cs-footer span{font-size:8px;color:rgba(255,255,255,0.40);font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+
+  /* PRINT */
+  @page{size:A4;margin:0}
+  @media print{
+    .cs-wrap{background:none!important;border:none!important;border-radius:0!important;padding:0!important}
+    .cs-page{box-shadow:none!important;width:210mm!important;min-height:297mm!important}
+    .cs-hdr,.cs-accent,.cs-sec-ttl,.cs-badge,.cs-services,.cs-footer,.cs-sig-card{
+      -webkit-print-color-adjust:exact;print-color-adjust:exact
+    }
   }
-  @media(max-width:480px){
-    .cert-filters{grid-template-columns:1fr}
-    .cert-top-btns{flex-direction:column}
-    .cert-top-btns a{text-align:center}
+
+  /* RESPONSIVE */
+  @media(max-width:860px){
+    .cs-wrap{padding:8px}
+    .cs-page{width:100%;min-height:unset}
+    .cs-title{font-size:16px}
+    .cs-logo-box{width:96px}
+    .cs-logo-box img{width:74px;height:74px}
+    .cs-sig-grid{grid-template-columns:1fr 1fr}
+  }
+  @media(max-width:560px){
+    .cs-hdr-inner{flex-wrap:wrap}
+    .cs-hdr-right{width:100%;flex-direction:row;justify-content:flex-start;padding-top:0;padding-left:22px}
+    .cs-fields{grid-template-columns:1fr 1fr!important}
+    .cs-sig-grid{grid-template-columns:1fr}
+    .cs-hdr-text{padding-left:24px}
   }
 `;
 
-function nz(v,fb="—"){if(v===null||v===undefined)return fb;const s=String(v).trim();return s||fb;}
-function normalizeResult(v){const x=String(v||"").toUpperCase().replace(/\s+/g,"_");if(["PASS","FAIL","REPAIR_REQUIRED","OUT_OF_SERVICE"].includes(x))return x;if(x==="CONDITIONAL")return "REPAIR_REQUIRED";return "UNKNOWN";}
-function formatDate(v){if(!v)return "—";const d=new Date(v);if(isNaN(d))return String(v);return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});}
-function daysDiff(v){if(!v)return null;const d=new Date(v);if(isNaN(d))return null;const t=new Date();return Math.round((new Date(d.getFullYear(),d.getMonth(),d.getDate())- new Date(t.getFullYear(),t.getMonth(),t.getDate()))/86400000);}
-function expiryBucket(v){const d=daysDiff(v);if(d===null)return "NO_EXPIRY";if(d<0)return "EXPIRED";if(d<=30)return "EXPIRING_SOON";if(d<=90)return "EXPIRING_90";return "VALID";}
-
-const RC={
-  PASS:         {label:"Pass",          color:T.green,  bg:T.greenDim,  brd:T.greenBrd},
-  FAIL:         {label:"Fail",          color:T.red,    bg:T.redDim,    brd:T.redBrd},
-  REPAIR_REQUIRED:{label:"Repair req.", color:T.amber,  bg:T.amberDim,  brd:T.amberBrd},
-  OUT_OF_SERVICE: {label:"Out of svc",  color:T.purple, bg:T.purpleDim, brd:T.purpleBrd},
-  UNKNOWN:      {label:"Unknown",       color:T.textDim,bg:T.card,      brd:T.border},
-};
-const EC={
-  EXPIRED:      {color:T.red,   bg:T.redDim},
-  EXPIRING_SOON:{color:T.amber, bg:T.amberDim},
-  EXPIRING_90:  {color:T.purple,bg:T.purpleDim},
-  VALID:        {color:T.green, bg:T.greenDim},
-  NO_EXPIRY:    {color:T.textDim,bg:T.card},
-};
-const rc=v=>RC[v]||RC.UNKNOWN;
-const ec=v=>EC[v]||EC.NO_EXPIRY;
-
-function Badge({label,color,bg,brd}){
-  return <span style={{display:"inline-flex",alignItems:"center",padding:"3px 9px",borderRadius:99,background:bg,color,border:`1px solid ${brd}`,fontSize:10,fontWeight:800,whiteSpace:"nowrap"}}>{label}</span>;
+/* ── Helpers ── */
+function val(v) {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  if (/^(—|-|null|undefined|n\/a|unknown)$/i.test(s)) return null;
+  return s;
+}
+function formatDate(v) {
+  if (!v) return null;
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return val(v);
+  return d.toLocaleDateString("en-GB", { day:"2-digit", month:"long", year:"numeric" });
+}
+function pickResult(c) {
+  if (!c) return "UNKNOWN";
+  const ex = c.extracted_data || {};
+  for (const raw of [c.result, c.equipment_status, ex.result, ex.equipment_status, ex.inspection_result]) {
+    if (!raw) continue;
+    const n = String(raw).trim().toUpperCase().replace(/\s+/g,"_");
+    if (n === "UNKNOWN") continue;
+    if (["CONDITIONAL","REPAIR_REQUIRED","REPAIR REQUIRED"].includes(n)) return "REPAIR_REQUIRED";
+    if (n === "OUT_OF_SERVICE" || n === "OUT OF SERVICE") return "OUT_OF_SERVICE";
+    if (["PASS","FAIL","REPAIR_REQUIRED","OUT_OF_SERVICE"].includes(n)) return n;
+  }
+  return "UNKNOWN";
+}
+function resultStyle(v) {
+  if (v === "PASS")            return { bg:"#dcfce7", color:"#14532d", label:"✓ PASS" };
+  if (v === "FAIL")            return { bg:"#fee2e2", color:"#7f1d1d", label:"✗ FAIL" };
+  if (v === "REPAIR_REQUIRED") return { bg:"#fef3c7", color:"#78350f", label:"⚠ Repair Required" };
+  if (v === "OUT_OF_SERVICE")  return { bg:"#ede9fe", color:"#3b0764", label:"⊘ Out of Service" };
+  return { bg:"#f1f5f9", color:"#475569", label:"Unknown" };
 }
 
-function groupCerts(rows){
-  // First, collapse rows with same folder_id into a single entry
-  const folderMap={};
-  const standalone=[];
-  for(const r of rows){
-    if(r.folder_id){
-      if(!folderMap[r.folder_id]){folderMap[r.folder_id]=[];}
-      folderMap[r.folder_id].push(r);
-    }else{
-      standalone.push(r);
-    }
-  }
-  // For each folder, keep only the first cert as the "row" but attach siblings
-  const folderLeaders=Object.values(folderMap).map(certs=>{
-    const sorted=[...certs].sort((a,b)=>(a.folder_position||99)-(b.folder_position||99));
-    return {...sorted[0],_folderCerts:sorted};
-  });
-  const allRows=[...standalone,...folderLeaders];
-
-  const g={};
-  for (const r of allRows) {
-    const cl = nz(r.client_name, "UNASSIGNED");
-    const tp = nz(r.equipment_type || r.asset_type, "UNCATEGORIZED");
-    const ds = nz(r.equipment_description || r.asset_name || r.asset_tag, "UNNAMED");
-    if (!g[cl]) g[cl] = {};
-    if (!g[cl][tp]) g[cl][tp] = {};
-    if (!g[cl][tp][ds]) g[cl][tp][ds] = [];
-    g[cl][tp][ds].push(r);
-  }
-  return Object.keys(g).sort().map(cl => ({
-    client: cl,
-    types: Object.keys(g[cl]).sort().map(tp => ({
-      type: tp,
-      items: Object.keys(g[cl][tp]).sort().map(ds => ({
-        desc: ds,
-        certs: [...g[cl][tp][ds]].sort(
-          (a, b) => new Date(b.issue_date || b.created_at || 0) - new Date(a.issue_date || a.created_at || 0)
-        ),
-      })),
-    })),
-  }));
+/* ── Sub-components ── */
+function Field({ label, value, mono=false, large=false }) {
+  if (!value) return null;
+  return (
+    <div className="cs-field">
+      <div className="cs-fl">{label}</div>
+      <div className={`cs-fv${mono?" mono":""}${large?" large":""}`}>{value}</div>
+    </div>
+  );
 }
-
-export default function CertificatesPageClient() {
-  const [certs,setCerts]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [errTxt,setErrTxt]=useState("");
-  const [search,setSearch]=useState("");
-  const [fResult,setFResult]=useState("ALL");
-  const [fExpiry,setFExpiry]=useState("ALL");
-  const [fClient,setFClient]=useState("ALL");
-  const [fType,setFType]=useState("ALL");
-  const [fStatus,setFStatus]=useState("ALL");
-  const [view,setView]=useState("grouped");
-  const [openClients,setOpenClients]=useState({});
-  const [openTypes,setOpenTypes]=useState({});
-  const [selected,setSelected]=useState(new Set());
-  const [linking,setLinking]=useState(false);
-  const [linkMsg,setLinkMsg]=useState("");
-
-  const selectMode=selected.size>0;
-
-  function toggleSelect(id){
-    setSelected(prev=>{
-      const next=new Set(prev);
-      if(next.has(id))next.delete(id);else next.add(id);
-      return next;
-    });
-    setLinkMsg("");
-  }
-
-  async function linkSelected(){
-    if(selected.size<2){setLinkMsg("Select at least 2 certificates to link.");return;}
-    setLinking(true);setLinkMsg("");
-    const ids=[...selected];
-    const folderId=crypto.randomUUID();
-    const firstCert=certs.find(c=>c.id===ids[0]);
-    const folderName=`Folder-${firstCert?.certificate_number||ids[0].slice(0,8)}`;
-    const updates=ids.map((id,i)=>
-      supabase.from("certificates").update({folder_id:folderId,folder_name:folderName,folder_position:i+1}).eq("id",id)
-    );
-    await Promise.all(updates);
-    setSelected(new Set());
-    setLinkMsg(`Linked ${ids.length} certificates into folder.`);
-    setLinking(false);
-    await loadCerts();
-  }
-
-  async function unlinkCert(id){
-    // Find which folder this cert belongs to
-    const cert = certs.find(c => String(c.id) === String(id));
-    const folderId = cert?.folder_id;
-
-    // Unlink this cert
-    const { error: e } = await supabase.from("certificates")
-      .update({ folder_id: null, folder_name: null, folder_position: null })
-      .eq("id", id);
-
-    if (e) { console.error("Unlink failed:", e.message); return; }
-
-    // If folder exists, check if only 1 cert remains — if so, unlink it too
-    if (folderId) {
-      const { data: remaining } = await supabase.from("certificates")
-        .select("id").eq("folder_id", folderId);
-      if (remaining && remaining.length === 1) {
-        await supabase.from("certificates")
-          .update({ folder_id: null, folder_name: null, folder_position: null })
-          .eq("id", remaining[0].id);
-      }
-    }
-
-    await loadCerts();
-  }
-
-  useEffect(()=>{loadCerts();},[]);
-
-  async function loadCerts(){
-    setLoading(true);setErrTxt("");
-    const{data,error}=await supabase.from("certificates").select(`
-      id,certificate_number,result,issue_date,issued_at,expiry_date,valid_to,created_at,
-      inspection_number,inspection_no,asset_tag,asset_name,equipment_description,equipment_type,
-      asset_type,client_name,company,status,folder_id,folder_name,folder_position,extracted_data,
-      assets(id,asset_tag,asset_name,asset_type,location,clients(id,company_name)),
-      clients(id,company_name)
-    `).order("created_at",{ascending:false});
-    if(error){setCerts([]);setErrTxt(error.message||"Failed to load.");setLoading(false);return;}
-    const cleaned=(data||[]).map(r=>{
-      const ex=r.extracted_data||{};
-      const issue=r.issue_date||r.issued_at||ex.issue_date||null;
-      const expiry=r.expiry_date||r.valid_to||ex.expiry_date||null;
-      // Resolve client name from join or direct column
-      const resolvedClient=
-        nz(r.client_name||r.company||ex.client_name,null)||
-        nz(r.clients?.company_name,null)||
-        nz(r.assets?.clients?.company_name,null)||
-        "UNASSIGNED";
-      // Resolve equipment from join or direct column
-      const resolvedEquipDesc=
-        nz(r.equipment_description||r.asset_name||ex.equipment_description,null)||
-        nz(r.assets?.asset_name,null)||
-        nz(r.asset_tag||r.assets?.asset_tag,null)||
-        "UNNAMED";
-      const resolvedEquipType=
-        nz(r.equipment_type||r.asset_type||ex.equipment_type,null)||
-        nz(r.assets?.asset_type,null)||
-        "UNCATEGORIZED";
-      return{...r,issue_date:issue,expiry_date:expiry,result:normalizeResult(r.result||ex.result),
-        client_name:resolvedClient,
-        equipment_type:resolvedEquipType,
-        equipment_description:resolvedEquipDesc,
-        status:nz(r.status,"active"),expiry_bucket:expiryBucket(expiry)};
-    });
-    const oc={};cleaned.forEach(r=>{oc[r.client_name]=true;});
-    setOpenClients(oc);setCerts(cleaned);setLoading(false);
-  }
-
-  const clientOpts=useMemo(()=>[...new Set(certs.map(x=>x.client_name))].sort(),[certs]);
-  const typeOpts=useMemo(()=>[...new Set(certs.map(x=>x.equipment_type))].sort(),[certs]);
-  const statusOpts=useMemo(()=>[...new Set(certs.map(x=>nz(x.status,"active")))].sort(),[certs]);
-
-  const filtered=useMemo(()=>{
-    const q=search.toLowerCase();
-    return certs.filter(r=>{
-      const hay=[r.certificate_number,r.client_name,r.asset_tag,r.asset_name,r.equipment_description,r.equipment_type,r.inspection_number,r.inspection_no,r.folder_name].filter(Boolean).join(" ").toLowerCase();
-      return(!q||hay.includes(q))&&(fResult==="ALL"||r.result===fResult)&&(fExpiry==="ALL"||r.expiry_bucket===fExpiry)&&(fClient==="ALL"||r.client_name===fClient)&&(fType==="ALL"||r.equipment_type===fType)&&(fStatus==="ALL"||r.status===fStatus);
-    });
-  },[certs,search,fResult,fExpiry,fClient,fType,fStatus]);
-
-  const grouped=useMemo(()=>groupCerts(filtered),[filtered]);
-  const hasFilters=search||fResult!=="ALL"||fExpiry!=="ALL"||fClient!=="ALL"||fType!=="ALL"||fStatus!=="ALL";
-  function clearFilters(){setSearch("");setFResult("ALL");setFExpiry("ALL");setFClient("ALL");setFType("ALL");setFStatus("ALL");}
-
-  const FILTER_CELLS=[
-    {label:"Search",type:"input"},
-    {label:"Result",val:fResult,set:setFResult,opts:[{v:"ALL",l:"All results"},{v:"PASS",l:"Pass"},{v:"FAIL",l:"Fail"},{v:"REPAIR_REQUIRED",l:"Repair req."},{v:"OUT_OF_SERVICE",l:"Out of svc"},{v:"UNKNOWN",l:"Unknown"}]},
-    {label:"Expiry",val:fExpiry,set:setFExpiry,opts:[{v:"ALL",l:"All expiry"},{v:"EXPIRED",l:"Expired"},{v:"EXPIRING_SOON",l:"≤30d"},{v:"EXPIRING_90",l:"≤90d"},{v:"VALID",l:"Valid"},{v:"NO_EXPIRY",l:"No expiry"}]},
-    {label:"Client",val:fClient,set:setFClient,opts:[{v:"ALL",l:"All clients"},...clientOpts.map(c=>({v:c,l:c}))]},
-    {label:"Type",val:fType,set:setFType,opts:[{v:"ALL",l:"All types"},...typeOpts.map(t=>({v:t,l:t}))]},
-    {label:"Status",val:fStatus,set:setFStatus,opts:[{v:"ALL",l:"All status"},...statusOpts.map(s=>({v:s,l:s}))],last:true},
-  ];
-
-  return(
-    <AppLayout title="Certificates Register">
-      <style>{CSS}</style>
-      <div className="cert-page" style={{background:`radial-gradient(ellipse 70% 50% at 0% 0%,rgba(34,211,238,0.06),transparent),radial-gradient(ellipse 60% 50% at 100% 100%,rgba(167,139,250,0.05),transparent),${T.bg}`,color:T.text,fontFamily:"'IBM Plex Sans',sans-serif",padding:20,paddingBottom:60}}>
-        <div style={{maxWidth:1500,margin:"0 auto",display:"grid",gap:16}}>
-
-          {/* HEADER */}
-          <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:20,padding:"18px 20px",backdropFilter:"blur(20px)"}}>
-            <div className="cert-top" style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,marginBottom:14}}>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
-                  <div style={{width:4,height:20,borderRadius:2,background:`linear-gradient(to bottom,${T.accent},rgba(34,211,238,0.3))`,flexShrink:0}}/>
-                  <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.14em",textTransform:"uppercase",color:T.accent}}>ISO 9001 · Document Register</span>
-                </div>
-                <h1 style={{margin:0,fontSize:"clamp(18px,3vw,26px)",fontWeight:900,letterSpacing:"-0.02em"}}>Certificates Register</h1>
-                <p style={{margin:"5px 0 0",color:T.textDim,fontSize:12}}>{filtered.length} of {certs.length} records · grouped by client, equipment type, asset</p>
-              </div>
-              <div className="cert-top-btns" style={{display:"flex",gap:8,flexShrink:0}}>
-                <Link href="/certificates/import" style={S.ghost}>↑ AI Import</Link>
-                <Link href="/certificates/create" style={S.accent}>+ New</Link>
-              </div>
-            </div>
-
-            {/* Stats row */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:8}}>
-              {[
-                {label:"Total",value:certs.length,color:T.accent},
-                {label:"Pass",value:certs.filter(c=>c.result==="PASS").length,color:T.green},
-                {label:"Fail / Repair",value:certs.filter(c=>["FAIL","REPAIR_REQUIRED"].includes(c.result)).length,color:T.red},
-                {label:"Expiring ≤30d",value:certs.filter(c=>c.expiry_bucket==="EXPIRING_SOON").length,color:T.amber},
-              ].map(({label,value,color})=>(
-                <div key={label} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px"}}>
-                  <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:T.textDim,marginBottom:4}}>{label}</div>
-                  <div style={{fontSize:22,fontWeight:900,color,lineHeight:1}}>{loading?"…":value}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {errTxt&&<div style={{padding:"10px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,background:T.redDim,color:T.red,fontSize:13,fontWeight:600}}>⚠ {errTxt}</div>}
-
-          {/* LINK TOOLBAR */}
-          {(selectMode||linkMsg)&&(
-            <div style={{background:T.surface,border:`1px solid ${T.purpleBrd}`,borderRadius:14,padding:"12px 16px",backdropFilter:"blur(20px)",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-              <span style={{fontSize:13,fontWeight:700,color:T.purple}}>
-                {selectMode?`${selected.size} certificate${selected.size===1?"":"s"} selected`:""}
-              </span>
-              {linkMsg&&<span style={{fontSize:12,fontWeight:700,color:T.green}}>{linkMsg}</span>}
-              <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
-                {selectMode&&selected.size>=2&&(
-                  <button type="button" onClick={linkSelected} disabled={linking}
-                    style={{padding:"8px 16px",borderRadius:9,border:"none",background:"linear-gradient(135deg,#a78bfa,#60a5fa)",color:"#fff",fontWeight:900,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent"}}>
-                    {linking?"Linking…":`🔗 Link ${selected.size} Certificates`}
-                  </button>
-                )}
-                {selectMode&&(
-                  <button type="button" onClick={()=>{setSelected(new Set());setLinkMsg("");}}
-                    style={{padding:"8px 14px",borderRadius:9,border:`1px solid ${T.border}`,background:T.card,color:T.textMid,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent"}}>
-                    Cancel
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* FILTERS */}
-          <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden",backdropFilter:"blur(20px)"}}>
-            <div style={{padding:"10px 14px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",color:T.textDim}}>Filters</span>
-              <div style={{display:"flex",alignItems:"center",gap:12}}>
-                {hasFilters&&<button type="button" onClick={clearFilters} style={{background:"none",border:"none",color:T.textDim,fontSize:11,cursor:"pointer",fontWeight:700}}>Clear ×</button>}
-                <div className="view-toggle" style={{display:"flex",border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden"}}>
-                  {["grouped","flat"].map(v=><button key={v} type="button" onClick={()=>setView(v)} style={{border:"none",cursor:"pointer",padding:"5px 12px",fontSize:11,fontWeight:700,background:view===v?T.accentDim:"transparent",color:view===v?T.accent:T.textDim,fontFamily:"'IBM Plex Sans',sans-serif"}}>{v==="grouped"?"Grouped":"Flat"}</button>)}
-                </div>
-              </div>
-            </div>
-            <div className="cert-filters">
-              {FILTER_CELLS.map((cell,i)=>(
-                <div key={cell.label} style={{padding:"10px 12px",borderRight:cell.last?0:`1px solid ${T.border}`,borderBottom:"0"}}>
-                  <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:cell.val&&cell.val!=="ALL"?T.accent:T.textDim,marginBottom:6}}>{cell.label}</div>
-                  {cell.type==="input"?(
-                    <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cert no, client, equipment…"
-                      style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.textMid,fontSize:12,padding:0,fontFamily:"'IBM Plex Sans',sans-serif"}}/>
-                  ):(
-                    <select value={cell.val} onChange={e=>cell.set(e.target.value)}
-                      style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.textMid,fontSize:12,cursor:"pointer",padding:0,fontFamily:"'IBM Plex Sans',sans-serif"}}>
-                      {cell.opts.map(o=><option key={o.v} value={o.v} style={{background:"#0a1420",color:"#f0f6ff"}}>{o.l}</option>)}
-                    </select>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* CONTENT */}
-          {loading?(
-            <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:14,padding:40,textAlign:"center",color:T.textDim}}>
-              <div style={{fontSize:22,opacity:.4,marginBottom:8}}>⏳</div>
-              <div style={{fontSize:13,fontWeight:600}}>Loading certificates…</div>
-            </div>
-          ):filtered.length===0?(
-            <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:14,padding:"44px 20px",textAlign:"center"}}>
-              <div style={{fontSize:28,opacity:.3,marginBottom:10}}>📄</div>
-              <div style={{fontSize:15,fontWeight:800,marginBottom:5}}>No certificates found</div>
-              <div style={{fontSize:13,color:T.textDim,marginBottom:14}}>{hasFilters?"Try changing your filters.":"No records available yet."}</div>
-              {hasFilters&&<button type="button" onClick={clearFilters} style={{padding:"9px 18px",borderRadius:9,border:`1px solid ${T.accentBrd}`,background:T.accentDim,color:T.accent,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>Clear Filters</button>}
-            </div>
-          ):view==="flat"?(
-            <FlatView certs={filtered} onUnlink={unlinkCert} onSelect={toggleSelect} selected={selected} selectMode={selectMode}/>
-          ):(
-            <GroupedView grouped={grouped} openClients={openClients} openTypes={openTypes}
-              toggleClient={cl=>setOpenClients(p=>({...p,[cl]:!p[cl]}))}
-              toggleType={k=>setOpenTypes(p=>({...p,[k]:!p[k]}))}
-              allCerts={filtered}
-              onUnlink={unlinkCert} onSelect={toggleSelect}
-              selected={selected} selectMode={selectMode}/>
-          )}
-        </div>
-      </div>
-    </AppLayout>
+function Section({ title, children }) {
+  const kids = Array.isArray(children) ? children.filter(Boolean) : children ? [children] : [];
+  if (!kids.length) return null;
+  return (
+    <div className="cs-sec">
+      {title && <div className="cs-sec-ttl">{title}</div>}
+      <div className="cs-fields">{kids}</div>
+    </div>
+  );
+}
+function HeaderGeo() {
+  return (
+    <svg className="cs-geo" viewBox="0 0 794 120" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="0,0 95,0 58,120 0,120"   fill="#4fc3f7" opacity="0.15"/>
+      <polygon points="0,0 60,0 24,120 0,120"   fill="#22d3ee" opacity="0.20"/>
+      <polygon points="794,0 724,0 764,120 794,120" fill="#3b82f6" opacity="0.10"/>
+    </svg>
   );
 }
 
-function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allCerts=[],onUnlink,onSelect,selected,selectMode}){
-  return(
-    <div style={{display:"grid",gap:10}}>
-      {grouped.map(cg=>{
-        const open=!!openClients[cg.client];
-        const count=cg.types.reduce((a,t)=>a+t.items.reduce((b,i)=>b+i.certs.length,0),0);
-        return(
-          <div key={cg.client} style={{border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden",background:T.panel}}>
-            <button type="button" onClick={()=>toggleClient(cg.client)} style={{width:"100%",border:"none",cursor:"pointer",textAlign:"left",padding:"14px 16px",background:"transparent",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,color:T.text,WebkitTapHighlightColor:"transparent"}}>
-              <div>
-                <div style={{fontSize:15,fontWeight:800}}>{cg.client}</div>
-                <div style={{fontSize:11,color:T.textDim,marginTop:3}}>{count} cert{count===1?"":"s"}</div>
+/* ── Main ── */
+export default function CertificateSheet({ certificate: c, index=0, total=1, printMode=false }) {
+  if (!c) return null;
+  const ex = c.extracted_data || {};
+
+  const company    = val(c.company      || c.client_name    || ex.client_name) || "Monroy (Pty) Ltd";
+  const equipType  = val(c.equipment_type        || c.asset_type   || ex.equipment_type);
+  const _rawType   = String(equipType || "").toLowerCase();
+  const _isLifting = /lift|hoist|crane|sling|chain|shackle|hook|swivel|beam|spreader|harness|lanyard|rope|rigging|winch|pulley|block|tackle|eyebolt|ring|clamp|grab|magnet|vacuum|below.the.hook|btl|wll|swl/i.test(_rawType);
+  const _isPressure= /pressure|vessel|boiler|autoclave|receiver|accumulator|compressor|hydraulic|tank|cylinder|drum|pipeline|heat.exchanger|separator|filter.vessel/i.test(_rawType);
+  const certType   = val(c.certificate_type || ex.certificate_type || c.document_category) ||
+    (_isLifting  ? "Load Test Certificate" :
+     _isPressure ? "Pressure Test Certificate" :
+                   "Certificate of Inspection");
+  const certNumber = val(c.certificate_number);
+  const inspNumber = val(c.inspection_no || c.inspection_number || ex.inspection_no);
+  const issueDate  = formatDate(c.issue_date  || c.issued_at  || ex.issue_date);
+  const expiryDate = formatDate(c.expiry_date || c.valid_to   || c.next_inspection_date || ex.expiry_date || ex.next_inspection_date);
+  const equipDesc  = val(c.equipment_description || c.asset_name   || ex.equipment_description);
+  const equipId    = val(c.equipment_id           || c.asset_tag   || ex.equipment_id);
+  const idNumber   = val(c.identification_number  || ex.identification_number);
+  const lanyardSN  = val(c.lanyard_serial_no       || ex.lanyard_serial_no);
+  const location   = val(c.equipment_location || c.location || ex.equipment_location);
+  const mfg        = val(c.manufacturer   || ex.manufacturer);
+  const model      = val(c.model          || ex.model);
+  const yearBuilt  = val(c.year_built     || ex.year_built);
+  const swl        = val(c.swl            || ex.swl  || c.safe_working_load);
+  const mawp       = val(c.mawp           || ex.mawp || c.working_pressure);
+  const capacity   = val(c.capacity       || ex.capacity || c.capacity_volume);
+  const designP    = val(c.design_pressure  || ex.design_pressure);
+  const testP      = val(c.test_pressure    || ex.test_pressure);
+  const countryOrig= val(c.country_of_origin || ex.country_of_origin);
+  const legalFmwk  = val(c.legal_framework) || "Mines, Quarries, Works and Machinery Act Cap 44:02";
+  const inspName   = val(c.inspector_name || ex.inspector_name) || "Moemedi Masupe";
+  const inspId     = val(c.inspector_id   || ex.inspector_id)   || "700117910";
+  const remarks    = val(
+    c.remarks ||
+    c.comments ||
+    ex.remarks ||
+    c.notes ||           // from asset notes when synced
+    c.description ||     // from asset description
+    ex.comments ||
+    ex.notes
+  );
+  const sigUrl     = "/Signature"; // Always use hardcoded signature
+  const logoUrl    = c.logo_url || "/logo.png";
+
+  const tone = resultStyle(pickResult(c));
+
+  return (
+    <>
+      <style>{CSS}</style>
+      <div className={printMode ? "" : "cs-wrap"}>
+        <div className={`cs-page${printMode ? " print-mode" : ""}`}>
+
+          {/* ── HEADER ── */}
+          <div className="cs-hdr">
+            <div className="cs-hdr-inner">
+              <HeaderGeo />
+
+              <div className="cs-logo-box">
+                <img
+                  src={logoUrl}
+                  alt="Monroy Logo"
+                  onError={e => {
+                    e.currentTarget.style.display = "none";
+                    const fb = e.currentTarget.nextSibling;
+                    if (fb) fb.style.display = "flex";
+                  }}
+                />
+                <div className="cs-logo-fb">M</div>
               </div>
-              <div style={{fontSize:18,fontWeight:900,color:T.accent,flexShrink:0}}>{open?"−":"+"}</div>
-            </button>
-            {open&&(
-              <div style={{borderTop:`1px solid ${T.border}`,padding:12,display:"grid",gap:10}}>
-                {cg.types.map(tg=>{
-                  const key=`${cg.client}__${tg.type}`;
-                  const tOpen=openTypes[key]??true;
-                  return(
-                    <div key={key} style={{border:`1px solid ${T.border}`,borderRadius:11,overflow:"hidden",background:T.panel2}}>
-                      <button type="button" onClick={()=>toggleType(key)} style={{width:"100%",border:"none",cursor:"pointer",textAlign:"left",padding:"11px 14px",background:"transparent",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,color:T.text,WebkitTapHighlightColor:"transparent"}}>
-                        <div style={{fontSize:13,fontWeight:800}}>{tg.type}</div>
-                        <div style={{fontSize:15,fontWeight:800,color:T.accent,flexShrink:0}}>{tOpen?"−":"+"}</div>
-                      </button>
-                      {tOpen&&(
-                        <div style={{padding:12,borderTop:`1px solid ${T.border}`,display:"grid",gap:10}}>
-                          {tg.items.map(item=>(
-                            <div key={`${tg.type}-${item.desc}`} style={{border:`1px solid ${T.border}`,borderRadius:10,overflow:"hidden",background:"rgba(255,255,255,0.015)"}}>
-                              <div style={{padding:"10px 14px",borderBottom:`1px solid ${T.border}`,fontSize:13,fontWeight:800,color:T.text}}>{item.desc}</div>
-                              {/* Desktop table */}
-                              <div className="cert-tbl" style={{overflowX:"auto"}}>
-                                <table style={{width:"100%",borderCollapse:"collapse",minWidth:640}}>
-                                  <thead>
-                                    <tr style={{background:"rgba(255,255,255,0.02)"}}>
-                                      {["Certificate No","Result","Issue","Expiry","Status","Actions"].map(h=>(
-                                        <td key={h} style={{padding:"8px 12px",fontSize:9,color:T.textDim,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{h}</td>
-                                      ))}
-                                    </tr>
-                                  </thead>
-                                  <tbody>{item.certs.map(cert=>{
-                                if(cert._folderCerts&&cert._folderCerts.length>1){
-                                  return cert._folderCerts.map((fc,fi)=>(
-                                    <CertRow key={fc.id} cert={fc} compact allCerts={allCerts} onUnlink={onUnlink} onSelect={onSelect} selected={selected} selectMode={selectMode}
-                                      folderRow={true} folderFirst={fi===0} folderLast={fi===cert._folderCerts.length-1} folderSize={cert._folderCerts.length}/>
-                                  ));
-                                }
-                                return <CertRow key={cert.id} cert={cert} compact allCerts={allCerts} onUnlink={onUnlink} onSelect={onSelect} selected={selected} selectMode={selectMode}/>;
-                              })}</tbody>
-                                </table>
-                              </div>
-                              {/* Mobile cards */}
-                              <div className="cert-mob">
-                                {item.certs.map(cert=><CertMobCard key={cert.id} cert={cert} onUnlink={onUnlink} onSelect={onSelect} selected={selected} selectMode={selectMode}/>)}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+
+              <div className="cs-hdr-text">
+                <div className="cs-brand">Monroy (Pty) Ltd · Maun, Botswana</div>
+                <div className="cs-title">{certType}</div>
+                <div className="cs-sub">
+                  {company}
+                  {total > 1 && c.folder_name ? ` · ${c.folder_name}` : ""}
+                  {total > 1 ? ` · Page ${index + 1} of ${total}` : ""}
+                </div>
+              </div>
+
+              <div className="cs-hdr-right">
+                <span className="cs-badge" style={{ background:tone.bg, color:tone.color }}>
+                  {tone.label}
+                </span>
+                {certNumber && <div className="cs-certno">{certNumber}</div>}
+              </div>
+            </div>
+          </div>
+          <div className="cs-accent" />
+
+          {/* ── BODY ── */}
+          <div className="cs-body">
+
+            <Section title="Certificate Details">
+              <Field label="Certificate Number"       value={certNumber}   mono large />
+              <Field label="Inspection Number"        value={inspNumber}   mono />
+              <Field label="Issue Date"               value={issueDate} />
+              <Field label="Expiry / Next Inspection" value={expiryDate} />
+            </Section>
+
+            <Section title="Client & Location">
+              <Field label="Client / Company" value={company} />
+              <Field label="Location"         value={location} />
+              <Field label="Certificate Type" value={certType} />
+            </Section>
+
+            <Section title="Equipment">
+              <Field label="Description"        value={equipDesc} />
+              <Field label="Type"               value={equipType} />
+              <Field label="Equipment ID"       value={equipId}    mono />
+              <Field label="Identification No." value={idNumber}   mono />
+              <Field label="Manufacturer"       value={mfg} />
+              <Field label="Model"              value={model} />
+              <Field label="Year Built"         value={yearBuilt} />
+              <Field label="Country of Origin"  value={countryOrig} />
+              <Field label="Lanyard Serial No." value={lanyardSN}  mono />
+            </Section>
+
+            <Section title="Technical Data">
+              <Field label="Safe Working Load (SWL)"  value={swl} />
+              <Field label="MAWP / Working Pressure"  value={mawp} />
+              <Field label="Capacity / Volume"        value={capacity} />
+              <Field label="Design Pressure"          value={designP} />
+              <Field label="Test Pressure"            value={testP} />
+            </Section>
+
+            {/* ── LEGAL FRAMEWORK — just below technical data ── */}
+            <div className="cs-sec" style={{borderColor:"#b8cce4",background:"#eaf2fb"}}>
+              <div className="cs-sec-ttl" style={{background:"#d0e8f8",color:"#0b1d3a",borderBottomColor:"#b8cce4",fontSize:"10px",padding:"8px 14px",letterSpacing:"0.1em"}}>
+                Legal Framework &amp; Compliance Declaration
+              </div>
+              <div style={{padding:"12px 14px",fontSize:"11px",color:"#1e3a5f",lineHeight:1.8,fontWeight:500}}>
+                This inspection has been performed by a{" "}
+                <b style={{fontWeight:900,color:"#0b1d3a"}}>competent person</b>{" "}
+                as defined under the{" "}
+                <b style={{fontWeight:900,color:"#0b1d3a"}}>Mines, Quarries, Works and Machinery Act Cap 44:02</b>{" "}
+                of the Laws of Botswana. The inspection, testing and certification of the above equipment
+                has been carried out in full compliance with the requirements of the said Act and applicable regulations.
+                {legalFmwk && legalFmwk !== "Mines, Quarries, Works and Machinery Act Cap 44:02" && (
+                  <span>{" "}Additional standard applied: <b style={{fontWeight:900}}>{legalFmwk}</b>.</span>
+                )}
+              </div>
+            </div>
+
+            {remarks && (
+              <div className="cs-sec">
+                <div className="cs-sec-ttl">Remarks / Conditions</div>
+                <div className="cs-remarks">{remarks}</div>
               </div>
             )}
+
           </div>
-        );
-      })}
-    </div>
-  );
-}
 
-function FlatView({certs,onUnlink,onSelect,selected,selectMode}){
-  return(
-    <div style={{border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden",background:T.panel}}>
-      <div className="cert-tbl" style={{overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",minWidth:900}}>
-          <thead>
-            <tr style={{background:"rgba(255,255,255,0.02)"}}>
-              {["Certificate No","Client","Equipment","Type","Result","Issue","Expiry","Days","Status","Actions"].map(h=>(
-                <td key={h} style={{padding:"10px 12px",fontSize:9,color:T.textDim,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{h}</td>
-              ))}
-            </tr>
-          </thead>
-          <tbody>{certs.map(cert=><CertRow key={cert.id} cert={cert} allCerts={certs} onUnlink={onUnlink} onSelect={onSelect} selected={selected} selectMode={selectMode}/>)}</tbody>
-        </table>
-      </div>
-      <div className="cert-mob">
-        {certs.map(cert=><CertMobCard key={cert.id} cert={cert} onUnlink={onUnlink} onSelect={onSelect} selected={selected} selectMode={selectMode}/>)}
-      </div>
-    </div>
-  );
-}
+          {/* ── SIGNATURES — always present ── */}
+          <div className="cs-sig-wrap">
+            <div className="cs-sig-card">
+              <div className="cs-sig-card-title">Signatures &amp; Authorisation</div>
+              <div className="cs-sig-grid">
 
-function CertRow({cert,compact=false,allCerts=[],onUnlink,onSelect,selected,selectMode,folderRow=false,folderFirst=false,folderLast=false,folderSize=0}){
-  const r=rc(cert.result);const e=ec(cert.expiry_bucket);
-  const days=daysDiff(cert.expiry_date);
-  const id=encodeURIComponent(String(cert.id??""));
-  if(compact){
-    return(
-      <tr className="cr" style={{borderBottom:`1px solid ${T.border}`}}>
-        <td style={{...TD,paddingLeft:folderRow?22:12}}>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
-            {folderRow&&<span style={{color:T.purple,fontSize:10}}>{folderFirst?"📁":"  └"}</span>}
-            <span style={{color:T.accent,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",fontSize:12}}>{cert.certificate_number||"—"}</span>
+                <div>
+                  <div className="cs-sig-label">Inspector Signature</div>
+                  <div className="cs-sig-line">
+                    <img
+                      src="/Signature"
+                      alt="Inspector Signature"
+                      style={{ maxHeight:38, maxWidth:"100%", objectFit:"contain" }}
+                    />
+                  </div>
+                  <div className="cs-sig-name">{inspName}</div>
+                  <div className="cs-sig-id">Inspector ID: {inspId}</div>
+                </div>
+
+                <div>
+                  <div className="cs-sig-label">Client / Witness Signature</div>
+                  <div className="cs-sig-line" />
+                  <div className="cs-sig-hint">Client representative sign here</div>
+                </div>
+
+                <div style={{ textAlign:"right" }}>
+                  <div className="cs-sig-label" style={{ textAlign:"right" }}>Company Stamp</div>
+                  <div className="cs-sig-line" style={{ justifyContent:"center" }}>
+                    <div className="cs-stamp">Stamp</div>
+                  </div>
+                  {issueDate  && <div className="cs-sig-name"  style={{ textAlign:"right" }}>Issue: {issueDate}</div>}
+                  {expiryDate && <div className="cs-sig-id"    style={{ textAlign:"right" }}>Expiry: {expiryDate}</div>}
+                </div>
+
+              </div>
+            </div>
           </div>
-        </td>
-        <td style={TD}><Badge label={r.label} color={r.color} bg={r.bg} brd={r.brd}/></td>
-        <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.issue_date)}</td>
-        <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.expiry_date)}</td>
-        <td style={{...TD,fontSize:12,color:T.textMid,textTransform:"capitalize"}}>{nz(cert.status,"active")}</td>
-        <td style={TD}><ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={allCerts} certId={cert.id} onUnlink={onUnlink} onSelect={onSelect} selected={selected?.has(id)} selectMode={selectMode}/></td>
-      </tr>
-    );
-  }
-  return(
-    <tr className="cr" style={{borderBottom:`1px solid ${T.border}`}}>
-      <td style={TD}><span style={{color:T.accent,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",fontSize:12}}>{cert.certificate_number||"—"}</span></td>
-      <td style={{...TD,fontSize:12,color:T.textMid,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cert.client_name}</td>
-      <td style={{...TD,fontSize:12,color:T.textMid,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cert.equipment_description}</td>
-      <td style={{...TD,fontSize:12,color:T.textMid}}>{cert.equipment_type}</td>
-      <td style={TD}><Badge label={r.label} color={r.color} bg={r.bg} brd={r.brd}/></td>
-      <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.issue_date)}</td>
-      <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.expiry_date)}</td>
-      <td style={TD}>
-        {days!==null?<span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:5,background:e.bg,color:e.color}}>{days<0?`${Math.abs(days)}d ago`:`${days}d`}</span>:<span style={{color:T.textDim,fontSize:12}}>—</span>}
-      </td>
-      <td style={{...TD,fontSize:12,color:T.textMid,textTransform:"capitalize"}}>{nz(cert.status,"active")}</td>
-      <td style={TD}><ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={allCerts} certId={cert.id} onUnlink={onUnlink} onSelect={onSelect} selected={selected?.has(id)} selectMode={selectMode}/></td>
-    </tr>
-  );
-}
 
-function CertMobCard({cert,onUnlink,onSelect,selected,selectMode}){
-  const r=rc(cert.result);const e=ec(cert.expiry_bucket);
-  const days=daysDiff(cert.expiry_date);
-  const id=encodeURIComponent(String(cert.id??""));
-  return(
-    <div style={{padding:"13px 14px",borderBottom:`1px solid ${T.border}`,display:"grid",gap:9}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,flexWrap:"wrap"}}>
-        <span style={{color:T.accent,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",fontSize:13}}>{cert.certificate_number||"—"}</span>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          <Badge label={r.label} color={r.color} bg={r.bg} brd={r.brd}/>
-          {days!==null&&<span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:6,background:e.bg,color:e.color}}>{days<0?`${Math.abs(days)}d ago`:`${days}d`}</span>}
+          {/* ── LEGAL ── */}
+          <div className="cs-legal">
+            <div className="cs-legal-txt">
+              This certificate is valid only for the equipment and conditions stated herein. Any alterations or unauthorised modifications render this certificate void.
+              Monroy (Pty) Ltd accepts no liability for use of this equipment beyond the scope of this inspection.
+            </div>
+            <div className="cs-page-info">{index + 1} / {total}{c.folder_name ? ` · ${c.folder_name}` : ""}</div>
+          </div>
+
+          {/* ── RED SERVICES BANNER ── */}
+          <div className="cs-services">
+            <p>
+              <b>Mobile Crane Hire</b> | <b>Rigging</b> | <b>NDT Test</b> | <b>Scaffolding</b> | <b>Painting</b> | <b>Inspection of Lifting Equipment and Machinery, Pressure Vessels &amp; Air Receiver</b> | Inspection of Lifting Equipment | <b>Steel Fabricating and Structural</b> | <b>Mechanical Engineering</b> | <b>Fencing</b> | <b>Maintenance</b>
+            </p>
+          </div>
+
+          {/* ── FOOTER STRIP ── */}
+          <div className="cs-footer">
+            <span>Monroy (Pty) Ltd · Mophane Avenue, Maun, Botswana</span>
+            <span>Quality · Safety · Excellence</span>
+          </div>
+
         </div>
       </div>
-      <div style={{fontSize:12,color:T.textMid}}>{cert.equipment_description} · {cert.equipment_type}</div>
-      <div style={{fontSize:11,color:T.textDim,display:"flex",gap:12,flexWrap:"wrap"}}>
-        {cert.client_name!=="UNASSIGNED"&&<span>{cert.client_name}</span>}
-        <span>Issue: {formatDate(cert.issue_date)}</span>
-        <span>Expiry: {formatDate(cert.expiry_date)}</span>
-      </div>
-      <ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={[]} certId={cert.id} onUnlink={onUnlink} onSelect={onSelect} selected={selected?.has(id)} selectMode={selectMode}/>
-    </div>
+    </>
   );
 }
-
-function ActBtns({id,folderId,folderName,allCerts,certId,onUnlink,onSelect,selected,selectMode}){
-  function handlePrint(e){
-    e.preventDefault();
-    if(folderId&&allCerts){
-      const folderCerts=allCerts.filter(c=>c.folder_id===folderId);
-      if(folderCerts.length>1){
-        folderCerts.forEach((c,i)=>{
-          setTimeout(()=>window.open(`/certificates/print/${encodeURIComponent(String(c.id))}`,"_blank"),i*400);
-        });
-        return;
-      }
-    }
-    window.open(`/certificates/print/${id}`,"_blank");
-  }
-  const btnBase={display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"6px 11px",borderRadius:8,fontSize:11,fontWeight:800,textDecoration:"none",whiteSpace:"nowrap",cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent",minHeight:32,border:"1px solid"};
-  return(
-    <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-      <Link href={`/certificates/${id}`}      prefetch={false} style={{...btnBase,background:T.accentDim,color:T.accent,borderColor:T.accentBrd}}>View</Link>
-      <Link href={`/certificates/${id}/edit`} prefetch={false} style={{...btnBase,background:T.amberDim,color:T.amber,borderColor:T.amberBrd}}>Edit</Link>
-      {folderId?(
-        <button type="button" onClick={()=>onUnlink&&onUnlink(id)}
-          style={{...btnBase,background:T.redDim,color:T.red,borderColor:T.redBrd}}>
-          Unlink
-        </button>
-      ):(
-        <button type="button" onClick={()=>onSelect&&onSelect(id)}
-          style={{...btnBase,background:selected?T.purpleDim:T.card,color:selected?T.purple:T.textDim,borderColor:selected?T.purpleBrd:T.border}}>
-          {selected?"✓ Selected":"Select"}
-        </button>
-      )}
-      <button type="button" onClick={handlePrint}
-        style={{...btnBase,background:T.greenDim,color:T.green,borderColor:T.greenBrd}}>
-        {folderId?"Print All":"Print"}
-      </button>
-    </div>
-  );
-}
-
-const TD={padding:"10px 12px",fontSize:13,color:T.textMid,verticalAlign:"top"};
-const AB=(color,bg,brd)=>({display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"5px 10px",borderRadius:7,border:`1px solid ${brd}`,background:bg,color,fontSize:11,fontWeight:800,textDecoration:"none",whiteSpace:"nowrap"});
-const S={
-  accent:{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"9px 14px",borderRadius:10,border:`1px solid ${T.accentBrd}`,background:T.accentDim,color:T.accent,fontSize:12,fontWeight:900,textDecoration:"none",whiteSpace:"nowrap"},
-  ghost:{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"9px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.card,color:T.textMid,fontSize:12,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap"},
-};
