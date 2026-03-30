@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -44,6 +45,7 @@ function avatar(name,email) {
 
 export default function AdminUsersPage() {
   const router = useRouter();
+  const router = useRouter();
   const [users,    setUsers]    = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState("");
@@ -75,8 +77,12 @@ export default function AdminUsersPage() {
         body: JSON.stringify({ email: form.email, full_name: form.full_name, role: form.role }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to create user.");
-      setSuccess(`User ${form.full_name} created. A confirmation email has been sent to ${form.email}.`);
+      if (!res.ok) throw new Error(json.error || "Failed to invite user.");
+      if (json.warning) {
+        setSuccess(`✉ Invitation sent to ${form.email}. Note: ${json.warning}`);
+      } else {
+        setSuccess(`✉ Invitation sent to ${form.email}. They will receive an email to set their password.`);
+      }
       setForm({ email:"", full_name:"", role:"inspector" });
       setShowForm(false);
       await loadUsers();
@@ -126,21 +132,29 @@ export default function AdminUsersPage() {
       <div style={{fontFamily:"'IBM Plex Sans',sans-serif",color:T.text,padding:20,maxWidth:1100,margin:"0 auto",display:"grid",gap:16}}>
 
         {/* Header */}
-        <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:18,padding:"16px 20px",backdropFilter:"blur(20px)",display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap"}}>
-          <div>
-            <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.14em",textTransform:"uppercase",color:T.accent,marginBottom:6}}>Admin · User Management</div>
-            <h1 style={{margin:0,fontSize:22,fontWeight:900,letterSpacing:"-0.02em"}}>System Users</h1>
-            <p style={{margin:"4px 0 0",color:T.textDim,fontSize:12}}>{users.length} registered user{users.length!==1?"s":""}</p>
+        <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:18,padding:"16px 20px",backdropFilter:"blur(20px)"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap"}}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <button type="button" onClick={()=>router.push("/admin")}
+                style={{padding:"8px 14px",borderRadius:9,border:`1px solid ${T.border}`,background:T.card,color:T.textMid,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent",flexShrink:0}}>
+                ← Admin
+              </button>
+              <div>
+                <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.14em",textTransform:"uppercase",color:T.accent,marginBottom:4}}>Admin · User Management</div>
+                <h1 style={{margin:0,fontSize:20,fontWeight:900,letterSpacing:"-0.02em"}}>System Users</h1>
+                <p style={{margin:"3px 0 0",color:T.textDim,fontSize:12}}>{users.length} registered user{users.length!==1?"s":""}</p>
+              </div>
+            </div>
+            <button type="button" onClick={()=>{setShowForm(p=>!p);setError("");setSuccess("");}}
+              style={{padding:"10px 18px",borderRadius:11,border:"none",background:showForm?"rgba(255,255,255,0.06)":"linear-gradient(135deg,#22d3ee,#0891b2)",color:showForm?T.textMid:"#052e16",fontWeight:900,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>
+              {showForm?"✕ Cancel":"+ Invite User"}
+            </button>
           </div>
-          <button type="button" onClick={()=>{setShowForm(p=>!p);setError("");setSuccess("");}}
-            style={{padding:"10px 18px",borderRadius:11,border:"none",background:showForm?"rgba(255,255,255,0.06)":"linear-gradient(135deg,#22d3ee,#0891b2)",color:showForm?T.textMid:"#052e16",fontWeight:900,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>
-            {showForm?"✕ Cancel":"+ Invite User"}
-          </button>
         </div>
 
         {/* Feedback */}
-        {error  &&<div style={{padding:"10px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,  background:T.redDim,  color:T.red,  fontSize:13,fontWeight:700}}>⚠ {error}</div>}
-        {success&&<div style={{padding:"10px 14px",borderRadius:10,border:`1px solid ${T.greenBrd}`,background:T.greenDim,color:T.green,fontSize:13,fontWeight:700}}>✓ {success}</div>}
+        {error  &&<div style={{padding:"10px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,  background:T.redDim,  color:T.red,  fontSize:13,fontWeight:700,lineHeight:1.6}}>⚠ {error}</div>}
+        {success&&<div style={{padding:"10px 14px",borderRadius:10,border:`1px solid ${T.greenBrd}`,background:T.greenDim,color:T.green,fontSize:13,fontWeight:700,lineHeight:1.6}}>✓ {success}</div>}
 
         {/* Create user form */}
         {showForm&&(
