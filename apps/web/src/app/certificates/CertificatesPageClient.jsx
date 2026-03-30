@@ -161,7 +161,28 @@ export default function CertificatesPageClient() {
   }
 
   async function unlinkCert(id){
-    await supabase.from("certificates").update({folder_id:null,folder_name:null,folder_position:null}).eq("id",id);
+    // Find which folder this cert belongs to
+    const cert = certs.find(c => String(c.id) === String(id));
+    const folderId = cert?.folder_id;
+
+    // Unlink this cert
+    const { error: e } = await supabase.from("certificates")
+      .update({ folder_id: null, folder_name: null, folder_position: null })
+      .eq("id", id);
+
+    if (e) { console.error("Unlink failed:", e.message); return; }
+
+    // If folder exists, check if only 1 cert remains — if so, unlink it too
+    if (folderId) {
+      const { data: remaining } = await supabase.from("certificates")
+        .select("id").eq("folder_id", folderId);
+      if (remaining && remaining.length === 1) {
+        await supabase.from("certificates")
+          .update({ folder_id: null, folder_name: null, folder_position: null })
+          .eq("id", remaining[0].id);
+      }
+    }
+
     await loadCerts();
   }
 
