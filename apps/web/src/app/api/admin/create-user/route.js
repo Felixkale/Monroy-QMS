@@ -16,13 +16,10 @@ function adminClient() {
 export async function POST(request) {
   try {
     const body = await request.json().catch(() => null);
-    const { email, password, full_name, role } = body || {};
+    const { email, full_name, role } = body || {};
 
-    if (!email || !password || !full_name) {
-      return NextResponse.json({ error: "email, password and full_name are required." }, { status: 400 });
-    }
-    if (password.length < 8) {
-      return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
+    if (!email || !full_name) {
+      return NextResponse.json({ error: "email and full_name are required." }, { status: 400 });
     }
 
     const validRoles = ["admin", "inspector", "viewer"];
@@ -30,12 +27,10 @@ export async function POST(request) {
 
     const supabaseAdmin = adminClient();
 
-    // 1. Create the auth user — Supabase will send confirmation email automatically
-    const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: false, // require email confirmation
-      user_metadata: { full_name, role: userRole },
+    // 1. Invite user by email — Supabase sends them a magic link to set their own password
+    const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+      data: { full_name, role: userRole },
+      redirectTo: `${process.env.NEXT_PUBLIC_BASE_URL || "https://monroy-qms.co.bw"}/reset-password`,
     });
 
     if (authErr) {
