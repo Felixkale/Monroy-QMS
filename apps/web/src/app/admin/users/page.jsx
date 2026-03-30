@@ -1,286 +1,186 @@
-// src/app/admin/users/page.jsx
+// src/app/login/page.jsx
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import AppLayout from "@/components/AppLayout";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 const T = {
-  bg:"#070e18", surface:"rgba(13,22,38,0.80)", panel:"rgba(10,18,32,0.92)",
-  card:"rgba(255,255,255,0.025)", border:"rgba(148,163,184,0.12)",
-  text:"#f0f6ff", textMid:"rgba(240,246,255,0.72)", textDim:"rgba(240,246,255,0.40)",
-  accent:"#22d3ee", accentDim:"rgba(34,211,238,0.10)", accentBrd:"rgba(34,211,238,0.25)",
-  green:"#34d399", greenDim:"rgba(52,211,153,0.10)", greenBrd:"rgba(52,211,153,0.25)",
-  red:"#f87171",   redDim:"rgba(248,113,113,0.10)",   redBrd:"rgba(248,113,113,0.25)",
-  amber:"#fbbf24", amberDim:"rgba(251,191,36,0.10)",  amberBrd:"rgba(251,191,36,0.25)",
-  purple:"#a78bfa",purpleDim:"rgba(167,139,250,0.10)",purpleBrd:"rgba(167,139,250,0.25)",
+  bg:"#060d1a", card:"rgba(10,18,32,0.95)", border:"rgba(148,163,184,0.12)",
+  text:"#f0f6ff", textDim:"rgba(240,246,255,0.45)", textMid:"rgba(240,246,255,0.70)",
+  accent:"#22d3ee", accentDim:"rgba(34,211,238,0.10)", accentBrd:"rgba(34,211,238,0.30)",
+  red:"#f87171", redDim:"rgba(248,113,113,0.10)", redBrd:"rgba(248,113,113,0.30)",
+  green:"#34d399", greenDim:"rgba(52,211,153,0.10)", greenBrd:"rgba(52,211,153,0.30)",
+  input:"rgba(15,25,45,0.80)", inputBrd:"rgba(148,163,184,0.15)",
 };
 
-const IS = {width:"100%",padding:"10px 12px",borderRadius:9,border:"1px solid rgba(148,163,184,0.12)",background:"rgba(18,30,50,0.70)",color:T.text,fontSize:13,fontFamily:"'IBM Plex Sans',sans-serif",outline:"none",minHeight:40};
-const LS = {fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:T.textDim,display:"block",marginBottom:6};
-
-const ROLES = [
-  { value:"admin",    label:"Admin",    desc:"Full access — clients, equipment, certificates, users", color:T.accent },
-  { value:"inspector",label:"Inspector",desc:"Can create and edit certificates, NCRs, CAPAs",          color:T.green  },
-  { value:"viewer",   label:"Viewer",   desc:"Read-only — can view and print certificates",            color:T.textMid},
-];
-
-function roleBadge(role) {
-  const r = ROLES.find(x=>x.value===role)||ROLES[2];
-  const bg = role==="admin"?T.accentDim:role==="inspector"?T.greenDim:T.card;
-  const brd= role==="admin"?T.accentBrd:role==="inspector"?T.greenBrd:T.border;
-  return(
-    <span style={{padding:"3px 9px",borderRadius:99,background:bg,border:`1px solid ${brd}`,color:r.color,fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.06em"}}>
-      {role||"viewer"}
-    </span>
-  );
-}
-
-function avatar(name,email) {
-  const n=(name||email||"U").trim();
-  return n.charAt(0).toUpperCase();
-}
-
-export default function AdminUsersPage() {
+function LoginInner() {
   const router = useRouter();
-  const [users,    setUsers]    = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState("");
-  const [success,  setSuccess]  = useState("");
-  const [showForm, setShowForm] = useState(false);
-  const [saving,   setSaving]   = useState(false);
-  const [deleting, setDeleting] = useState(null);
-  const [form, setForm] = useState({ email:"", full_name:"", role:"inspector", password:"" });
+  const searchParams = useSearchParams();
+  const [email,    setEmail]    = useState("");
+  const [password, setPassword] = useState("");
+  const [showPw,   setShowPw]   = useState(false);
+  const [loading,  setLoading]  = useState(false);
+  const [gLoading, setGLoading] = useState(false);
 
-  useEffect(()=>{ loadUsers(); },[]);
+  // Read error from URL (set by auth callback after failed OAuth)
+  const urlErr = searchParams.get("error");
+  const blockedEmail = searchParams.get("email");
+  const urlErrMsg =
+    urlErr === "not_whitelisted" ? `Access denied for ${blockedEmail||"this account"}. Your email is not registered in Monroy QMS. Contact your administrator.` :
+    urlErr === "account_inactive" ? "Your account has been deactivated. Contact your administrator." :
+    urlErr === "auth_failed" ? "Authentication failed. Please try again." :
+    "";
+  const [error, setError] = useState(urlErrMsg);
 
-  async function loadUsers() {
-    setLoading(true);
-    const { data, error: e } = await supabase.from("users").select("*").order("created_at", { ascending: false });
-    if (e) setError(e.message);
-    else setUsers(data||[]);
+  async function handleLogin(e) {
+    e.preventDefault();
+    if (!email || !password) { setError("Please enter your email and password."); return; }
+    setLoading(true); setError("");
+    const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (err) {
+      setError(
+        err.message.includes("Invalid login") ? "Incorrect email or password." :
+        err.message.includes("Email not confirmed") ? "Please confirm your email before logging in. Check your inbox." :
+        err.message
+      );
+    } else {
+      router.push("/dashboard");
+    }
     setLoading(false);
   }
 
-  async function handleCreate(e) {
-    e.preventDefault();
-    if (!form.email||!form.password||!form.full_name) { setError("All fields are required."); return; }
-    if (form.password.length < 8) { setError("Password must be at least 8 characters."); return; }
-    setSaving(true); setError(""); setSuccess("");
-    try {
-      // Create auth user via admin API (requires service role — use API route)
-      const res = await fetch("/api/admin/create-user", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: form.email, password: form.password, full_name: form.full_name, role: form.role }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to create user.");
-      setSuccess(`User ${form.full_name} created. A confirmation email has been sent to ${form.email}.`);
-      setForm({ email:"", full_name:"", role:"inspector", password:"" });
-      setShowForm(false);
-      await loadUsers();
-    } catch(err) { setError(err.message); }
-    finally { setSaving(false); }
+  async function handleGoogle() {
+    setGLoading(true); setError("");
+    const { error: err } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/dashboard` },
+    });
+    if (err) { setError(err.message); setGLoading(false); }
   }
-
-  async function handleRoleChange(userId, newRole) {
-    const { error: e } = await supabase.from("users").update({ role: newRole }).eq("id", userId);
-    if (e) setError(e.message);
-    else { setSuccess("Role updated."); await loadUsers(); }
-  }
-
-  async function handleDeactivate(userId, currentStatus) {
-    const newStatus = currentStatus === "active" ? "inactive" : "active";
-    setDeleting(userId);
-    const { error: e } = await supabase.from("users").update({ status: newStatus }).eq("id", userId);
-    if (e) setError(e.message);
-    else { setSuccess(`User ${newStatus === "active" ? "activated" : "deactivated"}.`); await loadUsers(); }
-    setDeleting(null);
-  }
-
-  async function handleResendConfirmation(email) {
-    const { error: e } = await supabase.auth.resend({ type: "signup", email });
-    if (e) setError(e.message);
-    else setSuccess(`Confirmation email resent to ${email}.`);
-  }
-
-  const hf = (k,v) => setForm(p=>({...p,[k]:v}));
 
   return (
-    <AppLayout title="User Management">
+    <div style={{ minHeight:"100vh", background:T.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:16, fontFamily:"'IBM Plex Sans',sans-serif" }}>
       <style>{`
-        *,*::before,*::after{box-sizing:border-box}
-        input::placeholder{color:rgba(240,246,255,0.28)}
-        select option{background:#0a1420;color:#f0f6ff}
-        .usr-table{width:100%;border-collapse:collapse;font-size:13px}
-        .usr-table th{padding:10px 14px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:${T.textDim};border-bottom:1px solid ${T.border};white-space:nowrap}
-        .usr-table td{padding:13px 14px;border-bottom:1px solid ${T.border};vertical-align:middle}
-        .usr-table tr:last-child td{border-bottom:none}
-        .usr-table tr:hover td{background:rgba(255,255,255,0.015)}
-        .usr-row-inactive td{opacity:.5}
-        @media(max-width:768px){.usr-table{display:none}.usr-cards{display:grid;gap:10px}}
-        @media(min-width:769px){.usr-cards{display:none}}
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+        html,body{background:${T.bg}}
+        input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus{
+          -webkit-box-shadow:0 0 0 1000px rgba(15,25,45,0.95) inset!important;
+          -webkit-text-fill-color:#f0f6ff!important;
+          caret-color:#f0f6ff;
+        }
+        .login-input{width:100%;padding:12px 14px;border-radius:10px;border:1px solid ${T.inputBrd};background:${T.input};color:${T.text};font-size:14px;font-family:'IBM Plex Sans',sans-serif;outline:none;transition:border-color .2s;-webkit-tap-highlight-color:transparent}
+        .login-input:focus{border-color:${T.accent}}
+        .login-input::placeholder{color:${T.textDim}}
+        .pw-wrap{position:relative}
+        .pw-wrap .login-input{padding-right:44px}
+        .pw-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:${T.textDim};cursor:pointer;font-size:16px;line-height:1;padding:4px;-webkit-tap-highlight-color:transparent}
+        .pw-toggle:hover{color:${T.text}}
+        .btn-primary{width:100%;padding:13px;border-radius:10px;border:none;background:linear-gradient(135deg,#22d3ee,#0891b2);color:#052e16;font-size:14px;font-weight:900;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;transition:opacity .2s;-webkit-tap-highlight-color:transparent;min-height:46px;display:flex;align-items:center;justify-content:center;gap:8px}
+        .btn-primary:disabled{opacity:.5;cursor:not-allowed}
+        .btn-google{width:100%;padding:12px;border-radius:10px;border:1px solid ${T.border};background:rgba(255,255,255,0.05);color:${T.text};font-size:13px;font-weight:700;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;transition:background .2s,border-color .2s;-webkit-tap-highlight-color:transparent;min-height:46px;display:flex;align-items:center;justify-content:center;gap:10px}
+        .btn-google:hover:not(:disabled){background:rgba(255,255,255,0.09);border-color:rgba(148,163,184,0.3)}
+        .btn-google:disabled{opacity:.5;cursor:not-allowed}
+        .divider{display:flex;align-items:center;gap:12px;margin:18px 0}
+        .divider::before,.divider::after{content:'';flex:1;height:1px;background:${T.border}}
+        .divider span{font-size:11px;color:${T.textDim};font-weight:600;white-space:nowrap}
+        .forgot-link{display:block;text-align:right;font-size:12px;color:${T.accent};text-decoration:none;margin-top:6px;-webkit-tap-highlight-color:transparent}
+        .forgot-link:hover{text-decoration:underline}
+        .geo-circle{position:absolute;border-radius:50%;pointer-events:none}
+        @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+        .logo-float{animation:float 4s ease-in-out infinite}
       `}</style>
 
-      <div style={{fontFamily:"'IBM Plex Sans',sans-serif",color:T.text,padding:20,maxWidth:1100,margin:"0 auto",display:"grid",gap:16}}>
+      {/* Background glow circles */}
+      <div style={{position:"fixed",inset:0,overflow:"hidden",pointerEvents:"none",zIndex:0}}>
+        <div className="geo-circle" style={{width:500,height:500,background:"radial-gradient(circle,rgba(34,211,238,0.07),transparent 70%)",top:-100,left:-100}}/>
+        <div className="geo-circle" style={{width:400,height:400,background:"radial-gradient(circle,rgba(96,165,250,0.05),transparent 70%)",bottom:-50,right:-50}}/>
+      </div>
 
-        {/* Header */}
-        <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:18,padding:"16px 20px",backdropFilter:"blur(20px)",display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,flexWrap:"wrap"}}>
-          <div>
-            <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.14em",textTransform:"uppercase",color:T.accent,marginBottom:6}}>Admin · User Management</div>
-            <h1 style={{margin:0,fontSize:22,fontWeight:900,letterSpacing:"-0.02em"}}>System Users</h1>
-            <p style={{margin:"4px 0 0",color:T.textDim,fontSize:12}}>{users.length} registered user{users.length!==1?"s":""}</p>
+      <div style={{width:"100%",maxWidth:420,position:"relative",zIndex:1}}>
+
+        {/* Logo + Brand */}
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div className="logo-float" style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:64,height:64,borderRadius:18,background:"linear-gradient(135deg,rgba(34,211,238,0.15),rgba(96,165,250,0.10))",border:"1px solid rgba(34,211,238,0.25)",marginBottom:14}}>
+            <img src="/logo.png" alt="Monroy" style={{width:44,height:44,objectFit:"contain"}} onError={e=>{e.currentTarget.style.display="none";}}/>
+            <span style={{fontSize:24,fontWeight:900,color:T.accent,display:"none"}}>M</span>
           </div>
-          <button type="button" onClick={()=>{setShowForm(p=>!p);setError("");setSuccess("");}}
-            style={{padding:"10px 18px",borderRadius:11,border:"none",background:showForm?"rgba(255,255,255,0.06)":"linear-gradient(135deg,#22d3ee,#0891b2)",color:showForm?T.textMid:"#052e16",fontWeight:900,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>
-            {showForm?"✕ Cancel":"+ Invite User"}
-          </button>
+          <div style={{fontSize:22,fontWeight:900,color:T.text,letterSpacing:"-0.02em",marginBottom:4}}>Monroy QMS</div>
+          <div style={{fontSize:12,color:T.textDim,letterSpacing:"0.08em",textTransform:"uppercase",fontWeight:600}}>Quality Management System</div>
         </div>
 
-        {/* Feedback */}
-        {error  &&<div style={{padding:"10px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,  background:T.redDim,  color:T.red,  fontSize:13,fontWeight:700}}>⚠ {error}</div>}
-        {success&&<div style={{padding:"10px 14px",borderRadius:10,border:`1px solid ${T.greenBrd}`,background:T.greenDim,color:T.green,fontSize:13,fontWeight:700}}>✓ {success}</div>}
+        {/* Card */}
+        <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:20,padding:"28px 26px",backdropFilter:"blur(24px)",boxShadow:"0 24px 64px rgba(0,0,0,0.5)"}}>
+          <div style={{fontSize:16,fontWeight:800,color:T.text,marginBottom:4}}>Sign in to your account</div>
+          <div style={{fontSize:12,color:T.textDim,marginBottom:22}}>Access is restricted to authorised Monroy personnel only.</div>
 
-        {/* Create user form */}
-        {showForm&&(
-          <div style={{background:T.panel,border:`1px solid ${T.accentBrd}`,borderRadius:16,padding:20}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16,paddingBottom:12,borderBottom:`1px solid ${T.border}`}}>
-              <span style={{fontSize:14}}>👤</span>
-              <div style={{fontSize:14,fontWeight:800,color:T.accent}}>Invite New User</div>
-              <div style={{fontSize:11,color:T.textDim,marginLeft:"auto"}}>A confirmation email will be sent automatically</div>
+          {/* Error */}
+          {error&&(
+            <div style={{padding:"10px 13px",borderRadius:9,background:T.redDim,border:`1px solid ${T.redBrd}`,color:T.red,fontSize:12,fontWeight:600,marginBottom:16,display:"flex",alignItems:"flex-start",gap:8}}>
+              <span style={{flexShrink:0}}>⚠</span><span>{error}</span>
             </div>
-            <form onSubmit={handleCreate}>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:14,marginBottom:16}}>
-                <div>
-                  <label style={LS}>Full Name</label>
-                  <input style={IS} value={form.full_name} onChange={e=>hf("full_name",e.target.value)} placeholder="e.g. Moemedi Masupe" required/>
-                </div>
-                <div>
-                  <label style={LS}>Email Address</label>
-                  <input style={IS} type="email" value={form.email} onChange={e=>hf("email",e.target.value)} placeholder="user@monroy.co.bw" required/>
-                </div>
-                <div>
-                  <label style={LS}>Temporary Password</label>
-                  <input style={IS} type="password" value={form.password} onChange={e=>hf("password",e.target.value)} placeholder="Min. 8 characters" required minLength={8}/>
-                </div>
-                <div>
-                  <label style={LS}>Role</label>
-                  <select style={IS} value={form.role} onChange={e=>hf("role",e.target.value)}>
-                    {ROLES.map(r=><option key={r.value} value={r.value}>{r.label} — {r.desc}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:12,color:T.textDim,lineHeight:1.7}}>
-                ℹ The user will receive a <strong style={{color:T.text}}>confirmation email</strong> at the address above. They must confirm it before logging in. They can then change their password from the login page using "Forgot Password".
-              </div>
-              <button type="submit" disabled={saving} style={{padding:"11px 24px",borderRadius:10,border:"none",background:saving?"rgba(255,255,255,0.06)":"linear-gradient(135deg,#34d399,#14b8a6)",color:saving?"rgba(240,246,255,0.4)":"#052e16",fontWeight:900,fontSize:13,cursor:saving?"not-allowed":"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>
-                {saving?"Creating user…":"✉ Create & Send Invitation"}
-              </button>
-            </form>
-          </div>
-        )}
-
-        {/* Users table */}
-        <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:16,overflow:"hidden"}}>
-          {loading?(
-            <div style={{padding:40,textAlign:"center",color:T.textDim,fontSize:13}}>Loading users…</div>
-          ):users.length===0?(
-            <div style={{padding:40,textAlign:"center",color:T.textDim,fontSize:13}}>No users yet. Click "Invite User" to add the first user.</div>
-          ):(
-            <>
-              {/* Desktop table */}
-              <div style={{overflowX:"auto"}}>
-                <table className="usr-table">
-                  <thead>
-                    <tr>
-                      <th>User</th>
-                      <th>Email</th>
-                      <th>Role</th>
-                      <th>Status</th>
-                      <th>Joined</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map(u=>(
-                      <tr key={u.id} className={u.status==="inactive"?"usr-row-inactive":""}>
-                        <td>
-                          <div style={{display:"flex",alignItems:"center",gap:10}}>
-                            <div style={{width:34,height:34,borderRadius:10,background:`linear-gradient(135deg,${T.accent},${T.purple})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:900,color:"#052e16",flexShrink:0}}>
-                              {avatar(u.full_name,u.email)}
-                            </div>
-                            <div>
-                              <div style={{fontWeight:700,color:T.text,fontSize:13}}>{u.full_name||"—"}</div>
-                              {u.id&&<div style={{fontSize:10,color:T.textDim,fontFamily:"'IBM Plex Mono',monospace"}}>{u.id.slice(0,8)}…</div>}
-                            </div>
-                          </div>
-                        </td>
-                        <td style={{color:T.textMid,fontSize:12}}>{u.email}</td>
-                        <td>
-                          <select value={u.role||"viewer"} onChange={e=>handleRoleChange(u.id,e.target.value)}
-                            style={{background:"transparent",border:"none",color:u.role==="admin"?T.accent:u.role==="inspector"?T.green:T.textMid,fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",outline:"none",padding:0}}>
-                            {ROLES.map(r=><option key={r.value} value={r.value} style={{background:"#0a1420",color:"#f0f6ff"}}>{r.label}</option>)}
-                          </select>
-                        </td>
-                        <td>
-                          <span style={{padding:"3px 9px",borderRadius:99,fontSize:10,fontWeight:800,background:u.status==="active"?T.greenDim:T.redDim,color:u.status==="active"?T.green:T.red,border:`1px solid ${u.status==="active"?T.greenBrd:T.redBrd}`}}>
-                            {u.status||"active"}
-                          </span>
-                        </td>
-                        <td style={{color:T.textDim,fontSize:12}}>
-                          {u.created_at?new Date(u.created_at).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}):"—"}
-                        </td>
-                        <td>
-                          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                            <button type="button" onClick={()=>handleResendConfirmation(u.email)}
-                              style={{padding:"5px 10px",borderRadius:7,border:`1px solid ${T.accentBrd}`,background:T.accentDim,color:T.accent,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>
-                              Resend Email
-                            </button>
-                            <button type="button" onClick={()=>handleDeactivate(u.id,u.status)} disabled={deleting===u.id}
-                              style={{padding:"5px 10px",borderRadius:7,border:`1px solid ${u.status==="active"?T.redBrd:T.greenBrd}`,background:u.status==="active"?T.redDim:T.greenDim,color:u.status==="active"?T.red:T.green,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",opacity:deleting===u.id?.5:1}}>
-                              {deleting===u.id?"…":u.status==="active"?"Deactivate":"Activate"}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Mobile cards */}
-              <div className="usr-cards" style={{padding:12}}>
-                {users.map(u=>(
-                  <div key={u.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:14,opacity:u.status==="inactive"?.5:1}}>
-                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-                      <div style={{width:40,height:40,borderRadius:12,background:`linear-gradient(135deg,${T.accent},${T.purple})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:900,color:"#052e16",flexShrink:0}}>
-                        {avatar(u.full_name,u.email)}
-                      </div>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontWeight:700,color:T.text,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.full_name||"—"}</div>
-                        <div style={{fontSize:11,color:T.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.email}</div>
-                      </div>
-                      {roleBadge(u.role)}
-                    </div>
-                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                      <button type="button" onClick={()=>handleResendConfirmation(u.email)}
-                        style={{padding:"6px 10px",borderRadius:7,border:`1px solid ${T.accentBrd}`,background:T.accentDim,color:T.accent,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                        Resend Email
-                      </button>
-                      <button type="button" onClick={()=>handleDeactivate(u.id,u.status)}
-                        style={{padding:"6px 10px",borderRadius:7,border:`1px solid ${u.status==="active"?T.redBrd:T.greenBrd}`,background:u.status==="active"?T.redDim:T.greenDim,color:u.status==="active"?T.red:T.green,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                        {u.status==="active"?"Deactivate":"Activate"}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
           )}
+
+          {/* Google */}
+          <button className="btn-google" type="button" onClick={handleGoogle} disabled={gLoading||loading}>
+            {gLoading?(
+              <span style={{display:"inline-block",width:16,height:16,border:"2px solid rgba(240,246,255,0.3)",borderTopColor:T.text,borderRadius:"50%",animation:"spin .6s linear infinite"}}/>
+            ):(
+              <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+            )}
+            {gLoading?"Connecting…":"Continue with Google"}
+          </button>
+
+          <div className="divider"><span>or sign in with email</span></div>
+
+          {/* Form */}
+          <form onSubmit={handleLogin} style={{display:"grid",gap:14}}>
+            <div>
+              <label style={{display:"block",fontSize:11,fontWeight:700,color:T.textDim,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:7}}>Email address</label>
+              <input className="login-input" type="email" placeholder="you@monroy.co.bw" value={email} onChange={e=>{setEmail(e.target.value);setError("");}} autoComplete="email" required/>
+            </div>
+
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+                <label style={{fontSize:11,fontWeight:700,color:T.textDim,letterSpacing:"0.08em",textTransform:"uppercase"}}>Password</label>
+                <a href="/forgot-password" className="forgot-link">Forgot password?</a>
+              </div>
+              <div className="pw-wrap">
+                <input className="login-input" type={showPw?"text":"password"} placeholder="Enter your password" value={password} onChange={e=>{setPassword(e.target.value);setError("");}} autoComplete="current-password" required/>
+                <button className="pw-toggle" type="button" onClick={()=>setShowPw(p=>!p)} tabIndex={-1}>{showPw?"🙈":"👁"}</button>
+              </div>
+            </div>
+
+            <button className="btn-primary" type="submit" disabled={loading||gLoading} style={{marginTop:4}}>
+              {loading?(
+                <span style={{display:"inline-block",width:16,height:16,border:"2px solid rgba(5,46,22,0.3)",borderTopColor:"#052e16",borderRadius:"50%",animation:"spin .6s linear infinite"}}/>
+              ):"Sign In"}
+              {!loading&&" →"}
+            </button>
+          </form>
+        </div>
+
+        <div style={{textAlign:"center",marginTop:20,fontSize:11,color:T.textDim}}>
+          Don't have an account? Contact your system administrator.
+        </div>
+        <div style={{textAlign:"center",marginTop:8,fontSize:11,color:T.textDim}}>
+          © {new Date().getFullYear()} Monroy (Pty) Ltd · Maun, Botswana
         </div>
       </div>
-    </AppLayout>
+
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight:"100vh", background:"#060d1a", display:"flex", alignItems:"center", justifyContent:"center" }}>
+        <div style={{ width:24, height:24, border:"2px solid rgba(34,211,238,0.2)", borderTopColor:"#22d3ee", borderRadius:"50%", animation:"spin .8s linear infinite" }}/>
+      </div>
+    }>
+      <LoginInner/>
+    </Suspense>
   );
 }
