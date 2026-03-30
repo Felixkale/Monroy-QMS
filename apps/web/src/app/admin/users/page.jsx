@@ -3,7 +3,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -44,7 +43,6 @@ function avatar(name,email) {
 }
 
 export default function AdminUsersPage() {
-  const router = useRouter();
   const router = useRouter();
   const [users,    setUsers]    = useState([]);
   const [loading,  setLoading]  = useState(true);
