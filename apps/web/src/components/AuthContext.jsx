@@ -1,68 +1,57 @@
+// src/components/AuthContext.jsx
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
-const AuthContext = createContext();
+const AuthContext = createContext({});
+
+// Pages that do NOT require authentication
+const PUBLIC_ROUTES = [
+  "/login",
+  "/forgot-password",
+  "/reset-password",
+  "/auth/callback",
+];
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
+  const router   = useRouter();
+  const pathname = usePathname();
+  const [user,    setUser]    = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check current session
-    const checkUser = async () => {
-      try {
-        if (!supabase) {
-          console.warn("Supabase client not initialized. Check your environment variables.");
-          setLoading(false);
-          return;
-        }
-
-        const { data: { session } } = await supabase.auth.getSession();
-        setUser(session?.user || null);
-      } catch (error) {
-        console.error("Auth error:", error);
-        setUser(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    checkUser();
-
-    // Listen for auth changes - only if supabase is available
-    if (!supabase) {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
       setLoading(false);
-      return;
-    }
+    });
 
-    try {
-      const { data: { subscription } } = supabase.auth.onAuthStateChanged((session) => {
-        setUser(session?.user || null);
-      });
-
-      return () => {
-        subscription?.unsubscribe();
-      };
-    } catch (error) {
-      console.error("Failed to subscribe to auth changes:", error);
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
       setLoading(false);
-    }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const logout = async () => {
-    if (!supabase) {
-      console.warn("Supabase not available for logout");
-      return;
+  useEffect(() => {
+    if (loading) return;
+
+    const isPublic = PUBLIC_ROUTES.some(route => pathname.startsWith(route));
+
+    if (!user && !isPublic) {
+      // Not logged in and on a protected page — go to login
+      router.replace("/login");
     }
-    try {
-      await supabase.auth.signOut();
-      setUser(null);
-    } catch (error) {
-      console.error("Logout error:", error);
-    }
-  };
+  }, [user, loading, pathname]);
+
+  async function logout() {
+    await supabase.auth.signOut();
+    setUser(null);
+  }
 
   return (
     <AuthContext.Provider value={{ user, loading, logout }}>
@@ -72,9 +61,5 @@ export function AuthProvider({ children }) {
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error("useAuth must be used within AuthProvider");
-  }
-  return context;
+  return useContext(AuthContext);
 }
