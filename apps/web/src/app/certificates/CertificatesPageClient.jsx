@@ -186,6 +186,19 @@ export default function CertificatesPageClient() {
     await loadCerts();
   }
 
+  async function deleteCert(id, folderId, certNo) {
+    if (!window.confirm(`Delete ${certNo||"this certificate"}? This cannot be undone.`)) return;
+    await supabase.from("certificates").delete().eq("id", id);
+    // Clean up solo remaining folder cert
+    if (folderId) {
+      const { data: remaining } = await supabase.from("certificates").select("id").eq("folder_id", folderId);
+      if (remaining && remaining.length === 1) {
+        await supabase.from("certificates").update({ folder_id:null, folder_name:null, folder_position:null }).eq("id", remaining[0].id);
+      }
+    }
+    await loadCerts();
+  }
+
   useEffect(()=>{loadCerts();},[]);
 
   async function loadCerts(){
@@ -361,13 +374,13 @@ export default function CertificatesPageClient() {
               {hasFilters&&<button type="button" onClick={clearFilters} style={{padding:"9px 18px",borderRadius:9,border:`1px solid ${T.accentBrd}`,background:T.accentDim,color:T.accent,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>Clear Filters</button>}
             </div>
           ):view==="flat"?(
-            <FlatView certs={filtered} onUnlink={unlinkCert} onSelect={toggleSelect} selected={selected} selectMode={selectMode}/>
+            <FlatView certs={filtered} onUnlink={unlinkCert} onDelete={deleteCert} onSelect={toggleSelect} selected={selected} selectMode={selectMode}/>
           ):(
             <GroupedView grouped={grouped} openClients={openClients} openTypes={openTypes}
               toggleClient={cl=>setOpenClients(p=>({...p,[cl]:!p[cl]}))}
               toggleType={k=>setOpenTypes(p=>({...p,[k]:!p[k]}))}
               allCerts={filtered}
-              onUnlink={unlinkCert} onSelect={toggleSelect}
+              onUnlink={unlinkCert} onDelete={deleteCert} onSelect={toggleSelect}
               selected={selected} selectMode={selectMode}/>
           )}
         </div>
@@ -376,7 +389,7 @@ export default function CertificatesPageClient() {
   );
 }
 
-function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allCerts=[],onUnlink,onSelect,selected,selectMode}){
+function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allCerts=[],onUnlink,onDelete,onSelect,selected,selectMode}){
   return(
     <div style={{display:"grid",gap:10}}>
       {grouped.map(cg=>{
@@ -420,17 +433,17 @@ function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allC
                                   <tbody>{item.certs.map(cert=>{
                                 if(cert._folderCerts&&cert._folderCerts.length>1){
                                   return cert._folderCerts.map((fc,fi)=>(
-                                    <CertRow key={fc.id} cert={fc} compact allCerts={allCerts} onUnlink={onUnlink} onSelect={onSelect} selected={selected} selectMode={selectMode}
+                                    <CertRow key={fc.id} cert={fc} compact allCerts={allCerts} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}
                                       folderRow={true} folderFirst={fi===0} folderLast={fi===cert._folderCerts.length-1} folderSize={cert._folderCerts.length}/>
                                   ));
                                 }
-                                return <CertRow key={cert.id} cert={cert} compact allCerts={allCerts} onUnlink={onUnlink} onSelect={onSelect} selected={selected} selectMode={selectMode}/>;
+                                return <CertRow key={cert.id} cert={cert} compact allCerts={allCerts} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}/>;
                               })}</tbody>
                                 </table>
                               </div>
                               {/* Mobile cards */}
                               <div className="cert-mob">
-                                {item.certs.map(cert=><CertMobCard key={cert.id} cert={cert} onUnlink={onUnlink} onSelect={onSelect} selected={selected} selectMode={selectMode}/>)}
+                                {item.certs.map(cert=><CertMobCard key={cert.id} cert={cert} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}/>)}
                               </div>
                             </div>
                           ))}
@@ -448,7 +461,7 @@ function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allC
   );
 }
 
-function FlatView({certs,onUnlink,onSelect,selected,selectMode}){
+function FlatView({certs,onUnlink,onDelete,onSelect,selected,selectMode}){
   return(
     <div style={{border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden",background:T.panel}}>
       <div className="cert-tbl" style={{overflowX:"auto"}}>
@@ -460,17 +473,17 @@ function FlatView({certs,onUnlink,onSelect,selected,selectMode}){
               ))}
             </tr>
           </thead>
-          <tbody>{certs.map(cert=><CertRow key={cert.id} cert={cert} allCerts={certs} onUnlink={onUnlink} onSelect={onSelect} selected={selected} selectMode={selectMode}/>)}</tbody>
+          <tbody>{certs.map(cert=><CertRow key={cert.id} cert={cert} allCerts={certs} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}/>)}</tbody>
         </table>
       </div>
       <div className="cert-mob">
-        {certs.map(cert=><CertMobCard key={cert.id} cert={cert} onUnlink={onUnlink} onSelect={onSelect} selected={selected} selectMode={selectMode}/>)}
+        {certs.map(cert=><CertMobCard key={cert.id} cert={cert} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}/>)}
       </div>
     </div>
   );
 }
 
-function CertRow({cert,compact=false,allCerts=[],onUnlink,onSelect,selected,selectMode,folderRow=false,folderFirst=false,folderLast=false,folderSize=0}){
+function CertRow({cert,compact=false,allCerts=[],onUnlink,onDelete,onSelect,selected,selectMode,folderRow=false,folderFirst=false,folderLast=false,folderSize=0}){
   const r=rc(cert.result);const e=ec(cert.expiry_bucket);
   const days=daysDiff(cert.expiry_date);
   const id=encodeURIComponent(String(cert.id??""));
@@ -487,7 +500,7 @@ function CertRow({cert,compact=false,allCerts=[],onUnlink,onSelect,selected,sele
         <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.issue_date)}</td>
         <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.expiry_date)}</td>
         <td style={{...TD,fontSize:12,color:T.textMid,textTransform:"capitalize"}}>{nz(cert.status,"active")}</td>
-        <td style={TD}><ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={allCerts} certId={cert.id} onUnlink={onUnlink} onSelect={onSelect} selected={selected?.has(id)} selectMode={selectMode}/></td>
+        <td style={TD}><ActBtns id={id} certNo={cert.certificate_number} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={allCerts} certId={cert.id} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected?.has(id)} selectMode={selectMode}/></td>
       </tr>
     );
   }
@@ -504,12 +517,12 @@ function CertRow({cert,compact=false,allCerts=[],onUnlink,onSelect,selected,sele
         {days!==null?<span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:5,background:e.bg,color:e.color}}>{days<0?`${Math.abs(days)}d ago`:`${days}d`}</span>:<span style={{color:T.textDim,fontSize:12}}>—</span>}
       </td>
       <td style={{...TD,fontSize:12,color:T.textMid,textTransform:"capitalize"}}>{nz(cert.status,"active")}</td>
-      <td style={TD}><ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={allCerts} certId={cert.id} onUnlink={onUnlink} onSelect={onSelect} selected={selected?.has(id)} selectMode={selectMode}/></td>
+      <td style={TD}><ActBtns id={id} certNo={cert.certificate_number} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={allCerts} certId={cert.id} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected?.has(id)} selectMode={selectMode}/></td>
     </tr>
   );
 }
 
-function CertMobCard({cert,onUnlink,onSelect,selected,selectMode}){
+function CertMobCard({cert,onUnlink,onDelete,onSelect,selected,selectMode}){
   const r=rc(cert.result);const e=ec(cert.expiry_bucket);
   const days=daysDiff(cert.expiry_date);
   const id=encodeURIComponent(String(cert.id??""));
@@ -528,12 +541,12 @@ function CertMobCard({cert,onUnlink,onSelect,selected,selectMode}){
         <span>Issue: {formatDate(cert.issue_date)}</span>
         <span>Expiry: {formatDate(cert.expiry_date)}</span>
       </div>
-      <ActBtns id={id} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={[]} certId={cert.id} onUnlink={onUnlink} onSelect={onSelect} selected={selected?.has(id)} selectMode={selectMode}/>
+      <ActBtns id={id} certNo={cert.certificate_number} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={[]} certId={cert.id} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected?.has(id)} selectMode={selectMode}/>
     </div>
   );
 }
 
-function ActBtns({id,folderId,folderName,allCerts,certId,onUnlink,onSelect,selected,selectMode}){
+function ActBtns({id,certNo,folderId,folderName,allCerts,certId,onUnlink,onDelete,onSelect,selected,selectMode}){
   function handlePrint(e){
     e.preventDefault();
     if(folderId&&allCerts){
@@ -566,6 +579,10 @@ function ActBtns({id,folderId,folderName,allCerts,certId,onUnlink,onSelect,selec
       <button type="button" onClick={handlePrint}
         style={{...btnBase,background:T.greenDim,color:T.green,borderColor:T.greenBrd}}>
         {folderId?"Print All":"Print"}
+      </button>
+      <button type="button" onClick={()=>onDelete&&onDelete(id,folderId,certNo)}
+        style={{...btnBase,background:"rgba(127,29,29,0.25)",color:T.red,borderColor:T.redBrd}}>
+        🗑
       </button>
     </div>
   );
