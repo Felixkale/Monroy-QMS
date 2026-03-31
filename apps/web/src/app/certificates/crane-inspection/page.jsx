@@ -213,9 +213,10 @@ export default function CraneInspectionPage() {
     await ensureClient(crane.client_name, crane.client_location);
 
     // Auto-generate serial if blank
-    if (!crane.serial_number?.trim()) {
-      const cc = (crane.client_name||"UNK").split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
-      crane = { ...crane, serial_number: `${cc}-CRN-${String(Date.now()).slice(-6)}` };
+    const craneData = { ...crane };
+    if (!craneData.serial_number?.trim()) {
+      const cc = (craneData.client_name||"UNK").trim().split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+      craneData.serial_number = `${cc}-CRN-${String(Date.now()).slice(-6)}`;
     }
 
     const folderId   = crypto.randomUUID();
@@ -234,12 +235,12 @@ export default function CraneInspectionPage() {
     certs.push({
       certificate_number: nextNo("CR"),
       equipment_type: crane.crane_type,
-      equipment_description: `${crane.crane_type}${crane.model ? " " + crane.model : ""} SWL ${crane.swl}${crane.fleet_number ? " Fleet " + crane.fleet_number : ""}${crane.registration_number ? " Reg " + crane.registration_number : ""}`,
-      serial_number: crane.serial_number,
-      model: crane.model,
-      swl: crane.swl,
-      registration_number: crane.registration_number,
-      client_name: crane.client_name, client_id: crane.client_id, location: crane.client_location,
+      equipment_description: `${craneData.crane_type}${crane.model ? " " + crane.model : ""} SWL ${crane.swl}${crane.fleet_number ? " Fleet " + crane.fleet_number : ""}${crane.registration_number ? " Reg " + crane.registration_number : ""}`,
+      serial_number: craneData.serial_number,
+      model: craneData.model,
+      swl: craneData.swl,
+      registration_number: craneData.registration_number,
+      client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
       issue_date: iDate, inspection_date: iDate, expiry_date: exp1yr, next_inspection_due: exp1yr,
       result: craneInsp.result,
       defects_found: craneInsp.defects,
@@ -247,8 +248,8 @@ export default function CraneInspectionPage() {
       inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
       certificate_type: "Load Test Certificate",
       folder_id: folderId, folder_name: folderName, folder_position: 1,
-      fleet_number: crane.fleet_number,
-      registration_number: crane.registration_number,
+      fleet_number: craneData.fleet_number,
+      registration_number: craneData.registration_number,
       notes: `Structural: ${craneInsp.structural_result} | Boom: ${craneInsp.boom_condition} | Outriggers: ${craneInsp.outriggers} | Computer: ${craneInsp.crane_computer} | Test load: ${craneInsp.test_load}T${crane.notes ? " | Notes: " + crane.notes : ""}`,
     });
 
@@ -259,7 +260,7 @@ export default function CraneInspectionPage() {
       equipment_description: `Crane Hook SWL ${hook.swl || crane.swl} — ${crane.crane_type} SN ${crane.serial_number}`,
       serial_number: hook.serial_number || crane.serial_number,
       swl: hook.swl || crane.swl,
-      client_name: crane.client_name, client_id: crane.client_id, location: crane.client_location,
+      client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
       issue_date: iDate, inspection_date: iDate, expiry_date: exp6mo, next_inspection_due: exp6mo,
       result: hook.result,
       serial_number: hook.serial_number || crane.serial_number,
@@ -274,10 +275,10 @@ export default function CraneInspectionPage() {
       certificate_number: nextNo("RP"),
       equipment_type: "Wire Rope",
       equipment_description: `${rope.rope_type}${rope.diameter ? " Ø" + rope.diameter + "mm" : ""}${rope.length ? " L" + rope.length + "m" : ""} — ${crane.crane_type} SN ${crane.serial_number}`,
-      serial_number: crane.serial_number,
+      serial_number: craneData.serial_number,
       capacity_volume: rope.diameter ? `Ø${rope.diameter}mm × ${rope.length || "?"}m` : "",
-      swl: crane.swl,
-      client_name: crane.client_name, client_id: crane.client_id, location: crane.client_location,
+      swl: craneData.swl,
+      client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
       issue_date: iDate, inspection_date: iDate, expiry_date: exp6mo, next_inspection_due: exp6mo,
       result: rope.result,
       inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
@@ -299,7 +300,7 @@ export default function CraneInspectionPage() {
         working_pressure: pv.working_pressure,
         test_pressure: pv.test_pressure,
         pressure_unit: pv.pressure_unit,
-        client_name: crane.client_name, client_id: crane.client_id, location: crane.client_location,
+        client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
         issue_date: iDate, inspection_date: iDate,
         expiry_date: exp1yr, // 1 year — same as crane
         next_inspection_due: exp1yr,
