@@ -359,6 +359,18 @@ function DocumentMode() {
     return `${initials}-${String(Math.floor(Math.random()*900)+100)}`;
   }
 
+  // Auto-generate serial number when equipment has none
+  // Format: CLT-EQUIP-timestamp e.g. UNI-BS-1711234567
+  function generateSerialNumber(clientName, equipmentType) {
+    const clientCode = (clientName||"UNK").trim()
+      .split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+    const equipCode = (equipmentType||"EQP").trim()
+      .split(/[\s/—-]+/).filter(Boolean).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+    // Use last 6 digits of timestamp for uniqueness
+    const ts = String(Date.now()).slice(-6);
+    return `${clientCode}-${equipCode}-${ts}`;
+  }
+
   // Auto-register client in clients table if new
   // Returns: { created: true } | { exists: true } | { error: string }
   async function ensureClient(clientName, city) {
@@ -395,6 +407,11 @@ function DocumentMode() {
     setResults(prev=>prev.map((it,i)=>i===idx?{...it,saving:true,saveError:null}:it));
     try{
       const certNumber=genCert(row.data,row.fileName);
+      // Auto-generate serial number if missing
+      if (!row.data.serial_number || !row.data.serial_number.trim()) {
+        const clientForSerial = overrides.client_name?.trim() || row.data.client_name || "";
+        row.data.serial_number = generateSerialNumber(clientForSerial, row.data.equipment_type);
+      }
       // Use override client name if set, otherwise use extracted value
       const effectiveClient = overrides.client_name?.trim() || row.data.client_name;
       const effectiveCity   = overrides.location?.trim()    || row.data.location || "";
@@ -623,6 +640,10 @@ function ListMode() {
       if(overrides.client_name){
         const cr = await ensureClient(overrides.client_name, overrides.location||"");
         if(cr?.error) console.warn("Client auto-register failed:", cr.error);
+      }
+      // Auto-generate serial number if missing
+      if (!row.serial_number || !row.serial_number.trim()) {
+        row = { ...row, serial_number: generateSerialNumber(overrides.client_name||"", row.equipment_type||equipType) };
       }
       const certNumber=`CERT-${slugify(row.serial_number||String(certSeqRef.current))}-${String(certSeqRef.current++).padStart(2,"0")}`;
       const payload={
