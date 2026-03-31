@@ -230,7 +230,6 @@ export default function CraneInspectionPage() {
       equipment_type: crane.crane_type,
       equipment_description: `${crane.crane_type}${crane.model ? " " + crane.model : ""} SWL ${crane.swl}${crane.fleet_number ? " Fleet " + crane.fleet_number : ""}${crane.registration_number ? " Reg " + crane.registration_number : ""}`,
       serial_number: crane.serial_number,
-      lanyard_serial_no: crane.fleet_number,
       model: crane.model,
       swl: crane.swl,
       registration_number: crane.registration_number,
@@ -242,7 +241,9 @@ export default function CraneInspectionPage() {
       inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
       certificate_type: "Load Test Certificate",
       folder_id: folderId, folder_name: folderName, folder_position: 1,
-      notes: `Structural: ${craneInsp.structural_result} | Boom: ${craneInsp.boom_condition} | Outriggers: ${craneInsp.outriggers} | Computer: ${craneInsp.crane_computer} | Test load: ${craneInsp.test_load}T${crane.notes ? " | " + crane.notes : ""}`,
+      fleet_number: crane.fleet_number,
+      registration_number: crane.registration_number,
+      notes: `Structural: ${craneInsp.structural_result} | Boom: ${craneInsp.boom_condition} | Outriggers: ${craneInsp.outriggers} | Computer: ${craneInsp.crane_computer} | Test load: ${craneInsp.test_load}T${crane.notes ? " | Notes: " + crane.notes : ""}`,
     });
 
     // 2. Hook — Load Test Certificate — 6 months
@@ -255,10 +256,11 @@ export default function CraneInspectionPage() {
       client_name: crane.client_name, client_id: crane.client_id, location: crane.client_location,
       issue_date: iDate, inspection_date: iDate, expiry_date: exp6mo, next_inspection_due: exp6mo,
       result: hook.result,
+      serial_number: hook.serial_number || crane.serial_number,
       inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
       certificate_type: "Load Test Certificate",
       folder_id: folderId, folder_name: folderName, folder_position: 2,
-      notes: `Latch: ${hook.latch_condition} | Structural: ${hook.structural_result}${hook.wear_percentage ? " | Wear: " + hook.wear_percentage + "%" : ""}${hook.notes ? " | " + hook.notes : ""}`,
+      notes: `Latch: ${hook.latch_condition} | Structural: ${hook.structural_result}${hook.wear_percentage ? " | Wear: " + hook.wear_percentage + "%" : ""}${hook.notes ? " | Notes: " + hook.notes : ""}`,
     });
 
     // 3. Rope — Load Test Certificate — 6 months
@@ -267,7 +269,7 @@ export default function CraneInspectionPage() {
       equipment_type: "Wire Rope",
       equipment_description: `${rope.rope_type}${rope.diameter ? " Ø" + rope.diameter + "mm" : ""}${rope.length ? " L" + rope.length + "m" : ""} — ${crane.crane_type} SN ${crane.serial_number}`,
       serial_number: crane.serial_number,
-      capacity_volume: rope.diameter ? `${rope.diameter}mm` : "",
+      capacity_volume: rope.diameter ? `Ø${rope.diameter}mm × ${rope.length || "?"}m` : "",
       swl: crane.swl,
       client_name: crane.client_name, client_id: crane.client_id, location: crane.client_location,
       issue_date: iDate, inspection_date: iDate, expiry_date: exp6mo, next_inspection_due: exp6mo,
