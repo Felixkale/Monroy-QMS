@@ -214,11 +214,42 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
     c.remarks ||
     c.comments ||
     ex.remarks ||
-    c.notes ||           // from asset notes when synced
-    c.description ||     // from asset description
+    c.description ||
     ex.comments ||
     ex.notes
   );
+
+  // ── Crane / fleet specific fields ──────────────────────────────────────
+  const fleetNo       = val(c.fleet_number      || c.lanyard_serial_no || ex.fleet_number);
+  const regNo         = val(c.registration_number || ex.registration_number);
+  const serialNo      = val(c.serial_number     || ex.serial_number);
+  const workingP      = val(c.working_pressure  || ex.working_pressure);
+  const pressureUnit  = val(c.pressure_unit     || ex.pressure_unit) || "bar";
+  const defects       = val(c.defects_found     || ex.defects_found);
+  const recommendations = val(c.recommendations || ex.recommendations);
+  const rawNotes      = val(c.notes || "");
+
+  // Detect equipment category
+  const _isCrane      = /crane/i.test(_rawType);
+  const _isHook       = /hook/i.test(_rawType);
+  const _isRope       = /rope|wire.rope/i.test(_rawType);
+  const _isPV         = /pressure.vessel|pressure vessel/i.test(_rawType);
+
+  // Parse pipe-separated notes into key-value pairs for crane/hook/rope
+  function parseNotes(str) {
+    if (!str) return {};
+    const result = {};
+    str.split("|").forEach(part => {
+      const idx = part.indexOf(":");
+      if (idx > 0) {
+        const k = part.slice(0, idx).trim();
+        const v = part.slice(idx + 1).trim();
+        if (k && v) result[k] = v;
+      }
+    });
+    return result;
+  }
+  const parsedNotes = parseNotes(rawNotes);
   const sigUrl     = "/Signature"; // Hardcoded — file at apps/web/public/Signature
   const logoUrl    = c.logo_url || "/logo.png";
 
@@ -285,24 +316,68 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
             </Section>
 
             <Section title="Equipment">
-              <Field label="Description"        value={equipDesc} />
-              <Field label="Type"               value={equipType} />
-              <Field label="Equipment ID"       value={equipId}    mono />
-              <Field label="Identification No." value={idNumber}   mono />
-              <Field label="Manufacturer"       value={mfg} />
-              <Field label="Model"              value={model} />
-              <Field label="Year Built"         value={yearBuilt} />
-              <Field label="Country of Origin"  value={countryOrig} />
-              <Field label="Lanyard Serial No." value={lanyardSN}  mono />
+              <Field label="Description"  value={equipDesc} />
+              <Field label="Type"         value={equipType} />
+              <Field label="Serial Number" value={serialNo} mono />
+              {mfg        && <Field label="Manufacturer"       value={mfg} />}
+              {model      && <Field label="Model"              value={model} />}
+              {yearBuilt  && <Field label="Year Built"         value={yearBuilt} />}
+              {equipId    && <Field label="Equipment ID"       value={equipId}   mono />}
+              {idNumber   && <Field label="Identification No." value={idNumber}  mono />}
+              {/* Crane-specific */}
+              {_isCrane && fleetNo && <Field label="Fleet Number"        value={fleetNo} mono />}
+              {_isCrane && regNo   && <Field label="Registration Number" value={regNo}   mono />}
+              {/* Hook-specific */}
+              {_isHook  && swl     && <Field label="Hook SWL"            value={swl} />}
+              {/* Rope-specific */}
+              {_isRope  && capacity && <Field label="Rope Diameter"      value={capacity} />}
             </Section>
 
             <Section title="Technical Data">
-              <Field label="Safe Working Load (SWL)"  value={swl} />
-              <Field label="MAWP / Working Pressure"  value={mawp} />
-              <Field label="Capacity / Volume"        value={capacity} />
-              <Field label="Design Pressure"          value={designP} />
-              <Field label="Test Pressure"            value={testP} />
+              {swl        && <Field label="Safe Working Load (SWL)"    value={swl} />}
+              {mawp       && <Field label="Working Pressure"           value={`${mawp} ${pressureUnit}`} />}
+              {capacity && !_isRope && <Field label="Capacity / Volume" value={capacity} />}
+              {designP    && <Field label="Design Pressure"            value={`${designP} ${pressureUnit}`} />}
+              {testP      && <Field label="Test Pressure"              value={`${testP} ${pressureUnit}`} />}
+              {countryOrig && <Field label="Country of Origin"         value={countryOrig} />}
             </Section>
+
+            {/* ── CRANE INSPECTION DATA ── */}
+            {_isCrane && Object.keys(parsedNotes).length > 0 && (
+              <Section title="Crane Inspection Results">
+                {parsedNotes["Structural"]  && <Field label="Structural Integrity" value={parsedNotes["Structural"]} />}
+                {parsedNotes["Boom"]        && <Field label="Boom Condition"       value={parsedNotes["Boom"]} />}
+                {parsedNotes["Outriggers"]  && <Field label="Outriggers"           value={parsedNotes["Outriggers"]} />}
+                {parsedNotes["Computer"]    && <Field label="Crane Computer / LMI" value={parsedNotes["Computer"]} />}
+                {parsedNotes["Test load"]   && <Field label="Test Load Applied"    value={parsedNotes["Test load"]} />}
+              </Section>
+            )}
+
+            {/* ── HOOK INSPECTION DATA ── */}
+            {_isHook && Object.keys(parsedNotes).length > 0 && (
+              <Section title="Hook Inspection Results">
+                {parsedNotes["Latch"]      && <Field label="Safety Latch Condition" value={parsedNotes["Latch"]} />}
+                {parsedNotes["Structural"] && <Field label="Structural Integrity"   value={parsedNotes["Structural"]} />}
+                {parsedNotes["Wear"]       && <Field label="Hook Wear"              value={parsedNotes["Wear"]} />}
+              </Section>
+            )}
+
+            {/* ── ROPE INSPECTION DATA ── */}
+            {_isRope && Object.keys(parsedNotes).length > 0 && (
+              <Section title="Wire Rope Inspection Results">
+                {parsedNotes["Broken wires"] && <Field label="Broken Wires"  value={parsedNotes["Broken wires"]} />}
+                {parsedNotes["Corrosion"]    && <Field label="Corrosion"      value={parsedNotes["Corrosion"]} />}
+                {parsedNotes["Kinks"]        && <Field label="Kinks / Bends"  value={parsedNotes["Kinks"]} />}
+              </Section>
+            )}
+
+            {/* ── DEFECTS & RECOMMENDATIONS ── */}
+            {(defects || recommendations) && (
+              <Section title="Defects & Recommendations">
+                {defects         && <Field label="Defects Found"   value={defects} />}
+                {recommendations && <Field label="Recommendations" value={recommendations} />}
+              </Section>
+            )}
 
             {/* ── LEGAL FRAMEWORK — just below technical data ── */}
             <div className="cs-sec" style={{borderColor:"#b8cce4",background:"#eaf2fb"}}>
