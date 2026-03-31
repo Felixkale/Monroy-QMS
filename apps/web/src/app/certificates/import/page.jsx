@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import AppLayout from "@/components/AppLayout";
+import { supabase } from "@/lib/supabaseClient";
 
 // ── System prompts ────────────────────────────────────────────────────────
 const DOC_PROMPT = `You are a senior industrial inspection AI for a QMS system. Extract ALL visible data from the image or document with maximum precision.
