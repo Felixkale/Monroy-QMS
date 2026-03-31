@@ -159,8 +159,11 @@ export default function CraneInspectionPage() {
   const [pvs, setPvs] = useState([emptyPV()]);
 
   useEffect(() => {
-    supabase.from("clients").select("id,company_name,location").order("company_name")
-      .then(({ data }) => setClients(data || []));
+    supabase.from("clients").select("id,company_name,company_code,city,contact_person").order("company_name")
+      .then(({ data, error }) => {
+        if(error) console.error("clients fetch error:", error.message);
+        setClients(data || []);
+      });
   }, []);
 
   const uc  = (k,v) => setCrane(p => ({ ...p, [k]:v }));
@@ -171,7 +174,7 @@ export default function CraneInspectionPage() {
 
   function clientSelected(id) {
     const c = clients.find(x => x.id === id);
-    setCrane(p => ({ ...p, client_id:id, client_name:c?.company_name||"", client_location:c?.location||"" }));
+    setCrane(p => ({ ...p, client_id:id, client_name:c?.company_name||"", client_location:c?.city||"" }));
   }
 
   function canNext() {
@@ -179,9 +182,35 @@ export default function CraneInspectionPage() {
     return true;
   }
 
+  // Auto-generate company code e.g. GMC-001
+  function generateCompanyCode(name) {
+    const initials = name.trim().split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+    const rand = String(Math.floor(Math.random()*900)+100);
+    return `${initials}-${rand}`;
+  }
+
+  // Auto-register client in clients table if not already there
+  async function ensureClient(name, city) {
+    if (!name || !name.trim()) return;
+    const { data: existing } = await supabase.from("clients")
+      .select("id").ilike("company_name", name.trim()).maybeSingle();
+    if (!existing) {
+      await supabase.from("clients").insert({
+        company_name:   name.trim(),
+        company_code:   generateCompanyCode(name),
+        city:           city || "",
+        country:        "Botswana",
+        status:         "active",
+      });
+    }
+  }
+
   async function handleGenerate() {
     if (!crane.client_id || !crane.serial_number) { setError("Please fill crane serial number and client."); return; }
     setSaving(true); setError("");
+
+    // Auto-register client if typed manually
+    await ensureClient(crane.client_name, crane.client_location);
 
     const folderId   = crypto.randomUUID();
     const folderName = `Crane-${crane.serial_number}-${crane.inspection_date}`;
@@ -341,6 +370,11 @@ export default function CraneInspectionPage() {
           <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", textTransform:"uppercase", color:T.accent, marginBottom:4 }}>Certificates · New Inspection</div>
           <h1 style={{ margin:"0 0 2px", fontSize:22, fontWeight:900, letterSpacing:"-0.02em" }}>Crane Inspection Wizard</h1>
           <p style={{ margin:0, fontSize:12, color:T.textDim }}>Generates certificates for crane, hook, rope and all pressure vessels in one session</p>
+          <div style={{display:"flex",gap:12,marginTop:10,flexWrap:"wrap"}}>
+            <a href="/certificates" style={{fontSize:11,color:T.accent,textDecoration:"none",fontWeight:700}}>📜 View All Certificates →</a>
+            <a href="/clients" style={{fontSize:11,color:T.accent,textDecoration:"none",fontWeight:700}}>🏢 Clients →</a>
+            <a href="/certificates/import" style={{fontSize:11,color:T.accent,textDecoration:"none",fontWeight:700}}>🤖 AI Import →</a>
+          </div>
         </div>
 
         <StepBar current={step}/>
@@ -355,8 +389,17 @@ export default function CraneInspectionPage() {
                 <Field label="Client">
                   <select style={IS} value={crane.client_id} onChange={e => clientSelected(e.target.value)}>
                     <option value="">— Select Client —</option>
-                    {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+                    {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}{c.city ? " — " + c.city : ""}</option>)}
                   </select>
+                  {clients.length === 0 && (
+                    <div style={{fontSize:11,color:T.amber,marginTop:5}}>No clients found. <a href="/clients/register" target="_blank" style={{color:T.accent}}>Register a client first →</a></div>
+                  )}
+                  {clients.length > 0 && (
+                    <div style={{fontSize:11,color:T.textDim,marginTop:5}}>
+                      Client not listed? <a href="/clients/register" target="_blank" style={{color:T.accent,textDecoration:"none",fontWeight:700}}>+ Register new client</a>
+                      <span style={{color:T.textDim}}> (then refresh this page)</span>
+                    </div>
+                  )}
                 </Field>
                 <Field label="Inspection Date">
                   <input style={IS} type="date" value={crane.inspection_date} onChange={e => uc("inspection_date", e.target.value)}/>
@@ -387,7 +430,7 @@ export default function CraneInspectionPage() {
                 <Field label="Safe Working Load (SWL)">
                   <input style={IS} placeholder="e.g. 100T" value={crane.swl} onChange={e => uc("swl", e.target.value)}/>
                 </Field>
-                <Field label="Client Location">
+                <Field label="Client City / Site">
                   <input style={IS} placeholder="Auto-filled from client" value={crane.client_location} onChange={e => uc("client_location", e.target.value)}/>
                 </Field>
               </div>
