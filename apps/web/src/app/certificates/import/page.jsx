@@ -642,10 +642,8 @@ function ListMode() {
         if(cr?.error) console.warn("Client auto-register failed:", cr.error);
       }
       // Auto-generate serial number if missing
-      if (!row.serial_number || !row.serial_number.trim()) {
-        row = { ...row, serial_number: generateSerialNumber(overrides.client_name||"", row.equipment_type||equipType) };
-      }
-      const certNumber=`CERT-${slugify(row.serial_number||String(certSeqRef.current))}-${String(certSeqRef.current++).padStart(2,"0")}`;
+      let rowSerial = row.serial_number?.trim() || generateSerialNumber(overrides.client_name||"", row.equipment_type||equipType);
+      const certNumber=`CERT-${slugify(rowSerial||String(certSeqRef.current))}-${String(certSeqRef.current++).padStart(2,"0")}`;
       const payload={
         certificate_number:certNumber,
         result:row.result||"PASS",
@@ -653,7 +651,7 @@ function ListMode() {
         equipment_description:row.equipment_description||null,
         asset_name:row.equipment_description||null,
         asset_type:row.equipment_type||equipType,
-        serial_number:row.serial_number||null,
+        serial_number:rowSerial||null,
         swl:row.swl||null,
         client_name:overrides.client_name||null,
         issue_date:normalizeDate(overrides.inspection_date)||null,
