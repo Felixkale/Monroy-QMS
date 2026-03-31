@@ -146,6 +146,20 @@ function resultStyle(v) {
 }
 
 /* ── Sub-components ── */
+function parseNotes(str) {
+  if (!str) return {};
+  const result = {};
+  str.split("|").forEach(part => {
+    const idx = part.indexOf(":");
+    if (idx > 0) {
+      const k = part.slice(0, idx).trim();
+      const v = part.slice(idx + 1).trim();
+      if (k && v) result[k] = v;
+    }
+  });
+  return result;
+}
+
 function Field({ label, value, mono=false, large=false }) {
   if (!value) return null;
   return (
@@ -156,7 +170,13 @@ function Field({ label, value, mono=false, large=false }) {
   );
 }
 function Section({ title, children }) {
-  const kids = Array.isArray(children) ? children.filter(Boolean) : children ? [children] : [];
+  // Flatten and filter all children including nested arrays/fragments
+  const flatten = (c) => {
+    if (!c) return [];
+    if (Array.isArray(c)) return c.flatMap(flatten);
+    return [c];
+  };
+  const kids = flatten(children).filter(Boolean);
   if (!kids.length) return null;
   return (
     <div className="cs-sec">
@@ -235,20 +255,6 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
   const _isRope       = /rope|wire.rope/i.test(_rawType);
   const _isPV         = /pressure.vessel|pressure vessel/i.test(_rawType);
 
-  // Parse pipe-separated notes into key-value pairs for crane/hook/rope
-  function parseNotes(str) {
-    if (!str) return {};
-    const result = {};
-    str.split("|").forEach(part => {
-      const idx = part.indexOf(":");
-      if (idx > 0) {
-        const k = part.slice(0, idx).trim();
-        const v = part.slice(idx + 1).trim();
-        if (k && v) result[k] = v;
-      }
-    });
-    return result;
-  }
   const parsedNotes = parseNotes(rawNotes);
   const sigUrl     = "/Signature"; // Hardcoded — file at apps/web/public/Signature
   const logoUrl    = c.logo_url || "/logo.png";
