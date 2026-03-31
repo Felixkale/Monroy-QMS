@@ -212,6 +212,12 @@ export default function CraneInspectionPage() {
     // Auto-register client if typed manually
     await ensureClient(crane.client_name, crane.client_location);
 
+    // Auto-generate serial if blank
+    if (!crane.serial_number?.trim()) {
+      const cc = (crane.client_name||"UNK").split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+      crane = { ...crane, serial_number: `${cc}-CRN-${String(Date.now()).slice(-6)}` };
+    }
+
     const folderId   = crypto.randomUUID();
     const folderName = `Crane-${crane.serial_number}-${crane.inspection_date}`;
     const iDate      = crane.inspection_date;
