@@ -227,6 +227,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
   const designP    = val(c.design_pressure  || ex.design_pressure);
   const testP      = val(c.test_pressure    || ex.test_pressure);
   const countryOrig= val(c.country_of_origin || ex.country_of_origin);
+  const mfgYear    = val(c.year_built || ex.year_built);
   const legalFmwk  = val(c.legal_framework) || "Mines, Quarries, Works and Machinery Act Cap 44:02";
   const inspName   = val(c.inspector_name || ex.inspector_name) || "Moemedi Masupe";
   const inspId     = val(c.inspector_id   || ex.inspector_id)   || "700117910";
@@ -345,6 +346,8 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
               {capacity && !_isRope && <Field label="Capacity / Volume" value={capacity} />}
               {designP    && <Field label="Design Pressure"            value={`${designP} ${pressureUnit}`} />}
               {testP      && <Field label="Test Pressure"              value={`${testP} ${pressureUnit}`} />}
+              {mfg        && !_isCrane && !_isHook && !_isRope && <Field label="Manufacturer" value={mfg} />}
+              {mfgYear    && <Field label="Year of Manufacture"        value={mfgYear} />}
               {countryOrig && <Field label="Country of Origin"         value={countryOrig} />}
             </Section>
 
