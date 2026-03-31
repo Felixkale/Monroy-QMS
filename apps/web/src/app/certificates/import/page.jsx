@@ -352,12 +352,37 @@ function DocumentMode() {
   function setResultField(idx,key,value){setResults(prev=>prev.map((it,i)=>i===idx?{...it,[key]:value}:it));}
   function toggleExpanded(idx){setResults(prev=>prev.map((it,i)=>i===idx?{...it,expanded:!it.expanded}:it));}
 
+  // Auto-generate company code
+  function generateCompanyCode(name) {
+    const initials = name.trim().split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+    return `${initials}-${String(Math.floor(Math.random()*900)+100)}`;
+  }
+
+  // Auto-register client in clients table if new
+  async function ensureClient(clientName, city) {
+    if (!clientName || !clientName.trim()) return;
+    const name = clientName.trim();
+    const { data: existing } = await supabase.from("clients")
+      .select("id").ilike("company_name", name).maybeSingle();
+    if (!existing) {
+      await supabase.from("clients").insert({
+        company_name: name,
+        company_code: generateCompanyCode(name),
+        city:         city || "",
+        country:      "Botswana",
+        status:       "active",
+      });
+    }
+  }
+
   async function saveOne(idx){
     const row=results[idx];
     if(!row?.ok||row.saved||row.saving)return;
     setResults(prev=>prev.map((it,i)=>i===idx?{...it,saving:true,saveError:null}:it));
     try{
       const certNumber=genCert(row.data,row.fileName);
+      // Auto-register client in clients table
+      await ensureClient(row.data.client_name, row.data.location);
       const payload={certificate_number:certNumber,inspection_number:row.data.inspection_number||null,result:row.manualResult||row.data.result||"UNKNOWN",issue_date:row.data.inspection_date||null,inspection_date:row.data.inspection_date||null,expiry_date:row.data.expiry_date||null,next_inspection_due:row.data.next_inspection_due||null,equipment_description:row.data.equipment_description||null,equipment_type:row.data.equipment_type||null,asset_name:row.data.equipment_description||row.fileName||null,asset_type:row.data.equipment_type||null,client_name:row.data.client_name||null,status:"active",manufacturer:row.data.manufacturer||null,model:row.data.model||null,serial_number:row.data.serial_number||null,year_built:row.data.year_built||null,capacity_volume:row.data.capacity_volume||null,swl:row.data.swl||null,working_pressure:row.data.working_pressure||null,design_pressure:row.data.design_pressure||null,test_pressure:row.data.test_pressure||null,pressure_unit:row.data.pressure_unit||null,material:row.data.material||null,standard_code:row.data.standard_code||null,location:row.data.location||null,inspector_name:row.data.inspector_name||null,inspection_body:row.data.inspection_body||null,defects_found:row.manualDefects||row.data.defects_found||null,recommendations:row.data.recommendations||null,comments:row.data.comments||null,nameplate_data:row.data.nameplate_data||null,raw_text_summary:row.data.raw_text_summary||null,asset_tag:row.data.asset_tag||null};
       const res=await fetch("/api/certificates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
       const json=await res.json();
@@ -577,6 +602,8 @@ function ListMode() {
     if(!row||row.saved||row.saving)return;
     setItems(prev=>prev.map(it=>it.id===id?{...it,saving:true,saveError:null}:it));
     try{
+      // Auto-register client from override into clients table
+      if(overrides.client_name) await ensureClient(overrides.client_name, overrides.location||"");
       const certNumber=`CERT-${slugify(row.serial_number||String(certSeqRef.current))}-${String(certSeqRef.current++).padStart(2,"0")}`;
       const payload={
         certificate_number:certNumber,
