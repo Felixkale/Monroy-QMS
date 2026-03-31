@@ -329,6 +329,14 @@ export default function MachineInspectionPage() {
     setSaving(true); setError("");
     await ensureClient(equip.client_name, equip.client_location);
 
+    // Auto-generate serial if blank
+    const equipRef = { ...equip };
+    if (!equipRef.serial_number?.trim()) {
+      const cc = (equipRef.client_name||"UNK").split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+      const ec = (machineType?.label||"EQP").split(/[\s/—-]+/).filter(Boolean).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+      equipRef.serial_number = `${cc}-${ec}-${String(Date.now()).slice(-6)}`;
+    }
+
     const folderId   = crypto.randomUUID();
     const folderName = `${machineType.label}-${equip.serial_number}-${equip.inspection_date}`;
     const iDate      = equip.inspection_date;
@@ -355,8 +363,8 @@ export default function MachineInspectionPage() {
       certificate_number: nextNo(),
       equipment_type: machineType.label,
       equipment_description: desc,
-      serial_number: equip.serial_number,
-      fleet_number: equip.fleet_number,
+      serial_number: equipRef.serial_number,
+      fleet_number: equipRef.fleet_number,
       registration_number: equip.registration_number,
       model: equip.model,
       manufacturer: equip.manufacturer,
