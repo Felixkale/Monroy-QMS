@@ -82,6 +82,7 @@ function CertificateDetailsInner(){
   const [unlinking,  setUnlinking]  = useState(false);
   const [linkMsg,    setLinkMsg]    = useState("");
   const [savingPdf,  setSavingPdf]  = useState(false);
+  const [deleting,   setDeleting]   = useState(false);
 
   useEffect(()=>{if(id)loadCertificate();},[id]);
 
@@ -226,6 +227,11 @@ function CertificateDetailsInner(){
 
                 <button type="button" onClick={handleSavePdf} disabled={savingPdf} style={S.btnGreen}>
                   {savingPdf?"Opening…":"⬇ Save PDF"}
+                </button>
+
+                <button type="button" onClick={handleDelete} disabled={deleting}
+                  style={{padding:"9px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,background:T.redDim,color:T.red,fontWeight:800,fontSize:12,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent",opacity:deleting?0.5:1}}>
+                  {deleting?"Deleting…":"🗑 Delete"}
                 </button>
               </div>
             </div>
