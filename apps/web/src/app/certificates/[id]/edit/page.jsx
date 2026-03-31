@@ -462,22 +462,37 @@ function CertificateEditInner(){
                         <option>Multi-Leg Chain Sling</option>
                         <option>Multi-Leg Wire Rope Sling</option>
                       </optgroup>
-                      <optgroup label="Rigging Hardware">
+                      <optgroup label="Shackles">
                         <option>Shackle — Bow / Anchor</option>
                         <option>Shackle — D / Dee</option>
+                        <option>Shackle — Safety Bow</option>
+                        <option>Shackle — Wide Mouth</option>
+                        <option>Shackle — Screw Pin Anchor</option>
+                        <option>Shackle — Screw Pin Chain</option>
+                        <option>Shackle — Bolt Type Anchor</option>
+                        <option>Shackle — Bolt Type Chain</option>
+                        <option>Shackle — Alloy</option>
+                        <option>Shackle — Stainless Steel</option>
+                      </optgroup>
+                      <optgroup label="Rigging Hardware">
                         <option>Hook — Swivel</option>
                         <option>Hook — Eye</option>
                         <option>Hook — Clevis</option>
+                        <option>Hook — Crane</option>
                         <option>Swivel</option>
                         <option>Eye Bolt</option>
                         <option>Eye Nut</option>
                         <option>Ring Bolt</option>
                         <option>Turnbuckle</option>
                         <option>Master Link</option>
+                        <option>Master Link — Oblong</option>
                         <option>Connecting Link</option>
                         <option>Coupling Link</option>
                         <option>Chain Shortener / Clutch</option>
                         <option>Ratchet Lashing Strap</option>
+                        <option>Load Binder</option>
+                        <option>Wire Rope Clip</option>
+                        <option>Thimble</option>
                       </optgroup>
                       <optgroup label="Beams & Spreaders">
                         <option>Spreader Beam</option>
