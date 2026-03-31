@@ -172,8 +172,24 @@ function CertificateDetailsInner(){
 
   function handleSavePdf(){
     setSavingPdf(true);
-    window.open(`/certificates/print/${id}?pdf=1`,"_blank","noopener,noreferrer");
+    window.open(`/certificates/print/${id}`,"_blank","noopener,noreferrer");
     setTimeout(()=>setSavingPdf(false),2000);
+  }
+
+  async function handleDelete(){
+    const certNo = record?.certificate_number || "this certificate";
+    if(!window.confirm(`Permanently delete ${certNo}? This cannot be undone.`)) return;
+    setDeleting(true);
+    const folderId = record?.folder_id;
+    const{error:e}=await supabase.from("certificates").delete().eq("id",id);
+    if(e){ alert("Delete failed: "+e.message); setDeleting(false); return; }
+    if(folderId){
+      const{data:remaining}=await supabase.from("certificates").select("id").eq("folder_id",folderId);
+      if(remaining&&remaining.length===1){
+        await supabase.from("certificates").update({folder_id:null,folder_name:null,folder_position:null}).eq("id",remaining[0].id);
+      }
+    }
+    router.replace("/certificates");
   }
 
   const tone=useMemo(()=>resultTone(pickResult(record)),[record]);
