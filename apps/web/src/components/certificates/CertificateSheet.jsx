@@ -46,14 +46,13 @@ const CSS = `
   .cs-sig-card{background:#0b1d3a;border-radius:8px;padding:14px 16px}
   .cs-sig-card-title{font-size:8.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4fc3f7;margin-bottom:12px;display:flex;align-items:center;gap:8px}
   .cs-sig-card-title::before{content:'';width:3px;height:10px;background:#22d3ee;border-radius:2px}
-  .cs-sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+  .cs-sig-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
   .cs-sig-label{font-size:7.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#4fc3f7;margin-bottom:4px}
   .cs-sig-line{border-bottom:1px solid rgba(34,211,238,0.35);height:54px;margin-bottom:5px;display:flex;align-items:flex-end;padding-bottom:4px;background:rgba(255,255,255,0.92);border-radius:6px 6px 0 0;padding:6px 8px 4px}
   .cs-sig-line img{max-height:38px;max-width:100%;object-fit:contain}
   .cs-sig-name{font-size:11px;font-weight:700;color:#fff}
   .cs-sig-id{font-size:9.5px;color:rgba(255,255,255,0.50);margin-top:2px}
   .cs-sig-hint{font-size:9px;color:rgba(255,255,255,0.28);font-style:italic;margin-top:3px}
-  .cs-stamp{width:52px;height:52px;border-radius:50%;border:1.5px dashed rgba(34,211,238,0.35);display:flex;align-items:center;justify-content:center;color:rgba(34,211,238,0.28);font-size:8px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
 
   /* LEGAL */
   /* LEGAL FRAMEWORK BOX */
@@ -441,14 +440,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
                   <div className="cs-sig-hint">Client representative sign here</div>
                 </div>
 
-                <div style={{ textAlign:"right" }}>
-                  <div className="cs-sig-label" style={{ textAlign:"right" }}>Company Stamp</div>
-                  <div className="cs-sig-line" style={{ justifyContent:"center" }}>
-                    <div className="cs-stamp">Stamp</div>
-                  </div>
-                  {issueDate  && <div className="cs-sig-name"  style={{ textAlign:"right" }}>Issue: {issueDate}</div>}
-                  {expiryDate && <div className="cs-sig-id"    style={{ textAlign:"right" }}>Expiry: {expiryDate}</div>}
-                </div>
+
 
               </div>
             </div>
