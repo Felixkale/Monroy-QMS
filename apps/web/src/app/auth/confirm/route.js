@@ -21,14 +21,13 @@ function createSupabaseServer(cookieStore) {
 
   return createServerClient(url, key, {
     cookies: {
-      get(name) {
-        return cookieStore.get(name)?.value;
+      getAll() {
+        return cookieStore.getAll();
       },
-      set(name, value, options) {
-        cookieStore.set({ name, value, ...options });
-      },
-      remove(name, options) {
-        cookieStore.set({ name, value: "", ...options, maxAge: 0 });
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value, options }) => {
+          cookieStore.set(name, value, options);
+        });
       },
     },
   });
@@ -42,7 +41,15 @@ export async function GET(request) {
   const next = getSafeNext(requestUrl.searchParams.get("next"));
 
   if (!token_hash || !type) {
-    return NextResponse.redirect(new URL("/reset-password?error=missing_token", origin));
+    return NextResponse.redirect(
+      new URL("/reset-password?error=missing_token", origin)
+    );
+  }
+
+  if (type !== "invite" && type !== "recovery") {
+    return NextResponse.redirect(
+      new URL("/reset-password?error=invalid_or_expired_link", origin)
+    );
   }
 
   try {
@@ -62,6 +69,8 @@ export async function GET(request) {
 
     return NextResponse.redirect(new URL(next, origin));
   } catch {
-    return NextResponse.redirect(new URL("/reset-password?error=server_error", origin));
+    return NextResponse.redirect(
+      new URL("/reset-password?error=server_error", origin)
+    );
   }
 }
