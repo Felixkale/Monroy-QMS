@@ -249,6 +249,41 @@ function HeaderGeo() {
   );
 }
 
+/* ──────────────────────────────────────────────────────────────────
+   Certificate type detection — exactly 3 types:
+     1. NDT Certificate
+     2. Pressure Test Certificate
+     3. Load Test Certificate   ← default for all lifting equipment
+   ────────────────────────────────────────────────────────────────── */
+function resolveCertType(c, ex, rawType) {
+  // 1. Honour an explicit stored value — but normalise legacy names
+  const stored = val(c.certificate_type || ex.certificate_type || c.document_category) || "";
+  const up = stored.toUpperCase();
+
+  if (/NDT|NON.DESTRUCTIVE|RADIOGRAPH|ULTRASONIC|DYE.PENETRANT|MAGNETIC.PARTICLE/.test(up))
+    return "NDT Certificate";
+  if (/PRESSURE.TEST|PRESS\s*TEST/.test(up))
+    return "Pressure Test Certificate";
+  if (/LOAD.TEST/.test(up))
+    return "Load Test Certificate";
+
+  // Stored value exists but isn't one of our three legacy names (e.g. "Certificate of Inspection")
+  // → fall through to equipment-type detection below.
+
+  // 2. Detect from equipment_type / asset_type
+  const t = String(rawType || "").toLowerCase();
+
+  const isNDT = /ndt|non.destructive|ultrasonic|magnetic.particle|dye.penetrant|radiograph|hardness.test/i.test(t);
+  const isPressure = /pressure.vessel|pressure vessel|boiler|autoclave|air.receiver|receiver|accumulator|hydraulic.tank|heat.exchanger|separator|filter.vessel|compressor.tank/i.test(t);
+  // Everything else related to lifting defaults to Load Test Certificate
+  const isLifting = /lift|hoist|crane|sling|chain|shackle|hook|swivel|beam|spreader|harness|lanyard|rope|rigging|winch|pulley|block|tackle|eyebolt|ring|clamp|grab|magnet|vacuum|below.the.hook|btl|wll|swl|forklift|pallet.jack|scissor.lift|aerial.work/i.test(t);
+
+  if (isNDT)      return "NDT Certificate";
+  if (isPressure) return "Pressure Test Certificate";
+  // Lifting equipment OR any unknown equipment → Load Test Certificate
+  return "Load Test Certificate";
+}
+
 /* ── Main ── */
 export default function CertificateSheet({ certificate: c, index=0, total=1, printMode=false }) {
   if (!c) return null;
@@ -257,12 +292,19 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
   const company    = val(c.company      || c.client_name    || ex.client_name) || "Monroy (Pty) Ltd";
   const equipType  = val(c.equipment_type        || c.asset_type   || ex.equipment_type);
   const _rawType   = String(equipType || "").toLowerCase();
+
+  // ── The only three valid certificate types ──
+  const certType = resolveCertType(c, ex, _rawType);
+
+  // Convenience booleans for conditional sections
+  const _isLiftingCert  = certType === "Load Test Certificate";
+  const _isPressureCert = certType === "Pressure Test Certificate";
+  const _isNDTCert      = certType === "NDT Certificate";
+
+  // Keep these for equipment-specific field rendering
   const _isLifting = /lift|hoist|crane|sling|chain|shackle|hook|swivel|beam|spreader|harness|lanyard|rope|rigging|winch|pulley|block|tackle|eyebolt|ring|clamp|grab|magnet|vacuum|below.the.hook|btl|wll|swl/i.test(_rawType);
   const _isPressure= /pressure|vessel|boiler|autoclave|receiver|accumulator|compressor|hydraulic|tank|cylinder|drum|pipeline|heat.exchanger|separator|filter.vessel/i.test(_rawType);
-  const certType   = val(c.certificate_type || ex.certificate_type || c.document_category) ||
-    (_isLifting  ? "Load Test Certificate" :
-     _isPressure ? "Pressure Test Certificate" :
-                   "Certificate of Inspection");
+
   const certNumber = val(c.certificate_number);
   const inspNumber = val(c.inspection_no || c.inspection_number || ex.inspection_no);
   const issueDate  = formatDate(c.issue_date  || c.issued_at  || ex.issue_date);
@@ -306,7 +348,6 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
   const _isCrane      = /crane/i.test(_rawType);
   const _isHook       = /hook/i.test(_rawType);
   const _isRope       = /rope|wire.rope/i.test(_rawType);
-  const _isPV         = /pressure.vessel|pressure vessel/i.test(_rawType);
 
   const parsedNotes = parseNotes(rawNotes);
   const sigUrl     = "/Signature";
