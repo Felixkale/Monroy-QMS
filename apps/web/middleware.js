@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const publicRoutes = ["/login"];
+const publicRoutes = ["/login", "/reset-password"];
 
 export function middleware(request) {
   const { pathname } = request.nextUrl;
@@ -9,7 +9,9 @@ export function middleware(request) {
     return NextResponse.next();
   }
 
-  const token = request.cookies.get("sb-access-token")?.value;
+  const token =
+    request.cookies.get("sb-access-token")?.value ||
+    request.cookies.get("sb-access-token.0")?.value;
 
   if (!token) {
     return NextResponse.redirect(new URL("/login", request.url));
