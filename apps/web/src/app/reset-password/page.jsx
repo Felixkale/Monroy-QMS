@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 
 const T = {
   bg:"#060d1a", card:"rgba(10,18,32,0.95)", border:"rgba(148,163,184,0.12)",
@@ -26,6 +25,7 @@ function StrengthBar({ pw }) {
   const s = strength(pw);
   const labels = ["", "Weak", "Fair", "Good", "Strong", "Very strong"];
   const colors = ["", "#f87171", "#fbbf24", "#fbbf24", "#34d399", "#22d3ee"];
+
   if (!pw) return null;
 
   return (
@@ -44,90 +44,74 @@ function StrengthBar({ pw }) {
           />
         ))}
       </div>
-      <div style={{ fontSize: 11, color: colors[s], fontWeight: 600 }}>{labels[s]}</div>
+      <div style={{ fontSize: 11, color: colors[s], fontWeight: 600 }}>
+        {labels[s]}
+      </div>
     </div>
   );
 }
 
+function humanizeError(code) {
+  const map = {
+    missing_token: "The invite link is incomplete.",
+    invalid_or_expired_link: "This invite link is invalid, expired, or has already been used.",
+    server_error: "Something went wrong while verifying your invite.",
+  };
+
+  return map[code] || "This invite link is invalid, expired, or has already been used.";
+}
+
 export default function SetPasswordPage() {
   const router = useRouter();
-
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
-  const [session, setSession] = useState(null);
   const [checking, setChecking] = useState(true);
-  const [isNewUser, setIsNewUser] = useState(false);
+  const [session, setSession] = useState(null);
 
   useEffect(() => {
     let mounted = true;
 
-    async function handleInviteSession() {
+    async function init() {
       try {
-        const hash = window.location.hash || "";
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get("error");
 
-        if (hash && hash.includes("access_token")) {
-          const params = new URLSearchParams(hash.replace("#", ""));
-          const accessToken = params.get("access_token");
-          const refreshToken = params.get("refresh_token");
-          const type = params.get("type");
-
-          if (accessToken && refreshToken) {
-            const { data, error: sessErr } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            });
-
-            if (!mounted) return;
-
-            if (sessErr) {
-              setError(sessErr.message || "Failed to verify invite link.");
-              setChecking(false);
-              return;
-            }
-
-            if (data?.session) {
-              setSession(data.session);
-              setIsNewUser(type === "invite");
-              setChecking(false);
-              window.history.replaceState(null, "", window.location.pathname);
-              return;
-            }
-          }
+        if (code) {
+          if (!mounted) return;
+          setError(humanizeError(code));
+          setChecking(false);
+          return;
         }
 
-        const {
-          data: { session: existingSession },
-          error: existingErr,
-        } = await supabase.auth.getSession();
+        const res = await fetch("/api/auth/session", {
+          method: "GET",
+          cache: "no-store",
+        });
+
+        const json = await res.json().catch(() => ({}));
 
         if (!mounted) return;
 
-        if (existingErr) {
-          setError(existingErr.message || "Failed to verify session.");
+        if (!res.ok || !json?.authenticated) {
+          setError("This invite link is invalid, expired, or has already been used.");
           setChecking(false);
           return;
         }
 
-        if (existingSession) {
-          setSession(existingSession);
-          setChecking(false);
-          return;
-        }
-
-        setError("Invite link is invalid, expired, or already used.");
+        setSession(json.user || null);
         setChecking(false);
       } catch (err) {
         if (!mounted) return;
-        setError(err?.message || "Unable to process invite link.");
+        setError("Unable to verify your invite session.");
         setChecking(false);
       }
     }
 
-    handleInviteSession();
+    init();
 
     return () => {
       mounted = false;
@@ -150,20 +134,31 @@ export default function SetPasswordPage() {
     setLoading(true);
     setError("");
 
-    const { error: updateErr } = await supabase.auth.updateUser({ password });
+    try {
+      const res = await fetch("/api/auth/update-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
 
-    if (updateErr) {
-      setError(updateErr.message);
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setError(json?.error || "Failed to update password.");
+        setLoading(false);
+        return;
+      }
+
+      setDone(true);
       setLoading(false);
-      return;
+
+      setTimeout(() => {
+        window.location.href = "/dashboard";
+      }, 1200);
+    } catch (err) {
+      setError("Failed to update password.");
+      setLoading(false);
     }
-
-    setDone(true);
-    setLoading(false);
-
-    setTimeout(() => {
-      window.location.href = "/dashboard";
-    }, 1200);
   }
 
   return (
@@ -259,21 +254,28 @@ export default function SetPasswordPage() {
               <div style={{ fontSize: 16, fontWeight: 900, color: T.green, marginBottom: 8 }}>
                 Password set!
               </div>
-              <div style={{ fontSize: 13, color: T.textDim }}>Redirecting you to your dashboard…</div>
+              <div style={{ fontSize: 13, color: T.textDim }}>
+                Redirecting you to your dashboard…
+              </div>
             </div>
           )}
 
           {!checking && !done && session && (
             <>
               <div style={{ textAlign: "center", marginBottom: 22 }}>
-                <div style={{ fontSize: 22, marginBottom: 8 }}>{isNewUser ? "🎉" : "🔐"}</div>
-                <div style={{ fontSize: 20, fontWeight: 900, color: T.text, marginBottom: 6 }}>
-                  {isNewUser ? "Welcome to Monroy QMS" : "Set new password"}
+                <div style={{ fontSize: 22, marginBottom: 8 }}>🎉</div>
+                <div
+                  style={{
+                    fontSize: 20,
+                    fontWeight: 900,
+                    color: T.text,
+                    marginBottom: 6,
+                  }}
+                >
+                  Welcome to Monroy QMS
                 </div>
                 <div style={{ fontSize: 13, color: T.textDim, lineHeight: 1.6 }}>
-                  {isNewUser
-                    ? `Hello ${session.user?.user_metadata?.full_name || session.user?.email}! Create your password to activate your account.`
-                    : "Choose a strong new password for your account."}
+                  Hello {session?.full_name || session?.email}! Create your password to activate your account.
                 </div>
               </div>
 
@@ -307,7 +309,7 @@ export default function SetPasswordPage() {
                       marginBottom: 7,
                     }}
                   >
-                    {isNewUser ? "Create password" : "New password"}
+                    Create password
                   </label>
                   <div className="pw-wrap">
                     <input
@@ -408,19 +410,21 @@ export default function SetPasswordPage() {
                       }}
                     />
                   ) : null}
-                  {loading ? "Saving…" : isNewUser ? "Activate My Account →" : "Update Password →"}
+                  {loading ? "Saving…" : "Activate My Account →"}
                 </button>
               </form>
             </>
           )}
 
-          {!checking && !done && !session && error && (
+          {!checking && !done && !session && (
             <div style={{ textAlign: "center", padding: "8px 0" }}>
-              <div style={{ fontSize: 32, marginBottom: 10 }}>⚠</div>
+              <div style={{ fontSize: 40, marginBottom: 14 }}>⚠</div>
               <div style={{ fontSize: 16, fontWeight: 900, color: T.red, marginBottom: 8 }}>
                 Link invalid
               </div>
-              <div style={{ fontSize: 13, color: T.textDim, lineHeight: 1.7 }}>{error}</div>
+              <div style={{ fontSize: 13, color: T.textDim, lineHeight: 1.7 }}>
+                {error || "This invite link is invalid, expired, or has already been used."}
+              </div>
             </div>
           )}
         </div>
