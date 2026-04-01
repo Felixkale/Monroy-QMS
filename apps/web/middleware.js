@@ -1,23 +1,70 @@
 import { NextResponse } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 
-const publicRoutes = ["/login", "/reset-password", "/auth/confirm"];
+const PUBLIC_ROUTES = new Set([
+  "/login",
+  "/reset-password",
+  "/auth/confirm",
+]);
 
-export function middleware(request) {
+function isPublicPath(pathname) {
+  if (PUBLIC_ROUTES.has(pathname)) return true;
+  if (pathname.startsWith("/_next/")) return true;
+  if (pathname === "/favicon.ico") return true;
+  if (/\.[^/]+$/.test(pathname)) return true;
+  return false;
+}
+
+export async function middleware(request) {
   const { pathname } = request.nextUrl;
 
-  if (publicRoutes.includes(pathname)) {
+  if (isPublicPath(pathname)) {
     return NextResponse.next();
   }
 
-  const token =
-    request.cookies.get("sb-access-token")?.value ||
-    request.cookies.get("sb-access-token.0")?.value;
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  });
 
-  if (!token) {
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) => {
+            request.cookies.set(name, value);
+          });
+
+          response = NextResponse.next({
+            request: {
+              headers: request.headers,
+            },
+          });
+
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
+        },
+      },
+    }
+  );
+
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error || !user) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  return NextResponse.next();
+  return response;
 }
 
 export const config = {
