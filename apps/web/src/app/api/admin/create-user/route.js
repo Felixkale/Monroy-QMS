@@ -42,10 +42,13 @@ export async function POST(request) {
 
     const admin = adminClient();
 
-    const { data: authData, error: authErr } = await admin.auth.admin.inviteUserByEmail(email, {
-      data: { full_name, role: userRole },
-      redirectTo: `${SITE_URL}/reset-password`,
-    });
+    const { data: authData, error: authErr } = await admin.auth.admin.inviteUserByEmail(
+      email,
+      {
+        data: { full_name, role: userRole },
+        redirectTo: `${SITE_URL}/reset-password`,
+      }
+    );
 
     if (authErr) {
       if (authErr.message?.toLowerCase().includes("already")) {
