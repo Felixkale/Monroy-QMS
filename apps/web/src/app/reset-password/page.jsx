@@ -3,10 +3,18 @@
 import { useEffect, useState } from "react";
 
 const T = {
-  bg:"#060d1a", card:"rgba(10,18,32,0.95)", border:"rgba(148,163,184,0.12)",
-  text:"#f0f6ff", textDim:"rgba(240,246,255,0.45)",
-  accent:"#22d3ee", red:"#f87171", redDim:"rgba(248,113,113,0.10)", redBrd:"rgba(248,113,113,0.30)",
-  green:"#34d399", greenDim:"rgba(52,211,153,0.10)", greenBrd:"rgba(52,211,153,0.30)",
+  bg:"#060d1a",
+  card:"rgba(10,18,32,0.95)",
+  border:"rgba(148,163,184,0.12)",
+  text:"#f0f6ff",
+  textDim:"rgba(240,246,255,0.45)",
+  accent:"#22d3ee",
+  red:"#f87171",
+  redDim:"rgba(248,113,113,0.10)",
+  redBrd:"rgba(248,113,113,0.30)",
+  green:"#34d399",
+  greenDim:"rgba(52,211,153,0.10)",
+  greenBrd:"rgba(52,211,153,0.30)",
 };
 
 function strength(pw) {
@@ -42,7 +50,9 @@ function StrengthBar({ pw }) {
           />
         ))}
       </div>
-      <div style={{ fontSize: 11, color: colors[s], fontWeight: 600 }}>{labels[s]}</div>
+      <div style={{ fontSize: 11, color: colors[s], fontWeight: 600 }}>
+        {labels[s]}
+      </div>
     </div>
   );
 }
