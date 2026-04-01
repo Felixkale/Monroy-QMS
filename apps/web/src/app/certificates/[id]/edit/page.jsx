@@ -540,6 +540,19 @@ function CertificateEditInner(){
                         <option>Pulley Block</option>
                         <option>Gin Block</option>
                       </optgroup>
+                      <optgroup label="Jacks">
+                        <option>Hydraulic Floor Jack</option>
+                        <option>Bottle Jack — Hydraulic</option>
+                        <option>Screw Jack / Mechanical Jack</option>
+                        <option>Toe Jack</option>
+                        <option>Pancake Jack / Low Profile Jack</option>
+                        <option>Trolley Jack</option>
+                        <option>Pneumatic Jack</option>
+                        <option>Railroad / Rail Jack</option>
+                        <option>Strand Jack</option>
+                        <option>Hydraulic Climbing Jack</option>
+                        <option>Lifting Jack — General</option>
+                      </optgroup>
                       <optgroup label="Forklift & Material Handling">
                         <option>Counterbalance Forklift</option>
                         <option>Reach Truck</option>
@@ -548,10 +561,16 @@ function CertificateEditInner(){
                         <option>Pallet Jack — Manual</option>
                         <option>Pallet Jack — Electric</option>
                         <option>Order Picker</option>
+                        <option>Stacker — Manual</option>
+                        <option>Stacker — Electric</option>
                         <option>Scissor Lift</option>
                         <option>Boom Lift / Cherry Picker</option>
                         <option>Personnel Basket / Man Basket</option>
                         <option>Mast Climbing Platform</option>
+                        <option>Tow Tractor / Tugger</option>
+                        <option>Container Handler</option>
+                        <option>Reach Stacker</option>
+                        <option>Empty Container Handler</option>
                       </optgroup>
                       <optgroup label="Pressure Equipment">
                         <option>Pressure Vessel</option>
