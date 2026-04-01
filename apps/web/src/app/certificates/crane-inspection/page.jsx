@@ -1,4 +1,4 @@
-// src/app/certificates/crane-inspection/page.jsx
+// src/app/certificates/machine-inspection/page.jsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -18,37 +18,85 @@ const T = {
   blue:"#60a5fa",  blueDim:"rgba(96,165,250,0.10)",   blueBrd:"rgba(96,165,250,0.25)",
 };
 
-const IS  = { width:"100%", padding:"10px 13px", borderRadius:9, border:`1px solid ${T.border}`, background:"rgba(18,30,50,0.70)", color:T.text, fontSize:13, fontFamily:"'IBM Plex Sans',sans-serif", outline:"none", minHeight:40 };
-const LS  = { fontSize:10, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", color:T.textDim, display:"block", marginBottom:6 };
+const IS = { width:"100%", padding:"10px 13px", borderRadius:9, border:`1px solid ${T.border}`, background:"rgba(18,30,50,0.70)", color:T.text, fontSize:13, fontFamily:"'IBM Plex Sans',sans-serif", outline:"none", minHeight:40 };
+const LS = { fontSize:10, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", color:T.textDim, display:"block", marginBottom:6 };
 
 const INSPECTOR_NAME = "Moemedi Masupe";
 const INSPECTOR_ID   = "700117910";
 
-const CRANE_TYPES = [
-  "Mobile Crane","Tower Crane","Overhead Crane","Gantry Crane",
-  "Crawler Crane","Truck Mounted Crane","Knuckle Boom Crane",
-  "Telescopic Crane","Rough Terrain Crane","All Terrain Crane",
+const MACHINE_TYPES = [
+  { id:"telehandler",   label:"Telehandler",                       icon:"🏗",  certType:"Load Test Certificate",      expiry:12, hasPV:true,  pvOnly:false,
+    fields:[
+      { key:"structural_result", label:"Structural Integrity",           type:"result" },
+      { key:"boom_result",       label:"Boom / Mast Condition",          type:"result" },
+      { key:"forks_result",      label:"Forks / Attachment",             type:"result" },
+      { key:"hydraulics_result", label:"Hydraulic System",               type:"result" },
+      { key:"lmi_result",        label:"Load Management Indicator (LMI)",type:"result" },
+      { key:"test_load",         label:"Test Load Applied (Tonnes)",     type:"text", placeholder:"e.g. 5.5" },
+      { key:"swl",               label:"Safe Working Load (SWL)",        type:"text", placeholder:"e.g. 5T" },
+    ]},
+  { id:"cherry_picker", label:"Cherry Picker / Aerial Work Platform",icon:"🚒",  certType:"Load Test Certificate",      expiry:12, hasPV:true,  pvOnly:false,
+    fields:[
+      { key:"structural_result",  label:"Structural Integrity",          type:"result" },
+      { key:"boom_result",        label:"Boom / Platform Condition",     type:"result" },
+      { key:"hydraulics_result",  label:"Hydraulic System",              type:"result" },
+      { key:"safety_devices",     label:"Safety Devices / Interlocks",   type:"result" },
+      { key:"emergency_lowering", label:"Emergency Lowering System",     type:"result" },
+      { key:"test_load",          label:"Test Load Applied (kg)",        type:"text", placeholder:"e.g. 280" },
+      { key:"swl",                label:"Platform SWL",                  type:"text", placeholder:"e.g. 250kg" },
+      { key:"max_height",         label:"Max Working Height (m)",        type:"text", placeholder:"e.g. 18" },
+    ]},
+  { id:"forklift",      label:"Forklift",                          icon:"🏭",  certType:"Load Test Certificate",      expiry:12, hasPV:false, pvOnly:false,
+    fields:[
+      { key:"structural_result", label:"Mast / Structural Integrity",    type:"result" },
+      { key:"forks_result",      label:"Forks Condition",                type:"result" },
+      { key:"hydraulics_result", label:"Hydraulic System",               type:"result" },
+      { key:"brakes_result",     label:"Brake System",                   type:"result" },
+      { key:"lmi_result",        label:"Load Indicator / SWL Plate",    type:"result" },
+      { key:"test_load",         label:"Test Load Applied (Tonnes)",     type:"text", placeholder:"e.g. 3.5" },
+      { key:"swl",               label:"Safe Working Load (SWL)",        type:"text", placeholder:"e.g. 3T" },
+    ]},
+  { id:"tlb",           label:"TLB (Tractor Loader Backhoe)",      icon:"🚜",  certType:"Certificate of Inspection",  expiry:12, hasPV:false, pvOnly:false,
+    fields:[
+      { key:"structural_result", label:"Structural Integrity",           type:"result" },
+      { key:"loader_result",     label:"Front Loader / Bucket",         type:"result" },
+      { key:"backhoe_result",    label:"Backhoe / Excavator Arm",       type:"result" },
+      { key:"hydraulics_result", label:"Hydraulic System",               type:"result" },
+      { key:"safety_result",     label:"ROPS / Safety Structures",      type:"result" },
+      { key:"swl",               label:"Rated Digging Force / SWL",     type:"text", placeholder:"e.g. 3T" },
+    ]},
+  { id:"frontloader",   label:"Front Loader / Wheel Loader",       icon:"🏗",  certType:"Certificate of Inspection",  expiry:12, hasPV:false, pvOnly:false,
+    fields:[
+      { key:"structural_result", label:"Structural Integrity",           type:"result" },
+      { key:"bucket_result",     label:"Bucket / Attachment",           type:"result" },
+      { key:"hydraulics_result", label:"Hydraulic System",               type:"result" },
+      { key:"safety_result",     label:"ROPS / Safety Structures",      type:"result" },
+      { key:"swl",               label:"Rated Operating Capacity",      type:"text", placeholder:"e.g. 3.5T" },
+    ]},
+  { id:"crane_truck",   label:"Crane Truck / Hiab",                icon:"🚛",  certType:"Pressure Test Certificate",  expiry:12, hasPV:true,  pvOnly:true, fields:[] },
+  { id:"water_bowser",  label:"Water Bowser",                      icon:"🚰",  certType:"Pressure Test Certificate",  expiry:12, hasPV:true,  pvOnly:true, fields:[] },
+  { id:"tipper_truck",  label:"Tipper Truck",                      icon:"🚚",  certType:"Pressure Test Certificate",  expiry:12, hasPV:true,  pvOnly:true, fields:[] },
+  { id:"bus",           label:"Bus / Personnel Carrier",           icon:"🚌",  certType:"Pressure Test Certificate",  expiry:12, hasPV:true,  pvOnly:true, fields:[] },
+  { id:"compressor",    label:"Air Compressor",                    icon:"⚙️",  certType:"Pressure Test Certificate",  expiry:12, hasPV:true,  pvOnly:true, fields:[] },
+  { id:"other",         label:"Other Machine / Equipment",         icon:"🔧",  certType:"Certificate of Inspection",  expiry:12, hasPV:true,  pvOnly:false,
+    fields:[
+      { key:"structural_result",  label:"Structural Integrity",          type:"result" },
+      { key:"operational_result", label:"Operational Check",            type:"result" },
+      { key:"safety_result",      label:"Safety Systems",               type:"result" },
+      { key:"swl",                label:"Rated Capacity / SWL",         type:"text", placeholder:"e.g. 5T" },
+    ]},
 ];
 
 const STEPS = [
-  { id:1, label:"Crane Details",    icon:"🏗" },
-  { id:2, label:"Crane Inspection", icon:"🔍" },
-  { id:3, label:"Hook",             icon:"🪝" },
-  { id:4, label:"Rope",             icon:"🪢" },
-  { id:5, label:"Pressure Vessels", icon:"⚙️" },
-  { id:6, label:"Review & Generate",icon:"📜" },
+  { id:1, label:"Equipment",  icon:"🔧" },
+  { id:2, label:"Inspection", icon:"🔍" },
+  { id:3, label:"Vessels",    icon:"⚙️" },
+  { id:4, label:"Generate",   icon:"📜" },
 ];
 
-function addMonths(dateStr, months) {
-  const d = new Date(dateStr);
-  d.setMonth(d.getMonth() + months);
-  return d.toISOString().split("T")[0];
-}
-
-function fmt(d) {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" });
-}
+function addMonths(dateStr, m) { const d = new Date(dateStr); d.setMonth(d.getMonth() + m); return d.toISOString().split("T")[0]; }
+function fmt(d) { if (!d) return "—"; return new Date(d).toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" }); }
+function generateCompanyCode(name) { return (name.trim().split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X")) + "-" + String(Math.floor(Math.random()*900)+100); }
 
 function ResultSelect({ value, onChange }) {
   return (
@@ -60,61 +108,44 @@ function ResultSelect({ value, onChange }) {
     </select>
   );
 }
-
 function ResultBadge({ result }) {
   const s = result === "PASS" ? { c:T.green, bg:T.greenDim, brd:T.greenBrd, l:"Pass" }
           : result === "FAIL" ? { c:T.red,   bg:T.redDim,   brd:T.redBrd,   l:"Fail" }
           : { c:T.amber, bg:T.amberDim, brd:T.amberBrd, l: result === "REPAIR_REQUIRED" ? "Repair Required" : "Conditional" };
   return <span style={{ padding:"3px 10px", borderRadius:99, fontSize:11, fontWeight:800, background:s.bg, border:`1px solid ${s.brd}`, color:s.c }}>{s.l}</span>;
 }
-
-function Field({ label, children }) {
+function Field({ label, children }) { return <div><label style={LS}>{label}</label>{children}</div>; }
+function Card({ title, icon, color=T.accent, brd, children }) {
   return (
-    <div>
-      <label style={LS}>{label}</label>
+    <div style={{ background:T.panel, border:`1px solid ${brd||T.border}`, borderRadius:16, padding:20, marginBottom:14 }}>
+      {title && (
+        <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom:16, paddingBottom:12, borderBottom:`1px solid ${T.border}` }}>
+          <span>{icon}</span>
+          <span style={{ fontSize:14, fontWeight:800, color }}>{title}</span>
+        </div>
+      )}
       {children}
     </div>
   );
 }
 
-function SectionCard({ title, icon, color=T.accent, brd, children }) {
+function StepBar({ current, hasPV, pvOnly }) {
+  let steps = STEPS;
+  if (pvOnly) steps = steps.filter(s => s.id !== 2);
+  if (!hasPV) steps = steps.filter(s => s.id !== 3);
   return (
-    <div style={{ background:T.panel, border:`1px solid ${brd||T.border}`, borderRadius:16, padding:20, marginBottom:16 }}>
-      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16, paddingBottom:12, borderBottom:`1px solid ${T.border}` }}>
-        <span style={{ fontSize:18 }}>{icon}</span>
-        <span style={{ fontSize:14, fontWeight:800, color }}>{title}</span>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function StepBar({ current }) {
-  return (
-    <div style={{ display:"flex", alignItems:"flex-start", marginBottom:24, overflowX:"auto", WebkitOverflowScrolling:"touch", gap:0 }}>
-      {STEPS.map((s, i) => {
-        const done   = s.id < current;
-        const active = s.id === current;
+    <div style={{ display:"flex", alignItems:"flex-start", marginBottom:24, gap:0 }}>
+      {steps.map((s, i) => {
+        const done = s.id < current, active = s.id === current;
         return (
           <div key={s.id} style={{ display:"flex", alignItems:"center", flex:1, minWidth:0 }}>
             <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:5, flex:1 }}>
-              <div style={{
-                width:36, height:36, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center",
-                fontSize:14, fontWeight:900, flexShrink:0,
-                background: done ? T.green : active ? T.accent : T.card,
-                border: `2px solid ${done ? T.green : active ? T.accent : T.border}`,
-                color: (done || active) ? "#052e16" : T.textDim,
-                transition:"all .2s",
-              }}>
+              <div style={{ width:36, height:36, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, flexShrink:0, background:done?T.green:active?T.accent:T.card, border:`2px solid ${done?T.green:active?T.accent:T.border}`, color:(done||active)?"#052e16":T.textDim }}>
                 {done ? "✓" : s.icon}
               </div>
-              <div style={{ fontSize:9, fontWeight:700, color: active ? T.accent : done ? T.green : T.textDim, textAlign:"center", textTransform:"uppercase", letterSpacing:"0.04em", whiteSpace:"nowrap" }}>
-                {s.label}
-              </div>
+              <div style={{ fontSize:9, fontWeight:700, color:active?T.accent:done?T.green:T.textDim, textAlign:"center", textTransform:"uppercase", letterSpacing:"0.04em", whiteSpace:"nowrap" }}>{s.label}</div>
             </div>
-            {i < STEPS.length - 1 && (
-              <div style={{ height:2, width:24, background: done ? T.green : T.border, marginBottom:20, flexShrink:0 }}/>
-            )}
+            {i < steps.length - 1 && <div style={{ height:2, width:24, background:done?T.green:T.border, marginBottom:20, flexShrink:0 }}/>}
           </div>
         );
       })}
@@ -122,211 +153,167 @@ function StepBar({ current }) {
   );
 }
 
-const emptyPV = () => ({ sn:"", description:"", capacity:"", working_pressure:"", test_pressure:"", pressure_unit:"bar", result:"PASS", notes:"" });
+const emptyPV = () => ({ sn:"", description:"", manufacturer:"", year_manufacture:"", country_origin:"", capacity:"", working_pressure:"", test_pressure:"", pressure_unit:"bar", result:"PASS", notes:"" });
+const defaultInspFields = (type) => {
+  if (!type) return {};
+  const obj = {};
+  type.fields.forEach(f => { obj[f.key] = f.type === "result" ? "PASS" : ""; });
+  return { ...obj, overall_result:"PASS", defects:"", recommendations:"" };
+};
 
-export default function CraneInspectionPage() {
+export default function MachineInspectionPage() {
   const router = useRouter();
-  const [step,    setStep]    = useState(1);
-  const [clients, setClients] = useState([]);
-  const [saving,  setSaving]  = useState(false);
-  const [saved,   setSaved]   = useState(null);
-  const [error,   setError]   = useState("");
+  const [step,         setStep]         = useState(1);
+  const [clients,      setClients]      = useState([]);
+  const [saving,       setSaving]       = useState(false);
+  const [saved,        setSaved]        = useState(null);
+  const [error,        setError]        = useState("");
+  const [machineTypeId,setMachineTypeId]= useState("");
+  const machineType = MACHINE_TYPES.find(m => m.id === machineTypeId);
 
-  const [crane, setCrane] = useState({
+  const [equip, setEquip] = useState({
     client_id:"", client_name:"", client_location:"",
-    crane_type:"Mobile Crane", model:"", serial_number:"",
-    fleet_number:"", registration_number:"", swl:"",
+    serial_number:"", fleet_number:"", registration_number:"",
+    model:"", manufacturer:"",
     inspection_date: new Date().toISOString().split("T")[0],
-    notes:"",
   });
-
-  const [craneInsp, setCraneInsp] = useState({
-    structural_result:"PASS", boom_condition:"PASS", outriggers:"PASS",
-    crane_computer:"PASS", test_load:"", defects:"", recommendations:"", result:"PASS",
-  });
-
-  const [hook, setHook] = useState({
-    serial_number:"", swl:"", latch_condition:"PASS",
-    structural_result:"PASS", wear_percentage:"", result:"PASS", notes:"",
-  });
-
-  const [rope, setRope] = useState({
-    diameter:"", length:"", rope_type:"Wire Rope",
-    broken_wires:"0", corrosion:"none", kinks:"none",
-    result:"PASS", notes:"",
-  });
-
-  const [pvs, setPvs] = useState([emptyPV()]);
+  const [insp,   setInsp]   = useState({});
+  const [pvs,    setPvs]    = useState([emptyPV()]);
+  const [hasPVs, setHasPVs] = useState(false);
 
   useEffect(() => {
-    supabase.from("clients").select("id,company_name,company_code,city,contact_person").order("company_name")
-      .then(({ data, error }) => {
-        if(error) console.error("clients fetch error:", error.message);
-        setClients(data || []);
-      });
+    supabase.from("clients").select("id,company_name,city").order("company_name")
+      .then(({ data }) => setClients(data || []));
   }, []);
 
-  const uc  = (k,v) => setCrane(p => ({ ...p, [k]:v }));
-  const uci = (k,v) => setCraneInsp(p => ({ ...p, [k]:v }));
-  const uh  = (k,v) => setHook(p => ({ ...p, [k]:v }));
-  const ur  = (k,v) => setRope(p => ({ ...p, [k]:v }));
+  useEffect(() => {
+    if (machineType) { setInsp(defaultInspFields(machineType)); setHasPVs(machineType.hasPV); }
+  }, [machineTypeId]);
+
+  const ue  = (k,v) => setEquip(p => ({ ...p, [k]:v }));
+  const ui  = (k,v) => setInsp(p => ({ ...p, [k]:v }));
   const upv = (i,k,v) => setPvs(p => p.map((x,j) => j===i ? { ...x, [k]:v } : x));
 
   function clientSelected(id) {
     const c = clients.find(x => x.id === id);
-    setCrane(p => ({ ...p, client_id:id, client_name:c?.company_name||"", client_location:c?.city||"" }));
+    setEquip(p => ({ ...p, client_id:id, client_name:c?.company_name||"", client_location:c?.city||"" }));
   }
 
-  function canNext() {
-    if (step === 1) return crane.client_id && crane.serial_number && crane.crane_type && crane.inspection_date;
-    return true;
-  }
-
-  // Auto-generate company code e.g. GMC-001
-  function generateCompanyCode(name) {
-    const initials = name.trim().split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
-    const rand = String(Math.floor(Math.random()*900)+100);
-    return `${initials}-${rand}`;
-  }
-
-  // Auto-register client in clients table if not already there
-  async function ensureClient(name, city) {
-    if (!name || !name.trim()) return;
-    const { data: existing } = await supabase.from("clients")
-      .select("id").ilike("company_name", name.trim()).maybeSingle();
-    if (!existing) {
-      await supabase.from("clients").insert({
-        company_name:   name.trim(),
-        company_code:   generateCompanyCode(name),
-        city:           city || "",
-        country:        "Botswana",
-        status:         "active",
-      });
+  function nextStep() {
+    setError("");
+    if (step === 1 && (!machineTypeId || !equip.client_id || !equip.serial_number)) {
+      setError("Please select equipment type, client and enter a serial number."); return;
     }
+    if (step === 1 && machineType?.pvOnly) { setStep(3); return; }
+    if (step === 2 && !hasPVs)            { setStep(4); return; }
+    if (step === 2 &&  hasPVs)            { setStep(3); return; }
+    if (step === 3)                        { setStep(4); return; }
+    setStep(s => s + 1);
+  }
+  function prevStep() {
+    if (step === 3 && machineType?.pvOnly) { setStep(1); return; }
+    if (step === 4 && machineType?.pvOnly) { setStep(3); return; }
+    if (step === 4 && !hasPVs)            { setStep(2); return; }
+    setStep(s => Math.max(1, s - 1));
+  }
+
+  function buildNotes() {
+    if (!machineType) return "";
+    const parts = machineType.fields.filter(f => f.type === "result" && insp[f.key]).map(f => `${f.label.split("/")[0].trim()}: ${insp[f.key]}`);
+    if (insp.test_load) parts.push(`Test load: ${insp.test_load}T`);
+    return parts.join(" | ");
+  }
+
+  async function ensureClient(name, city) {
+    if (!name?.trim()) return;
+    const { data: ex } = await supabase.from("clients").select("id").ilike("company_name", name.trim()).maybeSingle();
+    if (!ex) await supabase.from("clients").insert({ company_name:name.trim(), company_code:generateCompanyCode(name), city:city||"", country:"Botswana", status:"active" });
   }
 
   async function handleGenerate() {
-    if (!crane.client_id || !crane.serial_number) { setError("Please fill crane serial number and client."); return; }
+    if (!machineType || !equip.client_id || !equip.serial_number) { setError("Missing required fields."); return; }
     setSaving(true); setError("");
+    await ensureClient(equip.client_name, equip.client_location);
 
-    // Auto-register client if typed manually
-    await ensureClient(crane.client_name, crane.client_location);
-
-    // Auto-generate serial if blank
-    const craneData = { ...crane };
-    if (!craneData.serial_number?.trim()) {
-      const cc = (craneData.client_name||"UNK").trim().split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
-      craneData.serial_number = `${cc}-CRN-${String(Date.now()).slice(-6)}`;
+    const equipRef = { ...equip };
+    if (!equipRef.serial_number?.trim()) {
+      const cc = (equipRef.client_name||"UNK").split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+      const ec = (machineType?.label||"EQP").split(/[\s/—-]+/).filter(Boolean).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+      equipRef.serial_number = `${cc}-${ec}-${String(Date.now()).slice(-6)}`;
     }
 
     const folderId   = crypto.randomUUID();
-    const folderName = `Crane-${crane.serial_number}-${crane.inspection_date}`;
-    const iDate      = crane.inspection_date;
-    const exp1yr     = addMonths(iDate, 12); // crane + pressure vessels
-    const exp6mo     = addMonths(iDate, 6);  // hook + rope
+    const folderName = `${machineType.label}-${equip.serial_number}-${equip.inspection_date}`;
+    const iDate      = equip.inspection_date;
+    const expiry     = addMonths(iDate, machineType.expiry);
     const certs      = [];
 
-    const pad = n => String(n).padStart(5, "0");
     const { count } = await supabase.from("certificates").select("*", { count:"exact", head:true });
     let seq = (count || 0) + 1;
-    const nextNo = (prefix) => `CERT-${prefix}${pad(seq++)}`;
+    const pad    = n  => String(n).padStart(5, "0");
+    const prefix = machineType.id.slice(0,2).toUpperCase();
+    const nextNo = () => `CERT-${prefix}${pad(seq++)}`;
 
-    // 1. Crane — Load Test Certificate — 1 year
+    const swl  = insp.swl || "";
+    const desc = [machineType.label, equip.model?`(${equip.model})`:"", swl?`SWL/Cap ${swl}`:"", equip.fleet_number?`Fleet ${equip.fleet_number}`:"", equip.registration_number?`Reg ${equip.registration_number}`:""].filter(Boolean).join(" ");
+
     certs.push({
-      certificate_number: nextNo("CR"),
-      equipment_type: crane.crane_type,
-      equipment_description: `${craneData.crane_type}${crane.model ? " " + crane.model : ""} SWL ${crane.swl}${crane.fleet_number ? " Fleet " + crane.fleet_number : ""}${crane.registration_number ? " Reg " + crane.registration_number : ""}`,
-      serial_number: craneData.serial_number,
-      model: craneData.model,
-      swl: craneData.swl,
-      registration_number: craneData.registration_number,
-      client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
-      issue_date: iDate, inspection_date: iDate, expiry_date: exp1yr, next_inspection_due: exp1yr,
-      result: craneInsp.result,
-      defects_found: craneInsp.defects,
-      recommendations: craneInsp.recommendations,
+      certificate_number: nextNo(),
+      equipment_type: machineType.label,
+      equipment_description: desc,
+      serial_number: equipRef.serial_number,
+      fleet_number: equipRef.fleet_number,
+      registration_number: equip.registration_number,
+      model: equip.model,
+      manufacturer: equip.manufacturer,
+      swl,
+      client_name: equip.client_name, client_id: equip.client_id, location: equip.client_location,
+      issue_date: iDate, inspection_date: iDate, expiry_date: expiry, next_inspection_due: expiry,
+      result: insp.overall_result || "PASS",
+      defects_found: insp.defects || "",
+      recommendations: insp.recommendations || "",
       inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-      certificate_type: "Load Test Certificate",
+      certificate_type: machineType.certType,
       folder_id: folderId, folder_name: folderName, folder_position: 1,
-      fleet_number: craneData.fleet_number,
-      registration_number: craneData.registration_number,
-      notes: `Structural: ${craneInsp.structural_result} | Boom: ${craneInsp.boom_condition} | Outriggers: ${craneInsp.outriggers} | Computer: ${craneInsp.crane_computer} | Test load: ${craneInsp.test_load}T${crane.notes ? " | Notes: " + crane.notes : ""}`,
+      notes: buildNotes(),
     });
 
-    // 2. Hook — Load Test Certificate — 6 months
-    certs.push({
-      certificate_number: nextNo("HK"),
-      equipment_type: "Crane Hook",
-      equipment_description: `Crane Hook SWL ${hook.swl || crane.swl} — ${crane.crane_type} SN ${crane.serial_number}`,
-      serial_number: hook.serial_number || crane.serial_number,
-      swl: hook.swl || crane.swl,
-      client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
-      issue_date: iDate, inspection_date: iDate, expiry_date: exp6mo, next_inspection_due: exp6mo,
-      result: hook.result,
-      serial_number: hook.serial_number || crane.serial_number,
-      inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-      certificate_type: "Load Test Certificate",
-      folder_id: folderId, folder_name: folderName, folder_position: 2,
-      notes: `Latch: ${hook.latch_condition} | Structural: ${hook.structural_result}${hook.wear_percentage ? " | Wear: " + hook.wear_percentage + "%" : ""}${hook.notes ? " | Notes: " + hook.notes : ""}`,
-    });
-
-    // 3. Rope — Load Test Certificate — 6 months
-    certs.push({
-      certificate_number: nextNo("RP"),
-      equipment_type: "Wire Rope",
-      equipment_description: `${rope.rope_type}${rope.diameter ? " Ø" + rope.diameter + "mm" : ""}${rope.length ? " L" + rope.length + "m" : ""} — ${crane.crane_type} SN ${crane.serial_number}`,
-      serial_number: craneData.serial_number,
-      capacity_volume: rope.diameter ? `Ø${rope.diameter}mm × ${rope.length || "?"}m` : "",
-      swl: craneData.swl,
-      client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
-      issue_date: iDate, inspection_date: iDate, expiry_date: exp6mo, next_inspection_due: exp6mo,
-      result: rope.result,
-      inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-      certificate_type: "Load Test Certificate",
-      folder_id: folderId, folder_name: folderName, folder_position: 3,
-      notes: `Broken wires: ${rope.broken_wires} | Corrosion: ${rope.corrosion} | Kinks: ${rope.kinks}${rope.notes ? " | " + rope.notes : ""}`,
-    });
-
-    // 4. Pressure vessels — Pressure Test Certificate — 1 year each
-    for (let i = 0; i < pvs.length; i++) {
-      const pv = pvs[i];
-      if (!pv.sn && !pv.description) continue;
-      certs.push({
-        certificate_number: nextNo("PV"),
-        equipment_type: "Pressure Vessel",
-        equipment_description: pv.description || `Pressure Vessel ${i + 1} — ${crane.crane_type} SN ${crane.serial_number}`,
-        serial_number: pv.sn,
-        capacity_volume: pv.capacity,
-        working_pressure: pv.working_pressure,
-        test_pressure: pv.test_pressure,
-        pressure_unit: pv.pressure_unit,
-        client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
-        issue_date: iDate, inspection_date: iDate,
-        expiry_date: exp1yr, // 1 year — same as crane
-        next_inspection_due: exp1yr,
-        result: pv.result,
-        defects_found: pv.notes,
-        inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-        certificate_type: "Pressure Test Certificate",
-        folder_id: folderId, folder_name: folderName, folder_position: 4 + i,
-      });
+    if (hasPVs) {
+      for (let i = 0; i < pvs.length; i++) {
+        const pv = pvs[i];
+        if (!pv.sn && !pv.description) continue;
+        certs.push({
+          certificate_number: nextNo(),
+          equipment_type: "Pressure Vessel",
+          equipment_description: pv.description || `Pressure Vessel ${i+1} — ${machineType.label} SN ${equip.serial_number}`,
+          serial_number: pv.sn, manufacturer: pv.manufacturer, year_built: pv.year_manufacture,
+          country_of_origin: pv.country_origin, capacity_volume: pv.capacity,
+          working_pressure: pv.working_pressure, test_pressure: pv.test_pressure, pressure_unit: pv.pressure_unit,
+          client_name: equip.client_name, client_id: equip.client_id, location: equip.client_location,
+          issue_date: iDate, inspection_date: iDate, expiry_date: expiry, next_inspection_due: expiry,
+          result: pv.result, defects_found: pv.notes || "",
+          inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
+          certificate_type: "Pressure Test Certificate",
+          folder_id: folderId, folder_name: folderName, folder_position: 2 + i,
+        });
+      }
     }
 
     const { data, error: dbErr } = await supabase.from("certificates").insert(certs).select("id,certificate_number,equipment_type,result,expiry_date");
     if (dbErr) { setError("Failed to save: " + dbErr.message); setSaving(false); return; }
-    setSaved({ folderName, folderId, certs: data });
+    setSaved({ folderName, certs: data });
     setSaving(false);
   }
 
-  // ── SAVED STATE ──────────────────────────────────────────────────────────
+  // ── SAVED ─────────────────────────────────────────────────────────────────
   if (saved) return (
-    <AppLayout title="Crane Inspection — Complete">
+    <AppLayout title="Inspection Complete">
       <div style={{ fontFamily:"'IBM Plex Sans',sans-serif", color:T.text, padding:20, maxWidth:800, margin:"0 auto" }}>
         <div style={{ background:T.greenDim, border:`1px solid ${T.greenBrd}`, borderRadius:18, padding:28, textAlign:"center", marginBottom:20 }}>
           <div style={{ fontSize:40, marginBottom:10 }}>✅</div>
-          <div style={{ fontSize:22, fontWeight:900, color:T.green, marginBottom:6 }}>Crane Inspection Complete</div>
-          <div style={{ fontSize:14, color:T.textMid, marginBottom:4 }}>{saved.certs.length} certificates generated and saved</div>
-          <div style={{ fontSize:12, color:T.textDim }}>Folder: {saved.folderName}</div>
+          <div style={{ fontSize:22, fontWeight:900, color:T.green, marginBottom:6 }}>Inspection Complete</div>
+          <div style={{ fontSize:14, color:T.textMid, marginBottom:4 }}>{saved.certs.length} certificate{saved.certs.length>1?"s":""} generated</div>
+          <div style={{ fontSize:12, color:T.textDim }}>📁 {saved.folderName}</div>
         </div>
         <div style={{ display:"grid", gap:10, marginBottom:20 }}>
           {saved.certs.map(c => (
@@ -337,31 +324,31 @@ export default function CraneInspectionPage() {
               </div>
               <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
                 <ResultBadge result={c.result}/>
-                <button type="button" onClick={() => window.open(`/certificates/${c.id}`, "_blank")}
+                <button type="button" onClick={() => window.open(`/certificates/${c.id}`,"_blank")}
                   style={{ padding:"6px 12px", borderRadius:8, border:`1px solid ${T.accentBrd}`, background:T.accentDim, color:T.accent, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>View →</button>
-                <button type="button" onClick={() => window.open(`/certificates/print/${c.id}`, "_blank")}
+                <button type="button" onClick={() => window.open(`/certificates/print/${c.id}`,"_blank")}
                   style={{ padding:"6px 12px", borderRadius:8, border:`1px solid ${T.border}`, background:T.card, color:T.textMid, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Print</button>
               </div>
             </div>
           ))}
         </div>
         <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
-          <button type="button" onClick={() => { setSaved(null); setStep(1); }}
+          <button type="button" onClick={() => { setSaved(null); setStep(1); setMachineTypeId(""); setEquip(p=>({...p,serial_number:"",fleet_number:"",registration_number:"",model:"",manufacturer:""})); }}
             style={{ padding:"11px 20px", borderRadius:10, border:`1px solid ${T.border}`, background:T.card, color:T.text, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
             New Inspection
           </button>
           <button type="button" onClick={() => router.push("/certificates")}
             style={{ padding:"11px 20px", borderRadius:10, border:"none", background:"linear-gradient(135deg,#22d3ee,#0891b2)", color:"#052e16", fontWeight:900, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
-            View All Certificates →
+            ← View All Certificates
           </button>
         </div>
       </div>
     </AppLayout>
   );
 
-  // ── WIZARD ───────────────────────────────────────────────────────────────
+  // ── WIZARD ─────────────────────────────────────────────────────────────────
   return (
-    <AppLayout title="Crane Inspection">
+    <AppLayout title="Machine Inspection">
       <style>{`
         *,*::before,*::after{box-sizing:border-box}
         input::placeholder,textarea::placeholder{color:rgba(240,246,255,0.28)}
@@ -369,223 +356,172 @@ export default function CraneInspectionPage() {
         textarea{resize:vertical}
         .g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
         .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
-        @media(max-width:640px){.g2{grid-template-columns:1fr!important}.g3{grid-template-columns:1fr 1fr!important}}
+        .mtype{padding:12px 14px;border-radius:12px;border:1px solid ${T.border};background:${T.card};cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:10px;-webkit-tap-highlight-color:transparent}
+        .mtype:hover{border-color:${T.accentBrd};background:${T.accentDim}}
+        .mtype.sel{border-color:${T.accent};background:${T.accentDim};box-shadow:0 0 0 1px ${T.accent}}
+        .wiz-hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+        .wiz-hdr-btns{display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap}
+        @media(max-width:640px){
+          .g2{grid-template-columns:1fr!important}
+          .g3{grid-template-columns:1fr 1fr!important}
+          .wiz-hdr{flex-direction:column!important}
+          .wiz-hdr-btns{width:100%}
+          .wiz-hdr-btns button{flex:1;text-align:center;justify-content:center}
+        }
       `}</style>
 
       <div style={{ fontFamily:"'IBM Plex Sans',sans-serif", color:T.text, padding:20, maxWidth:900, margin:"0 auto" }}>
 
-        {/* Header */}
+        {/* ── HEADER ── */}
         <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:18, padding:"14px 20px", marginBottom:20, backdropFilter:"blur(20px)" }}>
-          <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", textTransform:"uppercase", color:T.accent, marginBottom:4 }}>Certificates · New Inspection</div>
-          <h1 style={{ margin:"0 0 2px", fontSize:22, fontWeight:900, letterSpacing:"-0.02em" }}>Crane Inspection Wizard</h1>
-          <p style={{ margin:0, fontSize:12, color:T.textDim }}>Generates certificates for crane, hook, rope and all pressure vessels in one session</p>
-          <div style={{display:"flex",gap:12,marginTop:10,flexWrap:"wrap"}}>
-            <a href="/certificates" style={{fontSize:11,color:T.accent,textDecoration:"none",fontWeight:700}}>📜 View All Certificates →</a>
-            <a href="/clients" style={{fontSize:11,color:T.accent,textDecoration:"none",fontWeight:700}}>🏢 Clients →</a>
-            <a href="/certificates/import" style={{fontSize:11,color:T.accent,textDecoration:"none",fontWeight:700}}>🤖 AI Import →</a>
+          <div className="wiz-hdr">
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", textTransform:"uppercase", color:T.accent, marginBottom:4 }}>Certificates · Inspection Wizard</div>
+              <h1 style={{ margin:"0 0 2px", fontSize:22, fontWeight:900, letterSpacing:"-0.02em" }}>Machine Inspection</h1>
+              <p style={{ margin:0, fontSize:12, color:T.textDim }}>Telehandlers · Cherry Pickers · Crane Trucks · Bowsers · Tippers · Buses · Forklifts · TLBs</p>
+              <div style={{ display:"flex", gap:12, marginTop:8, flexWrap:"wrap" }}>
+                <a href="/certificates/crane-inspection"  style={{ fontSize:11, color:T.accent, textDecoration:"none", fontWeight:700 }}>🏗 Crane →</a>
+                <a href="/certificates/fall-protection"   style={{ fontSize:11, color:T.accent, textDecoration:"none", fontWeight:700 }}>🦺 Fall Protection →</a>
+                <a href="/certificates/import"            style={{ fontSize:11, color:T.accent, textDecoration:"none", fontWeight:700 }}>↑ AI Import →</a>
+              </div>
+            </div>
+            <div className="wiz-hdr-btns">
+              <button type="button" onClick={() => router.push("/certificates")}
+                style={Sb.ghost}>
+                ← Certificates
+              </button>
+            </div>
           </div>
         </div>
 
-        <StepBar current={step}/>
+        <StepBar current={step} hasPV={hasPVs && machineTypeId !== ""} pvOnly={machineType?.pvOnly||false}/>
 
-        {error && <div style={{ padding:"10px 14px", borderRadius:10, border:`1px solid ${T.redBrd}`, background:T.redDim, color:T.red, fontSize:13, fontWeight:700, marginBottom:16 }}>⚠ {error}</div>}
+        {error && (
+          <div style={{ padding:"10px 14px", borderRadius:10, border:`1px solid ${T.redBrd}`, background:T.redDim, color:T.red, fontSize:13, fontWeight:700, marginBottom:16 }}>
+            ⚠ {error}
+          </div>
+        )}
 
-        {/* ── STEP 1: Crane Details ── */}
+        {/* ── STEP 1: Equipment ── */}
         {step === 1 && (
           <>
-            <SectionCard title="Crane Identification" icon="🏗" color={T.accent} brd={T.accentBrd}>
-              <div className="g2" style={{ marginBottom:14 }}>
-                <Field label="Client">
-                  <select style={IS} value={crane.client_id} onChange={e => clientSelected(e.target.value)}>
-                    <option value="">— Select Client —</option>
-                    {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}{c.city ? " — " + c.city : ""}</option>)}
-                  </select>
-                  {clients.length === 0 && (
-                    <div style={{fontSize:11,color:T.amber,marginTop:5}}>No clients found. <a href="/clients/register" target="_blank" style={{color:T.accent}}>Register a client first →</a></div>
-                  )}
-                  {clients.length > 0 && (
-                    <div style={{fontSize:11,color:T.textDim,marginTop:5}}>
-                      Client not listed? <a href="/clients/register" target="_blank" style={{color:T.accent,textDecoration:"none",fontWeight:700}}>+ Register new client</a>
-                      <span style={{color:T.textDim}}> (then refresh this page)</span>
+            <Card title="Select Equipment Type" icon="🔧" color={T.accent} brd={T.accentBrd}>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:10 }}>
+                {MACHINE_TYPES.map(m => (
+                  <div key={m.id} className={`mtype${machineTypeId===m.id?" sel":""}`} onClick={() => setMachineTypeId(m.id)}>
+                    <span style={{ fontSize:20 }}>{m.icon}</span>
+                    <div>
+                      <div style={{ fontSize:12, fontWeight:700, color:machineTypeId===m.id?T.accent:T.text }}>{m.label}</div>
+                      <div style={{ fontSize:10, color:T.textDim, marginTop:2 }}>{m.certType}</div>
                     </div>
-                  )}
-                </Field>
-                <Field label="Inspection Date">
-                  <input style={IS} type="date" value={crane.inspection_date} onChange={e => uc("inspection_date", e.target.value)}/>
-                </Field>
+                  </div>
+                ))}
               </div>
+            </Card>
+
+            {machineTypeId && (
+              <Card title="Equipment Identity" icon="📋" color={T.blue} brd={T.blueBrd}>
+                <div className="g2" style={{ marginBottom:14 }}>
+                  <Field label="Client *">
+                    <select style={IS} value={equip.client_id} onChange={e => clientSelected(e.target.value)}>
+                      <option value="">— Select Client —</option>
+                      {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}{c.city?` — ${c.city}`:""}</option>)}
+                    </select>
+                    {clients.length > 0 && (
+                      <div style={{ fontSize:11, color:T.textDim, marginTop:5 }}>
+                        Not listed? <a href="/clients/register" target="_blank" style={{ color:T.accent, fontWeight:700 }}>+ Register client</a>
+                      </div>
+                    )}
+                  </Field>
+                  <Field label="Inspection Date">
+                    <input style={IS} type="date" value={equip.inspection_date} onChange={e => ue("inspection_date", e.target.value)}/>
+                  </Field>
+                </div>
+                <div className="g3" style={{ marginBottom:14 }}>
+                  <Field label="Serial Number *">
+                    <input style={IS} placeholder="e.g. TH-2024-001" value={equip.serial_number} onChange={e => ue("serial_number", e.target.value)}/>
+                  </Field>
+                  <Field label="Fleet Number">
+                    <input style={IS} placeholder="e.g. FL-012" value={equip.fleet_number} onChange={e => ue("fleet_number", e.target.value)}/>
+                  </Field>
+                  <Field label="Registration Number">
+                    <input style={IS} placeholder="e.g. B 456 DEF" value={equip.registration_number} onChange={e => ue("registration_number", e.target.value)}/>
+                  </Field>
+                </div>
+                <div className="g2">
+                  <Field label="Make / Manufacturer">
+                    <input style={IS} placeholder="e.g. JCB, Manitou, Terex" value={equip.manufacturer} onChange={e => ue("manufacturer", e.target.value)}/>
+                  </Field>
+                  <Field label="Model">
+                    <input style={IS} placeholder="e.g. 535-125" value={equip.model} onChange={e => ue("model", e.target.value)}/>
+                  </Field>
+                </div>
+                {equip.inspection_date && machineType && (
+                  <div style={{ marginTop:14, padding:"10px 14px", borderRadius:10, background:T.accentDim, border:`1px solid ${T.accentBrd}`, fontSize:12, color:T.textMid }}>
+                    📅 <strong style={{ color:T.text }}>{machineType.label}</strong> expires: <strong style={{ color:T.accent }}>{fmt(addMonths(equip.inspection_date, machineType.expiry))}</strong>
+                    <span style={{ color:T.textDim }}> ({machineType.expiry} months)</span>
+                    {machineType.hasPV && <span style={{ marginLeft:16 }}>· Pressure vessels: <strong style={{ color:T.accent }}>{fmt(addMonths(equip.inspection_date, 12))}</strong></span>}
+                    {machineType.pvOnly && <span style={{ marginLeft:16, color:T.amber }}>· Vehicle ID + pressure vessel certificates only</span>}
+                  </div>
+                )}
+              </Card>
+            )}
+          </>
+        )}
+
+        {/* ── STEP 2: Inspection Checklist ── */}
+        {step === 2 && machineType && !machineType.pvOnly && (
+          <>
+            <Card title={`${machineType.label} — Inspection Checklist`} icon={machineType.icon} color={T.blue} brd={T.blueBrd}>
               <div className="g2" style={{ marginBottom:14 }}>
-                <Field label="Crane Type">
-                  <select style={IS} value={crane.crane_type} onChange={e => uc("crane_type", e.target.value)}>
-                    {CRANE_TYPES.map(t => <option key={t}>{t}</option>)}
-                  </select>
-                </Field>
-                <Field label="Model / Make">
-                  <input style={IS} placeholder="e.g. Liebherr LTM 1100" value={crane.model} onChange={e => uc("model", e.target.value)}/>
+                {machineType.fields.map(f => (
+                  <Field key={f.key} label={f.label}>
+                    {f.type === "result"
+                      ? <ResultSelect value={insp[f.key]||"PASS"} onChange={v => ui(f.key, v)}/>
+                      : <input style={IS} placeholder={f.placeholder||""} value={insp[f.key]||""} onChange={e => ui(f.key, e.target.value)}/>
+                    }
+                  </Field>
+                ))}
+              </div>
+              <div style={{ borderTop:`1px solid ${T.border}`, paddingTop:14, display:"grid", gap:12 }}>
+                <div className="g2">
+                  <Field label="Overall Result"><ResultSelect value={insp.overall_result||"PASS"} onChange={v => ui("overall_result",v)}/></Field>
+                  <Field label="Defects Found">
+                    <textarea style={{ ...IS, minHeight:80 }} placeholder="Describe any defects..." value={insp.defects||""} onChange={e => ui("defects", e.target.value)}/>
+                  </Field>
+                </div>
+                <Field label="Recommendations">
+                  <textarea style={{ ...IS, minHeight:60 }} placeholder="Recommendations for maintenance or repair..." value={insp.recommendations||""} onChange={e => ui("recommendations", e.target.value)}/>
                 </Field>
               </div>
-              <div className="g3" style={{ marginBottom:14 }}>
-                <Field label="Serial Number *">
-                  <input style={IS} placeholder="e.g. LTM-2024-001" value={crane.serial_number} onChange={e => uc("serial_number", e.target.value)}/>
-                </Field>
-                <Field label="Fleet Number">
-                  <input style={IS} placeholder="e.g. FL-042" value={crane.fleet_number} onChange={e => uc("fleet_number", e.target.value)}/>
-                </Field>
-                <Field label="Registration Number">
-                  <input style={IS} placeholder="e.g. B 123 ABC" value={crane.registration_number} onChange={e => uc("registration_number", e.target.value)}/>
-                </Field>
-              </div>
-              <div className="g2" style={{ marginBottom:14 }}>
-                <Field label="Safe Working Load (SWL)">
-                  <input style={IS} placeholder="e.g. 100T" value={crane.swl} onChange={e => uc("swl", e.target.value)}/>
-                </Field>
-                <Field label="Client City / Site">
-                  <input style={IS} placeholder="Auto-filled from client" value={crane.client_location} onChange={e => uc("client_location", e.target.value)}/>
-                </Field>
-              </div>
-              <Field label="General Notes">
-                <textarea style={{ ...IS, minHeight:70 }} placeholder="Any general notes about the crane..." value={crane.notes} onChange={e => uc("notes", e.target.value)}/>
-              </Field>
-            </SectionCard>
-            {/* Expiry preview */}
-            {crane.inspection_date && (
-              <div style={{ background:T.accentDim, border:`1px solid ${T.accentBrd}`, borderRadius:12, padding:"12px 16px", display:"flex", gap:20, flexWrap:"wrap", fontSize:12, color:T.textMid }}>
-                <div>📅 <strong style={{ color:T.text }}>Crane + Pressure Vessels expire:</strong> {fmt(addMonths(crane.inspection_date, 12))} <span style={{ color:T.textDim }}>(1 year)</span></div>
-                <div>📅 <strong style={{ color:T.text }}>Hook + Rope expire:</strong> {fmt(addMonths(crane.inspection_date, 6))} <span style={{ color:T.textDim }}>(6 months)</span></div>
+            </Card>
+
+            {machineType.hasPV && (
+              <div style={{ background:T.panel, border:`1px solid ${T.border}`, borderRadius:14, padding:16, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap" }}>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:800, color:T.text }}>Pressure Vessels</div>
+                  <div style={{ fontSize:11, color:T.textDim, marginTop:2 }}>Does this {machineType.label} have pressure vessels?</div>
+                </div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <button type="button" onClick={() => setHasPVs(true)}
+                    style={{ padding:"8px 18px", borderRadius:9, border:`1px solid ${hasPVs?T.greenBrd:T.border}`, background:hasPVs?T.greenDim:T.card, color:hasPVs?T.green:T.textMid, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+                    ✓ Yes
+                  </button>
+                  <button type="button" onClick={() => setHasPVs(false)}
+                    style={{ padding:"8px 18px", borderRadius:9, border:`1px solid ${!hasPVs?T.redBrd:T.border}`, background:!hasPVs?T.redDim:T.card, color:!hasPVs?T.red:T.textMid, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+                    ✗ No
+                  </button>
+                </div>
               </div>
             )}
           </>
         )}
 
-        {/* ── STEP 2: Crane Inspection ── */}
-        {step === 2 && (
-          <SectionCard title="Crane Structural & Computer Inspection" icon="🔍" color={T.blue} brd={T.blueBrd}>
-            <div className="g2" style={{ marginBottom:14 }}>
-              <Field label="Structural Integrity">
-                <ResultSelect value={craneInsp.structural_result} onChange={v => uci("structural_result", v)}/>
-              </Field>
-              <Field label="Boom Condition">
-                <ResultSelect value={craneInsp.boom_condition} onChange={v => uci("boom_condition", v)}/>
-              </Field>
-            </div>
-            <div className="g2" style={{ marginBottom:14 }}>
-              <Field label="Outriggers">
-                <ResultSelect value={craneInsp.outriggers} onChange={v => uci("outriggers", v)}/>
-              </Field>
-              <Field label="Crane Computer / LMI">
-                <ResultSelect value={craneInsp.crane_computer} onChange={v => uci("crane_computer", v)}/>
-              </Field>
-            </div>
-            <div className="g2" style={{ marginBottom:14 }}>
-              <Field label="Test Load Applied (Tonnes)">
-                <input style={IS} placeholder="e.g. 110" value={craneInsp.test_load} onChange={e => uci("test_load", e.target.value)}/>
-              </Field>
-              <Field label="Overall Crane Result">
-                <ResultSelect value={craneInsp.result} onChange={v => uci("result", v)}/>
-              </Field>
-            </div>
-            <div className="g2" style={{ marginBottom:0 }}>
-              <Field label="Defects Found">
-                <textarea style={{ ...IS, minHeight:80 }} placeholder="Describe any defects..." value={craneInsp.defects} onChange={e => uci("defects", e.target.value)}/>
-              </Field>
-              <Field label="Recommendations">
-                <textarea style={{ ...IS, minHeight:80 }} placeholder="Recommendations..." value={craneInsp.recommendations} onChange={e => uci("recommendations", e.target.value)}/>
-              </Field>
-            </div>
-          </SectionCard>
-        )}
-
-        {/* ── STEP 3: Hook ── */}
+        {/* ── STEP 3: Pressure Vessels ── */}
         {step === 3 && (
-          <SectionCard title="Hook Inspection — expires 6 months" icon="🪝" color={T.amber} brd={T.amberBrd}>
-            <div className="g2" style={{ marginBottom:14 }}>
-              <Field label="Hook Serial Number">
-                <input style={IS} placeholder="e.g. HK-2024-001" value={hook.serial_number} onChange={e => uh("serial_number", e.target.value)}/>
-              </Field>
-              <Field label="Hook SWL">
-                <input style={IS} placeholder="e.g. 100T" value={hook.swl} onChange={e => uh("swl", e.target.value)}/>
-              </Field>
-            </div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="Latch Condition">
-                <ResultSelect value={hook.latch_condition} onChange={v => uh("latch_condition", v)}/>
-              </Field>
-              <Field label="Structural Integrity">
-                <ResultSelect value={hook.structural_result} onChange={v => uh("structural_result", v)}/>
-              </Field>
-              <Field label="Wear (%)">
-                <input style={IS} placeholder="e.g. 5" value={hook.wear_percentage} onChange={e => uh("wear_percentage", e.target.value)}/>
-              </Field>
-            </div>
-            <div className="g2">
-              <Field label="Overall Hook Result">
-                <ResultSelect value={hook.result} onChange={v => uh("result", v)}/>
-              </Field>
-              <Field label="Notes">
-                <input style={IS} placeholder="Any additional notes" value={hook.notes} onChange={e => uh("notes", e.target.value)}/>
-              </Field>
-            </div>
-          </SectionCard>
-        )}
-
-        {/* ── STEP 4: Rope ── */}
-        {step === 4 && (
-          <SectionCard title="Wire Rope Inspection — expires 6 months" icon="🪢" color={T.purple} brd={T.purpleBrd}>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="Rope Diameter (mm)">
-                <input style={IS} placeholder="e.g. 26" value={rope.diameter} onChange={e => ur("diameter", e.target.value)}/>
-              </Field>
-              <Field label="Rope Length (m)">
-                <input style={IS} placeholder="e.g. 150" value={rope.length} onChange={e => ur("length", e.target.value)}/>
-              </Field>
-              <Field label="Rope Type">
-                <select style={IS} value={rope.rope_type} onChange={e => ur("rope_type", e.target.value)}>
-                  <option>Wire Rope</option>
-                  <option>Fibre Core Wire Rope</option>
-                  <option>Steel Core Wire Rope</option>
-                  <option>Compacted Strand Wire Rope</option>
-                </select>
-              </Field>
-            </div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="Broken Wires (count)">
-                <input style={IS} placeholder="e.g. 0" value={rope.broken_wires} onChange={e => ur("broken_wires", e.target.value)}/>
-              </Field>
-              <Field label="Corrosion">
-                <select style={IS} value={rope.corrosion} onChange={e => ur("corrosion", e.target.value)}>
-                  <option value="none">None</option>
-                  <option value="minor">Minor</option>
-                  <option value="moderate">Moderate</option>
-                  <option value="severe">Severe</option>
-                </select>
-              </Field>
-              <Field label="Kinks / Bends">
-                <select style={IS} value={rope.kinks} onChange={e => ur("kinks", e.target.value)}>
-                  <option value="none">None</option>
-                  <option value="minor">Minor</option>
-                  <option value="moderate">Moderate</option>
-                  <option value="severe">Severe</option>
-                </select>
-              </Field>
-            </div>
-            <div className="g2">
-              <Field label="Overall Rope Result">
-                <ResultSelect value={rope.result} onChange={v => ur("result", v)}/>
-              </Field>
-              <Field label="Notes">
-                <input style={IS} placeholder="Any additional notes" value={rope.notes} onChange={e => ur("notes", e.target.value)}/>
-              </Field>
-            </div>
-          </SectionCard>
-        )}
-
-        {/* ── STEP 5: Pressure Vessels ── */}
-        {step === 5 && (
           <>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
-              <div style={{ fontSize:14, fontWeight:800, color:T.text }}>
-                Pressure Vessels <span style={{ fontSize:12, color:T.textDim, fontWeight:400 }}>— expires 1 year · up to 8</span>
-              </div>
+              <div style={{ fontSize:14, fontWeight:800 }}>Pressure Vessels <span style={{ fontSize:12, color:T.textDim, fontWeight:400 }}>— up to 8 — expires 1 year</span></div>
               {pvs.length < 8 && (
                 <button type="button" onClick={() => setPvs(p => [...p, emptyPV()])}
                   style={{ padding:"8px 16px", borderRadius:9, border:`1px solid ${T.greenBrd}`, background:T.greenDim, color:T.green, fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
@@ -594,7 +530,7 @@ export default function CraneInspectionPage() {
               )}
             </div>
             {pvs.map((pv, i) => (
-              <SectionCard key={i} title={`Pressure Vessel ${i + 1}`} icon="⚙️" color={T.green} brd={T.greenBrd}>
+              <Card key={i} title={`Pressure Vessel ${i+1}`} icon="⚙️" color={T.green} brd={T.greenBrd}>
                 <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:10 }}>
                   {pvs.length > 1 && (
                     <button type="button" onClick={() => setPvs(p => p.filter((_,j) => j !== i))}
@@ -604,96 +540,85 @@ export default function CraneInspectionPage() {
                   )}
                 </div>
                 <div className="g2" style={{ marginBottom:14 }}>
-                  <Field label="Serial Number">
-                    <input style={IS} placeholder="e.g. PV-001" value={pv.sn} onChange={e => upv(i, "sn", e.target.value)}/>
-                  </Field>
-                  <Field label="Description">
-                    <input style={IS} placeholder="e.g. Hydraulic Oil Tank" value={pv.description} onChange={e => upv(i, "description", e.target.value)}/>
-                  </Field>
+                  <Field label="Serial Number"><input style={IS} placeholder="e.g. PV-001" value={pv.sn} onChange={e => upv(i,"sn",e.target.value)}/></Field>
+                  <Field label="Description"><input style={IS} placeholder="e.g. Hydraulic Oil Tank" value={pv.description} onChange={e => upv(i,"description",e.target.value)}/></Field>
                 </div>
                 <div className="g3" style={{ marginBottom:14 }}>
-                  <Field label="Capacity / Volume">
-                    <input style={IS} placeholder="e.g. 200L" value={pv.capacity} onChange={e => upv(i, "capacity", e.target.value)}/>
-                  </Field>
-                  <Field label="Working Pressure">
-                    <input style={IS} placeholder="e.g. 200" value={pv.working_pressure} onChange={e => upv(i, "working_pressure", e.target.value)}/>
-                  </Field>
-                  <Field label="Test Pressure">
-                    <input style={IS} placeholder="e.g. 300" value={pv.test_pressure} onChange={e => upv(i, "test_pressure", e.target.value)}/>
-                  </Field>
+                  <Field label="Manufacturer"><input style={IS} placeholder="e.g. ASME, Atlas Copco" value={pv.manufacturer} onChange={e => upv(i,"manufacturer",e.target.value)}/></Field>
+                  <Field label="Year of Manufacture"><input style={IS} placeholder="e.g. 2018" value={pv.year_manufacture} onChange={e => upv(i,"year_manufacture",e.target.value)}/></Field>
+                  <Field label="Country of Origin"><input style={IS} placeholder="e.g. South Africa" value={pv.country_origin} onChange={e => upv(i,"country_origin",e.target.value)}/></Field>
+                </div>
+                <div className="g3" style={{ marginBottom:14 }}>
+                  <Field label="Capacity / Volume"><input style={IS} placeholder="e.g. 200L" value={pv.capacity} onChange={e => upv(i,"capacity",e.target.value)}/></Field>
+                  <Field label="Working Pressure"><input style={IS} placeholder="e.g. 200" value={pv.working_pressure} onChange={e => upv(i,"working_pressure",e.target.value)}/></Field>
+                  <Field label="Test Pressure"><input style={IS} placeholder="e.g. 300" value={pv.test_pressure} onChange={e => upv(i,"test_pressure",e.target.value)}/></Field>
                 </div>
                 <div className="g2">
                   <Field label="Pressure Unit">
-                    <select style={IS} value={pv.pressure_unit} onChange={e => upv(i, "pressure_unit", e.target.value)}>
-                      <option value="bar">bar</option>
-                      <option value="psi">psi</option>
-                      <option value="MPa">MPa</option>
-                      <option value="kPa">kPa</option>
+                    <select style={IS} value={pv.pressure_unit} onChange={e => upv(i,"pressure_unit",e.target.value)}>
+                      <option value="bar">bar</option><option value="psi">psi</option>
+                      <option value="MPa">MPa</option><option value="kPa">kPa</option>
                     </select>
                   </Field>
-                  <Field label="Result">
-                    <ResultSelect value={pv.result} onChange={v => upv(i, "result", v)}/>
-                  </Field>
+                  <Field label="Result"><ResultSelect value={pv.result} onChange={v => upv(i,"result",v)}/></Field>
                 </div>
                 <div style={{ marginTop:14 }}>
-                  <Field label="Notes / Defects">
-                    <input style={IS} placeholder="Any defects or notes..." value={pv.notes} onChange={e => upv(i, "notes", e.target.value)}/>
-                  </Field>
+                  <Field label="Notes / Defects"><input style={IS} placeholder="Any defects or notes..." value={pv.notes} onChange={e => upv(i,"notes",e.target.value)}/></Field>
                 </div>
-              </SectionCard>
+              </Card>
             ))}
           </>
         )}
 
-        {/* ── STEP 6: Review ── */}
-        {step === 6 && (
-          <>
-            <SectionCard title="Inspection Summary" icon="📋" color={T.accent}>
-              <div style={{ display:"grid", gap:10 }}>
-                {[
-                  { label:"Crane", type:crane.crane_type, desc:`SN ${crane.serial_number}${crane.fleet_number?" · Fleet "+crane.fleet_number:""}${crane.registration_number?" · Reg "+crane.registration_number:""}`, result:craneInsp.result, exp:"1 year" },
-                  { label:"Hook",  type:"Crane Hook", desc:`SN ${hook.serial_number||"—"} SWL ${hook.swl||crane.swl}`, result:hook.result, exp:"6 months" },
-                  { label:"Rope",  type:"Wire Rope", desc:`Ø${rope.diameter||"?"}mm ${rope.rope_type}`, result:rope.result, exp:"6 months" },
-                  ...pvs.filter(p=>p.sn||p.description).map((p,i)=>({ label:`PV ${i+1}`, type:"Pressure Vessel", desc:`SN ${p.sn||"—"} ${p.description}`, result:p.result, exp:"1 year" })),
-                ].map((row, i) => (
-                  <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
-                    <div style={{ fontSize:11, fontWeight:800, color:T.textDim, width:60, flexShrink:0 }}>{row.label}</div>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:13, fontWeight:700, color:T.text }}>{row.type}</div>
-                      <div style={{ fontSize:11, color:T.textDim }}>{row.desc}</div>
-                    </div>
-                    <div style={{ fontSize:11, color:T.textDim, flexShrink:0 }}>Expires: {row.exp}</div>
-                    <ResultBadge result={row.result}/>
+        {/* ── STEP 4: Review ── */}
+        {step === 4 && machineType && (
+          <Card title="Review & Confirm" icon="📋" color={T.accent}>
+            <div style={{ display:"grid", gap:10, marginBottom:16 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
+                <div style={{ fontSize:20 }}>{machineType.icon}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:800, color:T.text }}>{machineType.label}</div>
+                  <div style={{ fontSize:11, color:T.textDim }}>SN {equip.serial_number}{equip.fleet_number?` · Fleet ${equip.fleet_number}`:""}{equip.registration_number?` · Reg ${equip.registration_number}`:""}{equip.model?` · ${equip.model}`:""}</div>
+                  <div style={{ fontSize:11, color:T.textDim }}>{machineType.certType} · Expires {fmt(addMonths(equip.inspection_date, machineType.expiry))}</div>
+                </div>
+                <ResultBadge result={insp.overall_result||"PASS"}/>
+              </div>
+              {hasPVs && pvs.filter(p=>p.sn||p.description).map((pv,i)=>(
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
+                  <div style={{ fontSize:18 }}>⚙️</div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:T.text }}>Pressure Vessel {i+1} — {pv.description||"—"}</div>
+                    <div style={{ fontSize:11, color:T.textDim }}>SN {pv.sn||"—"} · {pv.capacity||"—"} · {pv.working_pressure||"—"}/{pv.test_pressure||"—"} {pv.pressure_unit}</div>
+                    <div style={{ fontSize:11, color:T.textDim }}>Pressure Test Certificate · Expires {fmt(addMonths(equip.inspection_date, 12))}</div>
                   </div>
-                ))}
-              </div>
-              <div style={{ marginTop:16, padding:"12px 14px", borderRadius:10, background:T.accentDim, border:`1px solid ${T.accentBrd}`, fontSize:12, color:T.textMid }}>
-                📋 Client: <strong style={{ color:T.text }}>{crane.client_name}</strong> &nbsp;·&nbsp;
-                Inspector: <strong style={{ color:T.text }}>{INSPECTOR_NAME}</strong> &nbsp;·&nbsp;
-                Date: <strong style={{ color:T.text }}>{fmt(crane.inspection_date)}</strong>
-              </div>
-            </SectionCard>
-          </>
+                  <ResultBadge result={pv.result}/>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding:"12px 14px", borderRadius:10, background:T.accentDim, border:`1px solid ${T.accentBrd}`, fontSize:12, color:T.textMid }}>
+              📋 Client: <strong style={{ color:T.text }}>{equip.client_name}</strong> &nbsp;·&nbsp;
+              Inspector: <strong style={{ color:T.text }}>{INSPECTOR_NAME}</strong> &nbsp;·&nbsp;
+              Date: <strong style={{ color:T.text }}>{fmt(equip.inspection_date)}</strong> &nbsp;·&nbsp;
+              Total: <strong style={{ color:T.accent }}>{1 + (hasPVs ? pvs.filter(p=>p.sn||p.description).length : 0)} certificate{(1+(hasPVs?pvs.filter(p=>p.sn||p.description).length:0))>1?"s":""}</strong>
+            </div>
+          </Card>
         )}
 
-        {/* ── NAV BUTTONS ── */}
+        {/* ── NAV ── */}
         <div style={{ display:"flex", justifyContent:"space-between", gap:12, marginTop:8, flexWrap:"wrap" }}>
-          <button type="button"
-            onClick={() => step > 1 ? setStep(s => s - 1) : router.push("/certificates")}
+          <button type="button" onClick={step === 1 ? () => router.push("/certificates") : prevStep}
             style={{ padding:"11px 20px", borderRadius:10, border:`1px solid ${T.border}`, background:T.card, color:T.textMid, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
             {step === 1 ? "← Cancel" : "← Back"}
           </button>
-
-          {step < 6 ? (
-            <button type="button"
-              onClick={() => { setError(""); if (!canNext()) { setError("Please fill all required fields."); return; } setStep(s => s + 1); }}
+          {step < 4 ? (
+            <button type="button" onClick={nextStep}
               style={{ padding:"11px 24px", borderRadius:10, border:"none", background:"linear-gradient(135deg,#22d3ee,#0891b2)", color:"#052e16", fontWeight:900, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
-              Next → {STEPS[step]?.label}
+              Next →
             </button>
           ) : (
             <button type="button" onClick={handleGenerate} disabled={saving}
               style={{ padding:"11px 28px", borderRadius:10, border:"none", background:saving?"rgba(255,255,255,0.06)":"linear-gradient(135deg,#34d399,#14b8a6)", color:saving?"rgba(240,246,255,0.4)":"#052e16", fontWeight:900, fontSize:14, cursor:saving?"not-allowed":"pointer", fontFamily:"inherit" }}>
-              {saving ? "Generating…" : "🏗 Generate All Certificates"}
+              {saving ? "Generating…" : "⚙️ Generate Certificates"}
             </button>
           )}
         </div>
@@ -701,3 +626,7 @@ export default function CraneInspectionPage() {
     </AppLayout>
   );
 }
+
+const Sb = {
+  ghost: { padding:"9px 16px", borderRadius:10, border:"1px solid rgba(148,163,184,0.18)", background:"rgba(255,255,255,0.04)", color:"#f0f6ff", fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"'IBM Plex Sans',sans-serif", WebkitTapHighlightColor:"transparent", display:"inline-flex", alignItems:"center", justifyContent:"center" },
+};
