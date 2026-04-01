@@ -46,7 +46,7 @@ export async function GET(request) {
   }
 
   try {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const supabase = createSupabaseServer(cookieStore);
 
     const { error } = await supabase.auth.verifyOtp({
@@ -55,11 +55,13 @@ export async function GET(request) {
     });
 
     if (error) {
-      return NextResponse.redirect(new URL("/reset-password?error=invalid_or_expired_link", origin));
+      return NextResponse.redirect(
+        new URL("/reset-password?error=invalid_or_expired_link", origin)
+      );
     }
 
     return NextResponse.redirect(new URL(next, origin));
-  } catch (error) {
+  } catch {
     return NextResponse.redirect(new URL("/reset-password?error=server_error", origin));
   }
 }
