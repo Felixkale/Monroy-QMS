@@ -29,7 +29,7 @@ function createSupabaseServer(cookieStore) {
 
 export async function GET() {
   try {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const supabase = createSupabaseServer(cookieStore);
 
     const {
@@ -52,7 +52,7 @@ export async function GET() {
         full_name: user.user_metadata?.full_name || "",
       },
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { authenticated: false, error: "Failed to read session." },
       { status: 500 }
