@@ -4,16 +4,21 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const SITE_URL = "https://monroy-qms.co.bw";
+
 function adminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !key) {
-    throw new Error("SUPABASE_SERVICE_ROLE_KEY not set in Render environment variables.");
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY not set in environment variables.");
   }
 
   return createClient(url, key, {
-    auth: { autoRefreshToken: false, persistSession: false },
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
   });
 }
 
@@ -34,13 +39,12 @@ export async function POST(request) {
 
     const validRoles = ["admin", "inspector", "viewer"];
     const userRole = validRoles.includes(role) ? role : "inspector";
-    const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL || "https://monroy-qms.co.bw").replace(/\/+$/, "");
 
     const admin = adminClient();
 
     const { data: authData, error: authErr } = await admin.auth.admin.inviteUserByEmail(email, {
       data: { full_name, role: userRole },
-      redirectTo: `${baseUrl}/auth/confirm?next=/reset-password`,
+      redirectTo: `${SITE_URL}/reset-password`,
     });
 
     if (authErr) {
