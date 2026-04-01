@@ -27,7 +27,7 @@ const CSS = `
   /* BODY */
   .cs-body{flex:1;padding:14px 22px 10px;display:flex;flex-direction:column;gap:9px}
 
-  /* Sections — dark navy headers matching the main header */
+  /* Sections */
   .cs-sec{border:1px solid #1e3a5f;border-radius:7px;overflow:hidden}
   .cs-sec-ttl{background:#0b1d3a;border-bottom:1px solid #22d3ee;padding:6px 12px;font-size:8.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4fc3f7;display:flex;align-items:center;gap:8px}
   .cs-sec-ttl::before{content:'';width:3px;height:10px;background:#22d3ee;border-radius:2px;flex-shrink:0}
@@ -39,9 +39,26 @@ const CSS = `
   .cs-fv{font-size:11.5px;font-weight:600;color:#0b1d3a;line-height:1.3;word-break:break-word}
   .cs-fv.mono{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#0e7490}
   .cs-fv.large{font-size:13px;font-weight:900;color:#0b1d3a}
-  .cs-remarks{font-size:11px;color:#334155;line-height:1.65;padding:9px 12px;background:#f4f8ff}
 
-  /* SIGNATURES — always at bottom, dark navy card */
+  /* Full-width text field — for defects, recommendations, remarks */
+  .cs-field-full{
+    padding:10px 14px;
+    border-bottom:1px solid #dbeafe;
+    background:#f4f8ff;
+    grid-column:1/-1;
+    width:100%;
+  }
+  .cs-field-full:nth-child(odd){background:#eef4ff}
+  .cs-field-full .cs-fv{
+    font-size:11px;
+    line-height:1.7;
+    white-space:pre-wrap;
+    word-break:break-word;
+  }
+
+  .cs-remarks{font-size:11px;color:#334155;line-height:1.7;padding:10px 14px;background:#f4f8ff;white-space:pre-wrap;word-break:break-word}
+
+  /* SIGNATURES */
   .cs-sig-wrap{padding:0 22px 10px;flex-shrink:0}
   .cs-sig-card{background:#0b1d3a;border-radius:8px;padding:14px 16px}
   .cs-sig-card-title{font-size:8.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4fc3f7;margin-bottom:12px;display:flex;align-items:center;gap:8px}
@@ -55,7 +72,6 @@ const CSS = `
   .cs-sig-hint{font-size:9px;color:rgba(255,255,255,0.28);font-style:italic;margin-top:3px}
 
   /* LEGAL */
-  /* LEGAL FRAMEWORK BOX */
   .cs-legal-box{margin:0 22px 8px;padding:10px 14px;border:1px solid #b8cce4;border-radius:7px;background:#eaf2fb;flex-shrink:0}
   .cs-legal-box-title{font-size:8px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:#0b1d3a;margin-bottom:5px}
   .cs-legal-box-body{font-size:8px;color:#1e3a5f;line-height:1.65}
@@ -76,15 +92,24 @@ const CSS = `
   /* PRINT */
   @page{size:A4;margin:0}
   @media print{
-    .cs-wrap{background:none!important;border:none!important;border-radius:0!important;padding:0!important}
-    .cs-page{box-shadow:none!important;width:210mm!important;min-height:297mm!important}
+    html,body{margin:0;padding:0;width:210mm}
+    .cs-wrap{background:none!important;border:none!important;border-radius:0!important;padding:0!important;display:block}
+    .cs-page{
+      box-shadow:none!important;
+      width:210mm!important;
+      min-height:297mm!important;
+      height:auto!important;
+      page-break-after:always;
+    }
     .cs-hdr,.cs-accent,.cs-sec-ttl,.cs-badge,.cs-services,.cs-footer,.cs-sig-card,
-    .cs-field,.cs-sec,.cs-legal-box,.cs-body{
+    .cs-field,.cs-field-full,.cs-sec,.cs-legal-box,.cs-body{
       -webkit-print-color-adjust:exact;print-color-adjust:exact
     }
     .cs-sig-card{background:#0b1d3a!important}
     .cs-field{background:#f4f8ff!important}
     .cs-field:nth-child(odd){background:#eef4ff!important}
+    .cs-field-full{background:#f4f8ff!important}
+    .cs-field-full:nth-child(odd){background:#eef4ff!important}
     .cs-hdr{background:#0b1d3a!important}
     .cs-sec-ttl{background:#0b1d3a!important}
     .cs-services{background:#cc1111!important}
@@ -168,8 +193,19 @@ function Field({ label, value, mono=false, large=false }) {
     </div>
   );
 }
+
+/* Full-width field — spans entire section width, grows with content */
+function FieldFull({ label, value }) {
+  if (!value) return null;
+  return (
+    <div className="cs-field-full">
+      <div className="cs-fl">{label}</div>
+      <div className="cs-fv">{value}</div>
+    </div>
+  );
+}
+
 function Section({ title, children }) {
-  // Flatten and filter all children including nested arrays/fragments
   const flatten = (c) => {
     if (!c) return [];
     if (Array.isArray(c)) return c.flatMap(flatten);
@@ -184,6 +220,25 @@ function Section({ title, children }) {
     </div>
   );
 }
+
+/* Section that uses a single-column full-width layout — for defects/recommendations */
+function SectionFull({ title, children }) {
+  const flatten = (c) => {
+    if (!c) return [];
+    if (Array.isArray(c)) return c.flatMap(flatten);
+    return [c];
+  };
+  const kids = flatten(children).filter(Boolean);
+  if (!kids.length) return null;
+  return (
+    <div className="cs-sec">
+      {title && <div className="cs-sec-ttl">{title}</div>}
+      {/* No grid wrapper — each FieldFull is display:block full width */}
+      <div>{kids}</div>
+    </div>
+  );
+}
+
 function HeaderGeo() {
   return (
     <svg className="cs-geo" viewBox="0 0 794 120" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
@@ -239,7 +294,6 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
     ex.notes
   );
 
-  // ── Crane / fleet specific fields ──────────────────────────────────────
   const fleetNo       = val(c.fleet_number      || c.lanyard_serial_no || ex.fleet_number);
   const regNo         = val(c.registration_number || ex.registration_number);
   const serialNo      = val(c.serial_number     || ex.serial_number);
@@ -249,14 +303,13 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
   const recommendations = val(c.recommendations || ex.recommendations);
   const rawNotes      = val(c.notes || "");
 
-  // Detect equipment category
   const _isCrane      = /crane/i.test(_rawType);
   const _isHook       = /hook/i.test(_rawType);
   const _isRope       = /rope|wire.rope/i.test(_rawType);
   const _isPV         = /pressure.vessel|pressure vessel/i.test(_rawType);
 
   const parsedNotes = parseNotes(rawNotes);
-  const sigUrl     = "/Signature"; // Hardcoded — file at apps/web/public/Signature
+  const sigUrl     = "/Signature";
   const logoUrl    = c.logo_url || "/logo.png";
 
   const tone = resultStyle(pickResult(c));
@@ -322,20 +375,17 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
             </Section>
 
             <Section title="Equipment">
-              <Field label="Description"  value={equipDesc} />
-              <Field label="Type"         value={equipType} />
-              <Field label="Serial Number" value={serialNo} mono />
-              {mfg        && <Field label="Manufacturer"       value={mfg} />}
-              {model      && <Field label="Model"              value={model} />}
-              {yearBuilt  && <Field label="Year Built"         value={yearBuilt} />}
-              {equipId    && <Field label="Equipment ID"       value={equipId}   mono />}
-              {idNumber   && <Field label="Identification No." value={idNumber}  mono />}
-              {/* Crane-specific */}
+              <Field label="Description"   value={equipDesc} />
+              <Field label="Type"          value={equipType} />
+              <Field label="Serial Number" value={serialNo}  mono />
+              {mfg       && <Field label="Manufacturer"       value={mfg} />}
+              {model     && <Field label="Model"              value={model} />}
+              {yearBuilt && <Field label="Year Built"         value={yearBuilt} />}
+              {equipId   && <Field label="Equipment ID"       value={equipId}  mono />}
+              {idNumber  && <Field label="Identification No." value={idNumber} mono />}
               {_isCrane && fleetNo && <Field label="Fleet Number"        value={fleetNo} mono />}
               {_isCrane && regNo   && <Field label="Registration Number" value={regNo}   mono />}
-              {/* Hook-specific */}
               {_isHook  && swl     && <Field label="Hook SWL"            value={swl} />}
-              {/* Rope-specific */}
               {_isRope  && capacity && <Field label="Rope Diameter"      value={capacity} />}
             </Section>
 
@@ -379,15 +429,15 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
               </Section>
             )}
 
-            {/* ── DEFECTS & RECOMMENDATIONS ── */}
+            {/* ── DEFECTS & RECOMMENDATIONS ── full width, grows with content */}
             {(defects || recommendations) && (
-              <Section title="Defects & Recommendations">
-                {defects         && <Field label="Defects Found"   value={defects} />}
-                {recommendations && <Field label="Recommendations" value={recommendations} />}
-              </Section>
+              <SectionFull title="Defects & Recommendations">
+                {defects         && <FieldFull label="Defects Found"   value={defects} />}
+                {recommendations && <FieldFull label="Recommendations" value={recommendations} />}
+              </SectionFull>
             )}
 
-            {/* ── LEGAL FRAMEWORK — just below technical data ── */}
+            {/* ── LEGAL FRAMEWORK ── */}
             <div className="cs-sec" style={{borderColor:"#b8cce4",background:"#eaf2fb"}}>
               <div className="cs-sec-ttl" style={{background:"#d0e8f8",color:"#0b1d3a",borderBottomColor:"#b8cce4",fontSize:"10px",padding:"8px 14px",letterSpacing:"0.1em"}}>
                 Legal Framework &amp; Compliance Declaration
@@ -405,6 +455,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
               </div>
             </div>
 
+            {/* ── REMARKS — also full width ── */}
             {remarks && (
               <div className="cs-sec">
                 <div className="cs-sec-ttl">Remarks / Conditions</div>
@@ -414,7 +465,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
 
           </div>
 
-          {/* ── SIGNATURES — always present ── */}
+          {/* ── SIGNATURES ── */}
           <div className="cs-sig-wrap">
             <div className="cs-sig-card">
               <div className="cs-sig-card-title">Signatures &amp; Authorisation</div>
@@ -440,13 +491,11 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
                   <div className="cs-sig-hint">Client representative sign here</div>
                 </div>
 
-
-
               </div>
             </div>
           </div>
 
-          {/* ── LEGAL ── */}
+          {/* ── LEGAL FOOTER ── */}
           <div className="cs-legal">
             <div className="cs-legal-txt">
               This certificate is valid only for the equipment and conditions stated herein. Any alterations or unauthorised modifications render this certificate void.
