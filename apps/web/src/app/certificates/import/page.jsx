@@ -28,29 +28,49 @@ DATE FORMAT: Return dates as MM/YYYY or DD/MM/YYYY or YYYY only.
 Return ONLY valid JSON, no markdown:
 {"equipment_type":"","equipment_description":"","manufacturer":"","model":"","serial_number":"","asset_tag":"","year_built":"","capacity_volume":"","swl":"","working_pressure":"","design_pressure":"","test_pressure":"","pressure_unit":"","material":"","standard_code":"","inspection_number":"","client_name":"","location":"","inspection_date":"","expiry_date":"","next_inspection_due":"","inspector_name":"","inspection_body":"","result":"","defects_found":"","recommendations":"","comments":"","nameplate_data":"","raw_text_summary":""}`;
 
-function buildListPrompt(equipType, client, inspDate, expiryDate) {
+// ── List prompt — AI identifies each item's equipment type individually ──
+function buildListPrompt(client, inspDate, expiryDate) {
   return `You are a senior industrial inspection AI. The image shows a HANDWRITTEN LIST of equipment items.
 
 Your job: read EVERY line carefully and extract each item as a separate record.
 
-Equipment type for ALL items: "${equipType || "Lifting Equipment"}"
-Each line shows: Serial Number and SWL (Safe Working Load)
+EQUIPMENT TYPE IDENTIFICATION — CRITICAL:
+Identify the correct equipment type for EACH individual item from this approved list:
+"Chain Block", "Manual Chain Hoist", "Electric Chain Hoist", "Lever Hoist / Tirfor", "Chain Pulley Block",
+"Electric Wire Rope Hoist", "Wire Rope Winch",
+"Mobile Crane", "Overhead Crane / EOT Crane", "Gantry Crane", "Jib Crane", "Knuckle Boom Crane", "Davit Crane",
+"Chain Sling", "Wire Rope Sling", "Web Sling / Flat Sling", "Round Sling", "Multi-Leg Chain Sling", "Multi-Leg Wire Rope Sling",
+"Shackle — Bow / Anchor", "Shackle — D / Dee", "Hook — Swivel", "Hook — Eye", "Swivel", "Eye Bolt", "Turnbuckle", "Master Link",
+"Spreader Beam", "Lifting Beam", "Adjustable Spreader Beam", "Magnetic Lifter", "Vacuum Lifter Pad",
+"Beam Clamp", "Plate Clamp — Vertical", "Plate Clamp — Horizontal", "Pipe Clamp",
+"Safety Harness — Full Body", "Lanyard — Energy Absorbing", "Lanyard — Twin Leg", "Self-Retracting Lifeline (SRL)", "Fall Arrest Block",
+"Electric Winch", "Hydraulic Winch", "Snatch Block", "Pulley Block",
+"Trestle Jack", "Bottle Jack", "Axle Jack", "Floor Jack", "Hydraulic Jack", "Jack Stand",
+"Counterbalance Forklift", "Scissor Lift", "Boom Lift / Cherry Picker", "Personnel Basket / Man Basket",
+"Pressure Vessel", "Air Receiver", "Boiler", "Compressor — Air", "Gas Cylinder",
+"Hydraulic Pump", "Impact Wrench", "Torque Wrench",
+"Scaffold", "Fire Extinguisher", "Other"
 
 READING RULES:
+- Ditto marks (" or ,,) mean same equipment type as the line above — carry the type forward
 - Read serial numbers exactly, preserve dashes, slashes, zeros vs letter O
-- SWL fractions: "4 3/4" = 4.75T, "3 1/4" = 3.25T, "8 1/2" = 8.5T, "6 1/2" = 6.5T, "12 T" = 12T
-- Ditto marks mean same equipment type as the line above
-- Skip header lines, only extract individual item lines with serial numbers
-- Read ALL items on the page, do not skip any
+- SWL/capacity: read number and unit together (e.g. "12 Ton", "3T", "620 kPa")
+- result: if the line says "Fail" set "FAIL", if "Pass" set "PASS", if "Conditional" set "CONDITIONAL", otherwise default to "PASS"
+- defects_found: read any defect note on that line or immediately below it (e.g. "deformed, not fit for service")
+- Skip page title/header lines, only extract individual equipment lines
+- Read ALL items — do not skip any
+- If a section header names the equipment type and SWL (e.g. "Trestle Jack  12 Ton") treat that as the first item AND apply that type+SWL to subsequent ditto lines
 
 Return ONLY a valid JSON object, no markdown, no explanation:
 {
-  "equipment_type": "${equipType || "Lifting Equipment"}",
   "items": [
     {
-      "serial_number": "EXAMPLE-001",
-      "swl": "4.75T",
-      "equipment_description": "${equipType || "Lifting Equipment"} SN EXAMPLE-001 SWL 4.75T"
+      "equipment_type": "Trestle Jack",
+      "serial_number": "Axle-s/01",
+      "swl": "12 Ton",
+      "result": "PASS",
+      "defects_found": "",
+      "equipment_description": "Trestle Jack SN Axle-s/01 SWL 12 Ton"
     }
   ]
 }`;
@@ -70,8 +90,10 @@ const EQUIPMENT_TYPES = [
   "Beam Clamp","Plate Clamp — Vertical","Plate Clamp — Horizontal","Pipe Clamp",
   "Safety Harness — Full Body","Lanyard — Energy Absorbing","Lanyard — Twin Leg","Self-Retracting Lifeline (SRL)","Fall Arrest Block",
   "Electric Winch","Hydraulic Winch","Snatch Block","Pulley Block",
+  "Trestle Jack","Bottle Jack","Axle Jack","Floor Jack","Hydraulic Jack","Jack Stand",
   "Counterbalance Forklift","Scissor Lift","Boom Lift / Cherry Picker","Personnel Basket / Man Basket",
   "Pressure Vessel","Air Receiver","Boiler","Compressor — Air","Gas Cylinder",
+  "Hydraulic Pump","Impact Wrench","Torque Wrench",
   "Scaffold","Fire Extinguisher","Other",
 ];
 
@@ -375,10 +397,8 @@ function DocumentMode() {
         .select("id")
         .ilike("company_name", name)
         .maybeSingle();
-
       if (lookupErr) return { error: lookupErr.message };
       if (existing)  return { exists: true };
-
       const { error: insertErr } = await supabase.from("clients").insert({
         company_name: name,
         company_code: generateCompanyCode(name),
@@ -386,7 +406,6 @@ function DocumentMode() {
         country:      "Botswana",
         status:       "active",
       });
-
       if (insertErr) return { error: insertErr.message };
       return { created: true };
     } catch(e) {
@@ -545,6 +564,7 @@ function DocumentMode() {
 
 // ══════════════════════════════════════════════════════════════
 // LIST MODE — photo of handwritten list → many certificates
+// AI identifies each item's equipment type individually
 // ══════════════════════════════════════════════════════════════
 function ListMode() {
   const [files, setFiles] = useState([]);
@@ -552,8 +572,7 @@ function ListMode() {
   const [extracting, setExtracting] = useState(false);
   const [progress, setProgressState] = useState({visible:false,pct:0,label:""});
   const [items, setItems] = useState([]);
-  const [equipType, setEquipType] = useState("Shackle — Bow / Anchor");
-  const [overrides, setOverrides] = useState({client_name:"",inspection_date:"",expiry_date:""});
+  const [overrides, setOverrides] = useState({client_name:"",location:"",inspection_date:"",expiry_date:""});
   const [savingAll, setSavingAll] = useState(false);
   const [error, setError] = useState("");
   const fileInputRef = useRef(null);
@@ -581,7 +600,7 @@ function ListMode() {
       setProgress(50,"AI reading list — this may take a moment...");
       const res=await fetch("/api/ai/extract",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
         files:payloads,
-        systemPrompt:buildListPrompt(equipType,overrides.client_name,overrides.inspection_date,overrides.expiry_date),
+        systemPrompt:buildListPrompt(overrides.client_name,overrides.inspection_date,overrides.expiry_date),
         listMode:true,
       })});
       setProgress(80,"Parsing items...");
@@ -609,9 +628,10 @@ function ListMode() {
         id:uid(),
         serial_number:String(item.serial_number||"").trim(),
         swl:String(item.swl||"").trim(),
-        equipment_description:item.equipment_description||`${equipType} SN ${item.serial_number||i+1} SWL ${item.swl||""}`.trim(),
-        equipment_type:equipType,
-        result:"PASS",
+        equipment_type:String(item.equipment_type||"Other").trim(),
+        equipment_description:item.equipment_description||`${item.equipment_type||"Equipment"} SN ${item.serial_number||i+1} SWL ${item.swl||""}`.trim(),
+        result:String(item.result||"PASS").trim().toUpperCase()||"PASS",
+        defects_found:String(item.defects_found||"").trim(),
         saved:false,saving:false,savedId:null,certNumber:null,saveError:null,
       })));
     }catch(e){setError(e.message||"Extraction failed.");setProgress(100,"Failed");}
@@ -620,7 +640,7 @@ function ListMode() {
 
   function updateItem(id,key,value){setItems(prev=>prev.map(it=>it.id===id?{...it,[key]:value}:it));}
   function removeItem(id){setItems(prev=>prev.filter(it=>it.id!==id));}
-  function addBlankItem(){setItems(prev=>[...prev,{id:uid(),serial_number:"",swl:"",equipment_description:`${equipType}`,equipment_type:equipType,result:"PASS",saved:false,saving:false,savedId:null,certNumber:null,saveError:null}]);}
+  function addBlankItem(){setItems(prev=>[...prev,{id:uid(),serial_number:"",swl:"",equipment_type:"Other",equipment_description:"",result:"PASS",defects_found:"",saved:false,saving:false,savedId:null,certNumber:null,saveError:null}]);}
 
   function generateCompanyCode(name) {
     const initials = name.trim().split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
@@ -644,10 +664,8 @@ function ListMode() {
         .select("id")
         .ilike("company_name", name)
         .maybeSingle();
-
       if (lookupErr) return { error: lookupErr.message };
       if (existing)  return { exists: true };
-
       const { error: insertErr } = await supabase.from("clients").insert({
         company_name: name,
         company_code: generateCompanyCode(name),
@@ -655,7 +673,6 @@ function ListMode() {
         country:      "Botswana",
         status:       "active",
       });
-
       if (insertErr) return { error: insertErr.message };
       return { created: true };
     } catch(e) {
@@ -672,21 +689,23 @@ function ListMode() {
         const cr = await ensureClient(overrides.client_name, overrides.location||"");
         if(cr?.error) console.warn("Client auto-register failed:", cr.error);
       }
-      let rowSerial = row.serial_number?.trim() || generateSerialNumber(overrides.client_name||"", row.equipment_type||equipType);
+      let rowSerial = row.serial_number?.trim() || generateSerialNumber(overrides.client_name||"", row.equipment_type||"");
       const certNumber=`CERT-${slugify(rowSerial||String(certSeqRef.current))}-${String(certSeqRef.current++).padStart(2,"0")}`;
       const payload={
         certificate_number:certNumber,
         result:row.result||"PASS",
-        equipment_type:row.equipment_type||equipType,
+        equipment_type:row.equipment_type||null,
         equipment_description:row.equipment_description||null,
         asset_name:row.equipment_description||null,
-        asset_type:row.equipment_type||equipType,
+        asset_type:row.equipment_type||null,
         serial_number:rowSerial||null,
         swl:row.swl||null,
         client_name:overrides.client_name||null,
+        location:overrides.location||null,
         issue_date:normalizeDate(overrides.inspection_date)||null,
         inspection_date:normalizeDate(overrides.inspection_date)||null,
         expiry_date:normalizeDate(overrides.expiry_date)||null,
+        defects_found:row.defects_found||null,
         status:"active",
       };
       const res=await fetch("/api/certificates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
@@ -706,18 +725,21 @@ function ListMode() {
   return(
     <div style={{display:"grid",gap:14}}>
 
-      {/* CONFIG */}
+      {/* MANUAL OVERRIDE — 4 fields, no equipment type dropdown */}
       <div className="card">
-        <div className="card-header"><div className="card-title">⚙️ List Configuration</div></div>
+        <div className="card-header">
+          <div>
+            <div className="card-title">Manual override</div>
+            <div className="card-sub">Always overwrites extracted values when set.</div>
+          </div>
+          {Object.values(overrides).some(v=>String(v||"").trim())&&
+            <button className="btn btn-ghost" type="button" style={{fontSize:11,padding:"5px 10px"}} onClick={()=>setOverrides({client_name:"",location:"",inspection_date:"",expiry_date:""})}>Clear</button>
+          }
+        </div>
         <div className="card-body">
-          <div className="override-grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))"}}>
-            <div className="ov-f" style={{gridColumn:"span 2"}}>
-              <label className="ov-lbl">Equipment type (applied to all items)</label>
-              <select className="ov-input" value={equipType} onChange={e=>setEquipType(e.target.value)}>
-                {EQUIPMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-            <div className="ov-f"><label className="ov-lbl">Client name</label><input className="ov-input" type="text" placeholder="e.g. Debswana" value={overrides.client_name} onChange={e=>setOverrides(p=>({...p,client_name:e.target.value}))}/></div>
+          <div className="override-grid">
+            <div className="ov-f"><label className="ov-lbl">Client name</label><input className="ov-input" type="text" placeholder="e.g. Unitrans" value={overrides.client_name} onChange={e=>setOverrides(p=>({...p,client_name:e.target.value}))}/></div>
+            <div className="ov-f"><label className="ov-lbl">Location / Site</label><input className="ov-input" type="text" placeholder="e.g. Processing Plant" value={overrides.location} onChange={e=>setOverrides(p=>({...p,location:e.target.value}))}/></div>
             <div className="ov-f"><label className="ov-lbl">Inspection date</label><input className="ov-input" type="date" value={overrides.inspection_date} onChange={e=>setOverrides(p=>({...p,inspection_date:e.target.value}))}/></div>
             <div className="ov-f"><label className="ov-lbl">Expiry date</label><input className="ov-input" type="date" value={overrides.expiry_date} onChange={e=>setOverrides(p=>({...p,expiry_date:e.target.value}))}/></div>
           </div>
@@ -727,7 +749,7 @@ function ListMode() {
       {/* UPLOAD */}
       <div className="card">
         <div className="card-header">
-          <div><div className="card-title">📸 Upload list photos</div><div className="card-sub">Up to 5 pages — AI reads every line on every page</div></div>
+          <div><div className="card-title">📸 Upload list photos</div><div className="card-sub">Up to 5 pages — AI reads every line and identifies each equipment type</div></div>
           <label className="browse-label">Browse<input ref={fileInputRef} type="file" multiple accept="image/*" style={{display:"none"}} onChange={e=>addFiles(Array.from(e.target.files||[]))}/></label>
         </div>
         <div className="card-body">
@@ -755,7 +777,7 @@ function ListMode() {
           <div className="card-header">
             <div>
               <div className="list-banner-text">📋 {items.length} items extracted · {savedCount} saved · {pendingCount} pending</div>
-              <div className="list-banner-sub">{equipType} · Client: {overrides.client_name||"not set"} · Expiry: {overrides.expiry_date||"not set"}</div>
+              <div className="list-banner-sub">Client: {overrides.client_name||"not set"} · Inspection: {overrides.inspection_date||"not set"} · Expiry: {overrides.expiry_date||"not set"}</div>
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               <button className="btn" type="button" style={{fontSize:11,padding:"6px 12px"}} onClick={addBlankItem}>+ Add row</button>
@@ -770,18 +792,24 @@ function ListMode() {
                 <thead>
                   <tr>
                     <th style={{width:36}}>#</th>
-                    <th style={{width:160}}>Serial Number</th>
-                    <th style={{width:90}}>SWL</th>
+                    <th style={{minWidth:160}}>Equipment Type</th>
+                    <th style={{width:140}}>Serial Number</th>
+                    <th style={{width:80}}>SWL</th>
                     <th>Description</th>
-                    <th style={{width:120}}>Result</th>
-                    <th style={{width:90}}>Status</th>
-                    <th style={{width:120}}>Action</th>
+                    <th style={{width:110}}>Result</th>
+                    <th style={{width:80}}>Status</th>
+                    <th style={{width:110}}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((item,idx)=>(
                     <tr key={item.id} className={item.saved?"row-saved":item.saveError?"row-err":""}>
                       <td style={{color:"var(--hint)",fontWeight:700,fontSize:11}}>{idx+1}</td>
+                      <td>
+                        <select className="list-input" value={item.equipment_type} disabled={item.saved} onChange={e=>updateItem(item.id,"equipment_type",e.target.value)}>
+                          {EQUIPMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </td>
                       <td><input className="list-input" style={{fontFamily:"'IBM Plex Mono',monospace"}} value={item.serial_number} disabled={item.saved} onChange={e=>updateItem(item.id,"serial_number",e.target.value)}/></td>
                       <td><input className="list-input" value={item.swl} disabled={item.saved} onChange={e=>updateItem(item.id,"swl",e.target.value)}/></td>
                       <td><input className="list-input" value={item.equipment_description} disabled={item.saved} onChange={e=>updateItem(item.id,"equipment_description",e.target.value)}/></td>
