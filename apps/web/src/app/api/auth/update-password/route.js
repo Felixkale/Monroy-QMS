@@ -39,7 +39,7 @@ export async function POST(request) {
       );
     }
 
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const supabase = createSupabaseServer(cookieStore);
 
     const {
