@@ -33,24 +33,24 @@ function buildListPrompt(equipType, client, inspDate, expiryDate) {
 
 Your job: read EVERY line carefully and extract each item as a separate record.
 
-Equipment type for ALL items: "${equipType || "Shackle"}"
+Equipment type for ALL items: "${equipType || "Lifting Equipment"}"
 Each line shows: Serial Number and SWL (Safe Working Load)
 
 READING RULES:
 - Read serial numbers exactly, preserve dashes, slashes, zeros vs letter O
 - SWL fractions: "4 3/4" = 4.75T, "3 1/4" = 3.25T, "8 1/2" = 8.5T, "6 1/2" = 6.5T, "12 T" = 12T
 - Ditto marks mean same equipment type as the line above
-- Skip header lines like "Shackles", only extract individual item lines with serial numbers
+- Skip header lines, only extract individual item lines with serial numbers
 - Read ALL items on the page, do not skip any
 
 Return ONLY a valid JSON object, no markdown, no explanation:
 {
-  "equipment_type": "${equipType || "Shackle"}",
+  "equipment_type": "${equipType || "Lifting Equipment"}",
   "items": [
     {
-      "serial_number": "BOL005-07",
+      "serial_number": "EXAMPLE-001",
       "swl": "4.75T",
-      "equipment_description": "${equipType || "Shackle"} SN BOL005-07 SWL 4.75T"
+      "equipment_description": "${equipType || "Lifting Equipment"} SN EXAMPLE-001 SWL 4.75T"
     }
   ]
 }`;
@@ -353,26 +353,20 @@ function DocumentMode() {
   function setResultField(idx,key,value){setResults(prev=>prev.map((it,i)=>i===idx?{...it,[key]:value}:it));}
   function toggleExpanded(idx){setResults(prev=>prev.map((it,i)=>i===idx?{...it,expanded:!it.expanded}:it));}
 
-  // Auto-generate company code
   function generateCompanyCode(name) {
     const initials = name.trim().split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
     return `${initials}-${String(Math.floor(Math.random()*900)+100)}`;
   }
 
-  // Auto-generate serial number when equipment has none
-  // Format: CLT-EQUIP-timestamp e.g. UNI-BS-1711234567
   function generateSerialNumber(clientName, equipmentType) {
     const clientCode = (clientName||"UNK").trim()
       .split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
     const equipCode = (equipmentType||"EQP").trim()
       .split(/[\s/—-]+/).filter(Boolean).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
-    // Use last 6 digits of timestamp for uniqueness
     const ts = String(Date.now()).slice(-6);
     return `${clientCode}-${equipCode}-${ts}`;
   }
 
-  // Auto-register client in clients table if new
-  // Returns: { created: true } | { exists: true } | { error: string }
   async function ensureClient(clientName, city) {
     if (!clientName || !clientName.trim()) return { skip: true };
     const name = clientName.trim();
@@ -391,7 +385,6 @@ function DocumentMode() {
         city:         city || "",
         country:      "Botswana",
         status:       "active",
-        // No contact_email — make sure column allows NULL (run fix_clients_table.sql)
       });
 
       if (insertErr) return { error: insertErr.message };
@@ -407,12 +400,10 @@ function DocumentMode() {
     setResults(prev=>prev.map((it,i)=>i===idx?{...it,saving:true,saveError:null}:it));
     try{
       const certNumber=genCert(row.data,row.fileName);
-      // Auto-generate serial number if missing
       if (!row.data.serial_number || !row.data.serial_number.trim()) {
         const clientForSerial = overrides.client_name?.trim() || row.data.client_name || "";
         row.data.serial_number = generateSerialNumber(clientForSerial, row.data.equipment_type);
       }
-      // Use override client name if set, otherwise use extracted value
       const effectiveClient = overrides.client_name?.trim() || row.data.client_name;
       const effectiveCity   = overrides.location?.trim()    || row.data.location || "";
       const clientResult = await ensureClient(effectiveClient, effectiveCity);
@@ -631,17 +622,56 @@ function ListMode() {
   function removeItem(id){setItems(prev=>prev.filter(it=>it.id!==id));}
   function addBlankItem(){setItems(prev=>[...prev,{id:uid(),serial_number:"",swl:"",equipment_description:`${equipType}`,equipment_type:equipType,result:"PASS",saved:false,saving:false,savedId:null,certNumber:null,saveError:null}]);}
 
+  function generateCompanyCode(name) {
+    const initials = name.trim().split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+    return `${initials}-${String(Math.floor(Math.random()*900)+100)}`;
+  }
+
+  function generateSerialNumber(clientName, equipmentType) {
+    const clientCode = (clientName||"UNK").trim()
+      .split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+    const equipCode = (equipmentType||"EQP").trim()
+      .split(/[\s/—-]+/).filter(Boolean).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+    const ts = String(Date.now()).slice(-6);
+    return `${clientCode}-${equipCode}-${ts}`;
+  }
+
+  async function ensureClient(clientName, city) {
+    if (!clientName || !clientName.trim()) return { skip: true };
+    const name = clientName.trim();
+    try {
+      const { data: existing, error: lookupErr } = await supabase.from("clients")
+        .select("id")
+        .ilike("company_name", name)
+        .maybeSingle();
+
+      if (lookupErr) return { error: lookupErr.message };
+      if (existing)  return { exists: true };
+
+      const { error: insertErr } = await supabase.from("clients").insert({
+        company_name: name,
+        company_code: generateCompanyCode(name),
+        city:         city || "",
+        country:      "Botswana",
+        status:       "active",
+      });
+
+      if (insertErr) return { error: insertErr.message };
+      return { created: true };
+    } catch(e) {
+      return { error: e.message };
+    }
+  }
+
   async function saveOne(id){
     const row=items.find(x=>x.id===id);
     if(!row||row.saved||row.saving)return;
     setItems(prev=>prev.map(it=>it.id===id?{...it,saving:true,saveError:null}:it));
     try{
-      // Auto-register client from override into clients table
       if(overrides.client_name){
         const cr = await ensureClient(overrides.client_name, overrides.location||"");
         if(cr?.error) console.warn("Client auto-register failed:", cr.error);
       }
-      // Auto-generate serial number if missing
       let rowSerial = row.serial_number?.trim() || generateSerialNumber(overrides.client_name||"", row.equipment_type||equipType);
       const certNumber=`CERT-${slugify(rowSerial||String(certSeqRef.current))}-${String(certSeqRef.current++).padStart(2,"0")}`;
       const payload={
