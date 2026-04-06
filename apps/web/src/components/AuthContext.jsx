@@ -1,6 +1,5 @@
 // src/components/AuthContext.jsx
 "use client";
-
 import { createContext, useContext, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -9,6 +8,7 @@ const AuthContext = createContext({});
 
 // Pages that never require authentication
 const PUBLIC_ROUTES = [
+  "/",               // ← landing page — no auth required
   "/login",
   "/forgot-password",
   "/reset-password",
@@ -39,7 +39,7 @@ export function AuthProvider({ children }) {
     if (loading) return;
 
     // Never redirect public routes
-    const isPublic = PUBLIC_ROUTES.some(r => pathname.startsWith(r));
+    const isPublic = PUBLIC_ROUTES.some(r => pathname === r || pathname.startsWith(r + "/"));
     if (isPublic) return;
 
     // Never redirect if URL hash contains auth tokens (invite/reset links)
