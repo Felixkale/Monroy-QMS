@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 const PUBLIC_ROUTES = new Set([
+  "/",              // ← landing page — no auth required
   "/login",
   "/reset-password",
   "/auth/confirm",
@@ -40,13 +41,11 @@ export async function middleware(request) {
           cookiesToSet.forEach(({ name, value }) => {
             request.cookies.set(name, value);
           });
-
           response = NextResponse.next({
             request: {
               headers: request.headers,
             },
           });
-
           cookiesToSet.forEach(({ name, value, options }) => {
             response.cookies.set(name, value, options);
           });
