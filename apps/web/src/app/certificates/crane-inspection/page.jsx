@@ -129,9 +129,11 @@ export default function CraneInspectionPage() {
   const router = useRouter();
   const [step,    setStep]    = useState(1);
   const [clients, setClients] = useState([]);
-  const [saving,  setSaving]  = useState(false);
-  const [saved,   setSaved]   = useState(null);
-  const [error,   setError]   = useState("");
+  const [saving,    setSaving]    = useState(false);
+  const [saved,     setSaved]     = useState(null);
+  const [error,     setError]     = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
 
   const [crane, setCrane] = useState({
     client_id:"", client_name:"", client_location:"",
@@ -203,6 +205,25 @@ export default function CraneInspectionPage() {
     return `${initials}-${rand}`;
   }
 
+async function toBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(",")[1]);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+async function extractCraneDataFromImage(base64, mimeType) {
+  const res = await fetch("/api/ai/extract-crane", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ base64, mimeType }),
+  });
+  if (!res.ok) throw new Error("API error " + res.status);
+  return await res.json();
+}
+
   // Auto-register client in clients table if not already there
   async function ensureClient(name, city) {
     if (!name || !name.trim()) return;
@@ -217,6 +238,78 @@ export default function CraneInspectionPage() {
         status:         "active",
       });
     }
+  }
+
+  async function handleImport(file) {
+    if (!file) return;
+    setImporting(true); setImportMsg("Reading handwritten notes…");
+    try {
+      const base64  = await toBase64(file);
+      const mime    = file.type || "image/jpeg";
+      setImportMsg("Extracting data with AI…");
+      const d = await extractCraneDataFromImage(base64, mime);
+
+      // Pre-fill crane details
+      if (d.crane_serial_number) uc("serial_number",   d.crane_serial_number);
+      if (d.crane_fleet_number)  uc("fleet_number",    d.crane_fleet_number);
+      if (d.crane_registration)  uc("registration_number", d.crane_registration);
+      if (d.crane_model)         uc("model",           d.crane_model);
+      if (d.crane_swl)           uc("swl",             d.crane_swl);
+
+      // Crane inspection fields
+      if (d.crane_computer_status === "FAIL" || (d.crane_computer_notes && /not working|fail|unsafe/i.test(d.crane_computer_notes))) {
+        uci("crane_computer", "FAIL");
+        uci("result", "FAIL");
+        if (d.crane_computer_notes) uci("defects", d.crane_computer_notes);
+        if (d.overall_result) uci("result", d.overall_result);
+      }
+      if (d.overall_result) uci("result", d.overall_result);
+      if (d.defects)        uci("defects", d.defects);
+      if (d.boom_test_load) uci("test_load", d.boom_test_load);
+
+      // Boom fields
+      if (d.boom_actual_length)   ub("actual_boom_length",   d.boom_actual_length);
+      if (d.boom_extended_length) ub("extended_boom_length", d.boom_extended_length);
+      if (d.boom_radius)          ub("load_tested_at_radius", d.boom_radius);
+      if (d.boom_angle)           ub("boom_angle",            d.boom_angle);
+      if (d.boom_swl_at_config)   ub("swl_at_actual_config", d.boom_swl_at_config);
+      if (d.boom_test_load)       ub("test_load",             d.boom_test_load);
+      if (d.crane_computer_status === "FAIL") ub("lmi_test", "FAIL");
+
+      // Hook fields
+      if (d.hook_swl)    uh("swl",           d.hook_swl);
+      if (d.hook_serial) uh("serial_number", d.hook_serial);
+
+      // Rope fields
+      if (d.rope_diameter) ur("diameter", d.rope_diameter);
+      if (d.rope_length)   ur("length",   d.rope_length);
+
+      // Pressure vessels
+      if (d.pressure_vessels?.length > 0) {
+        const newPvs = d.pressure_vessels.map(pv => ({
+          sn:               pv.sn || "",
+          description:      pv.description || "",
+          manufacturer:     "",
+          year_manufacture: "",
+          country_origin:   "",
+          capacity:         pv.capacity || "",
+          working_pressure: pv.working_pressure || "",
+          test_pressure:    "",
+          pressure_unit:    pv.pressure_unit || "kPa",
+          result:           pv.result || "PASS",
+          notes:            "",
+        }));
+        setPvs(newPvs.length > 0 ? newPvs : [emptyPV()]);
+      }
+
+      const count = (d.pressure_vessels?.length || 0) +
+        (d.crane_serial_number ? 1 : 0) + (d.boom_actual_length ? 1 : 0);
+      setImportMsg(`✓ Extracted ${count} data points — review and complete any missing fields`);
+    } catch(e) {
+      console.error(e);
+      setImportMsg("⚠ Could not read image — please fill in manually");
+    }
+    setImporting(false);
   }
 
   async function handleGenerate() {
@@ -419,6 +512,25 @@ export default function CraneInspectionPage() {
         <StepBar current={step}/>
 
         {error && <div style={{ padding:"10px 14px", borderRadius:10, border:`1px solid ${T.redBrd}`, background:T.redDim, color:T.red, fontSize:13, fontWeight:700, marginBottom:16 }}>⚠ {error}</div>}
+
+        {/* ── PHOTO IMPORT ── */}
+        {step === 1 && (
+          <div style={{ background:T.purpleDim, border:`1px solid ${T.purpleBrd}`, borderRadius:14, padding:"14px 18px", marginBottom:16, display:"flex", alignItems:"center", gap:14, flexWrap:"wrap" }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, fontWeight:800, color:T.purple, marginBottom:3 }}>📷 Import from Handwritten Note</div>
+              <div style={{ fontSize:11, color:T.textDim }}>Snap a photo of your handwritten inspection notes — AI auto-fills all form fields</div>
+              {importMsg && <div style={{ fontSize:12, fontWeight:700, marginTop:6, color: importMsg.startsWith("✓")?T.green:importMsg.startsWith("⚠")?T.red:T.amber }}>{importMsg}</div>}
+            </div>
+            <label style={{ cursor:"pointer", flexShrink:0 }}>
+              <input type="file" accept="image/*" capture="environment" style={{ display:"none" }}
+                onChange={async e => { const f = e.target.files?.[0]; if(f) await handleImport(f); e.target.value=""; }}
+              />
+              <div style={{ padding:"10px 18px", borderRadius:10, background:importing?T.card:"linear-gradient(135deg,#a78bfa,#7c3aed)", color:importing?T.textDim:"#fff", fontWeight:800, fontSize:13, display:"flex", alignItems:"center", gap:8, opacity:importing?0.6:1 }}>
+                {importing ? "🔄 Reading…" : "📷 Choose / Take Photo"}
+              </div>
+            </label>
+          </div>
+        )}
 
         {/* ── STEP 1: Crane Details ── */}
         {step === 1 && (
