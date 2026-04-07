@@ -342,6 +342,72 @@ export default function MachineInspectionPage() {
     }
   }
 
+  async function handleImport(file) {
+    if (!file) return;
+    setImporting(true); setImportMsg("Reading notes…");
+    try {
+      const base64 = await toBase64(file);
+      const mime   = file.type || "image/jpeg";
+      setImportMsg("Extracting data with AI…");
+      const d = await extractMachineDataFromImage(base64, mime);
+
+      // Equipment identity
+      if (d.serial_number)        ue("serial_number",        d.serial_number);
+      if (d.fleet_number)         ue("fleet_number",         d.fleet_number);
+      if (d.registration_number)  ue("registration_number",  d.registration_number);
+      if (d.manufacturer)         ue("manufacturer",         d.manufacturer);
+      if (d.model)                ue("model",                d.model);
+
+      // Inspection results — only set if field exists in current machine type
+      if (d.overall_result)       ui("overall_result",       d.overall_result);
+      if (d.defects)              ui("defects",              d.defects);
+      if (d.recommendations)      ui("recommendations",      d.recommendations);
+      if (d.swl)                  ui("swl",                  d.swl);
+      if (d.test_load)            ui("test_load",            d.test_load);
+      if (d.structural_result)    ui("structural_result",    d.structural_result);
+      if (d.hydraulics_result)    ui("hydraulics_result",    d.hydraulics_result);
+      if (d.boom_result)          ui("boom_result",          d.boom_result);
+
+      // Boom fields
+      if (d.boom_actual_length)    ub("actual_boom_length",    d.boom_actual_length);
+      if (d.boom_extended_length)  ub("extended_boom_length",  d.boom_extended_length);
+      if (d.boom_radius)           ub("load_tested_at_radius",  d.boom_radius);
+      if (d.boom_angle)            ub("boom_angle",             d.boom_angle);
+      if (d.boom_test_load)        ub("test_load",              d.boom_test_load);
+      if (d.boom_swl_at_config)    ub("swl_at_actual_config",  d.boom_swl_at_config);
+      if (d.boom_swl_min)          ub("swl_at_min_radius",     d.boom_swl_min);
+      if (d.boom_swl_max)          ub("swl_at_max_radius",     d.boom_swl_max);
+      if (d.boom_min_radius)       ub("min_radius",             d.boom_min_radius);
+      if (d.boom_max_radius)       ub("max_radius",             d.boom_max_radius);
+
+      // Pressure vessels
+      if (d.pressure_vessels?.length > 0) {
+        const newPvs = d.pressure_vessels.map(pv => ({
+          sn:               pv.sn || "",
+          description:      pv.description || "",
+          manufacturer:     pv.manufacturer || "",
+          year_manufacture: pv.year_manufacture || "",
+          country_origin:   pv.country_origin || "",
+          capacity:         pv.capacity || "",
+          working_pressure: pv.working_pressure || "",
+          test_pressure:    pv.test_pressure || "",
+          pressure_unit:    pv.pressure_unit || "bar",
+          result:           pv.result || "PASS",
+          notes:            pv.notes || "",
+        }));
+        setPvs(newPvs);
+        setHasPVs(true);
+      }
+
+      const count = Object.values(d).filter(v => v && v !== "PASS" && typeof v !== "object").length;
+      setImportMsg(`✓ Extracted data — review and complete missing fields`);
+    } catch(e) {
+      console.error(e);
+      setImportMsg("⚠ Could not read image — please fill manually");
+    }
+    setImporting(false);
+  }
+
   async function handleGenerate() {
     if (!machineType || !equip.client_id || !equip.serial_number) {
       setError("Missing required fields."); return;
@@ -526,6 +592,25 @@ export default function MachineInspectionPage() {
         <StepBar current={step} hasPV={hasPVs && machineTypeId !== ""} pvOnly={machineType?.pvOnly||false} hasBoom={machineType?.hasBoom||false}/>
 
         {error && <div style={{ padding:"10px 14px", borderRadius:10, border:`1px solid ${T.redBrd}`, background:T.redDim, color:T.red, fontSize:13, fontWeight:700, marginBottom:16 }}>⚠ {error}</div>}
+
+        {/* ── PHOTO IMPORT ── */}
+        {step === 1 && (
+          <div style={{ background:T.purpleDim, border:`1px solid ${T.purpleBrd}`, borderRadius:14, padding:"14px 18px", marginBottom:16, display:"flex", alignItems:"center", gap:14, flexWrap:"wrap" }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, fontWeight:800, color:T.purple, marginBottom:3 }}>📷 Import from Handwritten Note</div>
+              <div style={{ fontSize:11, color:T.textDim }}>Take a photo of your inspection notes — AI fills serial number, SWL, results and pressure vessels automatically</div>
+              {importMsg && <div style={{ fontSize:12, fontWeight:700, marginTop:6, color:importMsg.startsWith("✓")?T.green:importMsg.startsWith("⚠")?T.red:T.amber }}>{importMsg}</div>}
+            </div>
+            <label style={{ cursor:"pointer", flexShrink:0 }}>
+              <input type="file" accept="image/*" capture="environment" style={{ display:"none" }}
+                onChange={async e => { const f = e.target.files?.[0]; if(f) await handleImport(f); e.target.value=""; }}
+              />
+              <div style={{ padding:"10px 18px", borderRadius:10, background:importing?T.card:"linear-gradient(135deg,#a78bfa,#7c3aed)", color:importing?T.textDim:"#fff", fontWeight:800, fontSize:13, display:"flex", alignItems:"center", gap:8, opacity:importing?0.6:1 }}>
+                {importing ? "🔄 Reading…" : "📷 Choose / Take Photo"}
+              </div>
+            </label>
+          </div>
+        )}
 
         {/* ── STEP 1: Equipment Identity ── */}
         {step === 1 && (
