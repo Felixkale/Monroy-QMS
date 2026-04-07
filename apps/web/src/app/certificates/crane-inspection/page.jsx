@@ -377,6 +377,53 @@ async function extractCraneDataFromImage(base64, mimeType) {
     });
 
     // 2. Hook — Load Test Certificate — 6 months
+    // ── Boom certificate ─────────────────────────────────────────────────
+    certs.push({
+      certificate_number: nextNo("BM"),
+      equipment_type: "Crane Boom",
+      equipment_description: [
+        craneData.crane_type || "Mobile Crane",
+        boom.actual_boom_length   ? `Boom ${boom.actual_boom_length}m`          : "",
+        boom.extended_boom_length ? `ext ${boom.extended_boom_length}m`          : "",
+        boom.boom_angle           ? `@ ${boom.boom_angle}°`                      : "",
+        boom.swl_at_actual_config ? `SWL ${boom.swl_at_actual_config}`           : crane.swl ? `SWL ${crane.swl}` : "",
+        crane.serial_number       ? `SN ${craneData.serial_number}`              : "",
+      ].filter(Boolean).join(" — "),
+      serial_number: craneData.serial_number,
+      model: craneData.model,
+      swl: boom.swl_at_actual_config || craneData.swl,
+      client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
+      issue_date: iDate, inspection_date: iDate, expiry_date: exp1yr, next_inspection_due: exp1yr,
+      result: boom.boom_structure === "FAIL" || boom.lmi_test === "FAIL" ? "FAIL" : craneInsp.result,
+      inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
+      certificate_type: "Load Test Certificate",
+      folder_id: folderId, folder_name: folderName, folder_position: 2,
+      notes: [
+        boom.min_boom_length        ? `Min length: ${boom.min_boom_length}m`           : "",
+        boom.max_boom_length        ? `Max length: ${boom.max_boom_length}m`           : "",
+        boom.actual_boom_length     ? `Actual length: ${boom.actual_boom_length}m`     : "",
+        boom.extended_boom_length   ? `Extended: ${boom.extended_boom_length}m`        : "",
+        boom.boom_angle             ? `Angle: ${boom.boom_angle}°`                     : "",
+        boom.jib_fitted === "yes" && boom.jib_length ? `Jib: ${boom.jib_length}m @ ${boom.jib_angle}°` : "",
+        boom.min_radius             ? `Min radius: ${boom.min_radius}m`               : "",
+        boom.max_radius             ? `Max radius: ${boom.max_radius}m`               : "",
+        boom.load_tested_at_radius  ? `Test radius: ${boom.load_tested_at_radius}m`   : "",
+        boom.swl_at_min_radius      ? `SWL@min: ${boom.swl_at_min_radius}`            : "",
+        boom.swl_at_max_radius      ? `SWL@max: ${boom.swl_at_max_radius}`            : "",
+        boom.swl_at_actual_config   ? `SWL@config: ${boom.swl_at_actual_config}`      : "",
+        boom.test_load              ? `Test load: ${boom.test_load}T`                 : "",
+        boom.boom_structure !== "PASS" ? `Boom structure: ${boom.boom_structure}`     : "",
+        boom.boom_pins !== "PASS"   ? `Boom pins: ${boom.boom_pins}`                  : "",
+        boom.luffing_system !== "PASS" ? `Luffing: ${boom.luffing_system}`            : "",
+        boom.slew_system !== "PASS" ? `Slew: ${boom.slew_system}`                     : "",
+        boom.hoist_system !== "PASS"? `Hoist: ${boom.hoist_system}`                   : "",
+        boom.lmi_test !== "PASS"    ? `LMI: ${boom.lmi_test}`                         : "",
+        boom.anti_two_block !== "PASS" ? `Anti-two-block: ${boom.anti_two_block}`     : "",
+        boom.anemometer !== "PASS"  ? `Anemometer: ${boom.anemometer}`                : "",
+        boom.notes                  ? `Notes: ${boom.notes}`                           : "",
+      ].filter(Boolean).join(" | "),
+    });
+
     certs.push({
       certificate_number: nextNo("HK"),
       equipment_type: "Crane Hook",
@@ -389,7 +436,7 @@ async function extractCraneDataFromImage(base64, mimeType) {
       serial_number: hook.serial_number || crane.serial_number,
       inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
       certificate_type: "Load Test Certificate",
-      folder_id: folderId, folder_name: folderName, folder_position: 2,
+      folder_id: folderId, folder_name: folderName, folder_position: 3,
       notes: `Latch: ${hook.latch_condition} | Structural: ${hook.structural_result}${hook.wear_percentage ? " | Wear: " + hook.wear_percentage + "%" : ""}${hook.notes ? " | Notes: " + hook.notes : ""}`,
     });
 
@@ -406,7 +453,7 @@ async function extractCraneDataFromImage(base64, mimeType) {
       result: rope.result,
       inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
       certificate_type: "Load Test Certificate",
-      folder_id: folderId, folder_name: folderName, folder_position: 3,
+      folder_id: folderId, folder_name: folderName, folder_position: 4,
       notes: `Broken wires: ${rope.broken_wires} | Corrosion: ${rope.corrosion} | Kinks: ${rope.kinks}${rope.notes ? " | " + rope.notes : ""}`,
     });
 
@@ -431,7 +478,7 @@ async function extractCraneDataFromImage(base64, mimeType) {
         defects_found: pv.notes,
         inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
         certificate_type: "Pressure Test Certificate",
-        folder_id: folderId, folder_name: folderName, folder_position: 4 + i,
+        folder_id: folderId, folder_name: folderName, folder_position: 5 + i,
       });
     }
 
