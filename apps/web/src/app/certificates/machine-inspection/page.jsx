@@ -31,8 +31,7 @@ const MACHINE_TYPES = [
   // ── FULL INSPECTION TYPES ─────────────────────────────────────────────────
   {
     id:"telehandler", label:"Telehandler", icon:"🏗",
-    certType:"Load Test Certificate", expiry:12, hasPV:true, pvOnly:false, hasBoom:true, hasBoom:true,
-    false,
+    certType:"Load Test Certificate", expiry:12, hasPV:true, pvOnly:false, hasBoom:true,
     fields:[
       { key:"structural_result", label:"Structural Integrity",          type:"result" },
       { key:"boom_result",       label:"Boom / Mast Condition",         type:"result" },
