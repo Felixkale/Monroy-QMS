@@ -67,14 +67,14 @@ const CSS = `
   .cs-fv.large{font-size:13px;font-weight:900;color:#0b1d3a}
   .cs-remarks{font-size:11px;color:#334155;line-height:1.65;padding:9px 12px;background:#f4f8ff}
   .cs-sig-wrap{padding:0 22px 10px;flex-shrink:0}
-  .cs-sig-card{background:#fff;border:1px solid #1e3a5f;border-radius:8px;padding:14px 16px}
-  .cs-sig-card-title{font-size:8.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#0b1d3a;margin-bottom:12px;display:flex;align-items:center;gap:8px}
-  .cs-sig-card-title::before{content:'';width:3px;height:10px;background:#0b1d3a;border-radius:2px}
+  .cs-sig-card{background:#0b1d3a;border-radius:8px;padding:14px 16px}
+  .cs-sig-card-title{font-size:8.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4fc3f7;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .cs-sig-card-title::before{content:'';width:3px;height:10px;background:#22d3ee;border-radius:2px}
   .cs-sig-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  .cs-sig-label{font-size:7.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#3b6ea5;margin-bottom:4px}
-  .cs-sig-name{font-size:10px;color:#0b1d3a;font-weight:600;margin-top:6px}
-  .cs-sig-role{font-size:8.5px;color:#64748b;margin-top:1px}
-  .cs-sig-img-wrap{border-bottom:1px solid #1e3a5f;min-height:50px;display:flex;align-items:flex-end;padding-bottom:4px;margin-bottom:4px}
+  .cs-sig-label{font-size:7.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#4fc3f7;margin-bottom:6px}
+  .cs-sig-name{font-size:10px;color:#fff;font-weight:600;margin-top:6px}
+  .cs-sig-role{font-size:8.5px;color:rgba(255,255,255,0.50);margin-top:1px}
+  .cs-sig-img-wrap{background:#fff;border-radius:6px;min-height:64px;display:flex;align-items:flex-end;padding:6px 10px 4px;margin-bottom:6px}
   .cs-legal{padding:8px 22px 6px;flex-shrink:0}
   .cs-legal-box{border:1px solid #1e3a5f;border-radius:6px;padding:8px 12px;font-size:8.5px;color:#4b5563;line-height:1.55}
   .cs-services{background:#c41e3a;padding:6px 22px;flex-shrink:0}
