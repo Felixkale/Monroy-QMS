@@ -184,9 +184,9 @@ function ProHdr({ logoUrl }) {
         <img src={logoUrl} alt="Monroy" onError={e=>e.target.style.display="none"}/>
       </div>
       <div className="pro-hdr-txt">
-        <div className="pro-hdr-brand">Monroy (Pty) Ltd · Process Control & Cranes</div>
+        <div className="pro-hdr-brand">Monroy (Pty) Ltd · Process Control &amp; Cranes</div>
         <div className="pro-hdr-name">WE ARE &#9658;&#9658; YOUR SOLUTION</div>
-        <div className="pro-hdr-svc">Mobile Crane Hire · Rigging · NDT Test · Scaffolding · Painting · Inspection of Lifting Equipment and Machinery · Pressure Vessels & Air Receiver · Steel Fabricating and Structural · Mechanical Engineering · Fencing · Maintenance · Mill Installation</div>
+        <div className="pro-hdr-svc">Mobile Crane Hire · Rigging · NDT Test · Scaffolding · Painting · Inspection of Lifting Equipment and Machinery · Pressure Vessels &amp; Air Receiver · Steel Fabricating and Structural · Mechanical Engineering · Fencing · Maintenance · Mill Installation</div>
       </div>
       <div className="pro-hdr-contact">
         <div className="pro-cr">&#128222; (+267) 71 450 610 / 77 906 461</div>
@@ -224,7 +224,7 @@ function ProSig({ inspName, inspId, sigUrl }) {
         <div>
           <div className="pro-sgl">Client / User / Owner</div>
           <div className="pro-sgline"/>
-          <div className="pro-sgname">&nbsp;</div>
+          <div className="pro-sgname">&amp;nbsp;</div>
           <div className="pro-sgrole">Client representative sign here</div>
         </div>
       </div>
@@ -332,7 +332,7 @@ function CraneLoadTestPage({ c, pn, tone, pm, logo }) {
 
         {(defects||recommendations)&&(
           <>
-            <div className="pro-stl">Comments & Recommendations</div>
+            <div className="pro-stl">Comments &amp; Recommendations</div>
             <div style={{border:"1px solid #1e3a5f",borderRadius:5,padding:"7px 11px",fontSize:9,color:"#0b1d3a",lineHeight:1.6,background:"#f4f8ff"}}>
               {defects&&<div><strong>Defects:</strong> {defects}</div>}
               {recommendations&&<div><strong>Recommendations:</strong> {recommendations}</div>}
@@ -492,7 +492,7 @@ function HookRopePage({ c, pn, tone, pm, logo, isRope }) {
 
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:6}}>
           <div style={{border:"1px solid #1e3a5f",borderRadius:5,padding:"9px 12px",background:"#f4f8ff"}}>
-            <div style={{fontSize:13,fontWeight:900,color:"#0b1d3a"}}>{isRope?"Wire Rope Inspection Report":"Hook & Rope Inspection Report"}</div>
+            <div style={{fontSize:13,fontWeight:900,color:"#0b1d3a"}}>{isRope?"Wire Rope Inspection Report":"Hook &amp; Rope Inspection Report"}</div>
             <div style={{fontSize:11,fontWeight:700,color:"#0e7490",marginTop:3}}>{reportNo}</div>
             {expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:4,padding:"3px 9px",marginTop:7,fontSize:9,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry date: {expiryDate}</div>}
           </div>
@@ -505,7 +505,7 @@ function HookRopePage({ c, pn, tone, pm, logo, isRope }) {
           </div>
         </div>
 
-        <div className="pro-stl">Hoist Drum & Rope Condition</div>
+        <div className="pro-stl">Hoist Drum &amp; Rope Condition</div>
         <table className="pro-hrt"><thead><tr><th>Item</th><th>Main Hoist</th><th>Auxiliary Hoist</th></tr></thead>
           <tbody>
             <tr><td>Hoist Drum Condition</td><td>Good</td><td>Good</td></tr>
@@ -534,7 +534,7 @@ function HookRopePage({ c, pn, tone, pm, logo, isRope }) {
               <tbody>
                 <tr><td>Hook block SWL</td><td colSpan={2}>{swl||"—"}</td><td colSpan={2}>—</td><td colSpan={2} style={{color:"#9ca3af"}}>N/A</td></tr>
                 <tr><td>SWL marked on hook</td><td style={{color:"#15803d",fontWeight:800}}>Yes</td><td></td><td style={{color:"#15803d",fontWeight:800}}>Yes</td><td></td><td colSpan={2} style={{color:"#9ca3af"}}>N/A</td></tr>
-                <tr><td>Safety catch fitted & in good condition</td><td style={{color:latch==="PASS"?"#15803d":"#b91c1c",fontWeight:800}}>{latch==="PASS"?"Yes":"No"}</td><td></td><td style={{color:"#15803d",fontWeight:800}}>Yes</td><td></td><td colSpan={2} style={{color:"#9ca3af"}}>N/A</td></tr>
+                <tr><td>Safety catch fitted &amp; in good condition</td><td style={{color:latch==="PASS"?"#15803d":"#b91c1c",fontWeight:800}}>{latch==="PASS"?"Yes":"No"}</td><td></td><td style={{color:"#15803d",fontWeight:800}}>Yes</td><td></td><td colSpan={2} style={{color:"#9ca3af"}}>N/A</td></tr>
                 <tr><td>Signs of cracks on hook</td><td style={{color:structural==="PASS"?"#15803d":"#b91c1c",fontWeight:800}}>{structural==="PASS"?"No":"Yes"}</td><td></td><td style={{color:"#15803d",fontWeight:800}}>No</td><td></td><td colSpan={2} style={{color:"#9ca3af"}}>N/A</td></tr>
                 <tr><td>Swivel free under load</td><td style={{color:"#15803d",fontWeight:800}}>Yes</td><td></td><td style={{color:"#15803d",fontWeight:800}}>Yes</td><td></td><td colSpan={2} style={{color:"#9ca3af"}}>N/A</td></tr>
                 <tr><td>Excessive corrosion on hook block</td><td style={{color:"#15803d",fontWeight:800}}>No</td><td></td><td style={{color:"#15803d",fontWeight:800}}>No</td><td></td><td colSpan={2} style={{color:"#9ca3af"}}>N/A</td></tr>
@@ -646,7 +646,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
                 <img src={logo} alt="Monroy" onError={e=>e.target.style.display="none"}/>
               </div>
               <div className="cs-hdr-text">
-                <div className="cs-brand">Monroy (Pty) Ltd · Process Control & Cranes</div>
+                <div className="cs-brand">Monroy (Pty) Ltd · Process Control &amp; Cranes</div>
                 <div className="cs-title">{certType}</div>
                 <div className="cs-sub">{company} · {location||"Botswana"}{(fleetNo||regNo)?` · ${fleetNo||regNo}`:""}</div>
               </div>
@@ -664,7 +664,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
               <Field label="Issue Date"               value={issueDate}/>
               <Field label="Expiry / Next Inspection" value={expiryDate}/>
             </Section>
-            <Section title="Client & Location">
+            <Section title="Client &amp; Location">
               <Field label="Client / Company" value={company}/>
               <Field label="Location"         value={location}/>
               <Field label="Certificate Type" value={certType}/>
@@ -707,7 +707,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
             {_isBoom&&(
               <Section title="Boom Systems Condition">
                 {pn["Boom structure"] &&<Field label="Boom Structure"           value={pn["Boom structure"]}/>}
-                {pn["Boom pins"]      &&<Field label="Boom Pins & Connections"  value={pn["Boom pins"]}/>}
+                {pn["Boom pins"]      &&<Field label="Boom Pins &amp; Connections"  value={pn["Boom pins"]}/>}
                 {pn["Luffing"]        &&<Field label="Luffing System"           value={pn["Luffing"]}/>}
                 {pn["Slew"]           &&<Field label="Slew System"              value={pn["Slew"]}/>}
                 {pn["Hoist"]          &&<Field label="Hoist System"             value={pn["Hoist"]}/>}
@@ -718,7 +718,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
               </Section>
             )}
             {(defects||recommendations)&&(
-              <Section title="Defects & Recommendations">
+              <Section title="Defects &amp; Recommendations">
                 {defects        &&<Field label="Defects Found"   value={defects}         full/>}
                 {recommendations&&<Field label="Recommendations" value={recommendations} full/>}
               </Section>
@@ -739,7 +739,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
           </div>
           <div className="cs-sig-wrap">
             <div className="cs-sig-card">
-              <div className="cs-sig-card-title">Signatures & Authorisation</div>
+              <div className="cs-sig-card-title">Signatures &amp; Authorisation</div>
               <div className="cs-sig-grid">
                 <div>
                   <div className="cs-sig-label">Inspector Signature</div>
@@ -752,14 +752,14 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
                 <div>
                   <div className="cs-sig-label">Client / Witness Signature</div>
                   <div className="cs-sig-img-wrap"/>
-                  <div className="cs-sig-name">&nbsp;</div>
+                  <div className="cs-sig-name">&amp;nbsp;</div>
                   <div className="cs-sig-role">Client representative sign here</div>
                 </div>
               </div>
             </div>
           </div>
           <div className="cs-services">
-            <p><b>Mobile Crane Hire</b> | <b>Rigging</b> | <b>NDT Test</b> | <b>Scaffolding</b> | <b>Painting</b> | <b>Inspection of Lifting Equipment and Machinery, Pressure Vessels & Air Receiver</b> | <b>Steel Fabricating and Structural</b> | <b>Mechanical Engineering</b> | <b>Fencing</b> | <b>Maintenance</b></p>
+            <p><b>Mobile Crane Hire</b> | <b>Rigging</b> | <b>NDT Test</b> | <b>Scaffolding</b> | <b>Painting</b> | <b>Inspection of Lifting Equipment and Machinery, Pressure Vessels &amp; Air Receiver</b> | <b>Steel Fabricating and Structural</b> | <b>Mechanical Engineering</b> | <b>Fencing</b> | <b>Maintenance</b></p>
           </div>
           <div className="cs-footer">
             <span>Monroy (Pty) Ltd · Mophane Avenue, Maun, Botswana</span>
