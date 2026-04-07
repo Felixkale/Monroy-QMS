@@ -77,8 +77,8 @@ const CSS = `
   .cs-sig-img-wrap{border-bottom:1px solid #1e3a5f;min-height:50px;display:flex;align-items:flex-end;padding-bottom:4px;margin-bottom:4px}
   .cs-legal{padding:8px 22px 6px;flex-shrink:0}
   .cs-legal-box{border:1px solid #1e3a5f;border-radius:6px;padding:8px 12px;font-size:8.5px;color:#4b5563;line-height:1.55}
-  .cs-services{background:#1e3a5f;padding:5px 22px;flex-shrink:0}
-  .cs-services p{font-size:7.5px;color:rgba(255,255,255,0.45);margin:0;line-height:1.5;text-align:center}
+  .cs-services{background:#c41e3a;padding:6px 22px;flex-shrink:0}
+  .cs-services p{font-size:7.5px;color:#fff;margin:0;line-height:1.5;text-align:center;font-weight:600;letter-spacing:0.02em}
   .cs-footer{background:#0b1d3a;border-top:2px solid #22d3ee;padding:5px 22px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
   .cs-footer span{font-size:8px;color:rgba(255,255,255,0.35);font-weight:600;letter-spacing:.05em}
   /* PROFESSIONAL FORMAT */
@@ -224,7 +224,7 @@ function ProSig({ inspName, inspId, sigUrl }) {
         <div>
           <div className="pro-sgl">Client / User / Owner</div>
           <div className="pro-sgline"/>
-          <div className="pro-sgname">{" "}</div>
+          <div className="pro-sgname" style={{minHeight:14}}></div>
           <div className="pro-sgrole">Client representative sign here</div>
         </div>
       </div>
@@ -752,7 +752,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
                 <div>
                   <div className="cs-sig-label">Client / Witness Signature</div>
                   <div className="cs-sig-img-wrap"/>
-                  <div className="cs-sig-name">&amp;nbsp;</div>
+                  <div className="cs-sig-name" style={{minHeight:16}}></div>
                   <div className="cs-sig-role">Client representative sign here</div>
                 </div>
               </div>
