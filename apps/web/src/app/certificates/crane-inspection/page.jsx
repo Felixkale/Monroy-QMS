@@ -997,7 +997,8 @@ async function extractCraneDataFromImage(base64, mimeType) {
               <div style={{ display:"grid", gap:10 }}>
                 {[
                   { label:"Crane", type:crane.crane_type, desc:`SN ${crane.serial_number}${crane.fleet_number?" · Fleet "+crane.fleet_number:""}${crane.registration_number?" · Reg "+crane.registration_number:""}`, result:craneInsp.result, exp:"1 year" },
-                  { label:"Hook",  type:"Crane Hook", desc:`SN ${hook.serial_number||"—"} SWL ${hook.swl||crane.swl}`, result:hook.result, exp:"6 months" },
+                  { label:"Boom",  type:"Crane Boom",  desc:`${boom.actual_boom_length||"?"}m${boom.extended_boom_length?" ext "+boom.extended_boom_length+"m":""}${boom.boom_angle?" · "+boom.boom_angle+"°":""}${boom.load_tested_at_radius?" · Test@"+boom.load_tested_at_radius+"m":""}${boom.test_load?" "+boom.test_load+"T":""}`, result:boom.boom_structure, exp:"1 year" },
+                  { label:"Hook",  type:"Crane Hook",  desc:`SN ${hook.serial_number||"—"} SWL ${hook.swl||crane.swl}`, result:hook.result, exp:"6 months" },
                   { label:"Rope",  type:"Wire Rope", desc:`Ø${rope.diameter||"?"}mm ${rope.rope_type}`, result:rope.result, exp:"6 months" },
                   ...pvs.filter(p=>p.sn||p.description).map((p,i)=>({ label:`PV ${i+1}`, type:"Pressure Vessel", desc:`SN ${p.sn||"—"} ${p.description}`, result:p.result, exp:"1 year" })),
                 ].map((row, i) => (
