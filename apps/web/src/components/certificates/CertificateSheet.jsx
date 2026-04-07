@@ -334,6 +334,13 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
               {/* Crane-specific */}
               {_isCrane && fleetNo && <Field label="Fleet Number"        value={fleetNo} mono />}
               {_isCrane && regNo   && <Field label="Registration Number" value={regNo}   mono />}
+              {/* Boom-specific */}
+              {_isBoom && fleetNo  && <Field label="Fleet Number"        value={fleetNo} mono />}
+              {_isBoom && regNo    && <Field label="Registration Number" value={regNo}   mono />}
+              {_isBoom && parsedNotes["Actual length"]   && <Field label="Actual Boom Length"  value={parsedNotes["Actual length"]} />}
+              {_isBoom && parsedNotes["Extended"]        && <Field label="Extended / Telescoped" value={parsedNotes["Extended"]} />}
+              {_isBoom && parsedNotes["Angle"]           && <Field label="Boom Angle"           value={parsedNotes["Angle"]} />}
+              {_isBoom && parsedNotes["Jib"]             && <Field label="Jib Configuration"    value={parsedNotes["Jib"]} />}
               {/* Hook-specific */}
               {_isHook  && swl     && <Field label="Hook SWL"            value={swl} />}
               {/* Rope-specific */}
@@ -342,11 +349,22 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
 
             <Section title="Technical Data">
               {swl        && <Field label="Safe Working Load (SWL)"    value={swl} />}
-              {mawp       && <Field label="Working Pressure"           value={`${mawp} ${pressureUnit}`} />}
-              {capacity && !_isRope && <Field label="Capacity / Volume" value={capacity} />}
+              {/* Boom load chart */}
+              {_isBoom && parsedNotes["Min radius"]    && <Field label="Min Working Radius"   value={parsedNotes["Min radius"]} />}
+              {_isBoom && parsedNotes["Max radius"]    && <Field label="Max Working Radius"   value={parsedNotes["Max radius"]} />}
+              {_isBoom && parsedNotes["Test radius"]   && <Field label="Test Radius"           value={parsedNotes["Test radius"]} />}
+              {_isBoom && parsedNotes["SWL@min"]       && <Field label="SWL at Min Radius"    value={parsedNotes["SWL@min"]} />}
+              {_isBoom && parsedNotes["SWL@max"]       && <Field label="SWL at Max Radius"    value={parsedNotes["SWL@max"]} />}
+              {_isBoom && parsedNotes["SWL@config"]    && <Field label="SWL at Test Config"   value={parsedNotes["SWL@config"]} />}
+              {_isBoom && parsedNotes["Test load"]     && <Field label="Load Test Applied"    value={parsedNotes["Test load"]} />}
+              {_isBoom && parsedNotes["Min length"]    && <Field label="Min Boom Length"      value={parsedNotes["Min length"]} />}
+              {_isBoom && parsedNotes["Max length"]    && <Field label="Max Boom Length"      value={parsedNotes["Max length"]} />}
+              {/* Non-boom */}
+              {!_isBoom && mawp       && <Field label="Working Pressure"           value={`${mawp} ${pressureUnit}`} />}
+              {!_isBoom && capacity && !_isRope && <Field label="Capacity / Volume" value={capacity} />}
               {designP    && <Field label="Design Pressure"            value={`${designP} ${pressureUnit}`} />}
               {testP      && <Field label="Test Pressure"              value={`${testP} ${pressureUnit}`} />}
-              {mfg        && !_isCrane && !_isHook && !_isRope && <Field label="Manufacturer" value={mfg} />}
+              {mfg        && !_isCrane && !_isBoom && !_isHook && !_isRope && <Field label="Manufacturer" value={mfg} />}
               {mfgYear    && <Field label="Year of Manufacture"        value={mfgYear} />}
               {countryOrig && <Field label="Country of Origin"         value={countryOrig} />}
             </Section>
@@ -363,21 +381,17 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
             )}
 
             {/* ── BOOM INSPECTION DATA ── */}
-            {_isBoom && Object.keys(parsedNotes).length > 0 && (
-              <Section title="Boom Inspection Results">
-                {parsedNotes["Min length"]      && <Field label="Min Boom Length"     value={parsedNotes["Min length"]} />}
-                {parsedNotes["Max length"]      && <Field label="Max Boom Length"     value={parsedNotes["Max length"]} />}
-                {parsedNotes["Actual length"]   && <Field label="Actual Boom Length"  value={parsedNotes["Actual length"]} />}
-                {parsedNotes["Extended"]        && <Field label="Extended Length"      value={parsedNotes["Extended"]} />}
-                {parsedNotes["Angle"]           && <Field label="Boom Angle"           value={parsedNotes["Angle"]} />}
-                {parsedNotes["Jib"]             && <Field label="Jib Configuration"   value={parsedNotes["Jib"]} />}
-                {parsedNotes["Min radius"]      && <Field label="Min Working Radius"  value={parsedNotes["Min radius"]} />}
-                {parsedNotes["Max radius"]      && <Field label="Max Working Radius"  value={parsedNotes["Max radius"]} />}
-                {parsedNotes["Test radius"]     && <Field label="Test Radius"          value={parsedNotes["Test radius"]} />}
-                {parsedNotes["SWL@min"]         && <Field label="SWL at Min Radius"   value={parsedNotes["SWL@min"]} />}
-                {parsedNotes["SWL@max"]         && <Field label="SWL at Max Radius"   value={parsedNotes["SWL@max"]} />}
-                {parsedNotes["SWL@config"]      && <Field label="SWL at Test Config"  value={parsedNotes["SWL@config"]} />}
-                {parsedNotes["Test load"]       && <Field label="Load Test Applied"   value={parsedNotes["Test load"]} />}
+            {_isBoom && (
+              <Section title="Boom Systems Condition">
+                {parsedNotes["Boom structure"]    && <Field label="Boom Structure"          value={parsedNotes["Boom structure"]} />}
+                {parsedNotes["Boom pins"]         && <Field label="Boom Pins & Connections" value={parsedNotes["Boom pins"]} />}
+                {parsedNotes["Luffing"]           && <Field label="Luffing System"          value={parsedNotes["Luffing"]} />}
+                {parsedNotes["Slew"]              && <Field label="Slew System"             value={parsedNotes["Slew"]} />}
+                {parsedNotes["Hoist"]             && <Field label="Hoist System"            value={parsedNotes["Hoist"]} />}
+                {parsedNotes["LMI"]               && <Field label="LMI / Crane Computer"   value={parsedNotes["LMI"]} />}
+                {parsedNotes["Anti-two-block"]    && <Field label="Anti-Two Block"          value={parsedNotes["Anti-two-block"]} />}
+                {parsedNotes["Anemometer"]        && <Field label="Anemometer"              value={parsedNotes["Anemometer"]} />}
+                {parsedNotes["Notes"]             && <Field label="Notes"                   value={parsedNotes["Notes"]} />}
               </Section>
             )}
 
