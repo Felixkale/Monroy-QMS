@@ -31,12 +31,13 @@ const CRANE_TYPES = [
 ];
 
 const STEPS = [
-  { id:1, label:"Crane Details",    icon:"🏗" },
-  { id:2, label:"Crane Inspection", icon:"🔍" },
-  { id:3, label:"Hook",             icon:"🪝" },
-  { id:4, label:"Rope",             icon:"🪢" },
-  { id:5, label:"Pressure Vessels", icon:"⚙️" },
-  { id:6, label:"Review & Generate",icon:"📜" },
+  { id:1, label:"Crane Details",     icon:"🏗" },
+  { id:2, label:"Crane Inspection",  icon:"🔍" },
+  { id:3, label:"Boom",              icon:"📐" },
+  { id:4, label:"Hook",              icon:"🪝" },
+  { id:5, label:"Rope",              icon:"🪢" },
+  { id:6, label:"Pressure Vessels",  icon:"⚙️" },
+  { id:7, label:"Review & Generate", icon:"📜" },
 ];
 
 function addMonths(dateStr, months) {
@@ -597,6 +598,67 @@ export default function CraneInspectionPage() {
             </div>
 
             {/* Systems condition */}
+            <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", margin:"18px 0 10px" }}>Boom Systems Condition</div>
+            <div className="g3" style={{ marginBottom:14 }}>
+              <Field label="Boom Structure"><ResultSelect value={boom.boom_structure} onChange={v=>ub("boom_structure",v)}/></Field>
+              <Field label="Boom Pins & Connections"><ResultSelect value={boom.boom_pins} onChange={v=>ub("boom_pins",v)}/></Field>
+              <Field label="Boom Wear / Pads"><ResultSelect value={boom.boom_wear} onChange={v=>ub("boom_wear",v)}/></Field>
+            </div>
+            <div className="g3" style={{ marginBottom:14 }}>
+              <Field label="Luffing System"><ResultSelect value={boom.luffing_system} onChange={v=>ub("luffing_system",v)}/></Field>
+              <Field label="Slew System"><ResultSelect value={boom.slew_system} onChange={v=>ub("slew_system",v)}/></Field>
+              <Field label="Hoist System"><ResultSelect value={boom.hoist_system} onChange={v=>ub("hoist_system",v)}/></Field>
+            </div>
+            <div className="g3" style={{ marginBottom:14 }}>
+              <Field label="LMI Tested at Config"><ResultSelect value={boom.lmi_test} onChange={v=>ub("lmi_test",v)}/></Field>
+              <Field label="Anti-Two Block Device"><ResultSelect value={boom.anti_two_block} onChange={v=>ub("anti_two_block",v)}/></Field>
+              <Field label="Anemometer (if fitted)"><ResultSelect value={boom.anemometer} onChange={v=>ub("anemometer",v)}/></Field>
+            </div>
+            <Field label="Boom Notes">
+              <textarea style={{ ...IS, minHeight:70 }} placeholder="Additional boom inspection notes..." value={boom.notes} onChange={e=>ub("notes",e.target.value)}/>
+            </Field>
+          </SectionCard>
+        )}
+
+
+        {/* ── STEP 3: Boom Inspection ── */}
+        {step === 5 && (
+          <SectionCard title="Boom Configuration & Load Chart" icon="📐" color={T.blue} brd={T.blueBrd}>
+            <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>Boom Geometry</div>
+            <div className="g3" style={{ marginBottom:14 }}>
+              <Field label="Min Boom Length (m)"><input style={IS} placeholder="e.g. 12.5" value={boom.min_boom_length} onChange={e=>ub("min_boom_length",e.target.value)}/></Field>
+              <Field label="Max Boom Length (m)"><input style={IS} placeholder="e.g. 60" value={boom.max_boom_length} onChange={e=>ub("max_boom_length",e.target.value)}/></Field>
+              <Field label="Actual Boom Length (m)"><input style={IS} placeholder="e.g. 36" value={boom.actual_boom_length} onChange={e=>ub("actual_boom_length",e.target.value)}/></Field>
+            </div>
+            <div className="g3" style={{ marginBottom:14 }}>
+              <Field label="Extended / Telescoped (m)"><input style={IS} placeholder="e.g. 28" value={boom.extended_boom_length} onChange={e=>ub("extended_boom_length",e.target.value)}/></Field>
+              <Field label="Boom Angle (°)"><input style={IS} placeholder="e.g. 75" value={boom.boom_angle} onChange={e=>ub("boom_angle",e.target.value)}/></Field>
+              <Field label="Jib Fitted">
+                <select style={IS} value={boom.jib_fitted} onChange={e=>ub("jib_fitted",e.target.value)}>
+                  <option value="no">No</option><option value="yes">Yes</option>
+                </select>
+              </Field>
+            </div>
+            {boom.jib_fitted === "yes" && (
+              <div className="g2" style={{ marginBottom:14 }}>
+                <Field label="Jib Length (m)"><input style={IS} placeholder="e.g. 18" value={boom.jib_length} onChange={e=>ub("jib_length",e.target.value)}/></Field>
+                <Field label="Jib Angle (°)"><input style={IS} placeholder="e.g. 30" value={boom.jib_angle} onChange={e=>ub("jib_angle",e.target.value)}/></Field>
+              </div>
+            )}
+            <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", margin:"18px 0 10px" }}>Working Radius & SWL</div>
+            <div className="g3" style={{ marginBottom:14 }}>
+              <Field label="Min Radius (m)"><input style={IS} placeholder="e.g. 3" value={boom.min_radius} onChange={e=>ub("min_radius",e.target.value)}/></Field>
+              <Field label="Max Radius (m)"><input style={IS} placeholder="e.g. 52" value={boom.max_radius} onChange={e=>ub("max_radius",e.target.value)}/></Field>
+              <Field label="Test Radius (m)"><input style={IS} placeholder="e.g. 12" value={boom.load_tested_at_radius} onChange={e=>ub("load_tested_at_radius",e.target.value)}/></Field>
+            </div>
+            <div className="g3" style={{ marginBottom:14 }}>
+              <Field label="SWL at Min Radius"><input style={IS} placeholder="e.g. 100T" value={boom.swl_at_min_radius} onChange={e=>ub("swl_at_min_radius",e.target.value)}/></Field>
+              <Field label="SWL at Max Radius"><input style={IS} placeholder="e.g. 6.5T" value={boom.swl_at_max_radius} onChange={e=>ub("swl_at_max_radius",e.target.value)}/></Field>
+              <Field label="SWL at Test Config"><input style={IS} placeholder="e.g. 50T" value={boom.swl_at_actual_config} onChange={e=>ub("swl_at_actual_config",e.target.value)}/></Field>
+            </div>
+            <Field label="Load Test Applied (Tonnes) — 110% of SWL at test config">
+              <input style={IS} placeholder="e.g. 55" value={boom.test_load} onChange={e=>ub("test_load",e.target.value)}/>
+            </Field>
             <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", margin:"18px 0 10px" }}>Boom Systems Condition</div>
             <div className="g3" style={{ marginBottom:14 }}>
               <Field label="Boom Structure"><ResultSelect value={boom.boom_structure} onChange={v=>ub("boom_structure",v)}/></Field>
