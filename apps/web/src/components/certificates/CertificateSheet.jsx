@@ -159,10 +159,10 @@ function parseNotes(str) {
   return result;
 }
 
-function Field({ label, value, mono=false, large=false }) {
+function Field({ label, value, mono=false, large=false, full=false }) {
   if (!value) return null;
   return (
-    <div className="cs-field">
+    <div className="cs-field" style={full ? {gridColumn:"1/-1"} : {}}>
       <div className="cs-fl">{label}</div>
       <div className={`cs-fv${mono?" mono":""}${large?" large":""}`}>{value}</div>
     </div>
@@ -391,7 +391,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
                 {parsedNotes["LMI"]               && <Field label="LMI / Crane Computer"   value={parsedNotes["LMI"]} />}
                 {parsedNotes["Anti-two-block"]    && <Field label="Anti-Two Block"          value={parsedNotes["Anti-two-block"]} />}
                 {parsedNotes["Anemometer"]        && <Field label="Anemometer"              value={parsedNotes["Anemometer"]} />}
-                {parsedNotes["Notes"]             && <Field label="Notes"                   value={parsedNotes["Notes"]} />}
+                {parsedNotes["Notes"]             && <Field label="Notes"                   value={parsedNotes["Notes"]} full />}
               </Section>
             )}
 
@@ -416,8 +416,8 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
             {/* ── DEFECTS & RECOMMENDATIONS ── */}
             {(defects || recommendations) && (
               <Section title="Defects & Recommendations">
-                {defects         && <Field label="Defects Found"   value={defects} />}
-                {recommendations && <Field label="Recommendations" value={recommendations} />}
+                {defects         && <Field label="Defects Found"   value={defects}         full />}
+                {recommendations && <Field label="Recommendations" value={recommendations} full />}
               </Section>
             )}
 
