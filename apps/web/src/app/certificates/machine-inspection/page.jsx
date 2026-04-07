@@ -241,9 +241,11 @@ export default function MachineInspectionPage() {
   const router = useRouter();
   const [step,    setStep]    = useState(1);
   const [clients, setClients] = useState([]);
-  const [saving,  setSaving]  = useState(false);
-  const [saved,   setSaved]   = useState(null);
-  const [error,   setError]   = useState("");
+  const [saving,    setSaving]    = useState(false);
+  const [saved,     setSaved]     = useState(null);
+  const [error,     setError]     = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
 
   // Selected machine type
   const [machineTypeId, setMachineTypeId] = useState("");
