@@ -11,6 +11,8 @@ const navItems = [
   { id:"register-client", label:"Register Client",  icon:"＋", href:"/clients/register" },
   { id:"equipment",       label:"Equipment",        icon:"⚙",  href:"/equipment" },
   { id:"certificates",    label:"Certificates",     icon:"📜", href:"/certificates" },
+  { id:"crane-inspection",   label:"Crane Inspection",  icon:"🏗", href:"/certificates/crane-inspection" },
+  { id:"machine-inspection", label:"Machine Inspection", icon:"⚙️", href:"/certificates/machine-inspection" },
   { id:"ncr",             label:"NCR",              icon:"⚠",  href:"/ncr" },
   { id:"capa",            label:"CAPA",             icon:"🔧", href:"/capa" },
   { id:"reports",         label:"Reports",          icon:"📈", href:"/reports" },
