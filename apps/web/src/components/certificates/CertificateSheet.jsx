@@ -37,8 +37,8 @@ function detectFail(defects, ...kws) {
 
 const CSS = `
   .cs-wrap{background:rgba(10,18,32,0.92);border:1px solid rgba(148,163,184,0.12);border-radius:16px;padding:20px;display:flex;justify-content:center;flex-direction:column;align-items:center;gap:20px}
-  .cs-page{background:#fff;width:210mm;min-height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28);overflow:hidden}
-  .cs-page.pm{box-shadow:none;width:100%;min-height:unset}
+  .cs-page{background:#fff;width:210mm;height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28);overflow:hidden}
+  .cs-page.pm{box-shadow:none;width:100%;height:297mm}
   .cs-hdr{background:#0b1d3a;position:relative;overflow:hidden;flex-shrink:0}
   .cs-geo{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
   .cs-hdr-inner{position:relative;z-index:2;display:flex;align-items:stretch;min-height:120px}
@@ -53,7 +53,7 @@ const CSS = `
   .cs-badge{font-size:11px;font-weight:900;padding:6px 16px;border-radius:99px;letter-spacing:.10em;text-transform:uppercase}
   .cs-certno{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;color:rgba(255,255,255,0.50)}
   .cs-accent{height:4px;background:linear-gradient(90deg,#22d3ee 0%,#3b82f6 55%,#a78bfa 100%);flex-shrink:0}
-  .cs-body{flex:1;padding:14px 22px 10px;display:flex;flex-direction:column;gap:9px}
+  .cs-body{flex:1;padding:14px 22px 0;display:flex;flex-direction:column;gap:8px;overflow:hidden}
   .cs-sec{border:1px solid #1e3a5f;border-radius:7px;overflow:hidden}
   .cs-sec-ttl{background:#0b1d3a;border-bottom:1px solid #22d3ee;padding:6px 12px;font-size:8.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4fc3f7;display:flex;align-items:center;gap:8px}
   .cs-sec-ttl::before{content:'';width:3px;height:10px;background:#22d3ee;border-radius:2px;flex-shrink:0}
@@ -75,7 +75,7 @@ const CSS = `
   .cs-sig-name{font-size:10px;color:#fff;font-weight:600;margin-top:6px}
   .cs-sig-role{font-size:8.5px;color:rgba(255,255,255,0.50);margin-top:1px}
   .cs-sig-img-wrap{background:#fff;border-radius:6px;min-height:64px;display:flex;align-items:flex-end;padding:6px 10px 4px;margin-bottom:6px}
-  .cs-legal{padding:8px 22px 6px;flex-shrink:0}
+  .cs-legal{padding:16px 22px 10px;flex-shrink:0;margin-top:auto}
   .cs-legal-box{border:1px solid #1e3a5f;border-radius:6px;padding:8px 12px;font-size:8.5px;color:#4b5563;line-height:1.55}
   .cs-services{background:#c41e3a;padding:6px 22px;flex-shrink:0}
   .cs-services p{font-size:7.5px;color:#fff;margin:0;line-height:1.5;text-align:center;font-weight:600;letter-spacing:0.02em}
@@ -83,8 +83,8 @@ const CSS = `
   .cs-footer span{font-size:8px;color:rgba(255,255,255,0.35);font-weight:600;letter-spacing:.05em}
   /* PROFESSIONAL FORMAT */
   .pro-wrap{background:rgba(10,18,32,0.92);border:1px solid rgba(148,163,184,0.12);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:20px;align-items:center}
-  .pro-page{background:#fff;width:210mm;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28)}
-  .pro-page.pm{box-shadow:none;width:100%}
+  .pro-page{background:#fff;width:210mm;height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28)}
+  .pro-page.pm{box-shadow:none;width:100%;height:297mm}
   .pro-hdr{background:#0b1d3a;display:flex;align-items:center;min-height:88px}
   .pro-logo-box{background:#fff;width:120px;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:10px;clip-path:polygon(0 0,100% 0,82% 100%,0 100%)}
   .pro-logo-box img{width:95px;height:72px;object-fit:contain}
@@ -94,7 +94,7 @@ const CSS = `
   .pro-hdr-svc{font-size:7px;color:rgba(255,255,255,0.4);margin-top:4px;line-height:1.5}
   .pro-hdr-contact{padding:10px 14px;display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0}
   .pro-cr{font-size:8px;color:rgba(255,255,255,0.65)}
-  .pro-body{padding:10px 14px;display:flex;flex-direction:column;gap:7px}
+  .pro-body{flex:1;padding:10px 14px;display:flex;flex-direction:column;gap:7px;overflow:hidden}
   .pro-ct{width:100%;border-collapse:collapse;font-size:9px;border:1px solid #1e3a5f}
   .pro-ct td{padding:3.5px 7px;border:1px solid #c3d4e8}
   .pro-ct td:first-child,.pro-ct td:nth-child(3){font-weight:700;background:#0b1d3a;color:#4fc3f7;width:85px;white-space:nowrap}
@@ -140,19 +140,19 @@ const CSS = `
   .pro-hrt td:first-child{font-weight:700;background:#eef4ff;color:#0b1d3a}
   .pro-hrt td:not(:first-child){background:#fff;text-align:center;font-weight:600}
   .pro-compbox{border:2px solid #1e3a5f;border-radius:7px;padding:9px 12px;display:flex;align-items:center;justify-content:space-between;background:#f4f8ff}
-  .pro-sig{padding:10px 14px 8px;flex-shrink:0}
+  .pro-sig{padding:14px 14px 8px;flex-shrink:0;margin-top:auto}
   .pro-sigg{display:grid;grid-template-columns:1fr 1fr;gap:14px}
   .pro-sgl{font-size:7.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#3b6ea5;margin-bottom:3px}
   .pro-sgl2{font-size:7.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#3b6ea5;margin-bottom:3px}
   .pro-sgline{border-bottom:1px solid #1e3a5f;min-height:44px;display:flex;align-items:flex-end;padding-bottom:3px;margin-bottom:3px}
   .pro-sgname{font-size:9px;font-weight:700;color:#0b1d3a}
   .pro-sgrole{font-size:8px;color:#64748b}
-  .pro-foot{background:#0b1d3a;border-top:2px solid #22d3ee;padding:4px 14px;display:flex;justify-content:space-between}
+  .pro-foot{background:#0b1d3a;border-top:2px solid #22d3ee;padding:4px 14px;display:flex;justify-content:space-between;flex-shrink:0}
   .pro-foot span{font-size:7.5px;color:rgba(255,255,255,0.35);font-weight:600}
   .pro-pb{break-after:page;page-break-after:always}
   @media print{
     .cs-wrap,.pro-wrap{background:none!important;padding:0!important;border:none!important}
-    .cs-page,.pro-page{box-shadow:none!important;width:100%!important}
+    .cs-page,.pro-page{box-shadow:none!important;width:100%!important;height:297mm!important}
     .pro-pb{break-after:page;page-break-after:always}
   }
 `;
