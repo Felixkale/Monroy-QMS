@@ -75,7 +75,7 @@ const CSS = `
   .cs-sig-name{font-size:10px;color:#fff;font-weight:600;margin-top:6px}
   .cs-sig-role{font-size:8.5px;color:rgba(255,255,255,0.50);margin-top:1px}
   .cs-sig-img-wrap{background:#fff;border-radius:6px;min-height:64px;display:flex;align-items:flex-end;padding:6px 10px 4px;margin-bottom:6px}
-  .cs-legal{padding:16px 22px 10px;flex-shrink:0;margin-top:auto}
+  .cs-legal{padding:10px 22px 10px;flex-shrink:0}
   .cs-legal-box{border:1px solid #1e3a5f;border-radius:6px;padding:8px 12px;font-size:8.5px;color:#4b5563;line-height:1.55}
   .cs-services{background:#c41e3a;padding:6px 22px;flex-shrink:0}
   .cs-services p{font-size:7.5px;color:#fff;margin:0;line-height:1.5;text-align:center;font-weight:600;letter-spacing:0.02em}
@@ -602,7 +602,10 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
   const _isCrane = /crane/i.test(_rawType)&&!/hook|rope|boom/i.test(_rawType);
   const _isBoom  = /boom/i.test(_rawType);
   const _isHook  = /hook/i.test(_rawType);
-  const _isRope  = /rope|wire.rope/i.test(_rawType);
+  // Crane rope = exactly 'Wire Rope' → compliance cert format
+  // Wire Rope Sling, Round Sling etc → normal generic cert
+  const _isCraneRope = _rawType === 'wire rope';
+  const _isRope  = _isCraneRope;
   const _isPV    = /pressure.vessel|pressure vessel/i.test(_rawType);
 
   const pn     = parseNotes(rawNotes);
@@ -621,11 +624,11 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
     </>
   );
 
-  if (_isHook||_isRope) return (
+  if (_isHook||_isCraneRope) return (
     <>
       <style>{CSS}</style>
       <div className={pm?"":"pro-wrap"}>
-        <HookRopePage c={c} pn={pn} tone={tone} pm={pm} logo={logo} isRope={_isRope&&!_isHook}/>
+        <HookRopePage c={c} pn={pn} tone={tone} pm={pm} logo={logo} isRope={_isCraneRope&&!_isHook}/>
       </div>
     </>
   );
@@ -696,7 +699,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
               {_isBoom&&pn["Min length"]  &&<Field label="Min Boom Length"     value={pn["Min length"]}/>}
               {_isBoom&&pn["Max length"]  &&<Field label="Max Boom Length"     value={pn["Max length"]}/>}
               {!_isBoom&&mawp             &&<Field label="Working Pressure"    value={`${mawp} ${pressureUnit}`}/>}
-              {!_isBoom&&capacity&&!_isRope&&<Field label="Capacity / Volume"  value={capacity}/>}
+              {!_isBoom&&capacity&&!_isCraneRope&&<Field label="Capacity / Volume"  value={capacity}/>}
               {designP  &&<Field label="Design Pressure"      value={`${designP} ${pressureUnit}`}/>}
               {testP    &&<Field label="Test Pressure"        value={`${testP} ${pressureUnit}`}/>}
               {mfg&&!_isBoom&&<Field label="Manufacturer"    value={mfg}/>}
@@ -704,17 +707,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
               {countryOrig&&<Field label="Country of Origin" value={countryOrig}/>}
               {lanyardSN  &&<Field label="Lanyard Serial No." value={lanyardSN} mono/>}
             </Section>
-            <div className="cs-sec">
-              <div className="cs-sec-ttl">Legal Compliance</div>
-              <div className="cs-fields">
-                <div className="cs-field" style={{gridColumn:"1/-1"}}>
-                  <div className="cs-fv">
-                    This inspection has been performed by a competent person as defined under the {legalFmwk} of the Laws of Botswana. The inspection, testing and certification of the above equipment has been carried out in full compliance with the requirements of the said Act.
-                  </div>
-                </div>
-              </div>
-            </div>
-            {_isBoom&&(
+{_isBoom&&(
               <Section title="Boom Systems Condition">
                 {pn["Boom structure"] &&<Field label="Boom Structure"           value={pn["Boom structure"]}/>}
                 {pn["Boom pins"]      &&<Field label="Boom Pins &amp; Connections"  value={pn["Boom pins"]}/>}
