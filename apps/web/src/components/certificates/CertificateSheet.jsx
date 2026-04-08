@@ -157,12 +157,12 @@ const CSS = `
   }
 `;
 
-function Field({ label, value, mono=false, large=false, full=false }) {
+function Field({ label, value, mono=false, large=false, full=false, red=false }) {
   if (!value) return null;
   return (
-    <div className="cs-field" style={full?{gridColumn:"1/-1"}:{}}>
-      <div className="cs-fl">{label}</div>
-      <div className={`cs-fv${mono?" mono":""}${large?" large":""}`}>{value}</div>
+    <div className="cs-field" style={{...(full?{gridColumn:"1/-1"}:{}), ...(red?{background:"#fff5f5",borderLeft:"3px solid #ef4444"}:{})}}>
+      <div className="cs-fl" style={red?{color:"#b91c1c"}:{}}>{label}</div>
+      <div className={`cs-fv${mono?" mono":""}${large?" large":""}`} style={red?{color:"#b91c1c",fontWeight:700}:{}}>{value}</div>
     </div>
   );
 }
