@@ -703,6 +703,8 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
               {mfgYear  &&<Field label="Year of Manufacture" value={mfgYear}/>}
               {countryOrig&&<Field label="Country of Origin" value={countryOrig}/>}
               {lanyardSN  &&<Field label="Lanyard Serial No." value={lanyardSN} mono/>}
+            </Section>
+            <Section title="Legal Compliance">
               <Field
                 label="Legal Compliance"
                 value={`This inspection has been performed by a competent person as defined under the ${legalFmwk} of the Laws of Botswana. The inspection, testing and certification of the above equipment has been carried out in full compliance with the requirements of the said Act.`}
