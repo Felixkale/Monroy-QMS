@@ -733,6 +733,15 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
               </div>
             )}
           </div>
+          <div className="cs-legal">
+            <div className="cs-legal-box">
+              This inspection has been performed by a <strong>competent person</strong> as defined under the{" "}
+              <strong>{legalFmwk}</strong> of the Laws of Botswana. The inspection, testing and certification
+              of the above equipment has been carried out in full compliance with the requirements of the said Act
+              and applicable regulations.
+            </div>
+          </div>
+
           <div className="cs-sig-wrap">
             <div className="cs-sig-card">
               <div className="cs-sig-card-title">Signatures &amp; Authorisation</div>
