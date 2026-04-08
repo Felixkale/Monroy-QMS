@@ -707,6 +707,19 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
               {countryOrig&&<Field label="Country of Origin" value={countryOrig}/>}
               {lanyardSN  &&<Field label="Lanyard Serial No." value={lanyardSN} mono/>}
             </Section>
+            <div className="cs-sec" style={{marginTop:8}}>
+              <div className="cs-sec-ttl">Legal Compliance</div>
+              <div className="cs-fields">
+                <div className="cs-field" style={{gridColumn:"1/-1",background:"#f4f8ff"}}>
+                  <div className="cs-fv" style={{fontSize:8.5,color:"#4b5563",lineHeight:1.55,fontWeight:400}}>
+                    This inspection has been performed by a <strong>competent person</strong> as defined under the{" "}
+                    <strong>{legalFmwk}</strong> of the Laws of Botswana. The inspection, testing and certification
+                    of the above equipment has been carried out in full compliance with the requirements of the said Act
+                    and applicable regulations.
+                  </div>
+                </div>
+              </div>
+            </div>
 {_isBoom&&(
               <Section title="Boom Systems Condition">
                 {pn["Boom structure"] &&<Field label="Boom Structure"           value={pn["Boom structure"]}/>}
@@ -733,15 +746,6 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
               </div>
             )}
           </div>
-          <div className="cs-legal">
-            <div className="cs-legal-box">
-              This inspection has been performed by a <strong>competent person</strong> as defined under the{" "}
-              <strong>{legalFmwk}</strong> of the Laws of Botswana. The inspection, testing and certification
-              of the above equipment has been carried out in full compliance with the requirements of the said Act
-              and applicable regulations.
-            </div>
-          </div>
-
           <div className="cs-sig-wrap">
             <div className="cs-sig-card">
               <div className="cs-sig-card-title">Signatures &amp; Authorisation</div>
