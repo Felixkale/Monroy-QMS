@@ -28,7 +28,6 @@ DATE FORMAT: Return dates as MM/YYYY or DD/MM/YYYY or YYYY only.
 Return ONLY valid JSON, no markdown:
 {"equipment_type":"","equipment_description":"","manufacturer":"","model":"","serial_number":"","asset_tag":"","year_built":"","capacity_volume":"","swl":"","working_pressure":"","design_pressure":"","test_pressure":"","pressure_unit":"","material":"","standard_code":"","inspection_number":"","client_name":"","location":"","inspection_date":"","expiry_date":"","next_inspection_due":"","inspector_name":"","inspection_body":"","result":"","defects_found":"","recommendations":"","comments":"","nameplate_data":"","raw_text_summary":""}`;
 
-// ── List prompt — AI identifies each item's equipment type individually ──
 function buildListPrompt(client, inspDate, expiryDate) {
   return `You are a senior industrial inspection AI. The image shows a HANDWRITTEN LIST of equipment items.
 
@@ -79,6 +78,8 @@ Return ONLY a valid JSON object, no markdown, no explanation:
 // ── Constants ─────────────────────────────────────────────────────────────
 const MAX_FILES = 20;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_EVIDENCE_PHOTOS = 5;
+const MAX_EVIDENCE_SIZE = 5 * 1024 * 1024; // 5 MB per evidence photo
 
 const EQUIPMENT_TYPES = [
   "Chain Block","Manual Chain Hoist","Electric Chain Hoist","Lever Hoist / Tirfor","Chain Pulley Block",
@@ -100,11 +101,13 @@ const EQUIPMENT_TYPES = [
 // ── Helpers ───────────────────────────────────────────────────────────────
 function uid() { return typeof crypto!=="undefined"&&crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random().toString(36).slice(2,10)}`; }
 function isAllowedFile(f) { return f&&(f.type==="application/pdf"||f.type.startsWith("image/"))&&f.size<=MAX_FILE_SIZE; }
+function isAllowedEvidencePhoto(f) { return f&&f.type.startsWith("image/")&&f.size<=MAX_EVIDENCE_SIZE; }
 function nonEmpty(d) { return Object.values(d||{}).filter(v=>v!=null&&String(v).trim()!=="").length; }
 function pillClass(r) { const v=String(r||"").toUpperCase(); return v==="PASS"?"p-pass":v==="FAIL"?"p-fail":v==="CONDITIONAL"?"p-cond":"p-neutral"; }
 function slugify(v) { return String(v||"").trim().toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,16)||"UNKNOWN"; }
 function fileSizeLabel(f) { if(!f)return""; return f.size>1048576?`${(f.size/1048576).toFixed(1)} MB`:`${Math.round(f.size/1024)} KB`; }
 function toBase64(file) { return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(",")[1]); r.onerror=rej; r.readAsDataURL(file); }); }
+function toDataURL(file) { return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result)); r.onerror=rej; r.readAsDataURL(file); }); }
 
 function normalizeDate(raw) {
   if(!raw)return"";
@@ -123,6 +126,161 @@ function normalizeDate(raw) {
   if(mm){const mi=months.indexOf(mm[1]);if(mi>=0){const last=new Date(+mm[2],mi+1,0).getDate();return`${mm[2]}-${String(mi+1).padStart(2,"0")}-${String(last).padStart(2,"0")}`;}}
   try{const d=new Date(s);if(!isNaN(d))return d.toISOString().slice(0,10);}catch(e){}
   return"";
+}
+
+// ── Photo Evidence Hook ───────────────────────────────────────────────────
+// Returns { photos, addPhotos, removePhoto, toPayload }
+// photos: [{ id, file, dataURL, caption }]
+function usePhotoEvidence() {
+  const [photos, setPhotos] = useState([]);
+
+  async function addPhotos(fileList) {
+    const allowed = Array.from(fileList).filter(isAllowedEvidencePhoto);
+    const toAdd = allowed.slice(0, MAX_EVIDENCE_PHOTOS - photos.length);
+    const loaded = await Promise.all(
+      toAdd.map(async (f) => ({
+        id: uid(),
+        file: f,
+        dataURL: await toDataURL(f),
+        caption: "",
+      }))
+    );
+    setPhotos((prev) => [...prev, ...loaded].slice(0, MAX_EVIDENCE_PHOTOS));
+  }
+
+  function removePhoto(id) {
+    setPhotos((prev) => prev.filter((p) => p.id !== id));
+  }
+
+  function updateCaption(id, caption) {
+    setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, caption } : p)));
+  }
+
+  // Returns array of { dataURL, caption, name } ready to embed in DB payload
+  function toPayload() {
+    return photos.map((p) => ({
+      name: p.file.name,
+      dataURL: p.dataURL,
+      caption: p.caption,
+      size: p.file.size,
+      type: p.file.type,
+    }));
+  }
+
+  return { photos, addPhotos, removePhoto, updateCaption, toPayload };
+}
+
+// ── Photo Evidence Panel Component ────────────────────────────────────────
+function PhotoEvidencePanel({ photos, addPhotos, removePhoto, updateCaption, disabled }) {
+  const inputRef = useRef(null);
+  const [dragActive, setDragActive] = useState(false);
+  const canAdd = photos.length < MAX_EVIDENCE_PHOTOS && !disabled;
+  const [lightbox, setLightbox] = useState(null); // dataURL of full image
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragActive(false);
+    if (!canAdd) return;
+    addPhotos(e.dataTransfer.files);
+  }
+
+  return (
+    <div className="evidence-panel">
+      <div className="evidence-header">
+        <span className="evidence-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{verticalAlign:"middle",marginRight:5}}>
+            <rect x="3" y="3" width="18" height="18" rx="3" stroke="var(--accent)" strokeWidth="1.6"/>
+            <circle cx="8.5" cy="8.5" r="1.5" fill="var(--accent)"/>
+            <path d="M3 15l5-5 4 4 3-3 6 6" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Photo Evidence
+        </span>
+        <span className="evidence-count">{photos.length} / {MAX_EVIDENCE_PHOTOS}</span>
+      </div>
+      <div className="evidence-sub">Attach photos that will appear on the certificate — equipment condition, nameplates, site context</div>
+
+      {/* Thumbnails */}
+      {photos.length > 0 && (
+        <div className="evidence-thumbs">
+          {photos.map((p, i) => (
+            <div key={p.id} className="evidence-thumb-wrap">
+              <div
+                className="evidence-thumb"
+                onClick={() => !disabled && setLightbox(p.dataURL)}
+                title="Click to enlarge"
+              >
+                <img src={p.dataURL} alt={p.caption || p.file.name} />
+                <div className="evidence-thumb-overlay">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="#fff" strokeWidth="2" strokeLinecap="round"/></svg>
+                </div>
+                {!disabled && (
+                  <button
+                    type="button"
+                    className="evidence-remove"
+                    onClick={(e) => { e.stopPropagation(); removePhoto(p.id); }}
+                    title="Remove photo"
+                  >✕</button>
+                )}
+              </div>
+              <div className="evidence-thumb-num">#{i + 1}</div>
+              <input
+                className="evidence-caption"
+                type="text"
+                placeholder="Caption (optional)"
+                value={p.caption}
+                disabled={disabled}
+                maxLength={80}
+                onChange={(e) => updateCaption(p.id, e.target.value)}
+              />
+              <div className="evidence-fname" title={p.file.name}>{p.file.name}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Drop zone — only shown if can add more */}
+      {canAdd && (
+        <div
+          className={`evidence-drop${dragActive ? " drag" : ""}`}
+          onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={handleDrop}
+          onClick={() => inputRef.current?.click()}
+        >
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: "none" }}
+            onChange={(e) => addPhotos(e.target.files)}
+          />
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{marginBottom:6}}>
+            <circle cx="12" cy="12" r="9" stroke="var(--hint)" strokeWidth="1.4" strokeDasharray="3 2"/>
+            <path d="M12 8v8M8 12h8" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round"/>
+          </svg>
+          <div className="evidence-drop-text">
+            {photos.length === 0 ? "Click or drag photos here" : `Add more photos (${MAX_EVIDENCE_PHOTOS - photos.length} remaining)`}
+          </div>
+          <div className="evidence-drop-sub">JPG · PNG · WEBP · max 5 MB each</div>
+        </div>
+      )}
+
+      {photos.length >= MAX_EVIDENCE_PHOTOS && (
+        <div className="evidence-limit">Maximum {MAX_EVIDENCE_PHOTOS} photos reached</div>
+      )}
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div className="evidence-lightbox" onClick={() => setLightbox(null)}>
+          <div className="evidence-lightbox-inner" onClick={(e) => e.stopPropagation()}>
+            <img src={lightbox} alt="Evidence" />
+            <button className="evidence-lightbox-close" onClick={() => setLightbox(null)}>✕ Close</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -287,6 +445,49 @@ export default function ImportCertificatesPage() {
           .cert-import-page .list-banner{background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.2);border-radius:12px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
           .cert-import-page .list-banner-text{font-size:14px;font-weight:700;color:var(--text)}
           .cert-import-page .list-banner-sub{font-size:11px;color:var(--sub);margin-top:3px}
+
+          /* ── Photo Evidence Panel ── */
+          .cert-import-page .evidence-panel{border:1px solid var(--b2);border-radius:var(--rl);background:var(--s2);padding:14px 16px;margin-bottom:12px}
+          .cert-import-page .evidence-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+          .cert-import-page .evidence-title{font-size:12px;font-weight:700;color:var(--text);display:flex;align-items:center}
+          .cert-import-page .evidence-count{font-size:10px;font-weight:700;color:var(--hint);background:var(--s3);border:1px solid var(--b2);border-radius:999px;padding:1px 8px}
+          .cert-import-page .evidence-sub{font-size:11px;color:var(--hint);margin-bottom:12px;line-height:1.5}
+          .cert-import-page .evidence-thumbs{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+          .cert-import-page .evidence-thumb-wrap{display:flex;flex-direction:column;gap:4px;width:90px}
+          .cert-import-page .evidence-thumb{width:90px;height:70px;border-radius:8px;overflow:hidden;border:1px solid var(--b3);position:relative;cursor:pointer;background:var(--s3);flex-shrink:0}
+          .cert-import-page .evidence-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+          .cert-import-page .evidence-thumb-overlay{position:absolute;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .18s}
+          .cert-import-page .evidence-thumb:hover .evidence-thumb-overlay{opacity:1}
+          .cert-import-page .evidence-remove{position:absolute;top:3px;right:3px;width:18px;height:18px;border-radius:50%;border:none;background:rgba(0,0,0,.72);color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;line-height:1;padding:0;transition:background .15s}
+          .cert-import-page .evidence-remove:hover{background:var(--red)}
+          .cert-import-page .evidence-thumb-num{font-size:9px;font-weight:700;color:var(--hint);text-align:center}
+          .cert-import-page .evidence-caption{width:100%;padding:3px 6px;border-radius:5px;border:1px solid var(--b1);background:var(--s3);color:var(--text);font-size:10px;font-family:inherit;outline:none}
+          .cert-import-page .evidence-caption:focus{border-color:var(--blue)}
+          .cert-import-page .evidence-fname{font-size:9px;color:var(--hint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+          .cert-import-page .evidence-drop{border:1.5px dashed var(--b2);border-radius:var(--r);padding:14px 12px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;display:flex;flex-direction:column;align-items:center;gap:2px}
+          .cert-import-page .evidence-drop:hover,.cert-import-page .evidence-drop.drag{border-color:var(--accent);background:rgba(0,212,255,.04)}
+          .cert-import-page .evidence-drop-text{font-size:11px;font-weight:600;color:var(--sub)}
+          .cert-import-page .evidence-drop-sub{font-size:10px;color:var(--hint)}
+          .cert-import-page .evidence-limit{font-size:10px;color:var(--hint);text-align:center;padding:6px;font-style:italic}
+          .cert-import-page .evidence-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:10px;font-weight:700;background:rgba(0,212,255,.1);color:var(--accent);border:1px solid rgba(0,212,255,.25);flex-shrink:0}
+          /* Saved evidence preview strip in result card */
+          .cert-import-page .saved-evidence-strip{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--b1)}
+          .cert-import-page .saved-evidence-thumb{width:52px;height:42px;border-radius:6px;overflow:hidden;border:1px solid var(--green-b);cursor:pointer;flex-shrink:0}
+          .cert-import-page .saved-evidence-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+          .cert-import-page .saved-evidence-label{font-size:10px;color:var(--green-t);align-self:center;font-weight:600}
+          /* List mode evidence row */
+          .cert-import-page .list-evidence-cell{display:flex;align-items:center;gap:6px}
+          .cert-import-page .list-evidence-add{padding:4px 9px;border-radius:6px;border:1px dashed var(--b2);background:transparent;color:var(--hint);font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit;transition:border-color .15s,color .15s}
+          .cert-import-page .list-evidence-add:hover{border-color:var(--accent);color:var(--accent)}
+          .cert-import-page .list-evidence-add:disabled{opacity:.4;cursor:not-allowed}
+          .cert-import-page .list-mini-thumb{width:28px;height:24px;border-radius:4px;overflow:hidden;border:1px solid var(--b3);flex-shrink:0;cursor:pointer}
+          .cert-import-page .list-mini-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+          /* Lightbox */
+          .cert-import-page .evidence-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px}
+          .cert-import-page .evidence-lightbox-inner{position:relative;max-width:90vw;max-height:90vh;display:flex;flex-direction:column;align-items:center;gap:12px}
+          .cert-import-page .evidence-lightbox-inner img{max-width:100%;max-height:80vh;border-radius:10px;box-shadow:0 0 60px rgba(0,0,0,.8)}
+          .cert-import-page .evidence-lightbox-close{padding:8px 18px;border-radius:var(--r);border:1px solid var(--b2);background:var(--s1);color:var(--sub);font-size:12px;cursor:pointer;font-family:inherit}
+
           @media(max-width:900px){
             .cert-import-page .layout{grid-template-columns:1fr}
             .cert-import-page .stats{grid-template-columns:repeat(2,1fr)}
@@ -360,14 +561,14 @@ function DocumentMode() {
       if(!res.ok)throw new Error(json?.error||`Server error ${res.status}`);
       if(!Array.isArray(json?.results))throw new Error("Unexpected response");
       const mapped=json.results.map(item=>{
-        if(!item.ok||!item.data)return{...item,saved:false,saving:false,saveError:null,expanded:false,certNumber:null,savedId:null,manualResult:"PASS",manualDefects:""};
+        if(!item.ok||!item.data)return{...item,saved:false,saving:false,saveError:null,expanded:false,certNumber:null,savedId:null,manualResult:"PASS",manualDefects:"",evidencePhotos:[]};
         const rawData={...item.data,inspection_date:normalizeDate(item.data.inspection_date),expiry_date:normalizeDate(item.data.expiry_date),next_inspection_due:normalizeDate(item.data.next_inspection_due)};
         const data=applyOverrides(rawData);
-        return{...item,data,saved:false,saving:false,saveError:null,savedId:null,expanded:false,certNumber:null,manualResult:data.result||"PASS",manualDefects:data.defects_found||""};
+        return{...item,data,saved:false,saving:false,saveError:null,savedId:null,expanded:false,certNumber:null,manualResult:data.result||"PASS",manualDefects:data.defects_found||"",evidencePhotos:[]};
       });
       setResults(mapped);setProgress(100,"Extraction complete");
     }catch(e){
-      setResults([{fileName:"Request failed",ok:false,error:e.message||"Unexpected error",saved:false,saving:false,saveError:null,expanded:false,certNumber:null,savedId:null,manualResult:"PASS",manualDefects:""}]);
+      setResults([{fileName:"Request failed",ok:false,error:e.message||"Unexpected error",saved:false,saving:false,saveError:null,expanded:false,certNumber:null,savedId:null,manualResult:"PASS",manualDefects:"",evidencePhotos:[]}]);
       setProgress(100,"Extraction failed");
     }finally{setExtracting(false);}
   }
@@ -375,16 +576,49 @@ function DocumentMode() {
   function setResultField(idx,key,value){setResults(prev=>prev.map((it,i)=>i===idx?{...it,[key]:value}:it));}
   function toggleExpanded(idx){setResults(prev=>prev.map((it,i)=>i===idx?{...it,expanded:!it.expanded}:it));}
 
+  // Photo evidence handlers per result card
+  async function addEvidencePhotos(idx, fileList) {
+    const allowed = Array.from(fileList).filter(isAllowedEvidencePhoto);
+    const current = results[idx]?.evidencePhotos || [];
+    const toAdd = allowed.slice(0, MAX_EVIDENCE_PHOTOS - current.length);
+    const loaded = await Promise.all(
+      toAdd.map(async (f) => ({
+        id: uid(),
+        name: f.name,
+        dataURL: await toDataURL(f),
+        caption: "",
+        size: f.size,
+        type: f.type,
+      }))
+    );
+    setResults(prev => prev.map((it, i) =>
+      i === idx ? { ...it, evidencePhotos: [...(it.evidencePhotos || []), ...loaded].slice(0, MAX_EVIDENCE_PHOTOS) } : it
+    ));
+  }
+
+  function removeEvidencePhoto(idx, photoId) {
+    setResults(prev => prev.map((it, i) =>
+      i === idx ? { ...it, evidencePhotos: (it.evidencePhotos || []).filter(p => p.id !== photoId) } : it
+    ));
+  }
+
+  function updateEvidenceCaption(idx, photoId, caption) {
+    setResults(prev => prev.map((it, i) =>
+      i === idx ? {
+        ...it,
+        evidencePhotos: (it.evidencePhotos || []).map(p => p.id === photoId ? { ...p, caption } : p)
+      } : it
+    ));
+  }
+
   function generateCompanyCode(name) {
     const initials = name.trim().split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
     return `${initials}-${String(Math.floor(Math.random()*900)+100)}`;
   }
 
   function generateSerialNumber(clientName, equipmentType) {
-    const clientCode = (clientName||"UNK").trim()
-      .split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
-    const equipCode = (equipmentType||"EQP").trim()
-      .split(/[\s/—-]+/).filter(Boolean).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+    const clientCode = (clientName||"UNK").trim().split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+    const equipCode = (equipmentType||"EQP").trim().split(/[\s/—-]+/).filter(Boolean).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
     const ts = String(Date.now()).slice(-6);
     return `${clientCode}-${equipCode}-${ts}`;
   }
@@ -393,24 +627,13 @@ function DocumentMode() {
     if (!clientName || !clientName.trim()) return { skip: true };
     const name = clientName.trim();
     try {
-      const { data: existing, error: lookupErr } = await supabase.from("clients")
-        .select("id")
-        .ilike("company_name", name)
-        .maybeSingle();
+      const { data: existing, error: lookupErr } = await supabase.from("clients").select("id").ilike("company_name", name).maybeSingle();
       if (lookupErr) return { error: lookupErr.message };
       if (existing)  return { exists: true };
-      const { error: insertErr } = await supabase.from("clients").insert({
-        company_name: name,
-        company_code: generateCompanyCode(name),
-        city:         city || "",
-        country:      "Botswana",
-        status:       "active",
-      });
+      const { error: insertErr } = await supabase.from("clients").insert({ company_name: name, company_code: generateCompanyCode(name), city: city || "", country: "Botswana", status: "active" });
       if (insertErr) return { error: insertErr.message };
       return { created: true };
-    } catch(e) {
-      return { error: e.message };
-    }
+    } catch(e) { return { error: e.message }; }
   }
 
   async function saveOne(idx){
@@ -427,7 +650,53 @@ function DocumentMode() {
       const effectiveCity   = overrides.location?.trim()    || row.data.location || "";
       const clientResult = await ensureClient(effectiveClient, effectiveCity);
       if (clientResult?.error) console.warn("Client auto-register failed:", clientResult.error);
-      const payload={certificate_number:certNumber,inspection_number:row.data.inspection_number||null,result:row.manualResult||row.data.result||"UNKNOWN",issue_date:row.data.inspection_date||null,inspection_date:row.data.inspection_date||null,expiry_date:row.data.expiry_date||null,next_inspection_due:row.data.next_inspection_due||null,equipment_description:row.data.equipment_description||row.data.equipment_type||null,equipment_type:row.data.equipment_type||null,asset_name:row.data.equipment_description||row.data.equipment_type||null,asset_type:row.data.equipment_type||null,client_name:row.data.client_name||null,status:"active",manufacturer:row.data.manufacturer||null,model:row.data.model||null,serial_number:row.data.serial_number||null,year_built:row.data.year_built||null,capacity_volume:row.data.capacity_volume||null,swl:row.data.swl||null,working_pressure:row.data.working_pressure||null,design_pressure:row.data.design_pressure||null,test_pressure:row.data.test_pressure||null,pressure_unit:row.data.pressure_unit||null,material:row.data.material||null,standard_code:row.data.standard_code||null,location:row.data.location||null,inspector_name:row.data.inspector_name||null,inspection_body:row.data.inspection_body||null,defects_found:row.manualDefects||row.data.defects_found||null,recommendations:row.data.recommendations||null,comments:row.data.comments||null,nameplate_data:row.data.nameplate_data||null,raw_text_summary:row.data.raw_text_summary||null,asset_tag:row.data.asset_tag||null};
+
+      // Build photo_evidence payload — strip File objects, keep dataURL + meta
+      const photo_evidence = (row.evidencePhotos || []).map(p => ({
+        name: p.name,
+        dataURL: p.dataURL,
+        caption: p.caption,
+        size: p.size,
+        type: p.type,
+      }));
+
+      const payload={
+        certificate_number:certNumber,
+        inspection_number:row.data.inspection_number||null,
+        result:row.manualResult||row.data.result||"UNKNOWN",
+        issue_date:row.data.inspection_date||null,
+        inspection_date:row.data.inspection_date||null,
+        expiry_date:row.data.expiry_date||null,
+        next_inspection_due:row.data.next_inspection_due||null,
+        equipment_description:row.data.equipment_description||row.data.equipment_type||null,
+        equipment_type:row.data.equipment_type||null,
+        asset_name:row.data.equipment_description||row.data.equipment_type||null,
+        asset_type:row.data.equipment_type||null,
+        client_name:row.data.client_name||null,
+        status:"active",
+        manufacturer:row.data.manufacturer||null,
+        model:row.data.model||null,
+        serial_number:row.data.serial_number||null,
+        year_built:row.data.year_built||null,
+        capacity_volume:row.data.capacity_volume||null,
+        swl:row.data.swl||null,
+        working_pressure:row.data.working_pressure||null,
+        design_pressure:row.data.design_pressure||null,
+        test_pressure:row.data.test_pressure||null,
+        pressure_unit:row.data.pressure_unit||null,
+        material:row.data.material||null,
+        standard_code:row.data.standard_code||null,
+        location:row.data.location||null,
+        inspector_name:row.data.inspector_name||null,
+        inspection_body:row.data.inspection_body||null,
+        defects_found:row.manualDefects||row.data.defects_found||null,
+        recommendations:row.data.recommendations||null,
+        comments:row.data.comments||null,
+        nameplate_data:row.data.nameplate_data||null,
+        raw_text_summary:row.data.raw_text_summary||null,
+        asset_tag:row.data.asset_tag||null,
+        photo_evidence: photo_evidence.length > 0 ? photo_evidence : null,
+      };
       const res=await fetch("/api/certificates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
       const json=await res.json();
       if(!res.ok)throw new Error(json?.error||`Save failed: ${res.status}`);
@@ -496,7 +765,7 @@ function DocumentMode() {
 
         <div className="card" style={{borderRadius:"var(--rxl)"}}>
           <div className="card-header">
-            <div><div className="card-title">Extracted results</div><div className="card-sub">Review, set result and defects, then save to register</div></div>
+            <div><div className="card-title">Extracted results</div><div className="card-sub">Review, attach evidence photos, set result, then save to register</div></div>
             <button className="btn-saveall" type="button" onClick={saveAll} disabled={!stats.canSaveAll}>Save all successful</button>
           </div>
           <div className="card-body">
@@ -506,6 +775,7 @@ function DocumentMode() {
                 const d=item.data||{};
                 const r=item.manualResult||d.result||"UNKNOWN";
                 const disabled=item.saved||item.saving;
+                const evidencePhotos = item.evidencePhotos || [];
                 return(
                   <div key={`${item.fileName}-${idx}`} className={`rcard${item.ok?(item.saved?" is-saved":""):" is-err"}`}>
                     <div className="rhead">
@@ -514,6 +784,13 @@ function DocumentMode() {
                       {item.ok&&<span className="pill p-info">{nonEmpty(d)} fields</span>}
                       {item.ok&&d.equipment_type&&<span className="pill p-neutral">{d.equipment_type}</span>}
                       {item.ok&&<span className={`pill ${pillClass(r)}`}>{r}</span>}
+                      {/* Evidence count badge in header */}
+                      {item.ok && evidencePhotos.length > 0 && (
+                        <span className="evidence-badge">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="2"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M3 15l5-5 4 4 3-3 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                          {evidencePhotos.length} photo{evidencePhotos.length !== 1 ? "s" : ""}
+                        </span>
+                      )}
                       {item.saved&&item.certNumber&&<span className="cert-num">{item.certNumber}</span>}
                       <span className={`pill ${item.ok?"p-ok":"p-err"}`}>{item.ok?"OK":"Error"}</span>
                     </div>
@@ -539,6 +816,16 @@ function DocumentMode() {
                             <div><label className="field-lbl">Inspection result</label><select className="sel" value={item.manualResult} disabled={disabled} onChange={e=>setResultField(idx,"manualResult",e.target.value)}><option value="PASS">PASS</option><option value="FAIL">FAIL</option><option value="CONDITIONAL">CONDITIONAL</option><option value="UNKNOWN">UNKNOWN</option></select></div>
                             <div><label className="field-lbl">Defects found</label><textarea className="ta" value={item.manualDefects} disabled={disabled} placeholder="Describe defects, cracks, wear..." onChange={e=>setResultField(idx,"manualDefects",e.target.value)}/></div>
                           </div>
+
+                          {/* ── PHOTO EVIDENCE PANEL ── */}
+                          <EvidencePanelForResult
+                            photos={evidencePhotos}
+                            disabled={disabled}
+                            onAdd={(fileList) => addEvidencePhotos(idx, fileList)}
+                            onRemove={(photoId) => removeEvidencePhoto(idx, photoId)}
+                            onCaption={(photoId, caption) => updateEvidenceCaption(idx, photoId, caption)}
+                          />
+
                           {item.saveError&&<div className="save-err">{item.saveError}</div>}
                           <div className="rfoot">
                             <button className="expand-btn" type="button" onClick={()=>toggleExpanded(idx)}>{item.expanded?"Hide all fields ↑":"Show all fields ↓"}</button>
@@ -562,9 +849,100 @@ function DocumentMode() {
   );
 }
 
+// ── Inline evidence panel used inside each result card ────────────────────
+function EvidencePanelForResult({ photos, disabled, onAdd, onRemove, onCaption }) {
+  const inputRef = useRef(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [lightbox, setLightbox] = useState(null);
+  const canAdd = photos.length < MAX_EVIDENCE_PHOTOS && !disabled;
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragActive(false);
+    if (!canAdd) return;
+    onAdd(e.dataTransfer.files);
+  }
+
+  return (
+    <div className="evidence-panel" style={{marginBottom:12}}>
+      <div className="evidence-header">
+        <span className="evidence-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{verticalAlign:"middle",marginRight:5}}>
+            <rect x="3" y="3" width="18" height="18" rx="3" stroke="var(--accent)" strokeWidth="1.6"/>
+            <circle cx="8.5" cy="8.5" r="1.5" fill="var(--accent)"/>
+            <path d="M3 15l5-5 4 4 3-3 6 6" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Photo Evidence
+        </span>
+        <span className="evidence-count">{photos.length} / {MAX_EVIDENCE_PHOTOS}</span>
+      </div>
+      <div className="evidence-sub">Attach photos that will appear on the printed certificate — equipment condition, nameplates, site context</div>
+
+      {photos.length > 0 && (
+        <div className="evidence-thumbs">
+          {photos.map((p, i) => (
+            <div key={p.id} className="evidence-thumb-wrap">
+              <div className="evidence-thumb" onClick={() => setLightbox(p.dataURL)} title="Click to enlarge">
+                <img src={p.dataURL} alt={p.caption || p.name} />
+                <div className="evidence-thumb-overlay">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="#fff" strokeWidth="2" strokeLinecap="round"/></svg>
+                </div>
+                {!disabled && (
+                  <button type="button" className="evidence-remove" onClick={(e) => { e.stopPropagation(); onRemove(p.id); }} title="Remove">✕</button>
+                )}
+              </div>
+              <div className="evidence-thumb-num">#{i + 1}</div>
+              <input
+                className="evidence-caption"
+                type="text"
+                placeholder="Caption…"
+                value={p.caption}
+                disabled={disabled}
+                maxLength={80}
+                onChange={(e) => onCaption(p.id, e.target.value)}
+              />
+              <div className="evidence-fname" title={p.name}>{p.name}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {canAdd && (
+        <div
+          className={`evidence-drop${dragActive ? " drag" : ""}`}
+          onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={handleDrop}
+          onClick={() => inputRef.current?.click()}
+        >
+          <input ref={inputRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => onAdd(e.target.files)} />
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{marginBottom:4}}>
+            <circle cx="12" cy="12" r="9" stroke="var(--hint)" strokeWidth="1.4" strokeDasharray="3 2"/>
+            <path d="M12 8v8M8 12h8" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round"/>
+          </svg>
+          <div className="evidence-drop-text">{photos.length === 0 ? "Click or drag evidence photos here" : `Add more (${MAX_EVIDENCE_PHOTOS - photos.length} remaining)`}</div>
+          <div className="evidence-drop-sub">JPG · PNG · WEBP · max 5 MB each</div>
+        </div>
+      )}
+
+      {photos.length >= MAX_EVIDENCE_PHOTOS && (
+        <div className="evidence-limit">Maximum {MAX_EVIDENCE_PHOTOS} photos attached</div>
+      )}
+
+      {lightbox && (
+        <div className="evidence-lightbox" onClick={() => setLightbox(null)}>
+          <div className="evidence-lightbox-inner" onClick={(e) => e.stopPropagation()}>
+            <img src={lightbox} alt="Evidence" />
+            <button className="evidence-lightbox-close" onClick={() => setLightbox(null)}>✕ Close</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════
-// LIST MODE — photo of handwritten list → many certificates
-// AI identifies each item's equipment type individually
+// LIST MODE
 // ══════════════════════════════════════════════════════════════
 function ListMode() {
   const [files, setFiles] = useState([]);
@@ -575,11 +953,15 @@ function ListMode() {
   const [overrides, setOverrides] = useState({client_name:"",location:"",inspection_date:"",expiry_date:""});
   const [savingAll, setSavingAll] = useState(false);
   const [error, setError] = useState("");
+  const [evidenceDrawerOpen, setEvidenceDrawerOpen] = useState(null); // item id with open drawer
+  const [lightbox, setLightbox] = useState(null);
   const fileInputRef = useRef(null);
+  const evidenceInputRefs = useRef({}); // { [itemId]: ref }
   const certSeqRef = useRef(1);
 
   const savedCount = useMemo(()=>items.filter(x=>x.saved).length,[items]);
   const pendingCount = useMemo(()=>items.filter(x=>!x.saved&&!x.saving).length,[items]);
+  const totalPhotos = useMemo(()=>items.reduce((s,x)=>s+(x.evidencePhotos?.length||0),0),[items]);
 
   function setProgress(pct,label){setProgressState({visible:true,pct:Math.round(pct),label});}
   function addFiles(list){
@@ -598,11 +980,7 @@ function ListMode() {
         payloads.push({fileName:files[i].file.name,mimeType:files[i].file.type||"image/jpeg",base64Data:await toBase64(files[i].file)});
       }
       setProgress(50,"AI reading list — this may take a moment...");
-      const res=await fetch("/api/ai/extract",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-        files:payloads,
-        systemPrompt:buildListPrompt(overrides.client_name,overrides.inspection_date,overrides.expiry_date),
-        listMode:true,
-      })});
+      const res=await fetch("/api/ai/extract",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({files:payloads,systemPrompt:buildListPrompt(overrides.client_name,overrides.inspection_date,overrides.expiry_date),listMode:true})});
       setProgress(80,"Parsing items...");
       const json=await res.json();
       if(!res.ok)throw new Error(json?.error||`Server error ${res.status}`);
@@ -632,6 +1010,7 @@ function ListMode() {
         equipment_description:item.equipment_description||`${item.equipment_type||"Equipment"} SN ${item.serial_number||i+1} SWL ${item.swl||""}`.trim(),
         result:String(item.result||"PASS").trim().toUpperCase()||"PASS",
         defects_found:String(item.defects_found||"").trim(),
+        evidencePhotos: [],
         saved:false,saving:false,savedId:null,certNumber:null,saveError:null,
       })));
     }catch(e){setError(e.message||"Extraction failed.");setProgress(100,"Failed");}
@@ -640,7 +1019,35 @@ function ListMode() {
 
   function updateItem(id,key,value){setItems(prev=>prev.map(it=>it.id===id?{...it,[key]:value}:it));}
   function removeItem(id){setItems(prev=>prev.filter(it=>it.id!==id));}
-  function addBlankItem(){setItems(prev=>[...prev,{id:uid(),serial_number:"",swl:"",equipment_type:"Other",equipment_description:"",result:"PASS",defects_found:"",saved:false,saving:false,savedId:null,certNumber:null,saveError:null}]);}
+  function addBlankItem(){setItems(prev=>[...prev,{id:uid(),serial_number:"",swl:"",equipment_type:"Other",equipment_description:"",result:"PASS",defects_found:"",evidencePhotos:[],saved:false,saving:false,savedId:null,certNumber:null,saveError:null}]);}
+
+  // Evidence photo handlers for list items
+  async function addEvidenceToItem(id, fileList) {
+    const item = items.find(x => x.id === id);
+    if (!item) return;
+    const allowed = Array.from(fileList).filter(isAllowedEvidencePhoto);
+    const current = item.evidencePhotos || [];
+    const toAdd = allowed.slice(0, MAX_EVIDENCE_PHOTOS - current.length);
+    const loaded = await Promise.all(
+      toAdd.map(async (f) => ({
+        id: uid(),
+        name: f.name,
+        dataURL: await toDataURL(f),
+        caption: "",
+        size: f.size,
+        type: f.type,
+      }))
+    );
+    setItems(prev => prev.map(it =>
+      it.id === id ? { ...it, evidencePhotos: [...(it.evidencePhotos || []), ...loaded].slice(0, MAX_EVIDENCE_PHOTOS) } : it
+    ));
+  }
+
+  function removeEvidenceFromItem(itemId, photoId) {
+    setItems(prev => prev.map(it =>
+      it.id === itemId ? { ...it, evidencePhotos: (it.evidencePhotos || []).filter(p => p.id !== photoId) } : it
+    ));
+  }
 
   function generateCompanyCode(name) {
     const initials = name.trim().split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
@@ -648,10 +1055,8 @@ function ListMode() {
   }
 
   function generateSerialNumber(clientName, equipmentType) {
-    const clientCode = (clientName||"UNK").trim()
-      .split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
-    const equipCode = (equipmentType||"EQP").trim()
-      .split(/[\s/—-]+/).filter(Boolean).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+    const clientCode = (clientName||"UNK").trim().split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+    const equipCode = (equipmentType||"EQP").trim().split(/[\s/—-]+/).filter(Boolean).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
     const ts = String(Date.now()).slice(-6);
     return `${clientCode}-${equipCode}-${ts}`;
   }
@@ -660,24 +1065,13 @@ function ListMode() {
     if (!clientName || !clientName.trim()) return { skip: true };
     const name = clientName.trim();
     try {
-      const { data: existing, error: lookupErr } = await supabase.from("clients")
-        .select("id")
-        .ilike("company_name", name)
-        .maybeSingle();
+      const { data: existing, error: lookupErr } = await supabase.from("clients").select("id").ilike("company_name", name).maybeSingle();
       if (lookupErr) return { error: lookupErr.message };
       if (existing)  return { exists: true };
-      const { error: insertErr } = await supabase.from("clients").insert({
-        company_name: name,
-        company_code: generateCompanyCode(name),
-        city:         city || "",
-        country:      "Botswana",
-        status:       "active",
-      });
+      const { error: insertErr } = await supabase.from("clients").insert({ company_name: name, company_code: generateCompanyCode(name), city: city || "", country: "Botswana", status: "active" });
       if (insertErr) return { error: insertErr.message };
       return { created: true };
-    } catch(e) {
-      return { error: e.message };
-    }
+    } catch(e) { return { error: e.message }; }
   }
 
   async function saveOne(id){
@@ -691,6 +1085,15 @@ function ListMode() {
       }
       let rowSerial = row.serial_number?.trim() || generateSerialNumber(overrides.client_name||"", row.equipment_type||"");
       const certNumber=`CERT-${slugify(rowSerial||String(certSeqRef.current))}-${String(certSeqRef.current++).padStart(2,"0")}`;
+
+      const photo_evidence = (row.evidencePhotos || []).map(p => ({
+        name: p.name,
+        dataURL: p.dataURL,
+        caption: p.caption,
+        size: p.size,
+        type: p.type,
+      }));
+
       const payload={
         certificate_number:certNumber,
         result:row.result||"PASS",
@@ -707,6 +1110,7 @@ function ListMode() {
         expiry_date:normalizeDate(overrides.expiry_date)||null,
         defects_found:row.defects_found||null,
         status:"active",
+        photo_evidence: photo_evidence.length > 0 ? photo_evidence : null,
       };
       const res=await fetch("/api/certificates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
       const json=await res.json();
@@ -724,14 +1128,10 @@ function ListMode() {
 
   return(
     <div style={{display:"grid",gap:14}}>
-
-      {/* MANUAL OVERRIDE — 4 fields, no equipment type dropdown */}
+      {/* MANUAL OVERRIDE */}
       <div className="card">
         <div className="card-header">
-          <div>
-            <div className="card-title">Manual override</div>
-            <div className="card-sub">Always overwrites extracted values when set.</div>
-          </div>
+          <div><div className="card-title">Manual override</div><div className="card-sub">Always overwrites extracted values when set.</div></div>
           {Object.values(overrides).some(v=>String(v||"").trim())&&
             <button className="btn btn-ghost" type="button" style={{fontSize:11,padding:"5px 10px"}} onClick={()=>setOverrides({client_name:"",location:"",inspection_date:"",expiry_date:""})}>Clear</button>
           }
@@ -776,7 +1176,10 @@ function ListMode() {
         <div className="card">
           <div className="card-header">
             <div>
-              <div className="list-banner-text">📋 {items.length} items extracted · {savedCount} saved · {pendingCount} pending</div>
+              <div className="list-banner-text">
+                📋 {items.length} items · {savedCount} saved · {pendingCount} pending
+                {totalPhotos > 0 && <span style={{marginLeft:10,fontSize:11,color:"var(--accent)",fontWeight:600}}>· 📷 {totalPhotos} evidence photo{totalPhotos!==1?"s":""}</span>}
+              </div>
               <div className="list-banner-sub">Client: {overrides.client_name||"not set"} · Inspection: {overrides.inspection_date||"not set"} · Expiry: {overrides.expiry_date||"not set"}</div>
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -797,49 +1200,178 @@ function ListMode() {
                     <th style={{width:80}}>SWL</th>
                     <th>Description</th>
                     <th style={{width:110}}>Result</th>
+                    {/* Evidence column */}
+                    <th style={{width:130}}>Evidence Photos</th>
                     <th style={{width:80}}>Status</th>
                     <th style={{width:110}}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((item,idx)=>(
-                    <tr key={item.id} className={item.saved?"row-saved":item.saveError?"row-err":""}>
-                      <td style={{color:"var(--hint)",fontWeight:700,fontSize:11}}>{idx+1}</td>
-                      <td>
-                        <select className="list-input" value={item.equipment_type} disabled={item.saved} onChange={e=>updateItem(item.id,"equipment_type",e.target.value)}>
-                          {EQUIPMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
-                        </select>
-                      </td>
-                      <td><input className="list-input" style={{fontFamily:"'IBM Plex Mono',monospace"}} value={item.serial_number} disabled={item.saved} onChange={e=>updateItem(item.id,"serial_number",e.target.value)}/></td>
-                      <td><input className="list-input" value={item.swl} disabled={item.saved} onChange={e=>updateItem(item.id,"swl",e.target.value)}/></td>
-                      <td><input className="list-input" value={item.equipment_description} disabled={item.saved} onChange={e=>updateItem(item.id,"equipment_description",e.target.value)}/></td>
-                      <td>
-                        <select className="list-input" value={item.result} disabled={item.saved} onChange={e=>updateItem(item.id,"result",e.target.value)}>
-                          <option value="PASS">PASS</option>
-                          <option value="FAIL">FAIL</option>
-                          <option value="CONDITIONAL">CONDITIONAL</option>
-                        </select>
-                      </td>
-                      <td>
-                        {item.saved?<span className="pill p-pass">✓ Saved</span>
-                        :item.saving?<span className="pill p-neutral"><span className="spinner"/>Saving</span>
-                        :item.saveError?<span className="pill p-err" title={item.saveError}>⚠ Error</span>
-                        :<span className="pill p-neutral">Pending</span>}
-                      </td>
-                      <td>
-                        <div style={{display:"flex",gap:5,alignItems:"center"}}>
-                          {item.saved&&item.savedId
-                            ?<Link href={`/certificates/${item.savedId}`} className="view-btn" style={{fontSize:11,padding:"4px 9px"}}>View →</Link>
-                            :<button className="btn-save" type="button" disabled={item.saved||item.saving} onClick={()=>saveOne(item.id)} style={{fontSize:11,padding:"4px 10px"}}>Save</button>
-                          }
-                          {!item.saved&&<button type="button" onClick={()=>removeItem(item.id)} style={{background:"none",border:"none",color:"var(--hint)",cursor:"pointer",fontSize:14,padding:"2px 4px",lineHeight:1}}>✕</button>}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {items.map((item,idx)=>{
+                    const evidencePhotos = item.evidencePhotos || [];
+                    const isOpen = evidenceDrawerOpen === item.id;
+                    const canAddMore = evidencePhotos.length < MAX_EVIDENCE_PHOTOS && !item.saved;
+                    // get or create a ref for this item's evidence input
+                    if (!evidenceInputRefs.current[item.id]) {
+                      evidenceInputRefs.current[item.id] = { current: null };
+                    }
+                    const evidRef = evidenceInputRefs.current[item.id];
+
+                    return(
+                      <>
+                        <tr key={item.id} className={item.saved?"row-saved":item.saveError?"row-err":""}>
+                          <td style={{color:"var(--hint)",fontWeight:700,fontSize:11}}>{idx+1}</td>
+                          <td>
+                            <select className="list-input" value={item.equipment_type} disabled={item.saved} onChange={e=>updateItem(item.id,"equipment_type",e.target.value)}>
+                              {EQUIPMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+                            </select>
+                          </td>
+                          <td><input className="list-input" style={{fontFamily:"'IBM Plex Mono',monospace"}} value={item.serial_number} disabled={item.saved} onChange={e=>updateItem(item.id,"serial_number",e.target.value)}/></td>
+                          <td><input className="list-input" value={item.swl} disabled={item.saved} onChange={e=>updateItem(item.id,"swl",e.target.value)}/></td>
+                          <td><input className="list-input" value={item.equipment_description} disabled={item.saved} onChange={e=>updateItem(item.id,"equipment_description",e.target.value)}/></td>
+                          <td>
+                            <select className="list-input" value={item.result} disabled={item.saved} onChange={e=>updateItem(item.id,"result",e.target.value)}>
+                              <option value="PASS">PASS</option>
+                              <option value="FAIL">FAIL</option>
+                              <option value="CONDITIONAL">CONDITIONAL</option>
+                            </select>
+                          </td>
+                          {/* Evidence cell */}
+                          <td>
+                            <div className="list-evidence-cell">
+                              {/* Mini thumbnails */}
+                              {evidencePhotos.slice(0,3).map(p=>(
+                                <div key={p.id} className="list-mini-thumb" onClick={()=>setLightbox(p.dataURL)} title={p.caption||p.name}>
+                                  <img src={p.dataURL} alt={p.caption||p.name}/>
+                                </div>
+                              ))}
+                              {evidencePhotos.length > 3 && (
+                                <span style={{fontSize:10,color:"var(--hint)",fontWeight:700}}>+{evidencePhotos.length-3}</span>
+                              )}
+                              {/* Add / manage button */}
+                              {!item.saved && (
+                                <>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    style={{display:"none"}}
+                                    ref={el => { evidenceInputRefs.current[item.id] = { current: el }; }}
+                                    onChange={e => { addEvidenceToItem(item.id, e.target.files); e.target.value=""; }}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="list-evidence-add"
+                                    disabled={item.saved}
+                                    onClick={() => {
+                                      if (canAddMore) {
+                                        evidenceInputRefs.current[item.id]?.current?.click();
+                                      }
+                                      setEvidenceDrawerOpen(isOpen ? null : item.id);
+                                    }}
+                                    title={canAddMore ? "Add photos" : "Manage photos"}
+                                  >
+                                    {evidencePhotos.length === 0 ? "📷 Add" : (isOpen ? "▲ Close" : `📷 ${evidencePhotos.length} ▼`)}
+                                  </button>
+                                </>
+                              )}
+                              {item.saved && evidencePhotos.length > 0 && (
+                                <button
+                                  type="button"
+                                  className="list-evidence-add"
+                                  onClick={() => setEvidenceDrawerOpen(isOpen ? null : item.id)}
+                                >
+                                  {isOpen ? "▲ Close" : `📷 ${evidencePhotos.length} ▼`}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            {item.saved?<span className="pill p-pass">✓ Saved</span>
+                            :item.saving?<span className="pill p-neutral"><span className="spinner"/>Saving</span>
+                            :item.saveError?<span className="pill p-err" title={item.saveError}>⚠ Error</span>
+                            :<span className="pill p-neutral">Pending</span>}
+                          </td>
+                          <td>
+                            <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                              {item.saved&&item.savedId
+                                ?<Link href={`/certificates/${item.savedId}`} className="view-btn" style={{fontSize:11,padding:"4px 9px"}}>View →</Link>
+                                :<button className="btn-save" type="button" disabled={item.saved||item.saving} onClick={()=>saveOne(item.id)} style={{fontSize:11,padding:"4px 10px"}}>Save</button>
+                              }
+                              {!item.saved&&<button type="button" onClick={()=>removeItem(item.id)} style={{background:"none",border:"none",color:"var(--hint)",cursor:"pointer",fontSize:14,padding:"2px 4px",lineHeight:1}}>✕</button>}
+                            </div>
+                          </td>
+                        </tr>
+                        {/* Evidence drawer row */}
+                        {isOpen && evidencePhotos.length > 0 && (
+                          <tr key={`${item.id}-evidence`}>
+                            <td colSpan={9} style={{padding:0,background:"var(--bg)"}}>
+                              <div style={{padding:"12px 16px",borderTop:"1px solid var(--b1)"}}>
+                                <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-start"}}>
+                                  {evidencePhotos.map((p, pi) => (
+                                    <div key={p.id} className="evidence-thumb-wrap">
+                                      <div className="evidence-thumb" onClick={() => setLightbox(p.dataURL)}>
+                                        <img src={p.dataURL} alt={p.caption||p.name}/>
+                                        <div className="evidence-thumb-overlay">
+                                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="#fff" strokeWidth="2" strokeLinecap="round"/></svg>
+                                        </div>
+                                        {!item.saved && (
+                                          <button type="button" className="evidence-remove" onClick={e=>{e.stopPropagation();removeEvidenceFromItem(item.id, p.id);}}>✕</button>
+                                        )}
+                                      </div>
+                                      <div className="evidence-thumb-num">#{pi+1}</div>
+                                      <input
+                                        className="evidence-caption"
+                                        type="text"
+                                        placeholder="Caption…"
+                                        value={p.caption}
+                                        disabled={item.saved}
+                                        maxLength={80}
+                                        onChange={e => setItems(prev => prev.map(it =>
+                                          it.id === item.id ? {
+                                            ...it,
+                                            evidencePhotos: it.evidencePhotos.map(ph => ph.id === p.id ? {...ph, caption: e.target.value} : ph)
+                                          } : it
+                                        ))}
+                                      />
+                                      <div className="evidence-fname" title={p.name}>{p.name}</div>
+                                    </div>
+                                  ))}
+                                  {/* Add more button in drawer */}
+                                  {canAddMore && (
+                                    <div
+                                      className="evidence-drop"
+                                      style={{width:90,minHeight:70,justifyContent:"center",padding:"8px 6px"}}
+                                      onClick={() => evidenceInputRefs.current[item.id]?.current?.click()}
+                                    >
+                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                        <circle cx="12" cy="12" r="9" stroke="var(--hint)" strokeWidth="1.4" strokeDasharray="3 2"/>
+                                        <path d="M12 8v8M8 12h8" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round"/>
+                                      </svg>
+                                      <div className="evidence-drop-text" style={{fontSize:9}}>Add more</div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Global lightbox for list mode */}
+      {lightbox && (
+        <div className="evidence-lightbox" onClick={() => setLightbox(null)}>
+          <div className="evidence-lightbox-inner" onClick={e => e.stopPropagation()}>
+            <img src={lightbox} alt="Evidence" />
+            <button className="evidence-lightbox-close" onClick={() => setLightbox(null)}>✕ Close</button>
           </div>
         </div>
       )}
