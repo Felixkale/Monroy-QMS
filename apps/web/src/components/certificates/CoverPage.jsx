@@ -63,7 +63,6 @@ export default function CoverPage({
   approvedBy       = "Moemedi Masupe",
   approvedRole     = "Competent Person · ID: 700117910",
   inspectionPeriod = "March 2026",
-  totalCerts       = "",
   printMode        = false,
   logoUrl          = "/logo.png",
 }) {
@@ -154,12 +153,7 @@ export default function CoverPage({
                   <div className="cv-info-label">Inspection Period</div>
                   <div className="cv-info-value">{inspectionPeriod}</div>
                 </div>
-                {totalCerts && (
-                  <div className="cv-info-cell">
-                    <div className="cv-info-label">Total Certificates</div>
-                    <div className="cv-info-value">{totalCerts}</div>
-                  </div>
-                )}
+
               </div>
 
               {/* Prepared by / Approved by */}
