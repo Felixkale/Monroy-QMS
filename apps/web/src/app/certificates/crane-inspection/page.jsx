@@ -127,8 +127,8 @@ const emptyPV = () => ({ sn:"", description:"", capacity:"", working_pressure:""
 
 export default function CraneInspectionPage() {
   const router = useRouter();
-  const [step,    setStep]    = useState(1);
-  const [clients, setClients] = useState([]);
+  const [step,      setStep]      = useState(1);
+  const [clients,   setClients]   = useState([]);
   const [saving,    setSaving]    = useState(false);
   const [saved,     setSaved]     = useState(null);
   const [error,     setError]     = useState("");
@@ -139,6 +139,7 @@ export default function CraneInspectionPage() {
     client_id:"", client_name:"", client_location:"",
     crane_type:"Mobile Crane", model:"", serial_number:"",
     fleet_number:"", registration_number:"", swl:"",
+    machine_hours:"",
     inspection_date: new Date().toISOString().split("T")[0],
     notes:"",
   });
@@ -157,6 +158,8 @@ export default function CraneInspectionPage() {
     luffing_system:"PASS", slew_system:"PASS", hoist_system:"PASS",
     boom_structure:"PASS", boom_pins:"PASS", boom_wear:"PASS",
     anemometer:"PASS", lmi_test:"PASS", anti_two_block:"PASS",
+    // Hook fields for the Hook & Rope certificate (CertificateSheet reads these from hook cert notes)
+    hook_ab:"", hook_ac:"", hook2_ab:"", hook2_ac:"",
     notes:"",
   });
 
@@ -198,33 +201,31 @@ export default function CraneInspectionPage() {
     return true;
   }
 
-  // Auto-generate company code e.g. GMC-001
   function generateCompanyCode(name) {
     const initials = name.trim().split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
     const rand = String(Math.floor(Math.random()*900)+100);
     return `${initials}-${rand}`;
   }
 
-async function toBase64(file) {
-  return new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(r.result.split(",")[1]);
-    r.onerror = rej;
-    r.readAsDataURL(file);
-  });
-}
+  async function toBase64(file) {
+    return new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result.split(",")[1]);
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+  }
 
-async function extractCraneDataFromImage(base64, mimeType) {
-  const res = await fetch("/api/ai/extract-crane", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ base64, mimeType }),
-  });
-  if (!res.ok) throw new Error("API error " + res.status);
-  return await res.json();
-}
+  async function extractCraneDataFromImage(base64, mimeType) {
+    const res = await fetch("/api/ai/extract-crane", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base64, mimeType }),
+    });
+    if (!res.ok) throw new Error("API error " + res.status);
+    return await res.json();
+  }
 
-  // Auto-register client in clients table if not already there
   async function ensureClient(name, city) {
     if (!name || !name.trim()) return;
     const { data: existing } = await supabase.from("clients")
@@ -249,57 +250,47 @@ async function extractCraneDataFromImage(base64, mimeType) {
       setImportMsg("Extracting data with AI…");
       const d = await extractCraneDataFromImage(base64, mime);
 
-      // Pre-fill crane details
-      if (d.crane_serial_number) uc("serial_number",   d.crane_serial_number);
-      if (d.crane_fleet_number)  uc("fleet_number",    d.crane_fleet_number);
+      if (d.crane_serial_number) uc("serial_number",       d.crane_serial_number);
+      if (d.crane_fleet_number)  uc("fleet_number",        d.crane_fleet_number);
       if (d.crane_registration)  uc("registration_number", d.crane_registration);
-      if (d.crane_model)         uc("model",           d.crane_model);
-      if (d.crane_swl)           uc("swl",             d.crane_swl);
+      if (d.crane_model)         uc("model",               d.crane_model);
+      if (d.crane_swl)           uc("swl",                 d.crane_swl);
+      if (d.machine_hours)       uc("machine_hours",       d.machine_hours);
 
-      // Crane inspection fields
-      if (d.crane_computer_status === "FAIL" || (d.crane_computer_notes && /not working|fail|unsafe/i.test(d.crane_computer_notes))) {
+      if (d.overall_result)      uci("result",   d.overall_result);
+      if (d.defects)             uci("defects",  d.defects);
+      if (d.boom_test_load)      uci("test_load", d.boom_test_load);
+      if (d.crane_computer_status === "FAIL") {
         uci("crane_computer", "FAIL");
         uci("result", "FAIL");
         if (d.crane_computer_notes) uci("defects", d.crane_computer_notes);
-        if (d.overall_result) uci("result", d.overall_result);
       }
-      if (d.overall_result) uci("result", d.overall_result);
-      if (d.defects)        uci("defects", d.defects);
-      if (d.boom_test_load) uci("test_load", d.boom_test_load);
 
-      // Boom fields
-      if (d.boom_actual_length)   ub("actual_boom_length",   d.boom_actual_length);
-      if (d.boom_extended_length) ub("extended_boom_length", d.boom_extended_length);
-      if (d.boom_radius)          ub("load_tested_at_radius", d.boom_radius);
-      if (d.boom_angle)           ub("boom_angle",            d.boom_angle);
-      if (d.boom_swl_at_config)   ub("swl_at_actual_config", d.boom_swl_at_config);
-      if (d.boom_test_load)       ub("test_load",             d.boom_test_load);
+      if (d.boom_actual_length)    ub("actual_boom_length",    d.boom_actual_length);
+      if (d.boom_extended_length)  ub("extended_boom_length",  d.boom_extended_length);
+      if (d.boom_radius)           ub("load_tested_at_radius", d.boom_radius);
+      if (d.boom_angle)            ub("boom_angle",            d.boom_angle);
+      if (d.boom_swl_at_config)    ub("swl_at_actual_config",  d.boom_swl_at_config);
+      if (d.boom_test_load)        ub("test_load",             d.boom_test_load);
       if (d.crane_computer_status === "FAIL") ub("lmi_test", "FAIL");
 
-      // Hook fields
       if (d.hook_swl)    uh("swl",           d.hook_swl);
       if (d.hook_serial) uh("serial_number", d.hook_serial);
 
-      // Rope fields
       if (d.rope_diameter) ur("diameter", d.rope_diameter);
       if (d.rope_length)   ur("length",   d.rope_length);
 
-      // Pressure vessels
       if (d.pressure_vessels?.length > 0) {
-        const newPvs = d.pressure_vessels.map(pv => ({
+        setPvs(d.pressure_vessels.map(pv => ({
           sn:               pv.sn || "",
           description:      pv.description || "",
-          manufacturer:     "",
-          year_manufacture: "",
-          country_origin:   "",
           capacity:         pv.capacity || "",
           working_pressure: pv.working_pressure || "",
           test_pressure:    "",
           pressure_unit:    pv.pressure_unit || "kPa",
           result:           pv.result || "PASS",
           notes:            "",
-        }));
-        setPvs(newPvs.length > 0 ? newPvs : [emptyPV()]);
+        })));
       }
 
       const count = (d.pressure_vessels?.length || 0) +
@@ -316,10 +307,8 @@ async function extractCraneDataFromImage(base64, mimeType) {
     if (!crane.client_id || !crane.serial_number) { setError("Please fill crane serial number and client."); return; }
     setSaving(true); setError("");
 
-    // Auto-register client if typed manually
     await ensureClient(crane.client_name, crane.client_location);
 
-    // Auto-generate serial if blank
     const craneData = { ...crane };
     if (!craneData.serial_number?.trim()) {
       const cc = (craneData.client_name||"UNK").trim().split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
@@ -329,8 +318,8 @@ async function extractCraneDataFromImage(base64, mimeType) {
     const folderId   = crypto.randomUUID();
     const folderName = `Crane-${crane.serial_number}-${crane.inspection_date}`;
     const iDate      = crane.inspection_date;
-    const exp1yr     = addMonths(iDate, 12); // crane + pressure vessels
-    const exp6mo     = addMonths(iDate, 6);  // hook + rope
+    const exp1yr     = addMonths(iDate, 12);
+    const exp6mo     = addMonths(iDate, 6);
     const certs      = [];
 
     const pad = n => String(n).padStart(5, "0");
@@ -338,163 +327,265 @@ async function extractCraneDataFromImage(base64, mimeType) {
     let seq = (count || 0) + 1;
     const nextNo = (prefix) => `CERT-${prefix}${pad(seq++)}`;
 
-    // 1. Crane — Load Test Certificate — 1 year
+    // ── 1. CRANE — Load Test Certificate ─────────────────────────────────
+    // Keys parsed by CraneLoadTestPage & CraneChecklistPage via parseNotes():
+    //   Structural, Boom, Outriggers, Computer, Machine Hours,
+    //   C1 boom/angle/radius/rated/test, C2 boom/angle/radius/rated/test,
+    //   C3 boom/angle/radius/rated/test, Crane test load,
+    //   SLI, Operating code, Counterweights, Notes
     certs.push({
       certificate_number: nextNo("CR"),
-      equipment_type: crane.crane_type,
-      equipment_description: `${craneData.crane_type}${crane.model ? " " + crane.model : ""} SWL ${crane.swl}${crane.fleet_number ? " Fleet " + crane.fleet_number : ""}${crane.registration_number ? " Reg " + crane.registration_number : ""}`,
-      serial_number: craneData.serial_number,
-      model: craneData.model,
-      swl: craneData.swl,
-      registration_number: craneData.registration_number,
-      client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
-      issue_date: iDate, inspection_date: iDate, expiry_date: exp1yr, next_inspection_due: exp1yr,
-      result: craneInsp.result,
-      defects_found: craneInsp.defects,
-      recommendations: craneInsp.recommendations,
-      inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-      certificate_type: "Load Test Certificate",
-      folder_id: folderId, folder_name: folderName, folder_position: 1,
-      fleet_number: craneData.fleet_number,
-      registration_number: craneData.registration_number,
+      equipment_type: craneData.crane_type,
+      equipment_description: [
+        craneData.crane_type,
+        craneData.model,
+        craneData.swl ? `SWL ${craneData.swl}` : "",
+        craneData.fleet_number        ? `Fleet ${craneData.fleet_number}`        : "",
+        craneData.registration_number ? `Reg ${craneData.registration_number}`   : "",
+      ].filter(Boolean).join(" "),
+      serial_number:        craneData.serial_number,
+      fleet_number:         craneData.fleet_number,
+      registration_number:  craneData.registration_number,
+      model:                craneData.model,
+      swl:                  craneData.swl,
+      client_name:          craneData.client_name,
+      client_id:            craneData.client_id,
+      location:             craneData.client_location,
+      issue_date:           iDate,
+      inspection_date:      iDate,
+      expiry_date:          exp1yr,
+      next_inspection_due:  exp1yr,
+      result:               craneInsp.result,
+      defects_found:        craneInsp.defects,
+      recommendations:      craneInsp.recommendations,
+      inspector_name:       INSPECTOR_NAME,
+      inspector_id:         INSPECTOR_ID,
+      certificate_type:     "Load Test Certificate",
+      folder_id:            folderId,
+      folder_name:          folderName,
+      folder_position:      1,
       notes: [
+        // Checklist keys (CraneChecklistPage)
         `Structural: ${craneInsp.structural_result}`,
         `Boom: ${craneInsp.boom_condition}`,
         `Outriggers: ${craneInsp.outriggers}`,
         `Computer: ${craneInsp.crane_computer}`,
-        craneInsp.test_load ? `Crane test load: ${craneInsp.test_load}T` : "",
-        // Config 1 — Min boom (short boom / main)
-        boom.min_boom_length       ? `C1 boom: ${boom.min_boom_length}m`        : "",
-        boom.boom_angle            ? `C1 angle: ${boom.boom_angle}`              : "",
-        boom.min_radius            ? `C1 radius: ${boom.min_radius}m`            : "",
-        boom.swl_at_min_radius     ? `C1 rated: ${boom.swl_at_min_radius}`       : "",
-        // Config 2 — Test/actual configuration (main)
-        boom.actual_boom_length    ? `C2 boom: ${boom.actual_boom_length}m`      : "",
-        boom.boom_angle            ? `C2 angle: ${boom.boom_angle}`              : "",
-        boom.load_tested_at_radius ? `C2 radius: ${boom.load_tested_at_radius}m` : "",
-        boom.swl_at_actual_config  ? `C2 rated: ${boom.swl_at_actual_config}`    : "",
-        boom.test_load             ? `C2 test: ${boom.test_load}T`               : "",
-        // Config 3 — Max/Aux boom
-        boom.max_boom_length       ? `C3 boom: ${boom.max_boom_length}m`         : "",
-        boom.boom_angle            ? `C3 angle: ${boom.boom_angle}`              : "",
-        boom.max_radius            ? `C3 radius: ${boom.max_radius}m`            : "",
-        boom.swl_at_max_radius     ? `C3 rated: ${boom.swl_at_max_radius}`       : "",
-        boom.jib_fitted === "yes" && boom.jib_length ? `Jib: ${boom.jib_length}m @ ${boom.jib_angle}°` : "",
-        boom.lmi_test !== "PASS"   ? `LMI: ${boom.lmi_test}`                    : "",
-        `SLI: PASS`,
+        craneData.machine_hours         ? `Machine Hours: ${craneData.machine_hours}`          : "",
+        craneInsp.test_load             ? `Crane test load: ${craneInsp.test_load}`            : "",
+        // Config 1 — Short / Min boom  (C1 keys used by CraneLoadTestPage)
+        boom.min_boom_length            ? `C1 boom: ${boom.min_boom_length}m`                  : "",
+        boom.boom_angle                 ? `C1 angle: ${boom.boom_angle}`                       : "",
+        boom.min_radius                 ? `C1 radius: ${boom.min_radius}m`                     : "",
+        boom.swl_at_min_radius          ? `C1 rated: ${boom.swl_at_min_radius}`                : "",
+        // no separate C1 test load — short boom not tested at 110%
+        // Config 2 — Test / actual configuration  (C2 keys)
+        boom.actual_boom_length         ? `C2 boom: ${boom.actual_boom_length}m`               : "",
+        boom.boom_angle                 ? `C2 angle: ${boom.boom_angle}`                       : "",
+        boom.load_tested_at_radius      ? `C2 radius: ${boom.load_tested_at_radius}m`          : "",
+        boom.swl_at_actual_config       ? `C2 rated: ${boom.swl_at_actual_config}`             : "",
+        boom.test_load                  ? `C2 test: ${boom.test_load}T`                        : "",
+        // Config 3 — Max / Aux boom  (C3 keys)
+        boom.max_boom_length            ? `C3 boom: ${boom.max_boom_length}m`                  : "",
+        boom.boom_angle                 ? `C3 angle: ${boom.boom_angle}`                       : "",
+        boom.max_radius                 ? `C3 radius: ${boom.max_radius}m`                     : "",
+        boom.swl_at_max_radius          ? `C3 rated: ${boom.swl_at_max_radius}`                : "",
+        // Jib
+        boom.jib_fitted === "yes" && boom.jib_length
+                                        ? `Jib: ${boom.jib_length}m @ ${boom.jib_angle}°`      : "",
+        // SLI / LMI
+        boom.lmi_test !== "PASS"        ? `SLI: ${boom.lmi_test}`                              : "SLI: PASS",
         `Operating code: MAIN/AUX-FULL OUTRIGGER-360DEG`,
         `Counterweights: STD FITTED`,
-        crane.notes ? `Notes: ${crane.notes}` : "",
+        craneData.notes                 ? `Notes: ${craneData.notes}`                          : "",
       ].filter(Boolean).join(" | "),
     });
 
-    // 2. Hook — Load Test Certificate — 6 months
-    // ── Boom certificate ─────────────────────────────────────────────────
+    // ── 2. BOOM — Crane Boom Certificate ─────────────────────────────────
+    // Keys parsed by GenericCert boom path via parseNotes():
+    //   Actual length, Extended, Angle, Jib, Min radius, Max radius,
+    //   Test load, Boom structure, Boom pins, Luffing, Slew, Hoist,
+    //   LMI, Anti-two-block, Anemometer, Notes
     certs.push({
       certificate_number: nextNo("BM"),
       equipment_type: "Crane Boom",
       equipment_description: [
         craneData.crane_type || "Mobile Crane",
-        boom.actual_boom_length   ? `Boom ${boom.actual_boom_length}m`          : "",
-        boom.extended_boom_length ? `ext ${boom.extended_boom_length}m`          : "",
-        boom.boom_angle           ? `@ ${boom.boom_angle}°`                      : "",
-        boom.swl_at_actual_config ? `SWL ${boom.swl_at_actual_config}`           : crane.swl ? `SWL ${crane.swl}` : "",
-        crane.serial_number       ? `SN ${craneData.serial_number}`              : "",
+        boom.actual_boom_length    ? `Boom ${boom.actual_boom_length}m`        : "",
+        boom.extended_boom_length  ? `ext ${boom.extended_boom_length}m`       : "",
+        boom.boom_angle            ? `@ ${boom.boom_angle}°`                   : "",
+        boom.swl_at_actual_config  ? `SWL ${boom.swl_at_actual_config}`        : craneData.swl ? `SWL ${craneData.swl}` : "",
+        `SN ${craneData.serial_number}`,
       ].filter(Boolean).join(" — "),
-      serial_number: craneData.serial_number,
-      model: craneData.model,
-      swl: boom.swl_at_actual_config || craneData.swl,
-      client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
-      issue_date: iDate, inspection_date: iDate, expiry_date: exp1yr, next_inspection_due: exp1yr,
-      result: boom.boom_structure === "FAIL" || boom.lmi_test === "FAIL" ? "FAIL" : craneInsp.result,
-      inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-      certificate_type: "Load Test Certificate",
-      folder_id: folderId, folder_name: folderName, folder_position: 2,
+      serial_number:       craneData.serial_number,
+      fleet_number:        craneData.fleet_number,
+      model:               craneData.model,
+      swl:                 boom.swl_at_actual_config || craneData.swl,
+      client_name:         craneData.client_name,
+      client_id:           craneData.client_id,
+      location:            craneData.client_location,
+      issue_date:          iDate,
+      inspection_date:     iDate,
+      expiry_date:         exp1yr,
+      next_inspection_due: exp1yr,
+      result: (boom.boom_structure === "FAIL" || boom.lmi_test === "FAIL") ? "FAIL" : craneInsp.result,
+      inspector_name:      INSPECTOR_NAME,
+      inspector_id:        INSPECTOR_ID,
+      certificate_type:    "Load Test Certificate",
+      folder_id:           folderId,
+      folder_name:         folderName,
+      folder_position:     2,
       notes: [
-        boom.min_boom_length        ? `Min length: ${boom.min_boom_length}m`           : "",
-        boom.max_boom_length        ? `Max length: ${boom.max_boom_length}m`           : "",
-        boom.actual_boom_length     ? `Actual length: ${boom.actual_boom_length}m`     : "",
-        boom.extended_boom_length   ? `Extended: ${boom.extended_boom_length}m`        : "",
-        boom.boom_angle             ? `Angle: ${boom.boom_angle}°`                     : "",
-        boom.jib_fitted === "yes" && boom.jib_length ? `Jib: ${boom.jib_length}m @ ${boom.jib_angle}°` : "",
-        boom.min_radius             ? `Min radius: ${boom.min_radius}m`               : "",
-        boom.max_radius             ? `Max radius: ${boom.max_radius}m`               : "",
-        boom.load_tested_at_radius  ? `Test radius: ${boom.load_tested_at_radius}m`   : "",
-        boom.swl_at_min_radius      ? `SWL@min: ${boom.swl_at_min_radius}`            : "",
-        boom.swl_at_max_radius      ? `SWL@max: ${boom.swl_at_max_radius}`            : "",
-        boom.swl_at_actual_config   ? `SWL@config: ${boom.swl_at_actual_config}`      : "",
-        boom.test_load              ? `Test load: ${boom.test_load}T`                 : "",
-        boom.boom_structure !== "PASS" ? `Boom structure: ${boom.boom_structure}`     : "",
-        boom.boom_pins !== "PASS"   ? `Boom pins: ${boom.boom_pins}`                  : "",
-        boom.luffing_system !== "PASS" ? `Luffing: ${boom.luffing_system}`            : "",
-        boom.slew_system !== "PASS" ? `Slew: ${boom.slew_system}`                     : "",
-        boom.hoist_system !== "PASS"? `Hoist: ${boom.hoist_system}`                   : "",
-        boom.lmi_test !== "PASS"    ? `LMI: ${boom.lmi_test}`                         : "",
-        boom.anti_two_block !== "PASS" ? `Anti-two-block: ${boom.anti_two_block}`     : "",
-        boom.anemometer !== "PASS"  ? `Anemometer: ${boom.anemometer}`                : "",
-        boom.notes                  ? `Notes: ${boom.notes}`                           : "",
+        boom.actual_boom_length     ? `Actual length: ${boom.actual_boom_length}m`           : "",
+        boom.extended_boom_length   ? `Extended: ${boom.extended_boom_length}m`              : "",
+        boom.min_boom_length        ? `Min length: ${boom.min_boom_length}m`                 : "",
+        boom.max_boom_length        ? `Max length: ${boom.max_boom_length}m`                 : "",
+        boom.boom_angle             ? `Angle: ${boom.boom_angle}°`                           : "",
+        boom.jib_fitted === "yes" && boom.jib_length
+                                    ? `Jib: ${boom.jib_length}m @ ${boom.jib_angle}°`       : "",
+        boom.min_radius             ? `Min radius: ${boom.min_radius}m`                      : "",
+        boom.max_radius             ? `Max radius: ${boom.max_radius}m`                      : "",
+        boom.load_tested_at_radius  ? `Test radius: ${boom.load_tested_at_radius}m`          : "",
+        boom.swl_at_min_radius      ? `SWL@min: ${boom.swl_at_min_radius}`                   : "",
+        boom.swl_at_max_radius      ? `SWL@max: ${boom.swl_at_max_radius}`                   : "",
+        boom.swl_at_actual_config   ? `SWL@config: ${boom.swl_at_actual_config}`             : "",
+        boom.test_load              ? `Test load: ${boom.test_load}T`                        : "",
+        // System condition keys — GenericCert reads pn["Boom structure"] etc.
+        `Boom structure: ${boom.boom_structure}`,
+        `Boom pins: ${boom.boom_pins}`,
+        `Luffing: ${boom.luffing_system}`,
+        `Slew: ${boom.slew_system}`,
+        `Hoist: ${boom.hoist_system}`,
+        `LMI: ${boom.lmi_test}`,
+        `Anti-two-block: ${boom.anti_two_block}`,
+        `Anemometer: ${boom.anemometer}`,
+        boom.notes ? `Notes: ${boom.notes}` : "",
       ].filter(Boolean).join(" | "),
     });
 
+    // ── 3. HOOK — Hook & Rope Certificate ────────────────────────────────
+    // Keys parsed by HookRopePage via parseNotes():
+    //   Latch, Structural, Wear, Hook 1 SWL, Hook AB, Hook AC,
+    //   Broken wires, Corrosion, Kinks, Rope dia
+    // Both hook and rope data are stored together in the hook cert so that
+    // CertificateSheet renders one combined Hook & Rope page (equipment_type "Crane Hook").
     certs.push({
       certificate_number: nextNo("HK"),
-      equipment_type: "Crane Hook",
-      equipment_description: `Crane Hook SWL ${hook.swl || crane.swl} — ${crane.crane_type} SN ${crane.serial_number}`,
-      serial_number: hook.serial_number || crane.serial_number,
-      swl: hook.swl || crane.swl,
-      client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
-      issue_date: iDate, inspection_date: iDate, expiry_date: exp6mo, next_inspection_due: exp6mo,
-      result: hook.result,
-      serial_number: hook.serial_number || crane.serial_number,
-      inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-      certificate_type: "Load Test Certificate",
-      folder_id: folderId, folder_name: folderName, folder_position: 3,
-      notes: `Latch: ${hook.latch_condition} | Structural: ${hook.structural_result}${hook.wear_percentage ? " | Wear: " + hook.wear_percentage + "%" : ""}${hook.notes ? " | Notes: " + hook.notes : ""}`,
+      equipment_type:     "Crane Hook",
+      equipment_description: `Crane Hook & Wire Rope — SWL ${hook.swl || craneData.swl} — ${craneData.crane_type} SN ${craneData.serial_number}`,
+      serial_number:       hook.serial_number || craneData.serial_number,
+      swl:                 hook.swl || craneData.swl,
+      client_name:         craneData.client_name,
+      client_id:           craneData.client_id,
+      location:            craneData.client_location,
+      issue_date:          iDate,
+      inspection_date:     iDate,
+      expiry_date:         exp6mo,
+      next_inspection_due: exp6mo,
+      result:              hook.result,
+      inspector_name:      INSPECTOR_NAME,
+      inspector_id:        INSPECTOR_ID,
+      certificate_type:    "Load Test Certificate",
+      folder_id:           folderId,
+      folder_name:         folderName,
+      folder_position:     3,
+      notes: [
+        // Hook keys
+        `Latch: ${hook.latch_condition}`,
+        `Structural: ${hook.structural_result}`,
+        hook.wear_percentage        ? `Wear: ${hook.wear_percentage}`                        : "",
+        hook.swl                    ? `Hook 1 SWL: ${hook.swl}`                              : "",
+        boom.hook_ab                ? `Hook AB: ${boom.hook_ab}`                             : "",
+        boom.hook_ac                ? `Hook AC: ${boom.hook_ac}`                             : "",
+        boom.hook2_ab               ? `Hook 2 AB: ${boom.hook2_ab}`                          : "",
+        boom.hook2_ac               ? `Hook 2 AC: ${boom.hook2_ac}`                          : "",
+        // Rope keys (read by HookRopePage for wire rope section)
+        rope.diameter               ? `Rope dia: ${rope.diameter}mm`                         : "",
+        `Broken wires: ${rope.broken_wires}`,
+        `Corrosion: ${rope.corrosion}`,
+        `Kinks: ${rope.kinks}`,
+        hook.notes                  ? `Notes: ${hook.notes}`                                 : "",
+        rope.notes                  ? `Rope notes: ${rope.notes}`                            : "",
+      ].filter(Boolean).join(" | "),
     });
 
-    // 3. Rope — Load Test Certificate — 6 months
+    // ── 4. ROPE — Wire Rope Certificate ──────────────────────────────────
+    // Standalone wire rope cert for the rope-only view / archive.
+    // equipment_type "Wire Rope" routes to HookRopePage with isRope=true.
     certs.push({
       certificate_number: nextNo("RP"),
-      equipment_type: "Wire Rope",
-      equipment_description: `${rope.rope_type}${rope.diameter ? " Ø" + rope.diameter + "mm" : ""}${rope.length ? " L" + rope.length + "m" : ""} — ${crane.crane_type} SN ${crane.serial_number}`,
-      serial_number: craneData.serial_number,
-      capacity_volume: rope.diameter ? `Ø${rope.diameter}mm × ${rope.length || "?"}m` : "",
-      swl: craneData.swl,
-      client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
-      issue_date: iDate, inspection_date: iDate, expiry_date: exp6mo, next_inspection_due: exp6mo,
-      result: rope.result,
-      inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-      certificate_type: "Load Test Certificate",
-      folder_id: folderId, folder_name: folderName, folder_position: 4,
-      notes: `Broken wires: ${rope.broken_wires} | Corrosion: ${rope.corrosion} | Kinks: ${rope.kinks}${rope.notes ? " | " + rope.notes : ""}`,
+      equipment_type:     "Wire Rope",
+      equipment_description: [
+        rope.rope_type,
+        rope.diameter ? `Ø${rope.diameter}mm` : "",
+        rope.length   ? `L${rope.length}m`    : "",
+        `— ${craneData.crane_type} SN ${craneData.serial_number}`,
+      ].filter(Boolean).join(" "),
+      serial_number:       craneData.serial_number,
+      capacity_volume:     rope.diameter ? `Ø${rope.diameter}mm × ${rope.length || "?"}m` : "",
+      swl:                 craneData.swl,
+      client_name:         craneData.client_name,
+      client_id:           craneData.client_id,
+      location:            craneData.client_location,
+      issue_date:          iDate,
+      inspection_date:     iDate,
+      expiry_date:         exp6mo,
+      next_inspection_due: exp6mo,
+      result:              rope.result,
+      inspector_name:      INSPECTOR_NAME,
+      inspector_id:        INSPECTOR_ID,
+      certificate_type:    "Load Test Certificate",
+      folder_id:           folderId,
+      folder_name:         folderName,
+      folder_position:     4,
+      notes: [
+        rope.diameter               ? `Rope dia: ${rope.diameter}mm`                         : "",
+        `Broken wires: ${rope.broken_wires}`,
+        `Corrosion: ${rope.corrosion}`,
+        `Kinks: ${rope.kinks}`,
+        rope.notes                  ? `Notes: ${rope.notes}`                                 : "",
+      ].filter(Boolean).join(" | "),
     });
 
-    // 4. Pressure vessels — Pressure Test Certificate — 1 year each
+    // ── 5. PRESSURE VESSELS ───────────────────────────────────────────────
+    // Keys parsed by PressureVesselPage: pn[`PV${pvNum} MAWP`], pn[`PV${pvNum} test`],
+    // pn[`PV${pvNum} type`], pn[`PV${pvNum} serial`], pn[`PV${pvNum} capacity`]
+    // These are stored directly on the cert row (working_pressure, test_pressure etc.)
+    // so PressureVesselPage reads c.working_pressure / c.test_pressure directly.
     for (let i = 0; i < pvs.length; i++) {
       const pv = pvs[i];
       if (!pv.sn && !pv.description) continue;
       certs.push({
-        certificate_number: nextNo("PV"),
-        equipment_type: "Pressure Vessel",
-        equipment_description: pv.description || `Pressure Vessel ${i + 1} — ${crane.crane_type} SN ${crane.serial_number}`,
-        serial_number: pv.sn,
-        capacity_volume: pv.capacity,
-        working_pressure: pv.working_pressure,
-        test_pressure: pv.test_pressure,
-        pressure_unit: pv.pressure_unit,
-        client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
-        issue_date: iDate, inspection_date: iDate,
-        expiry_date: exp1yr, // 1 year — same as crane
+        certificate_number:  nextNo("PV"),
+        equipment_type:      "Pressure Vessel",
+        equipment_description: pv.description || `Pressure Vessel ${i + 1} — ${craneData.crane_type} SN ${craneData.serial_number}`,
+        serial_number:       pv.sn,
+        capacity_volume:     pv.capacity,
+        working_pressure:    pv.working_pressure,
+        mawp:                pv.working_pressure,   // PressureVesselPage reads c.mawp
+        test_pressure:       pv.test_pressure,
+        pressure_unit:       pv.pressure_unit,
+        client_name:         craneData.client_name,
+        client_id:           craneData.client_id,
+        location:            craneData.client_location,
+        issue_date:          iDate,
+        inspection_date:     iDate,
+        expiry_date:         exp1yr,
         next_inspection_due: exp1yr,
-        result: pv.result,
-        defects_found: pv.notes,
-        inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-        certificate_type: "Pressure Test Certificate",
-        folder_id: folderId, folder_name: folderName, folder_position: 5 + i,
+        result:              pv.result,
+        defects_found:       pv.notes,
+        inspector_name:      INSPECTOR_NAME,
+        inspector_id:        INSPECTOR_ID,
+        certificate_type:    "Pressure Test Certificate",
+        folder_id:           folderId,
+        folder_name:         folderName,
+        folder_position:     5 + i,
       });
     }
 
-    const { data, error: dbErr } = await supabase.from("certificates").insert(certs).select("id,certificate_number,equipment_type,result,expiry_date");
+    const { data, error: dbErr } = await supabase
+      .from("certificates").insert(certs)
+      .select("id,certificate_number,equipment_type,result,expiry_date");
+
     if (dbErr) { setError("Failed to save: " + dbErr.message); setSaving(false); return; }
     setSaved({ folderName, folderId, certs: data });
     setSaving(false);
@@ -560,7 +651,7 @@ async function extractCraneDataFromImage(base64, mimeType) {
         <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:18, padding:"14px 20px", marginBottom:20, backdropFilter:"blur(20px)" }}>
           <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", textTransform:"uppercase", color:T.accent, marginBottom:4 }}>Certificates · New Inspection</div>
           <h1 style={{ margin:"0 0 2px", fontSize:22, fontWeight:900, letterSpacing:"-0.02em" }}>Crane Inspection Wizard</h1>
-          <p style={{ margin:0, fontSize:12, color:T.textDim }}>Generates certificates for crane, hook, rope and all pressure vessels in one session</p>
+          <p style={{ margin:0, fontSize:12, color:T.textDim }}>Generates certificates for crane, boom, hook, rope and all pressure vessels in one session</p>
           <div style={{display:"flex",gap:12,marginTop:10,flexWrap:"wrap"}}>
             <a href="/certificates" style={{fontSize:11,color:T.accent,textDecoration:"none",fontWeight:700}}>📜 View All Certificates →</a>
             <a href="/clients" style={{fontSize:11,color:T.accent,textDecoration:"none",fontWeight:700}}>🏢 Clients →</a>
@@ -572,7 +663,7 @@ async function extractCraneDataFromImage(base64, mimeType) {
 
         {error && <div style={{ padding:"10px 14px", borderRadius:10, border:`1px solid ${T.redBrd}`, background:T.redDim, color:T.red, fontSize:13, fontWeight:700, marginBottom:16 }}>⚠ {error}</div>}
 
-        {/* ── PHOTO IMPORT ── */}
+        {/* ── PHOTO IMPORT (step 1 only) ── */}
         {step === 1 && (
           <div style={{ background:T.purpleDim, border:`1px solid ${T.purpleBrd}`, borderRadius:14, padding:"14px 18px", marginBottom:16, display:"flex", alignItems:"center", gap:14, flexWrap:"wrap" }}>
             <div style={{ flex:1, minWidth:0 }}>
@@ -636,9 +727,12 @@ async function extractCraneDataFromImage(base64, mimeType) {
                   <input style={IS} placeholder="e.g. B 123 ABC" value={crane.registration_number} onChange={e => uc("registration_number", e.target.value)}/>
                 </Field>
               </div>
-              <div className="g2" style={{ marginBottom:14 }}>
+              <div className="g3" style={{ marginBottom:14 }}>
                 <Field label="Safe Working Load (SWL)">
                   <input style={IS} placeholder="e.g. 100T" value={crane.swl} onChange={e => uc("swl", e.target.value)}/>
+                </Field>
+                <Field label="Machine Hours">
+                  <input style={IS} placeholder="e.g. 4520" value={crane.machine_hours} onChange={e => uc("machine_hours", e.target.value)}/>
                 </Field>
                 <Field label="Client City / Site">
                   <input style={IS} placeholder="Auto-filled from client" value={crane.client_location} onChange={e => uc("client_location", e.target.value)}/>
@@ -648,10 +742,9 @@ async function extractCraneDataFromImage(base64, mimeType) {
                 <textarea style={{ ...IS, minHeight:70 }} placeholder="Any general notes about the crane..." value={crane.notes} onChange={e => uc("notes", e.target.value)}/>
               </Field>
             </SectionCard>
-            {/* Expiry preview */}
             {crane.inspection_date && (
               <div style={{ background:T.accentDim, border:`1px solid ${T.accentBrd}`, borderRadius:12, padding:"12px 16px", display:"flex", gap:20, flexWrap:"wrap", fontSize:12, color:T.textMid }}>
-                <div>📅 <strong style={{ color:T.text }}>Crane + Pressure Vessels expire:</strong> {fmt(addMonths(crane.inspection_date, 12))} <span style={{ color:T.textDim }}>(1 year)</span></div>
+                <div>📅 <strong style={{ color:T.text }}>Crane + Boom + Pressure Vessels expire:</strong> {fmt(addMonths(crane.inspection_date, 12))} <span style={{ color:T.textDim }}>(1 year)</span></div>
                 <div>📅 <strong style={{ color:T.text }}>Hook + Rope expire:</strong> {fmt(addMonths(crane.inspection_date, 6))} <span style={{ color:T.textDim }}>(6 months)</span></div>
               </div>
             )}
@@ -685,7 +778,7 @@ async function extractCraneDataFromImage(base64, mimeType) {
                 <ResultSelect value={craneInsp.result} onChange={v => uci("result", v)}/>
               </Field>
             </div>
-            <div className="g2" style={{ marginBottom:0 }}>
+            <div className="g2">
               <Field label="Defects Found">
                 <textarea style={{ ...IS, minHeight:80 }} placeholder="Describe any defects..." value={craneInsp.defects} onChange={e => uci("defects", e.target.value)}/>
               </Field>
@@ -699,8 +792,6 @@ async function extractCraneDataFromImage(base64, mimeType) {
         {/* ── STEP 3: Boom Inspection ── */}
         {step === 3 && (
           <SectionCard title="Boom Configuration & Load Chart" icon="📐" color={T.blue} brd={T.blueBrd}>
-
-            {/* Boom geometry */}
             <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>Boom Geometry</div>
             <div className="g3" style={{ marginBottom:14 }}>
               <Field label="Min Boom Length (m)">
@@ -738,7 +829,6 @@ async function extractCraneDataFromImage(base64, mimeType) {
               </div>
             )}
 
-            {/* Working radius / SWL */}
             <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", margin:"18px 0 10px" }}>Working Radius & SWL</div>
             <div className="g3" style={{ marginBottom:14 }}>
               <Field label="Min Radius (m)">
@@ -768,68 +858,6 @@ async function extractCraneDataFromImage(base64, mimeType) {
               </Field>
             </div>
 
-            {/* Systems condition */}
-            <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", margin:"18px 0 10px" }}>Boom Systems Condition</div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="Boom Structure"><ResultSelect value={boom.boom_structure} onChange={v=>ub("boom_structure",v)}/></Field>
-              <Field label="Boom Pins & Connections"><ResultSelect value={boom.boom_pins} onChange={v=>ub("boom_pins",v)}/></Field>
-              <Field label="Boom Wear / Pads"><ResultSelect value={boom.boom_wear} onChange={v=>ub("boom_wear",v)}/></Field>
-            </div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="Luffing System"><ResultSelect value={boom.luffing_system} onChange={v=>ub("luffing_system",v)}/></Field>
-              <Field label="Slew System"><ResultSelect value={boom.slew_system} onChange={v=>ub("slew_system",v)}/></Field>
-              <Field label="Hoist System"><ResultSelect value={boom.hoist_system} onChange={v=>ub("hoist_system",v)}/></Field>
-            </div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="LMI Tested at Config"><ResultSelect value={boom.lmi_test} onChange={v=>ub("lmi_test",v)}/></Field>
-              <Field label="Anti-Two Block Device"><ResultSelect value={boom.anti_two_block} onChange={v=>ub("anti_two_block",v)}/></Field>
-              <Field label="Anemometer (if fitted)"><ResultSelect value={boom.anemometer} onChange={v=>ub("anemometer",v)}/></Field>
-            </div>
-            <Field label="Boom Notes">
-              <textarea style={{ ...IS, minHeight:70 }} placeholder="Additional boom inspection notes..." value={boom.notes} onChange={e=>ub("notes",e.target.value)}/>
-            </Field>
-          </SectionCard>
-        )}
-
-
-        {/* ── STEP 3: Boom Inspection ── */}
-        {step === 5 && (
-          <SectionCard title="Boom Configuration & Load Chart" icon="📐" color={T.blue} brd={T.blueBrd}>
-            <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>Boom Geometry</div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="Min Boom Length (m)"><input style={IS} placeholder="e.g. 12.5" value={boom.min_boom_length} onChange={e=>ub("min_boom_length",e.target.value)}/></Field>
-              <Field label="Max Boom Length (m)"><input style={IS} placeholder="e.g. 60" value={boom.max_boom_length} onChange={e=>ub("max_boom_length",e.target.value)}/></Field>
-              <Field label="Actual Boom Length (m)"><input style={IS} placeholder="e.g. 36" value={boom.actual_boom_length} onChange={e=>ub("actual_boom_length",e.target.value)}/></Field>
-            </div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="Extended / Telescoped (m)"><input style={IS} placeholder="e.g. 28" value={boom.extended_boom_length} onChange={e=>ub("extended_boom_length",e.target.value)}/></Field>
-              <Field label="Boom Angle (°)"><input style={IS} placeholder="e.g. 75" value={boom.boom_angle} onChange={e=>ub("boom_angle",e.target.value)}/></Field>
-              <Field label="Jib Fitted">
-                <select style={IS} value={boom.jib_fitted} onChange={e=>ub("jib_fitted",e.target.value)}>
-                  <option value="no">No</option><option value="yes">Yes</option>
-                </select>
-              </Field>
-            </div>
-            {boom.jib_fitted === "yes" && (
-              <div className="g2" style={{ marginBottom:14 }}>
-                <Field label="Jib Length (m)"><input style={IS} placeholder="e.g. 18" value={boom.jib_length} onChange={e=>ub("jib_length",e.target.value)}/></Field>
-                <Field label="Jib Angle (°)"><input style={IS} placeholder="e.g. 30" value={boom.jib_angle} onChange={e=>ub("jib_angle",e.target.value)}/></Field>
-              </div>
-            )}
-            <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", margin:"18px 0 10px" }}>Working Radius & SWL</div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="Min Radius (m)"><input style={IS} placeholder="e.g. 3" value={boom.min_radius} onChange={e=>ub("min_radius",e.target.value)}/></Field>
-              <Field label="Max Radius (m)"><input style={IS} placeholder="e.g. 52" value={boom.max_radius} onChange={e=>ub("max_radius",e.target.value)}/></Field>
-              <Field label="Test Radius (m)"><input style={IS} placeholder="e.g. 12" value={boom.load_tested_at_radius} onChange={e=>ub("load_tested_at_radius",e.target.value)}/></Field>
-            </div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="SWL at Min Radius"><input style={IS} placeholder="e.g. 100T" value={boom.swl_at_min_radius} onChange={e=>ub("swl_at_min_radius",e.target.value)}/></Field>
-              <Field label="SWL at Max Radius"><input style={IS} placeholder="e.g. 6.5T" value={boom.swl_at_max_radius} onChange={e=>ub("swl_at_max_radius",e.target.value)}/></Field>
-              <Field label="SWL at Test Config"><input style={IS} placeholder="e.g. 50T" value={boom.swl_at_actual_config} onChange={e=>ub("swl_at_actual_config",e.target.value)}/></Field>
-            </div>
-            <Field label="Load Test Applied (Tonnes) — 110% of SWL at test config">
-              <input style={IS} placeholder="e.g. 55" value={boom.test_load} onChange={e=>ub("test_load",e.target.value)}/>
-            </Field>
             <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", margin:"18px 0 10px" }}>Boom Systems Condition</div>
             <div className="g3" style={{ marginBottom:14 }}>
               <Field label="Boom Structure"><ResultSelect value={boom.boom_structure} onChange={v=>ub("boom_structure",v)}/></Field>
@@ -874,6 +902,24 @@ async function extractCraneDataFromImage(base64, mimeType) {
                 <input style={IS} placeholder="e.g. 5" value={hook.wear_percentage} onChange={e => uh("wear_percentage", e.target.value)}/>
               </Field>
             </div>
+            {/* Hook measurement points — read by HookRopePage as Hook AB / Hook AC */}
+            <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", margin:"6px 0 10px" }}>Hook Measurements</div>
+            <div className="g2" style={{ marginBottom:14 }}>
+              <Field label="Hook 1 — Point A to B (mm)">
+                <input style={IS} placeholder="e.g. 185mm" value={boom.hook_ab} onChange={e => ub("hook_ab", e.target.value)}/>
+              </Field>
+              <Field label="Hook 1 — Point A to C (mm)">
+                <input style={IS} placeholder="e.g. 120mm" value={boom.hook_ac} onChange={e => ub("hook_ac", e.target.value)}/>
+              </Field>
+            </div>
+            <div className="g2" style={{ marginBottom:14 }}>
+              <Field label="Hook 2 — Point A to B (mm)">
+                <input style={IS} placeholder="Aux hook, leave blank if N/A" value={boom.hook2_ab} onChange={e => ub("hook2_ab", e.target.value)}/>
+              </Field>
+              <Field label="Hook 2 — Point A to C (mm)">
+                <input style={IS} placeholder="Aux hook, leave blank if N/A" value={boom.hook2_ac} onChange={e => ub("hook2_ac", e.target.value)}/>
+              </Field>
+            </div>
             <div className="g2">
               <Field label="Overall Hook Result">
                 <ResultSelect value={hook.result} onChange={v => uh("result", v)}/>
@@ -885,7 +931,7 @@ async function extractCraneDataFromImage(base64, mimeType) {
           </SectionCard>
         )}
 
-        {/* ── STEP 4: Rope ── */}
+        {/* ── STEP 5: Rope ── */}
         {step === 5 && (
           <SectionCard title="Wire Rope Inspection — expires 6 months" icon="🪢" color={T.purple} brd={T.purpleBrd}>
             <div className="g3" style={{ marginBottom:14 }}>
@@ -936,7 +982,7 @@ async function extractCraneDataFromImage(base64, mimeType) {
           </SectionCard>
         )}
 
-        {/* ── STEP 5: Pressure Vessels ── */}
+        {/* ── STEP 6: Pressure Vessels ── */}
         {step === 6 && (
           <>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
@@ -972,7 +1018,7 @@ async function extractCraneDataFromImage(base64, mimeType) {
                   <Field label="Capacity / Volume">
                     <input style={IS} placeholder="e.g. 200L" value={pv.capacity} onChange={e => upv(i, "capacity", e.target.value)}/>
                   </Field>
-                  <Field label="Working Pressure">
+                  <Field label="Working Pressure (MAWP)">
                     <input style={IS} placeholder="e.g. 200" value={pv.working_pressure} onChange={e => upv(i, "working_pressure", e.target.value)}/>
                   </Field>
                   <Field label="Test Pressure">
@@ -1002,36 +1048,53 @@ async function extractCraneDataFromImage(base64, mimeType) {
           </>
         )}
 
-        {/* ── STEP 6: Review ── */}
+        {/* ── STEP 7: Review & Generate ── */}
         {step === 7 && (
-          <>
-            <SectionCard title="Inspection Summary" icon="📋" color={T.accent}>
-              <div style={{ display:"grid", gap:10 }}>
-                {[
-                  { label:"Crane", type:crane.crane_type, desc:`SN ${crane.serial_number}${crane.fleet_number?" · Fleet "+crane.fleet_number:""}${crane.registration_number?" · Reg "+crane.registration_number:""}`, result:craneInsp.result, exp:"1 year" },
-                  { label:"Boom",  type:"Crane Boom",  desc:`${boom.actual_boom_length||"?"}m${boom.extended_boom_length?" ext "+boom.extended_boom_length+"m":""}${boom.boom_angle?" · "+boom.boom_angle+"°":""}${boom.load_tested_at_radius?" · Test@"+boom.load_tested_at_radius+"m":""}${boom.test_load?" "+boom.test_load+"T":""}`, result:boom.boom_structure, exp:"1 year" },
-                  { label:"Hook",  type:"Crane Hook",  desc:`SN ${hook.serial_number||"—"} SWL ${hook.swl||crane.swl}`, result:hook.result, exp:"6 months" },
-                  { label:"Rope",  type:"Wire Rope", desc:`Ø${rope.diameter||"?"}mm ${rope.rope_type}`, result:rope.result, exp:"6 months" },
-                  ...pvs.filter(p=>p.sn||p.description).map((p,i)=>({ label:`PV ${i+1}`, type:"Pressure Vessel", desc:`SN ${p.sn||"—"} ${p.description}`, result:p.result, exp:"1 year" })),
-                ].map((row, i) => (
-                  <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
-                    <div style={{ fontSize:11, fontWeight:800, color:T.textDim, width:60, flexShrink:0 }}>{row.label}</div>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:13, fontWeight:700, color:T.text }}>{row.type}</div>
-                      <div style={{ fontSize:11, color:T.textDim }}>{row.desc}</div>
-                    </div>
-                    <div style={{ fontSize:11, color:T.textDim, flexShrink:0 }}>Expires: {row.exp}</div>
-                    <ResultBadge result={row.result}/>
+          <SectionCard title="Inspection Summary" icon="📋" color={T.accent}>
+            <div style={{ display:"grid", gap:10 }}>
+              {[
+                {
+                  label:"Crane", type:craneData?.crane_type||crane.crane_type,
+                  desc:`SN ${crane.serial_number}${crane.fleet_number?" · Fleet "+crane.fleet_number:""}${crane.registration_number?" · Reg "+crane.registration_number:""}`,
+                  result:craneInsp.result, exp:"1 year",
+                },
+                {
+                  label:"Boom", type:"Crane Boom",
+                  desc:`${boom.actual_boom_length||"?"}m${boom.extended_boom_length?" ext "+boom.extended_boom_length+"m":""}${boom.boom_angle?" · "+boom.boom_angle+"°":""}${boom.load_tested_at_radius?" · Test@"+boom.load_tested_at_radius+"m":""}${boom.test_load?" "+boom.test_load+"T":""}`,
+                  result:boom.boom_structure, exp:"1 year",
+                },
+                {
+                  label:"Hook", type:"Crane Hook",
+                  desc:`SN ${hook.serial_number||"—"} SWL ${hook.swl||crane.swl}`,
+                  result:hook.result, exp:"6 months",
+                },
+                {
+                  label:"Rope", type:"Wire Rope",
+                  desc:`Ø${rope.diameter||"?"}mm ${rope.rope_type}`,
+                  result:rope.result, exp:"6 months",
+                },
+                ...pvs.filter(p=>p.sn||p.description).map((p,i)=>({
+                  label:`PV ${i+1}`, type:"Pressure Vessel",
+                  desc:`SN ${p.sn||"—"} ${p.description}`, result:p.result, exp:"1 year",
+                })),
+              ].map((row, i) => (
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
+                  <div style={{ fontSize:11, fontWeight:800, color:T.textDim, width:60, flexShrink:0 }}>{row.label}</div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:T.text }}>{row.type}</div>
+                    <div style={{ fontSize:11, color:T.textDim }}>{row.desc}</div>
                   </div>
-                ))}
-              </div>
-              <div style={{ marginTop:16, padding:"12px 14px", borderRadius:10, background:T.accentDim, border:`1px solid ${T.accentBrd}`, fontSize:12, color:T.textMid }}>
-                📋 Client: <strong style={{ color:T.text }}>{crane.client_name}</strong> &nbsp;·&nbsp;
-                Inspector: <strong style={{ color:T.text }}>{INSPECTOR_NAME}</strong> &nbsp;·&nbsp;
-                Date: <strong style={{ color:T.text }}>{fmt(crane.inspection_date)}</strong>
-              </div>
-            </SectionCard>
-          </>
+                  <div style={{ fontSize:11, color:T.textDim, flexShrink:0 }}>Expires: {row.exp}</div>
+                  <ResultBadge result={row.result}/>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop:16, padding:"12px 14px", borderRadius:10, background:T.accentDim, border:`1px solid ${T.accentBrd}`, fontSize:12, color:T.textMid }}>
+              📋 Client: <strong style={{ color:T.text }}>{crane.client_name}</strong> &nbsp;·&nbsp;
+              Inspector: <strong style={{ color:T.text }}>{INSPECTOR_NAME}</strong> &nbsp;·&nbsp;
+              Date: <strong style={{ color:T.text }}>{fmt(crane.inspection_date)}</strong>
+            </div>
+          </SectionCard>
         )}
 
         {/* ── NAV BUTTONS ── */}
