@@ -602,9 +602,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
   const _isCrane = /crane/i.test(_rawType)&&!/hook|rope|boom/i.test(_rawType);
   const _isBoom  = /boom/i.test(_rawType);
   const _isHook  = /hook/i.test(_rawType);
-  // Crane rope = exactly 'Wire Rope' → compliance cert format
-  // Wire Rope Sling, Round Sling etc → normal generic cert
-  const _isCraneRope = _rawType === 'wire rope';
+  const _isCraneRope = _rawType === "wire rope";
   const _isRope  = _isCraneRope;
   const _isPV    = /pressure.vessel|pressure vessel/i.test(_rawType);
 
@@ -720,7 +718,7 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
                 </div>
               </div>
             </div>
-{_isBoom&&(
+            {_isBoom&&(
               <Section title="Boom Systems Condition">
                 {pn["Boom structure"] &&<Field label="Boom Structure"           value={pn["Boom structure"]}/>}
                 {pn["Boom pins"]      &&<Field label="Boom Pins &amp; Connections"  value={pn["Boom pins"]}/>}
@@ -735,8 +733,8 @@ export default function CertificateSheet({ certificate: c, index=0, total=1, pri
             )}
             {(defects||recommendations)&&(
               <Section title="Defects &amp; Recommendations">
-                {defects        &&<Field label="Defects Found"   value={defects}         full/>}
-                {recommendations&&<Field label="Recommendations" value={recommendations} full/>}
+                {defects        &&<Field label="Defects Found"   value={defects}         full red/>}
+                {recommendations&&<Field label="Recommendations" value={recommendations} full red/>}
               </Section>
             )}
             {remarks&&(
