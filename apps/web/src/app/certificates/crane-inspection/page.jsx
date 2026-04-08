@@ -150,27 +150,68 @@ export default function CraneInspectionPage() {
   });
 
   const [boom, setBoom] = useState({
+    // Geometry
     min_radius:"", max_radius:"", min_boom_length:"", max_boom_length:"",
     actual_boom_length:"", extended_boom_length:"",
     jib_fitted:"no", jib_length:"", jib_angle:"",
+    // SWL
     swl_at_min_radius:"", swl_at_max_radius:"", swl_at_actual_config:"",
     boom_angle:"", load_tested_at_radius:"", test_load:"",
+    // Systems
     luffing_system:"PASS", slew_system:"PASS", hoist_system:"PASS",
     boom_structure:"PASS", boom_pins:"PASS", boom_wear:"PASS",
     anemometer:"PASS", lmi_test:"PASS", anti_two_block:"PASS",
-    // Hook fields for the Hook & Rope certificate (CertificateSheet reads these from hook cert notes)
-    hook_ab:"", hook_ac:"", hook2_ab:"", hook2_ac:"",
+    // SLI detail (Load Test Certificate table — matches preview)
+    sli_make_model:"",       // SLI Make & Model row
+    hook_block_reeving:"",   // Hook block reeving count
+    // Config 1 (short/min boom)
+    c1_boom_length:"", c1_angle:"", c1_radius:"", c1_rated:"", c1_test:"", c1_hook_weight:"",
+    // Config 2 (test/actual — maps to boom.* fields for backward compat, also stored separately)
+    c2_boom_length:"", c2_angle:"", c2_radius:"", c2_rated:"", c2_test:"", c2_hook_weight:"",
+    // Config 3 (max/aux)
+    c3_boom_length:"", c3_angle:"", c3_radius:"", c3_rated:"", c3_test:"", c3_hook_weight:"",
+    // Hook measurements (stored on boom state, written to hook cert notes)
+    hook_ab:"", hook_ac:"",
+    hook2_ab:"", hook2_ac:"",
+    hook3_ab:"", hook3_ac:"",
     notes:"",
   });
 
   const [hook, setHook] = useState({
     serial_number:"", swl:"", latch_condition:"PASS",
     structural_result:"PASS", wear_percentage:"", result:"PASS", notes:"",
+    // Hook 2 & 3 SWL (Hook 1 SWL comes from hook.swl)
+    hook2_serial:"", hook2_swl:"",
+    hook3_serial:"", hook3_swl:"",
   });
 
   const [rope, setRope] = useState({
-    diameter:"", length:"", rope_type:"Wire Rope",
+    // Main rope
+    diameter:"", rope_type:"Wire Rope",
     broken_wires:"0", corrosion:"none", kinks:"none",
+    length_3x_windings:"yes",
+    core_protrusion:"None",
+    damaged_strands:"none",
+    end_fittings:"Good",
+    reduction_dia:"none",
+    other_defects:"none",
+    serviceability:"Good",
+    lower_limit:"yes",
+    drum_condition:"Good",
+    rope_lay:"Good",
+    // Aux rope
+    aux_diameter:"", 
+    aux_broken_wires:"0", aux_corrosion:"none", aux_kinks:"none",
+    aux_length_3x_windings:"yes",
+    aux_core_protrusion:"None",
+    aux_damaged_strands:"none",
+    aux_end_fittings:"Good",
+    aux_reduction_dia:"none",
+    aux_other_defects:"none",
+    aux_serviceability:"Good",
+    aux_lower_limit:"yes",
+    aux_drum_condition:"Good",
+    aux_rope_lay:"Good",
     result:"PASS", notes:"",
   });
 
@@ -267,18 +308,22 @@ export default function CraneInspectionPage() {
       }
 
       if (d.boom_actual_length)    ub("actual_boom_length",    d.boom_actual_length);
+      if (d.boom_actual_length)    ub("c2_boom_length",        d.boom_actual_length);
       if (d.boom_extended_length)  ub("extended_boom_length",  d.boom_extended_length);
       if (d.boom_radius)           ub("load_tested_at_radius", d.boom_radius);
+      if (d.boom_radius)           ub("c2_radius",             d.boom_radius);
       if (d.boom_angle)            ub("boom_angle",            d.boom_angle);
+      if (d.boom_angle)            ub("c2_angle",              d.boom_angle);
       if (d.boom_swl_at_config)    ub("swl_at_actual_config",  d.boom_swl_at_config);
+      if (d.boom_swl_at_config)    ub("c2_rated",              d.boom_swl_at_config);
       if (d.boom_test_load)        ub("test_load",             d.boom_test_load);
+      if (d.boom_test_load)        ub("c2_test",               d.boom_test_load);
       if (d.crane_computer_status === "FAIL") ub("lmi_test", "FAIL");
 
       if (d.hook_swl)    uh("swl",           d.hook_swl);
       if (d.hook_serial) uh("serial_number", d.hook_serial);
 
       if (d.rope_diameter) ur("diameter", d.rope_diameter);
-      if (d.rope_length)   ur("length",   d.rope_length);
 
       if (d.pressure_vessels?.length > 0) {
         setPvs(d.pressure_vessels.map(pv => ({
@@ -327,12 +372,29 @@ export default function CraneInspectionPage() {
     let seq = (count || 0) + 1;
     const nextNo = (prefix) => `CERT-${prefix}${pad(seq++)}`;
 
+    // Resolve C1/C2/C3 from dedicated config fields, falling back to legacy boom fields
+    const c1_boom   = boom.c1_boom_length   || boom.min_boom_length   || "";
+    const c1_angle  = boom.c1_angle         || "";
+    const c1_radius = boom.c1_radius        || boom.min_radius        || "";
+    const c1_rated  = boom.c1_rated         || boom.swl_at_min_radius || "";
+    const c1_test   = boom.c1_test          || "";
+    const c1_hw     = boom.c1_hook_weight   || "";
+
+    const c2_boom   = boom.c2_boom_length   || boom.actual_boom_length   || "";
+    const c2_angle  = boom.c2_angle         || boom.boom_angle           || "";
+    const c2_radius = boom.c2_radius        || boom.load_tested_at_radius || "";
+    const c2_rated  = boom.c2_rated         || boom.swl_at_actual_config  || "";
+    const c2_test   = boom.c2_test          || boom.test_load             || "";
+    const c2_hw     = boom.c2_hook_weight   || "";
+
+    const c3_boom   = boom.c3_boom_length   || boom.max_boom_length   || "";
+    const c3_angle  = boom.c3_angle         || "";
+    const c3_radius = boom.c3_radius        || boom.max_radius        || "";
+    const c3_rated  = boom.c3_rated         || boom.swl_at_max_radius || "";
+    const c3_test   = boom.c3_test          || "";
+    const c3_hw     = boom.c3_hook_weight   || "";
+
     // ── 1. CRANE — Load Test Certificate ─────────────────────────────────
-    // Keys parsed by CraneLoadTestPage & CraneChecklistPage via parseNotes():
-    //   Structural, Boom, Outriggers, Computer, Machine Hours,
-    //   C1 boom/angle/radius/rated/test, C2 boom/angle/radius/rated/test,
-    //   C3 boom/angle/radius/rated/test, Crane test load,
-    //   SLI, Operating code, Counterweights, Notes
     certs.push({
       certificate_number: nextNo("CR"),
       equipment_type: craneData.crane_type,
@@ -372,54 +434,56 @@ export default function CraneInspectionPage() {
         `Computer: ${craneInsp.crane_computer}`,
         craneData.machine_hours         ? `Machine Hours: ${craneData.machine_hours}`          : "",
         craneInsp.test_load             ? `Crane test load: ${craneInsp.test_load}`            : "",
-        // Config 1 — Short / Min boom  (C1 keys used by CraneLoadTestPage)
-        boom.min_boom_length            ? `C1 boom: ${boom.min_boom_length}m`                  : "",
-        boom.boom_angle                 ? `C1 angle: ${boom.boom_angle}`                       : "",
-        boom.min_radius                 ? `C1 radius: ${boom.min_radius}m`                     : "",
-        boom.swl_at_min_radius          ? `C1 rated: ${boom.swl_at_min_radius}`                : "",
-        // no separate C1 test load — short boom not tested at 110%
-        // Config 2 — Test / actual configuration  (C2 keys)
-        boom.actual_boom_length         ? `C2 boom: ${boom.actual_boom_length}m`               : "",
-        boom.boom_angle                 ? `C2 angle: ${boom.boom_angle}`                       : "",
-        boom.load_tested_at_radius      ? `C2 radius: ${boom.load_tested_at_radius}m`          : "",
-        boom.swl_at_actual_config       ? `C2 rated: ${boom.swl_at_actual_config}`             : "",
-        boom.test_load                  ? `C2 test: ${boom.test_load}T`                        : "",
-        // Config 3 — Max / Aux boom  (C3 keys)
-        boom.max_boom_length            ? `C3 boom: ${boom.max_boom_length}m`                  : "",
-        boom.boom_angle                 ? `C3 angle: ${boom.boom_angle}`                       : "",
-        boom.max_radius                 ? `C3 radius: ${boom.max_radius}m`                     : "",
-        boom.swl_at_max_radius          ? `C3 rated: ${boom.swl_at_max_radius}`                : "",
+        // Config 1 — Short / Min boom
+        c1_boom                         ? `C1 boom: ${c1_boom}m`                              : "",
+        c1_angle                        ? `C1 angle: ${c1_angle}`                             : "",
+        c1_radius                       ? `C1 radius: ${c1_radius}m`                          : "",
+        c1_rated                        ? `C1 rated: ${c1_rated}`                             : "",
+        c1_test                         ? `C1 test: ${c1_test}T`                              : "",
+        c1_hw                           ? `C1 hook weight: ${c1_hw}`                          : "",
+        // Config 2 — Test / actual configuration
+        c2_boom                         ? `C2 boom: ${c2_boom}m`                              : "",
+        c2_angle                        ? `C2 angle: ${c2_angle}`                             : "",
+        c2_radius                       ? `C2 radius: ${c2_radius}m`                          : "",
+        c2_rated                        ? `C2 rated: ${c2_rated}`                             : "",
+        c2_test                         ? `C2 test: ${c2_test}T`                              : "",
+        c2_hw                           ? `C2 hook weight: ${c2_hw}`                          : "",
+        // Config 3 — Max / Aux boom
+        c3_boom                         ? `C3 boom: ${c3_boom}m`                              : "",
+        c3_angle                        ? `C3 angle: ${c3_angle}`                             : "",
+        c3_radius                       ? `C3 radius: ${c3_radius}m`                          : "",
+        c3_rated                        ? `C3 rated: ${c3_rated}`                             : "",
+        c3_test                         ? `C3 test: ${c3_test}T`                              : "",
+        c3_hw                           ? `C3 hook weight: ${c3_hw}`                          : "",
         // Jib
         boom.jib_fitted === "yes" && boom.jib_length
-                                        ? `Jib: ${boom.jib_length}m @ ${boom.jib_angle}°`      : "",
-        // SLI / LMI
-        boom.lmi_test !== "PASS"        ? `SLI: ${boom.lmi_test}`                              : "SLI: PASS",
+                                        ? `Jib: ${boom.jib_length}m @ ${boom.jib_angle}°`    : "",
+        // SLI detail rows (parsed by CraneLoadTestPage)
+        boom.sli_make_model             ? `SLI model: ${boom.sli_make_model}`                 : "",
+        boom.hook_block_reeving         ? `Reeving: ${boom.hook_block_reeving}`               : "",
+        boom.lmi_test !== "PASS"        ? `SLI: ${boom.lmi_test}`                             : "SLI: PASS",
         `Operating code: MAIN/AUX-FULL OUTRIGGER-360DEG`,
         `Counterweights: STD FITTED`,
-        craneData.notes                 ? `Notes: ${craneData.notes}`                          : "",
+        craneData.notes                 ? `Notes: ${craneData.notes}`                         : "",
       ].filter(Boolean).join(" | "),
     });
 
     // ── 2. BOOM — Crane Boom Certificate ─────────────────────────────────
-    // Keys parsed by GenericCert boom path via parseNotes():
-    //   Actual length, Extended, Angle, Jib, Min radius, Max radius,
-    //   Test load, Boom structure, Boom pins, Luffing, Slew, Hoist,
-    //   LMI, Anti-two-block, Anemometer, Notes
     certs.push({
       certificate_number: nextNo("BM"),
       equipment_type: "Crane Boom",
       equipment_description: [
         craneData.crane_type || "Mobile Crane",
-        boom.actual_boom_length    ? `Boom ${boom.actual_boom_length}m`        : "",
-        boom.extended_boom_length  ? `ext ${boom.extended_boom_length}m`       : "",
-        boom.boom_angle            ? `@ ${boom.boom_angle}°`                   : "",
-        boom.swl_at_actual_config  ? `SWL ${boom.swl_at_actual_config}`        : craneData.swl ? `SWL ${craneData.swl}` : "",
+        c2_boom                    ? `Boom ${c2_boom}m`              : boom.actual_boom_length ? `Boom ${boom.actual_boom_length}m` : "",
+        boom.extended_boom_length  ? `ext ${boom.extended_boom_length}m` : "",
+        c2_angle                   ? `@ ${c2_angle}°`                : boom.boom_angle ? `@ ${boom.boom_angle}°` : "",
+        c2_rated                   ? `SWL ${c2_rated}`               : craneData.swl ? `SWL ${craneData.swl}` : "",
         `SN ${craneData.serial_number}`,
       ].filter(Boolean).join(" — "),
       serial_number:       craneData.serial_number,
       fleet_number:        craneData.fleet_number,
       model:               craneData.model,
-      swl:                 boom.swl_at_actual_config || craneData.swl,
+      swl:                 c2_rated || boom.swl_at_actual_config || craneData.swl,
       client_name:         craneData.client_name,
       client_id:           craneData.client_id,
       location:            craneData.client_location,
@@ -435,21 +499,20 @@ export default function CraneInspectionPage() {
       folder_name:         folderName,
       folder_position:     2,
       notes: [
-        boom.actual_boom_length     ? `Actual length: ${boom.actual_boom_length}m`           : "",
-        boom.extended_boom_length   ? `Extended: ${boom.extended_boom_length}m`              : "",
-        boom.min_boom_length        ? `Min length: ${boom.min_boom_length}m`                 : "",
-        boom.max_boom_length        ? `Max length: ${boom.max_boom_length}m`                 : "",
-        boom.boom_angle             ? `Angle: ${boom.boom_angle}°`                           : "",
+        c2_boom                       ? `Actual length: ${c2_boom}m`                          : boom.actual_boom_length ? `Actual length: ${boom.actual_boom_length}m` : "",
+        boom.extended_boom_length     ? `Extended: ${boom.extended_boom_length}m`             : "",
+        c1_boom                       ? `Min length: ${c1_boom}m`                             : boom.min_boom_length ? `Min length: ${boom.min_boom_length}m` : "",
+        c3_boom                       ? `Max length: ${c3_boom}m`                             : boom.max_boom_length ? `Max length: ${boom.max_boom_length}m` : "",
+        c2_angle                      ? `Angle: ${c2_angle}°`                                 : boom.boom_angle ? `Angle: ${boom.boom_angle}°` : "",
         boom.jib_fitted === "yes" && boom.jib_length
-                                    ? `Jib: ${boom.jib_length}m @ ${boom.jib_angle}°`       : "",
-        boom.min_radius             ? `Min radius: ${boom.min_radius}m`                      : "",
-        boom.max_radius             ? `Max radius: ${boom.max_radius}m`                      : "",
-        boom.load_tested_at_radius  ? `Test radius: ${boom.load_tested_at_radius}m`          : "",
-        boom.swl_at_min_radius      ? `SWL@min: ${boom.swl_at_min_radius}`                   : "",
-        boom.swl_at_max_radius      ? `SWL@max: ${boom.swl_at_max_radius}`                   : "",
-        boom.swl_at_actual_config   ? `SWL@config: ${boom.swl_at_actual_config}`             : "",
-        boom.test_load              ? `Test load: ${boom.test_load}T`                        : "",
-        // System condition keys — GenericCert reads pn["Boom structure"] etc.
+                                      ? `Jib: ${boom.jib_length}m @ ${boom.jib_angle}°`      : "",
+        c1_radius                     ? `Min radius: ${c1_radius}m`                           : boom.min_radius ? `Min radius: ${boom.min_radius}m` : "",
+        c3_radius                     ? `Max radius: ${c3_radius}m`                           : boom.max_radius ? `Max radius: ${boom.max_radius}m` : "",
+        c2_radius                     ? `Test radius: ${c2_radius}m`                          : boom.load_tested_at_radius ? `Test radius: ${boom.load_tested_at_radius}m` : "",
+        c1_rated                      ? `SWL@min: ${c1_rated}`                                : boom.swl_at_min_radius ? `SWL@min: ${boom.swl_at_min_radius}` : "",
+        c3_rated                      ? `SWL@max: ${c3_rated}`                                : boom.swl_at_max_radius ? `SWL@max: ${boom.swl_at_max_radius}` : "",
+        c2_rated                      ? `SWL@config: ${c2_rated}`                             : boom.swl_at_actual_config ? `SWL@config: ${boom.swl_at_actual_config}` : "",
+        c2_test                       ? `Test load: ${c2_test}T`                              : boom.test_load ? `Test load: ${boom.test_load}T` : "",
         `Boom structure: ${boom.boom_structure}`,
         `Boom pins: ${boom.boom_pins}`,
         `Luffing: ${boom.luffing_system}`,
@@ -463,11 +526,6 @@ export default function CraneInspectionPage() {
     });
 
     // ── 3. HOOK — Hook & Rope Certificate ────────────────────────────────
-    // Keys parsed by HookRopePage via parseNotes():
-    //   Latch, Structural, Wear, Hook 1 SWL, Hook AB, Hook AC,
-    //   Broken wires, Corrosion, Kinks, Rope dia
-    // Both hook and rope data are stored together in the hook cert so that
-    // CertificateSheet renders one combined Hook & Rope page (equipment_type "Crane Hook").
     certs.push({
       certificate_number: nextNo("HK"),
       equipment_type:     "Crane Hook",
@@ -489,39 +547,70 @@ export default function CraneInspectionPage() {
       folder_name:         folderName,
       folder_position:     3,
       notes: [
-        // Hook keys
+        // Hook 1 keys
         `Latch: ${hook.latch_condition}`,
         `Structural: ${hook.structural_result}`,
-        hook.wear_percentage        ? `Wear: ${hook.wear_percentage}`                        : "",
-        hook.swl                    ? `Hook 1 SWL: ${hook.swl}`                              : "",
-        boom.hook_ab                ? `Hook AB: ${boom.hook_ab}`                             : "",
-        boom.hook_ac                ? `Hook AC: ${boom.hook_ac}`                             : "",
-        boom.hook2_ab               ? `Hook 2 AB: ${boom.hook2_ab}`                          : "",
-        boom.hook2_ac               ? `Hook 2 AC: ${boom.hook2_ac}`                          : "",
-        // Rope keys (read by HookRopePage for wire rope section)
-        rope.diameter               ? `Rope dia: ${rope.diameter}mm`                         : "",
+        hook.wear_percentage          ? `Wear: ${hook.wear_percentage}`                       : "",
+        hook.swl                      ? `Hook 1 SWL: ${hook.swl}`                            : "",
+        hook.serial_number            ? `Hook 1 SN: ${hook.serial_number}`                   : "",
+        boom.hook_ab                  ? `Hook AB: ${boom.hook_ab}`                            : "",
+        boom.hook_ac                  ? `Hook AC: ${boom.hook_ac}`                            : "",
+        // Hook 2
+        hook.hook2_swl                ? `Hook 2 SWL: ${hook.hook2_swl}`                      : "",
+        hook.hook2_serial             ? `Hook 2 SN: ${hook.hook2_serial}`                    : "",
+        boom.hook2_ab                 ? `Hook 2 AB: ${boom.hook2_ab}`                         : "",
+        boom.hook2_ac                 ? `Hook 2 AC: ${boom.hook2_ac}`                         : "",
+        // Hook 3
+        hook.hook3_swl                ? `Hook 3 SWL: ${hook.hook3_swl}`                      : "",
+        hook.hook3_serial             ? `Hook 3 SN: ${hook.hook3_serial}`                    : "",
+        boom.hook3_ab                 ? `Hook 3 AB: ${boom.hook3_ab}`                         : "",
+        boom.hook3_ac                 ? `Hook 3 AC: ${boom.hook3_ac}`                         : "",
+        // Main rope keys (read by HookRopePage)
+        rope.diameter                 ? `Rope dia: ${rope.diameter}mm`                        : "",
         `Broken wires: ${rope.broken_wires}`,
         `Corrosion: ${rope.corrosion}`,
         `Kinks: ${rope.kinks}`,
-        hook.notes                  ? `Notes: ${hook.notes}`                                 : "",
-        rope.notes                  ? `Rope notes: ${rope.notes}`                            : "",
+        rope.reduction_dia            ? `Reduction dia: ${rope.reduction_dia}`                : "",
+        rope.core_protrusion          ? `Core protrusion: ${rope.core_protrusion}`            : "",
+        rope.damaged_strands          ? `Damaged strands: ${rope.damaged_strands}`            : "",
+        rope.end_fittings             ? `End fittings: ${rope.end_fittings}`                  : "",
+        rope.other_defects            ? `Other defects: ${rope.other_defects}`                : "",
+        rope.serviceability           ? `Serviceability: ${rope.serviceability}`              : "",
+        rope.lower_limit              ? `Lower limit: ${rope.lower_limit}`                    : "",
+        rope.length_3x_windings       ? `3x windings: ${rope.length_3x_windings}`            : "",
+        rope.drum_condition           ? `Drum condition: ${rope.drum_condition}`              : "",
+        rope.rope_lay                 ? `Rope lay: ${rope.rope_lay}`                          : "",
+        // Aux rope keys
+        rope.aux_diameter             ? `Aux rope dia: ${rope.aux_diameter}mm`               : "",
+        `Aux broken wires: ${rope.aux_broken_wires}`,
+        `Aux corrosion: ${rope.aux_corrosion}`,
+        `Aux kinks: ${rope.aux_kinks}`,
+        rope.aux_reduction_dia        ? `Aux reduction dia: ${rope.aux_reduction_dia}`        : "",
+        rope.aux_core_protrusion      ? `Aux core protrusion: ${rope.aux_core_protrusion}`    : "",
+        rope.aux_damaged_strands      ? `Aux damaged strands: ${rope.aux_damaged_strands}`    : "",
+        rope.aux_end_fittings         ? `Aux end fittings: ${rope.aux_end_fittings}`          : "",
+        rope.aux_other_defects        ? `Aux other defects: ${rope.aux_other_defects}`        : "",
+        rope.aux_serviceability       ? `Aux serviceability: ${rope.aux_serviceability}`      : "",
+        rope.aux_lower_limit          ? `Aux lower limit: ${rope.aux_lower_limit}`            : "",
+        rope.aux_length_3x_windings   ? `Aux 3x windings: ${rope.aux_length_3x_windings}`    : "",
+        rope.aux_drum_condition       ? `Aux drum condition: ${rope.aux_drum_condition}`      : "",
+        rope.aux_rope_lay             ? `Aux rope lay: ${rope.aux_rope_lay}`                  : "",
+        hook.notes                    ? `Notes: ${hook.notes}`                                : "",
+        rope.notes                    ? `Rope notes: ${rope.notes}`                           : "",
       ].filter(Boolean).join(" | "),
     });
 
     // ── 4. ROPE — Wire Rope Certificate ──────────────────────────────────
-    // Standalone wire rope cert for the rope-only view / archive.
-    // equipment_type "Wire Rope" routes to HookRopePage with isRope=true.
     certs.push({
       certificate_number: nextNo("RP"),
       equipment_type:     "Wire Rope",
       equipment_description: [
         rope.rope_type,
         rope.diameter ? `Ø${rope.diameter}mm` : "",
-        rope.length   ? `L${rope.length}m`    : "",
         `— ${craneData.crane_type} SN ${craneData.serial_number}`,
       ].filter(Boolean).join(" "),
       serial_number:       craneData.serial_number,
-      capacity_volume:     rope.diameter ? `Ø${rope.diameter}mm × ${rope.length || "?"}m` : "",
+      capacity_volume:     rope.diameter ? `Ø${rope.diameter}mm` : "",
       swl:                 craneData.swl,
       client_name:         craneData.client_name,
       client_id:           craneData.client_id,
@@ -538,19 +627,15 @@ export default function CraneInspectionPage() {
       folder_name:         folderName,
       folder_position:     4,
       notes: [
-        rope.diameter               ? `Rope dia: ${rope.diameter}mm`                         : "",
+        rope.diameter               ? `Rope dia: ${rope.diameter}mm`                          : "",
         `Broken wires: ${rope.broken_wires}`,
         `Corrosion: ${rope.corrosion}`,
         `Kinks: ${rope.kinks}`,
-        rope.notes                  ? `Notes: ${rope.notes}`                                 : "",
+        rope.notes                  ? `Notes: ${rope.notes}`                                  : "",
       ].filter(Boolean).join(" | "),
     });
 
     // ── 5. PRESSURE VESSELS ───────────────────────────────────────────────
-    // Keys parsed by PressureVesselPage: pn[`PV${pvNum} MAWP`], pn[`PV${pvNum} test`],
-    // pn[`PV${pvNum} type`], pn[`PV${pvNum} serial`], pn[`PV${pvNum} capacity`]
-    // These are stored directly on the cert row (working_pressure, test_pressure etc.)
-    // so PressureVesselPage reads c.working_pressure / c.test_pressure directly.
     for (let i = 0; i < pvs.length; i++) {
       const pv = pvs[i];
       if (!pv.sn && !pv.description) continue;
@@ -561,7 +646,7 @@ export default function CraneInspectionPage() {
         serial_number:       pv.sn,
         capacity_volume:     pv.capacity,
         working_pressure:    pv.working_pressure,
-        mawp:                pv.working_pressure,   // PressureVesselPage reads c.mawp
+        mawp:                pv.working_pressure,
         test_pressure:       pv.test_pressure,
         pressure_unit:       pv.pressure_unit,
         client_name:         craneData.client_name,
@@ -642,7 +727,8 @@ export default function CraneInspectionPage() {
         textarea{resize:vertical}
         .g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
         .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
-        @media(max-width:640px){.g2{grid-template-columns:1fr!important}.g3{grid-template-columns:1fr 1fr!important}}
+        .g4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px}
+        @media(max-width:640px){.g2{grid-template-columns:1fr!important}.g3{grid-template-columns:1fr 1fr!important}.g4{grid-template-columns:1fr 1fr!important}}
       `}</style>
 
       <div style={{ fontFamily:"'IBM Plex Sans',sans-serif", color:T.text, padding:20, maxWidth:900, margin:"0 auto" }}>
@@ -713,15 +799,15 @@ export default function CraneInspectionPage() {
                   </select>
                 </Field>
                 <Field label="Model / Make">
-                  <input style={IS} placeholder="e.g. Liebherr LTM 1100" value={crane.model} onChange={e => uc("model", e.target.value)}/>
+                  <input style={IS} placeholder="e.g. TADANO GR-300EX" value={crane.model} onChange={e => uc("model", e.target.value)}/>
                 </Field>
               </div>
               <div className="g3" style={{ marginBottom:14 }}>
                 <Field label="Serial Number *">
-                  <input style={IS} placeholder="e.g. LTM-2024-001" value={crane.serial_number} onChange={e => uc("serial_number", e.target.value)}/>
+                  <input style={IS} placeholder="e.g. GR-300EX" value={crane.serial_number} onChange={e => uc("serial_number", e.target.value)}/>
                 </Field>
                 <Field label="Fleet Number">
-                  <input style={IS} placeholder="e.g. FL-042" value={crane.fleet_number} onChange={e => uc("fleet_number", e.target.value)}/>
+                  <input style={IS} placeholder="e.g. B064" value={crane.fleet_number} onChange={e => uc("fleet_number", e.target.value)}/>
                 </Field>
                 <Field label="Registration Number">
                   <input style={IS} placeholder="e.g. B 123 ABC" value={crane.registration_number} onChange={e => uc("registration_number", e.target.value)}/>
@@ -729,10 +815,10 @@ export default function CraneInspectionPage() {
               </div>
               <div className="g3" style={{ marginBottom:14 }}>
                 <Field label="Safe Working Load (SWL)">
-                  <input style={IS} placeholder="e.g. 100T" value={crane.swl} onChange={e => uc("swl", e.target.value)}/>
+                  <input style={IS} placeholder="e.g. 30 TON" value={crane.swl} onChange={e => uc("swl", e.target.value)}/>
                 </Field>
                 <Field label="Machine Hours">
-                  <input style={IS} placeholder="e.g. 4520" value={crane.machine_hours} onChange={e => uc("machine_hours", e.target.value)}/>
+                  <input style={IS} placeholder="e.g. 65495" value={crane.machine_hours} onChange={e => uc("machine_hours", e.target.value)}/>
                 </Field>
                 <Field label="Client City / Site">
                   <input style={IS} placeholder="Auto-filled from client" value={crane.client_location} onChange={e => uc("client_location", e.target.value)}/>
@@ -791,195 +877,414 @@ export default function CraneInspectionPage() {
 
         {/* ── STEP 3: Boom Inspection ── */}
         {step === 3 && (
-          <SectionCard title="Boom Configuration & Load Chart" icon="📐" color={T.blue} brd={T.blueBrd}>
-            <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>Boom Geometry</div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="Min Boom Length (m)">
-                <input style={IS} placeholder="e.g. 12.5" value={boom.min_boom_length} onChange={e=>ub("min_boom_length",e.target.value)}/>
-              </Field>
-              <Field label="Max Boom Length (m)">
-                <input style={IS} placeholder="e.g. 60" value={boom.max_boom_length} onChange={e=>ub("max_boom_length",e.target.value)}/>
-              </Field>
-              <Field label="Actual Boom Length (m)">
-                <input style={IS} placeholder="e.g. 36" value={boom.actual_boom_length} onChange={e=>ub("actual_boom_length",e.target.value)}/>
-              </Field>
-            </div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="Extended / Telescoped (m)">
-                <input style={IS} placeholder="e.g. 28" value={boom.extended_boom_length} onChange={e=>ub("extended_boom_length",e.target.value)}/>
-              </Field>
-              <Field label="Boom Angle (°)">
-                <input style={IS} placeholder="e.g. 75" value={boom.boom_angle} onChange={e=>ub("boom_angle",e.target.value)}/>
-              </Field>
-              <Field label="Jib Fitted">
-                <select style={IS} value={boom.jib_fitted} onChange={e=>ub("jib_fitted",e.target.value)}>
-                  <option value="no">No</option>
-                  <option value="yes">Yes</option>
-                </select>
-              </Field>
-            </div>
-            {boom.jib_fitted === "yes" && (
-              <div className="g2" style={{ marginBottom:14 }}>
-                <Field label="Jib Length (m)">
-                  <input style={IS} placeholder="e.g. 18" value={boom.jib_length} onChange={e=>ub("jib_length",e.target.value)}/>
+          <>
+            <SectionCard title="Boom Configuration & Load Chart" icon="📐" color={T.blue} brd={T.blueBrd}>
+              <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>Boom Geometry</div>
+              <div className="g3" style={{ marginBottom:14 }}>
+                <Field label="Min Boom Length (m)">
+                  <input style={IS} placeholder="e.g. 10.3" value={boom.min_boom_length} onChange={e=>ub("min_boom_length",e.target.value)}/>
                 </Field>
-                <Field label="Jib Angle (°)">
-                  <input style={IS} placeholder="e.g. 30" value={boom.jib_angle} onChange={e=>ub("jib_angle",e.target.value)}/>
+                <Field label="Max Boom Length (m)">
+                  <input style={IS} placeholder="e.g. 26.1" value={boom.max_boom_length} onChange={e=>ub("max_boom_length",e.target.value)}/>
+                </Field>
+                <Field label="Actual Boom Length (m)">
+                  <input style={IS} placeholder="e.g. 18.2" value={boom.actual_boom_length} onChange={e=>ub("actual_boom_length",e.target.value)}/>
                 </Field>
               </div>
-            )}
+              <div className="g3" style={{ marginBottom:14 }}>
+                <Field label="Extended / Telescoped (m)">
+                  <input style={IS} placeholder="e.g. 28" value={boom.extended_boom_length} onChange={e=>ub("extended_boom_length",e.target.value)}/>
+                </Field>
+                <Field label="Boom Angle (°)">
+                  <input style={IS} placeholder="e.g. 70" value={boom.boom_angle} onChange={e=>ub("boom_angle",e.target.value)}/>
+                </Field>
+                <Field label="Jib Fitted">
+                  <select style={IS} value={boom.jib_fitted} onChange={e=>ub("jib_fitted",e.target.value)}>
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
+                  </select>
+                </Field>
+              </div>
+              {boom.jib_fitted === "yes" && (
+                <div className="g2" style={{ marginBottom:14 }}>
+                  <Field label="Jib Length (m)">
+                    <input style={IS} placeholder="e.g. 18" value={boom.jib_length} onChange={e=>ub("jib_length",e.target.value)}/>
+                  </Field>
+                  <Field label="Jib Angle (°)">
+                    <input style={IS} placeholder="e.g. 30" value={boom.jib_angle} onChange={e=>ub("jib_angle",e.target.value)}/>
+                  </Field>
+                </div>
+              )}
 
-            <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", margin:"18px 0 10px" }}>Working Radius & SWL</div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="Min Radius (m)">
-                <input style={IS} placeholder="e.g. 3" value={boom.min_radius} onChange={e=>ub("min_radius",e.target.value)}/>
-              </Field>
-              <Field label="Max Radius (m)">
-                <input style={IS} placeholder="e.g. 52" value={boom.max_radius} onChange={e=>ub("max_radius",e.target.value)}/>
-              </Field>
-              <Field label="Test Radius (m)">
-                <input style={IS} placeholder="e.g. 12" value={boom.load_tested_at_radius} onChange={e=>ub("load_tested_at_radius",e.target.value)}/>
-              </Field>
-            </div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="SWL at Min Radius">
-                <input style={IS} placeholder="e.g. 100T" value={boom.swl_at_min_radius} onChange={e=>ub("swl_at_min_radius",e.target.value)}/>
-              </Field>
-              <Field label="SWL at Max Radius">
-                <input style={IS} placeholder="e.g. 6.5T" value={boom.swl_at_max_radius} onChange={e=>ub("swl_at_max_radius",e.target.value)}/>
-              </Field>
-              <Field label="SWL at Test Config">
-                <input style={IS} placeholder="e.g. 50T" value={boom.swl_at_actual_config} onChange={e=>ub("swl_at_actual_config",e.target.value)}/>
-              </Field>
-            </div>
-            <div style={{ marginBottom:14 }}>
-              <Field label="Load Test Applied (Tonnes) — 110% of SWL at test config">
-                <input style={IS} placeholder="e.g. 55" value={boom.test_load} onChange={e=>ub("test_load",e.target.value)}/>
-              </Field>
-            </div>
+              <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", margin:"18px 0 10px" }}>Working Radius & SWL</div>
+              <div className="g3" style={{ marginBottom:14 }}>
+                <Field label="Min Radius (m)">
+                  <input style={IS} placeholder="e.g. 3" value={boom.min_radius} onChange={e=>ub("min_radius",e.target.value)}/>
+                </Field>
+                <Field label="Max Radius (m)">
+                  <input style={IS} placeholder="e.g. 24" value={boom.max_radius} onChange={e=>ub("max_radius",e.target.value)}/>
+                </Field>
+                <Field label="Test Radius (m)">
+                  <input style={IS} placeholder="e.g. 8" value={boom.load_tested_at_radius} onChange={e=>ub("load_tested_at_radius",e.target.value)}/>
+                </Field>
+              </div>
+              <div className="g3" style={{ marginBottom:14 }}>
+                <Field label="SWL at Min Radius">
+                  <input style={IS} placeholder="e.g. 10.9T" value={boom.swl_at_min_radius} onChange={e=>ub("swl_at_min_radius",e.target.value)}/>
+                </Field>
+                <Field label="SWL at Max Radius">
+                  <input style={IS} placeholder="e.g. 1.5T" value={boom.swl_at_max_radius} onChange={e=>ub("swl_at_max_radius",e.target.value)}/>
+                </Field>
+                <Field label="SWL at Test Config">
+                  <input style={IS} placeholder="e.g. 11.2T" value={boom.swl_at_actual_config} onChange={e=>ub("swl_at_actual_config",e.target.value)}/>
+                </Field>
+              </div>
+              <div style={{ marginBottom:14 }}>
+                <Field label="Load Test Applied (Tonnes) — 110% of SWL at test config">
+                  <input style={IS} placeholder="e.g. 9.0" value={boom.test_load} onChange={e=>ub("test_load",e.target.value)}/>
+                </Field>
+              </div>
+            </SectionCard>
 
-            <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", margin:"18px 0 10px" }}>Boom Systems Condition</div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="Boom Structure"><ResultSelect value={boom.boom_structure} onChange={v=>ub("boom_structure",v)}/></Field>
-              <Field label="Boom Pins & Connections"><ResultSelect value={boom.boom_pins} onChange={v=>ub("boom_pins",v)}/></Field>
-              <Field label="Boom Wear / Pads"><ResultSelect value={boom.boom_wear} onChange={v=>ub("boom_wear",v)}/></Field>
-            </div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="Luffing System"><ResultSelect value={boom.luffing_system} onChange={v=>ub("luffing_system",v)}/></Field>
-              <Field label="Slew System"><ResultSelect value={boom.slew_system} onChange={v=>ub("slew_system",v)}/></Field>
-              <Field label="Hoist System"><ResultSelect value={boom.hoist_system} onChange={v=>ub("hoist_system",v)}/></Field>
-            </div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="LMI Tested at Config"><ResultSelect value={boom.lmi_test} onChange={v=>ub("lmi_test",v)}/></Field>
-              <Field label="Anti-Two Block Device"><ResultSelect value={boom.anti_two_block} onChange={v=>ub("anti_two_block",v)}/></Field>
-              <Field label="Anemometer (if fitted)"><ResultSelect value={boom.anemometer} onChange={v=>ub("anemometer",v)}/></Field>
-            </div>
-            <Field label="Boom Notes">
-              <textarea style={{ ...IS, minHeight:70 }} placeholder="Additional boom inspection notes..." value={boom.notes} onChange={e=>ub("notes",e.target.value)}/>
-            </Field>
-          </SectionCard>
+            {/* Load Test Table — 3 configs matching the printed certificate */}
+            <SectionCard title="Load Test — 3 Configurations (matches Load Test Certificate table)" icon="📊" color={T.amber} brd={T.amberBrd}>
+              <div style={{ fontSize:11, color:T.textDim, marginBottom:14 }}>
+                Config 1 = Short/Min boom &nbsp;·&nbsp; Config 2 = Test/Main config &nbsp;·&nbsp; Config 3 = Max/Aux boom
+              </div>
+
+              {/* Sub-labels */}
+              <div style={{ display:"grid", gridTemplateColumns:"140px 1fr 1fr 1fr", gap:8, marginBottom:6 }}>
+                <div/>
+                <div style={{ fontSize:10, fontWeight:800, color:T.amber, textAlign:"center", textTransform:"uppercase", letterSpacing:"0.06em" }}>Config 1 — Main (Short)</div>
+                <div style={{ fontSize:10, fontWeight:800, color:T.accent, textAlign:"center", textTransform:"uppercase", letterSpacing:"0.06em" }}>Config 2 — Main (Test)</div>
+                <div style={{ fontSize:10, fontWeight:800, color:T.green, textAlign:"center", textTransform:"uppercase", letterSpacing:"0.06em" }}>Config 3 — Aux</div>
+              </div>
+
+              {[
+                { label:"Boom Length (m)", keys:["c1_boom_length","c2_boom_length","c3_boom_length"], ph:["10.3","18.2","26.1"] },
+                { label:"Boom Angle (°)",  keys:["c1_angle","c2_angle","c3_angle"],                  ph:["70","70.3","50"] },
+                { label:"Radius (m)",      keys:["c1_radius","c2_radius","c3_radius"],               ph:["8.0","8.0","24.0"] },
+                { label:"Rated Load",      keys:["c1_rated","c2_rated","c3_rated"],                  ph:["10.9T","11.2T","1.5T"] },
+                { label:"Test Load",       keys:["c1_test","c2_test","c3_test"],                     ph:["8.2T","9.0T","1.2T"] },
+                { label:"Hook Block Wt",   keys:["c1_hook_weight","c2_hook_weight","c3_hook_weight"],ph:["0.25T","0.25T","0.055T"] },
+              ].map(row => (
+                <div key={row.label} style={{ display:"grid", gridTemplateColumns:"140px 1fr 1fr 1fr", gap:8, marginBottom:10, alignItems:"center" }}>
+                  <label style={{ ...LS, marginBottom:0, fontSize:9 }}>{row.label}</label>
+                  {row.keys.map((k,i) => (
+                    <input key={k} style={{ ...IS, minHeight:36, padding:"8px 10px", fontSize:12 }}
+                      placeholder={row.ph[i]} value={boom[k]} onChange={e=>ub(k,e.target.value)}/>
+                  ))}
+                </div>
+              ))}
+            </SectionCard>
+
+            <SectionCard title="SLI / LMI Details" icon="📡" color={T.purple} brd={T.purpleBrd}>
+              <div className="g2" style={{ marginBottom:14 }}>
+                <Field label="SLI Make & Model">
+                  <input style={IS} placeholder="e.g. GR-300XL-1" value={boom.sli_make_model} onChange={e=>ub("sli_make_model",e.target.value)}/>
+                </Field>
+                <Field label="Hook Block Reeving">
+                  <input style={IS} placeholder="e.g. 4" value={boom.hook_block_reeving} onChange={e=>ub("hook_block_reeving",e.target.value)}/>
+                </Field>
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Boom Systems Condition" icon="⚙️" color={T.blue} brd={T.blueBrd}>
+              <div className="g3" style={{ marginBottom:14 }}>
+                <Field label="Boom Structure"><ResultSelect value={boom.boom_structure} onChange={v=>ub("boom_structure",v)}/></Field>
+                <Field label="Boom Pins & Connections"><ResultSelect value={boom.boom_pins} onChange={v=>ub("boom_pins",v)}/></Field>
+                <Field label="Boom Wear / Pads"><ResultSelect value={boom.boom_wear} onChange={v=>ub("boom_wear",v)}/></Field>
+              </div>
+              <div className="g3" style={{ marginBottom:14 }}>
+                <Field label="Luffing System"><ResultSelect value={boom.luffing_system} onChange={v=>ub("luffing_system",v)}/></Field>
+                <Field label="Slew System"><ResultSelect value={boom.slew_system} onChange={v=>ub("slew_system",v)}/></Field>
+                <Field label="Hoist System"><ResultSelect value={boom.hoist_system} onChange={v=>ub("hoist_system",v)}/></Field>
+              </div>
+              <div className="g3" style={{ marginBottom:14 }}>
+                <Field label="LMI Tested at Config"><ResultSelect value={boom.lmi_test} onChange={v=>ub("lmi_test",v)}/></Field>
+                <Field label="Anti-Two Block Device"><ResultSelect value={boom.anti_two_block} onChange={v=>ub("anti_two_block",v)}/></Field>
+                <Field label="Anemometer (if fitted)"><ResultSelect value={boom.anemometer} onChange={v=>ub("anemometer",v)}/></Field>
+              </div>
+              <Field label="Boom Notes">
+                <textarea style={{ ...IS, minHeight:70 }} placeholder="Additional boom inspection notes..." value={boom.notes} onChange={e=>ub("notes",e.target.value)}/>
+              </Field>
+            </SectionCard>
+          </>
         )}
 
         {/* ── STEP 4: Hook ── */}
         {step === 4 && (
-          <SectionCard title="Hook Inspection — expires 6 months" icon="🪝" color={T.amber} brd={T.amberBrd}>
-            <div className="g2" style={{ marginBottom:14 }}>
-              <Field label="Hook Serial Number">
-                <input style={IS} placeholder="e.g. HK-2024-001" value={hook.serial_number} onChange={e => uh("serial_number", e.target.value)}/>
-              </Field>
-              <Field label="Hook SWL">
-                <input style={IS} placeholder="e.g. 100T" value={hook.swl} onChange={e => uh("swl", e.target.value)}/>
-              </Field>
-            </div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="Latch Condition">
-                <ResultSelect value={hook.latch_condition} onChange={v => uh("latch_condition", v)}/>
-              </Field>
-              <Field label="Structural Integrity">
-                <ResultSelect value={hook.structural_result} onChange={v => uh("structural_result", v)}/>
-              </Field>
-              <Field label="Wear (%)">
-                <input style={IS} placeholder="e.g. 5" value={hook.wear_percentage} onChange={e => uh("wear_percentage", e.target.value)}/>
-              </Field>
-            </div>
-            {/* Hook measurement points — read by HookRopePage as Hook AB / Hook AC */}
-            <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", margin:"6px 0 10px" }}>Hook Measurements</div>
-            <div className="g2" style={{ marginBottom:14 }}>
-              <Field label="Hook 1 — Point A to B (mm)">
-                <input style={IS} placeholder="e.g. 185mm" value={boom.hook_ab} onChange={e => ub("hook_ab", e.target.value)}/>
-              </Field>
-              <Field label="Hook 1 — Point A to C (mm)">
-                <input style={IS} placeholder="e.g. 120mm" value={boom.hook_ac} onChange={e => ub("hook_ac", e.target.value)}/>
-              </Field>
-            </div>
-            <div className="g2" style={{ marginBottom:14 }}>
-              <Field label="Hook 2 — Point A to B (mm)">
-                <input style={IS} placeholder="Aux hook, leave blank if N/A" value={boom.hook2_ab} onChange={e => ub("hook2_ab", e.target.value)}/>
-              </Field>
-              <Field label="Hook 2 — Point A to C (mm)">
-                <input style={IS} placeholder="Aux hook, leave blank if N/A" value={boom.hook2_ac} onChange={e => ub("hook2_ac", e.target.value)}/>
-              </Field>
-            </div>
-            <div className="g2">
-              <Field label="Overall Hook Result">
-                <ResultSelect value={hook.result} onChange={v => uh("result", v)}/>
-              </Field>
-              <Field label="Notes">
-                <input style={IS} placeholder="Any additional notes" value={hook.notes} onChange={e => uh("notes", e.target.value)}/>
-              </Field>
-            </div>
-          </SectionCard>
+          <>
+            <SectionCard title="Hook Inspection — expires 6 months" icon="🪝" color={T.amber} brd={T.amberBrd}>
+              {/* Hook 1 */}
+              <div style={{ fontSize:11, fontWeight:800, color:T.amber, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:10 }}>Hook 1 — Main</div>
+              <div className="g2" style={{ marginBottom:14 }}>
+                <Field label="Hook 1 Serial Number">
+                  <input style={IS} placeholder="e.g. HK-2024-001" value={hook.serial_number} onChange={e => uh("serial_number", e.target.value)}/>
+                </Field>
+                <Field label="Hook 1 SWL">
+                  <input style={IS} placeholder="e.g. 30 ton" value={hook.swl} onChange={e => uh("swl", e.target.value)}/>
+                </Field>
+              </div>
+              <div className="g3" style={{ marginBottom:14 }}>
+                <Field label="Latch Condition">
+                  <ResultSelect value={hook.latch_condition} onChange={v => uh("latch_condition", v)}/>
+                </Field>
+                <Field label="Structural Integrity">
+                  <ResultSelect value={hook.structural_result} onChange={v => uh("structural_result", v)}/>
+                </Field>
+                <Field label="Wear (%)">
+                  <input style={IS} placeholder="e.g. 5" value={hook.wear_percentage} onChange={e => uh("wear_percentage", e.target.value)}/>
+                </Field>
+              </div>
+              <div style={{ fontSize:11, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.07em", margin:"6px 0 10px" }}>Hook 1 Measurements (mm)</div>
+              <div className="g2" style={{ marginBottom:14 }}>
+                <Field label="Point A to B (mm)">
+                  <input style={IS} placeholder="e.g. 240mm" value={boom.hook_ab} onChange={e => ub("hook_ab", e.target.value)}/>
+                </Field>
+                <Field label="Point A to C (mm)">
+                  <input style={IS} placeholder="e.g. 180mm" value={boom.hook_ac} onChange={e => ub("hook_ac", e.target.value)}/>
+                </Field>
+              </div>
+
+              {/* Hook 2 */}
+              <div style={{ fontSize:11, fontWeight:800, color:T.amber, textTransform:"uppercase", letterSpacing:"0.07em", margin:"14px 0 10px", paddingTop:14, borderTop:`1px solid ${T.border}` }}>Hook 2 — Auxiliary</div>
+              <div className="g2" style={{ marginBottom:14 }}>
+                <Field label="Hook 2 Serial Number">
+                  <input style={IS} placeholder="Aux hook — leave blank if N/A" value={hook.hook2_serial} onChange={e => uh("hook2_serial", e.target.value)}/>
+                </Field>
+                <Field label="Hook 2 SWL">
+                  <input style={IS} placeholder="e.g. 2.8 ton" value={hook.hook2_swl} onChange={e => uh("hook2_swl", e.target.value)}/>
+                </Field>
+              </div>
+              <div className="g2" style={{ marginBottom:14 }}>
+                <Field label="Hook 2 — Point A to B (mm)">
+                  <input style={IS} placeholder="Aux hook, leave blank if N/A" value={boom.hook2_ab} onChange={e => ub("hook2_ab", e.target.value)}/>
+                </Field>
+                <Field label="Hook 2 — Point A to C (mm)">
+                  <input style={IS} placeholder="Aux hook, leave blank if N/A" value={boom.hook2_ac} onChange={e => ub("hook2_ac", e.target.value)}/>
+                </Field>
+              </div>
+
+              {/* Hook 3 */}
+              <div style={{ fontSize:11, fontWeight:800, color:T.amber, textTransform:"uppercase", letterSpacing:"0.07em", margin:"14px 0 10px", paddingTop:14, borderTop:`1px solid ${T.border}` }}>Hook 3 — (if fitted)</div>
+              <div className="g2" style={{ marginBottom:14 }}>
+                <Field label="Hook 3 Serial Number">
+                  <input style={IS} placeholder="Leave blank if N/A" value={hook.hook3_serial} onChange={e => uh("hook3_serial", e.target.value)}/>
+                </Field>
+                <Field label="Hook 3 SWL">
+                  <input style={IS} placeholder="Leave blank if N/A" value={hook.hook3_swl} onChange={e => uh("hook3_swl", e.target.value)}/>
+                </Field>
+              </div>
+              <div className="g2" style={{ marginBottom:14 }}>
+                <Field label="Hook 3 — Point A to B (mm)">
+                  <input style={IS} placeholder="Leave blank if N/A" value={boom.hook3_ab} onChange={e => ub("hook3_ab", e.target.value)}/>
+                </Field>
+                <Field label="Hook 3 — Point A to C (mm)">
+                  <input style={IS} placeholder="Leave blank if N/A" value={boom.hook3_ac} onChange={e => ub("hook3_ac", e.target.value)}/>
+                </Field>
+              </div>
+
+              <div className="g2">
+                <Field label="Overall Hook Result">
+                  <ResultSelect value={hook.result} onChange={v => uh("result", v)}/>
+                </Field>
+                <Field label="Notes">
+                  <input style={IS} placeholder="Any additional notes" value={hook.notes} onChange={e => uh("notes", e.target.value)}/>
+                </Field>
+              </div>
+            </SectionCard>
+          </>
         )}
 
         {/* ── STEP 5: Rope ── */}
         {step === 5 && (
-          <SectionCard title="Wire Rope Inspection — expires 6 months" icon="🪢" color={T.purple} brd={T.purpleBrd}>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="Rope Diameter (mm)">
-                <input style={IS} placeholder="e.g. 26" value={rope.diameter} onChange={e => ur("diameter", e.target.value)}/>
-              </Field>
-              <Field label="Rope Length (m)">
-                <input style={IS} placeholder="e.g. 150" value={rope.length} onChange={e => ur("length", e.target.value)}/>
-              </Field>
-              <Field label="Rope Type">
-                <select style={IS} value={rope.rope_type} onChange={e => ur("rope_type", e.target.value)}>
-                  <option>Wire Rope</option>
-                  <option>Fibre Core Wire Rope</option>
-                  <option>Steel Core Wire Rope</option>
-                  <option>Compacted Strand Wire Rope</option>
+          <>
+            <SectionCard title="Hoist Drum Condition" icon="🥁" color={T.blue} brd={T.blueBrd}>
+              <div className="g2" style={{ marginBottom:14 }}>
+                <Field label="Main Hoist Drum Condition">
+                  <select style={IS} value={rope.drum_condition} onChange={e=>ur("drum_condition",e.target.value)}>
+                    <option value="Good">Good</option>
+                    <option value="Fair">Fair</option>
+                    <option value="Poor">Poor</option>
+                    <option value="FAIL">Fail</option>
+                  </select>
+                </Field>
+                <Field label="Aux Hoist Drum Condition">
+                  <select style={IS} value={rope.aux_drum_condition} onChange={e=>ur("aux_drum_condition",e.target.value)}>
+                    <option value="Good">Good</option>
+                    <option value="Fair">Fair</option>
+                    <option value="Poor">Poor</option>
+                    <option value="N/A">N/A</option>
+                  </select>
+                </Field>
+              </div>
+              <div className="g2">
+                <Field label="Main Hoist Rope Lay on Drum">
+                  <select style={IS} value={rope.rope_lay} onChange={e=>ur("rope_lay",e.target.value)}>
+                    <option value="Good">Good</option>
+                    <option value="Fair">Fair</option>
+                    <option value="Poor">Poor</option>
+                  </select>
+                </Field>
+                <Field label="Aux Hoist Rope Lay on Drum">
+                  <select style={IS} value={rope.aux_rope_lay} onChange={e=>ur("aux_rope_lay",e.target.value)}>
+                    <option value="Good">Good</option>
+                    <option value="Fair">Fair</option>
+                    <option value="Poor">Poor</option>
+                    <option value="N/A">N/A</option>
+                  </select>
+                </Field>
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Wire Rope Inspection — expires 6 months" icon="🪢" color={T.purple} brd={T.purpleBrd}>
+              {/* Column headers */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:6 }}>
+                <div/>
+                <div style={{ fontSize:10, fontWeight:800, color:T.accent, textAlign:"center", textTransform:"uppercase", letterSpacing:"0.06em" }}>Main</div>
+                <div style={{ fontSize:10, fontWeight:800, color:T.purple, textAlign:"center", textTransform:"uppercase", letterSpacing:"0.06em" }}>Aux</div>
+              </div>
+
+              {/* Diameter */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:10 }}>
+                <label style={{ ...LS, marginBottom:0, alignSelf:"center" }}>Rope Diameter (mm)</label>
+                <input style={{ ...IS, minHeight:36 }} placeholder="e.g. 18" value={rope.diameter} onChange={e=>ur("diameter",e.target.value)}/>
+                <input style={{ ...IS, minHeight:36 }} placeholder="e.g. 18" value={rope.aux_diameter} onChange={e=>ur("aux_diameter",e.target.value)}/>
+              </div>
+
+              {/* Reduction in dia */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:10 }}>
+                <label style={{ ...LS, marginBottom:0, alignSelf:"center" }}>Reduction in Dia (max 10%)</label>
+                <select style={{ ...IS, minHeight:36 }} value={rope.reduction_dia} onChange={e=>ur("reduction_dia",e.target.value)}>
+                  <option value="none">none</option><option value="minor">minor</option><option value="moderate">moderate</option><option value="severe">severe</option>
                 </select>
-              </Field>
-            </div>
-            <div className="g3" style={{ marginBottom:14 }}>
-              <Field label="Broken Wires (count)">
-                <input style={IS} placeholder="e.g. 0" value={rope.broken_wires} onChange={e => ur("broken_wires", e.target.value)}/>
-              </Field>
-              <Field label="Corrosion">
-                <select style={IS} value={rope.corrosion} onChange={e => ur("corrosion", e.target.value)}>
-                  <option value="none">None</option>
-                  <option value="minor">Minor</option>
-                  <option value="moderate">Moderate</option>
-                  <option value="severe">Severe</option>
+                <select style={{ ...IS, minHeight:36 }} value={rope.aux_reduction_dia} onChange={e=>ur("aux_reduction_dia",e.target.value)}>
+                  <option value="none">none</option><option value="minor">minor</option><option value="moderate">moderate</option><option value="N/A">N/A</option>
                 </select>
-              </Field>
-              <Field label="Kinks / Bends">
-                <select style={IS} value={rope.kinks} onChange={e => ur("kinks", e.target.value)}>
-                  <option value="none">None</option>
-                  <option value="minor">Minor</option>
-                  <option value="moderate">Moderate</option>
-                  <option value="severe">Severe</option>
+              </div>
+
+              {/* Corrosion */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:10 }}>
+                <label style={{ ...LS, marginBottom:0, alignSelf:"center" }}>Corrosion</label>
+                <select style={{ ...IS, minHeight:36 }} value={rope.corrosion} onChange={e=>ur("corrosion",e.target.value)}>
+                  <option value="none">none</option><option value="minor">minor</option><option value="moderate">moderate</option><option value="severe">severe</option>
                 </select>
-              </Field>
-            </div>
-            <div className="g2">
-              <Field label="Overall Rope Result">
-                <ResultSelect value={rope.result} onChange={v => ur("result", v)}/>
-              </Field>
-              <Field label="Notes">
-                <input style={IS} placeholder="Any additional notes" value={rope.notes} onChange={e => ur("notes", e.target.value)}/>
-              </Field>
-            </div>
-          </SectionCard>
+                <select style={{ ...IS, minHeight:36 }} value={rope.aux_corrosion} onChange={e=>ur("aux_corrosion",e.target.value)}>
+                  <option value="none">none</option><option value="minor">minor</option><option value="moderate">moderate</option><option value="N/A">N/A</option>
+                </select>
+              </div>
+
+              {/* Kinks */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:10 }}>
+                <label style={{ ...LS, marginBottom:0, alignSelf:"center" }}>Rope Kinks / Deforming</label>
+                <select style={{ ...IS, minHeight:36 }} value={rope.kinks} onChange={e=>ur("kinks",e.target.value)}>
+                  <option value="none">none</option><option value="minor">minor</option><option value="moderate">moderate</option><option value="severe">severe</option>
+                </select>
+                <select style={{ ...IS, minHeight:36 }} value={rope.aux_kinks} onChange={e=>ur("aux_kinks",e.target.value)}>
+                  <option value="none">none</option><option value="minor">minor</option><option value="moderate">moderate</option><option value="N/A">N/A</option>
+                </select>
+              </div>
+
+              {/* End fittings */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:10 }}>
+                <label style={{ ...LS, marginBottom:0, alignSelf:"center" }}>Cond of End Fittings</label>
+                <select style={{ ...IS, minHeight:36 }} value={rope.end_fittings} onChange={e=>ur("end_fittings",e.target.value)}>
+                  <option value="Good">Good</option><option value="Fair">Fair</option><option value="Poor">Poor</option>
+                </select>
+                <select style={{ ...IS, minHeight:36 }} value={rope.aux_end_fittings} onChange={e=>ur("aux_end_fittings",e.target.value)}>
+                  <option value="Good">Good</option><option value="Fair">Fair</option><option value="Poor">Poor</option><option value="N/A">N/A</option>
+                </select>
+              </div>
+
+              {/* Damaged strands */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:10 }}>
+                <label style={{ ...LS, marginBottom:0, alignSelf:"center" }}>Damaged Strands</label>
+                <select style={{ ...IS, minHeight:36 }} value={rope.damaged_strands} onChange={e=>ur("damaged_strands",e.target.value)}>
+                  <option value="none">none</option><option value="minor">minor</option><option value="moderate">moderate</option><option value="severe">severe</option>
+                </select>
+                <select style={{ ...IS, minHeight:36 }} value={rope.aux_damaged_strands} onChange={e=>ur("aux_damaged_strands",e.target.value)}>
+                  <option value="none">none</option><option value="minor">minor</option><option value="moderate">moderate</option><option value="N/A">N/A</option>
+                </select>
+              </div>
+
+              {/* Broken wires */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:10 }}>
+                <label style={{ ...LS, marginBottom:0, alignSelf:"center" }}>Broken Wires</label>
+                <input style={{ ...IS, minHeight:36 }} placeholder="e.g. none" value={rope.broken_wires} onChange={e=>ur("broken_wires",e.target.value)}/>
+                <input style={{ ...IS, minHeight:36 }} placeholder="e.g. none" value={rope.aux_broken_wires} onChange={e=>ur("aux_broken_wires",e.target.value)}/>
+              </div>
+
+              {/* Core protrusion */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:10 }}>
+                <label style={{ ...LS, marginBottom:0, alignSelf:"center" }}>Core Protrusion</label>
+                <select style={{ ...IS, minHeight:36 }} value={rope.core_protrusion} onChange={e=>ur("core_protrusion",e.target.value)}>
+                  <option value="None">None</option><option value="Minor">Minor</option><option value="Severe">Severe</option>
+                </select>
+                <select style={{ ...IS, minHeight:36 }} value={rope.aux_core_protrusion} onChange={e=>ur("aux_core_protrusion",e.target.value)}>
+                  <option value="None">None</option><option value="Minor">Minor</option><option value="Severe">Severe</option><option value="N/A">N/A</option>
+                </select>
+              </div>
+
+              {/* Other defects */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:10 }}>
+                <label style={{ ...LS, marginBottom:0, alignSelf:"center" }}>Other Defects</label>
+                <input style={{ ...IS, minHeight:36 }} placeholder="none" value={rope.other_defects} onChange={e=>ur("other_defects",e.target.value)}/>
+                <input style={{ ...IS, minHeight:36 }} placeholder="none" value={rope.aux_other_defects} onChange={e=>ur("aux_other_defects",e.target.value)}/>
+              </div>
+
+              {/* 3x windings */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:10 }}>
+                <label style={{ ...LS, marginBottom:0, alignSelf:"center" }}>Rope Length (3x Windings)</label>
+                <select style={{ ...IS, minHeight:36 }} value={rope.length_3x_windings} onChange={e=>ur("length_3x_windings",e.target.value)}>
+                  <option value="yes">Yes</option><option value="no">No</option>
+                </select>
+                <select style={{ ...IS, minHeight:36 }} value={rope.aux_length_3x_windings} onChange={e=>ur("aux_length_3x_windings",e.target.value)}>
+                  <option value="yes">Yes</option><option value="no">No</option><option value="N/A">N/A</option>
+                </select>
+              </div>
+
+              {/* Serviceability */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:10 }}>
+                <label style={{ ...LS, marginBottom:0, alignSelf:"center" }}>Serviceability</label>
+                <select style={{ ...IS, minHeight:36 }} value={rope.serviceability} onChange={e=>ur("serviceability",e.target.value)}>
+                  <option value="Good">Good</option><option value="Fair">Fair</option><option value="Poor">Poor</option><option value="Replace">Replace</option>
+                </select>
+                <select style={{ ...IS, minHeight:36 }} value={rope.aux_serviceability} onChange={e=>ur("aux_serviceability",e.target.value)}>
+                  <option value="Good">Good</option><option value="Fair">Fair</option><option value="Poor">Poor</option><option value="Replace">Replace</option><option value="N/A">N/A</option>
+                </select>
+              </div>
+
+              {/* Hoist lower limit */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:14 }}>
+                <label style={{ ...LS, marginBottom:0, alignSelf:"center" }}>Hoist Lower Limit Cut Off</label>
+                <select style={{ ...IS, minHeight:36 }} value={rope.lower_limit} onChange={e=>ur("lower_limit",e.target.value)}>
+                  <option value="yes">Yes</option><option value="no">No</option><option value="N/A">N/A</option>
+                </select>
+                <select style={{ ...IS, minHeight:36 }} value={rope.aux_lower_limit} onChange={e=>ur("aux_lower_limit",e.target.value)}>
+                  <option value="yes">Yes</option><option value="no">No</option><option value="N/A">N/A</option>
+                </select>
+              </div>
+
+              {/* Rope type + result */}
+              <div className="g3">
+                <Field label="Rope Type">
+                  <select style={IS} value={rope.rope_type} onChange={e => ur("rope_type", e.target.value)}>
+                    <option>Wire Rope</option>
+                    <option>Fibre Core Wire Rope</option>
+                    <option>Steel Core Wire Rope</option>
+                    <option>Compacted Strand Wire Rope</option>
+                  </select>
+                </Field>
+                <Field label="Overall Rope Result">
+                  <ResultSelect value={rope.result} onChange={v => ur("result", v)}/>
+                </Field>
+                <Field label="Notes">
+                  <input style={IS} placeholder="Any additional notes" value={rope.notes} onChange={e => ur("notes", e.target.value)}/>
+                </Field>
+              </div>
+            </SectionCard>
+          </>
         )}
 
         {/* ── STEP 6: Pressure Vessels ── */}
@@ -1054,23 +1359,23 @@ export default function CraneInspectionPage() {
             <div style={{ display:"grid", gap:10 }}>
               {[
                 {
-                  label:"Crane", type:craneData?.crane_type||crane.crane_type,
+                  label:"Crane", type:crane.crane_type,
                   desc:`SN ${crane.serial_number}${crane.fleet_number?" · Fleet "+crane.fleet_number:""}${crane.registration_number?" · Reg "+crane.registration_number:""}`,
                   result:craneInsp.result, exp:"1 year",
                 },
                 {
                   label:"Boom", type:"Crane Boom",
-                  desc:`${boom.actual_boom_length||"?"}m${boom.extended_boom_length?" ext "+boom.extended_boom_length+"m":""}${boom.boom_angle?" · "+boom.boom_angle+"°":""}${boom.load_tested_at_radius?" · Test@"+boom.load_tested_at_radius+"m":""}${boom.test_load?" "+boom.test_load+"T":""}`,
+                  desc:`${boom.c2_boom_length||boom.actual_boom_length||"?"}m${boom.extended_boom_length?" ext "+boom.extended_boom_length+"m":""}${(boom.c2_angle||boom.boom_angle)?" · "+(boom.c2_angle||boom.boom_angle)+"°":""}${(boom.c2_radius||boom.load_tested_at_radius)?" · Test@"+(boom.c2_radius||boom.load_tested_at_radius)+"m":""}${(boom.c2_test||boom.test_load)?" "+(boom.c2_test||boom.test_load)+"T":""}`,
                   result:boom.boom_structure, exp:"1 year",
                 },
                 {
                   label:"Hook", type:"Crane Hook",
-                  desc:`SN ${hook.serial_number||"—"} SWL ${hook.swl||crane.swl}`,
+                  desc:`SN ${hook.serial_number||"—"} · SWL ${hook.swl||crane.swl}${hook.hook2_swl?" · Hook2 "+hook.hook2_swl:""}`,
                   result:hook.result, exp:"6 months",
                 },
                 {
                   label:"Rope", type:"Wire Rope",
-                  desc:`Ø${rope.diameter||"?"}mm ${rope.rope_type}`,
+                  desc:`Ø${rope.diameter||"?"}mm ${rope.rope_type}${rope.aux_diameter?" / Aux Ø"+rope.aux_diameter+"mm":""}`,
                   result:rope.result, exp:"6 months",
                 },
                 ...pvs.filter(p=>p.sn||p.description).map((p,i)=>({
