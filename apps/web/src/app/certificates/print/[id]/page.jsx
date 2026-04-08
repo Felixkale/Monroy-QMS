@@ -293,7 +293,7 @@ export default function CertificatePrintPage() {
                   period: new Date().toLocaleString("en-GB",{month:"long",year:"numeric"}),
                   certs:  String(certs.length),
                 });
-                window.location.href = `/certificates/cover-print?${params.toString()}`;
+                window.open(`/certificates/cover-print?${params.toString()}`, `_blank`);
               }}
               style={{ background:"linear-gradient(135deg,#a78bfa,#7c3aed)", color:"#fff", border:"none" }}
             >
