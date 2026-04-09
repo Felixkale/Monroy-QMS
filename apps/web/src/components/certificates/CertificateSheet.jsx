@@ -16,11 +16,20 @@ function resultStyle(r){
 }
 function detectFail(defects,...kws){if(!defects)return"PASS";const d=defects.toLowerCase();return kws.some(k=>d.includes(k.toLowerCase()))?"FAIL":"PASS";}
 
+/* ── Photo evidence normaliser ───────────────────────────── */
+// photo_evidence may be stored as a JSON string or already-parsed array
+function parsePhotoEvidence(raw){
+  if(!raw)return[];
+  if(Array.isArray(raw))return raw;
+  if(typeof raw==="string"){try{const p=JSON.parse(raw);return Array.isArray(p)?p:[];}catch(e){return[];}}
+  return[];
+}
+
 /* ── CSS ─────────────────────────────────────────────────── */
 const CSS=`
   .cs-wrap{background:rgba(10,18,32,0.92);border:1px solid rgba(148,163,184,0.12);border-radius:16px;padding:20px;display:flex;justify-content:center;flex-direction:column;align-items:center;gap:20px}
-  .cs-page{background:#fff;width:210mm;height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28);overflow:hidden}
-  .cs-page.pm{box-shadow:none;width:100%;height:297mm}
+  .cs-page{background:#fff;width:210mm;min-height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28);overflow:hidden}
+  .cs-page.pm{box-shadow:none;width:100%;min-height:297mm}
   .cs-hdr{background:#0b1d3a;position:relative;overflow:hidden;flex-shrink:0}
   .cs-geo{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
   .cs-hdr-inner{position:relative;z-index:2;display:flex;align-items:stretch;min-height:120px}
@@ -63,10 +72,16 @@ const CSS=`
   .cs-services p{font-size:7.5px;color:#fff;margin:0;line-height:1.5;text-align:center;font-weight:600;letter-spacing:0.02em}
   .cs-footer{background:#0b1d3a;border-top:2px solid #22d3ee;padding:5px 22px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
   .cs-footer span{font-size:8px;color:rgba(255,255,255,0.35);font-weight:600;letter-spacing:.05em}
+  /* photo evidence — generic cert */
+  .cs-evidence{padding:10px 12px;background:#f4f8ff;border-top:1px solid #dbeafe}
+  .cs-evidence-grid{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .cs-evidence-item{display:flex;flex-direction:column;gap:3px;max-width:120px}
+  .cs-evidence-img{width:120px;height:80px;object-fit:cover;border-radius:5px;border:1px solid #c3d4e8;display:block}
+  .cs-evidence-cap{font-size:7px;color:#4b5563;line-height:1.4;text-align:center;word-break:break-word}
   /* PRO FORMAT */
   .pro-wrap{background:rgba(10,18,32,0.92);border:1px solid rgba(148,163,184,0.12);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:20px;align-items:center}
-  .pro-page{background:#fff;width:210mm;height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28)}
-  .pro-page.pm{box-shadow:none;width:100%;height:297mm}
+  .pro-page{background:#fff;width:210mm;min-height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28)}
+  .pro-page.pm{box-shadow:none;width:100%;min-height:297mm}
   .pro-hdr{background:#0b1d3a;display:flex;align-items:center;min-height:88px}
   .pro-logo-box{background:#fff;width:120px;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:10px;clip-path:polygon(0 0,100% 0,82% 100%,0 100%)}
   .pro-logo-box img{width:95px;height:72px;object-fit:contain}
@@ -135,11 +150,22 @@ const CSS=`
   .pro-red-box{border:1px solid #fca5a5;border-radius:5px;padding:7px 11px;background:#fff5f5;margin-bottom:5px}
   .pro-red-lbl{font-size:7.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#b91c1c;margin-bottom:3px}
   .pro-red-val{font-size:9px;font-weight:700;color:#b91c1c;line-height:1.5}
+  /* comments/remarks box (non-defect) */
+  .pro-comments-box{border:1px solid #c3d4e8;border-radius:5px;padding:7px 11px;background:#f4f8ff;margin-bottom:5px}
+  .pro-comments-lbl{font-size:7.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#3b6ea5;margin-bottom:3px}
+  .pro-comments-val{font-size:9px;color:#334155;line-height:1.55}
   /* PV table */
   .pro-pv{width:100%;border-collapse:collapse;font-size:8.5px;border:1px solid #1e3a5f;margin-bottom:6px}
   .pro-pv th{background:#0b1d3a;color:#4fc3f7;padding:4px 8px;text-align:left;border:1px solid #1e3a5f;font-size:8px;font-weight:700}
   .pro-pv td{padding:4px 8px;border:1px solid #c3d4e8}
   .pro-pv td:first-child{font-weight:700;background:#eef4ff;color:#0b1d3a}
+  /* photo evidence — pro pages */
+  .pro-evidence{border:1px solid #1e3a5f;border-radius:5px;overflow:hidden;margin-bottom:5px}
+  .pro-evidence-hdr{background:#0b1d3a;color:#4fc3f7;font-size:7.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:4px 9px;border-bottom:1px solid #22d3ee}
+  .pro-evidence-grid{display:flex;gap:8px;flex-wrap:wrap;padding:9px 10px;background:#f4f8ff}
+  .pro-evidence-item{display:flex;flex-direction:column;gap:3px}
+  .pro-evidence-img{width:110px;height:76px;object-fit:cover;border-radius:4px;border:1px solid #c3d4e8;display:block}
+  .pro-evidence-cap{font-size:7px;color:#4b5563;line-height:1.4;text-align:center;max-width:110px;word-break:break-word}
   /* footer */
   .pro-svc{background:#c41e3a;padding:5px 14px;flex-shrink:0}
   .pro-svc p{font-size:7px;color:#fff;margin:0;line-height:1.5;text-align:center;font-weight:600;letter-spacing:.02em}
@@ -154,10 +180,28 @@ const CSS=`
   .pro-pb{break-after:page;page-break-after:always}
   @media print{
     .cs-wrap,.pro-wrap{background:none!important;padding:0!important;border:none!important}
-    .cs-page,.pro-page{box-shadow:none!important;width:100%!important;height:297mm!important}
+    .cs-page,.pro-page{box-shadow:none!important;width:100%!important;min-height:297mm!important}
     .pro-pb{break-after:page;page-break-after:always}
   }
 `;
+
+/* ── Shared photo evidence sub-component (pro pages) ─────── */
+function ProEvidence({photos}){
+  if(!photos||!photos.length)return null;
+  return(
+    <div className="pro-evidence">
+      <div className="pro-evidence-hdr">Photo Evidence ({photos.length})</div>
+      <div className="pro-evidence-grid">
+        {photos.map((p,i)=>(
+          <div className="pro-evidence-item" key={i}>
+            <img className="pro-evidence-img" src={p.dataURL} alt={p.caption||p.name||`Photo ${i+1}`} onError={e=>e.target.style.display="none"}/>
+            {p.caption&&<div className="pro-evidence-cap">{p.caption}</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /* ── Generic Field / Section ─────────────────────────────── */
 function Field({label,value,mono=false,large=false,full=false,red=false}){
@@ -292,8 +336,10 @@ function CraneLoadTestPage({c,pn,tone,pm,logo}){
   const machineHours=val(c.machine_hours||pn["Machine hours"]||pn["Machine Hours"]);
   const defects=val(c.defects_found);
   const recommendations=val(c.recommendations);
+  const comments=val(c.comments||c.remarks);
   const inspName=val(c.inspector_name)||"Moemedi Masupe";
   const inspId=val(c.inspector_id)||"700117910";
+  const photos=parsePhotoEvidence(c.photo_evidence);
 
   const C1={boom:pn["C1 boom"]||"",angle:pn["C1 angle"]||"",radius:pn["C1 radius"]||"",rated:pn["C1 rated"]||"",test:pn["C1 test"]||""};
   const C2={boom:pn["C2 boom"]||"",angle:pn["C2 angle"]||"",radius:pn["C2 radius"]||"",rated:pn["C2 rated"]||"",test:pn["C2 test"]||pn["Crane test load"]||""};
@@ -374,12 +420,13 @@ function CraneLoadTestPage({c,pn,tone,pm,logo}){
           <tr><td>SLI cut out system fitted and working — Boom down</td><td>{sliRes==="FAIL"?"Defective":"Yes"}</td></tr>
         </tbody></table>
 
-        {(defects||recommendations)&&(
-          <>
-            {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
-            {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
-          </>
-        )}
+        {/* ── Defects / Recommendations / Comments ── */}
+        {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
+        {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
+        {comments&&<div className="pro-comments-box"><div className="pro-comments-lbl">Comments / Remarks</div><div className="pro-comments-val">{comments}</div></div>}
+
+        {/* ── Photo Evidence ── */}
+        <ProEvidence photos={photos}/>
 
         <div style={{fontSize:8,color:"#4b5563",lineHeight:1.55,border:"1px solid #1e3a5f",borderRadius:5,padding:"6px 10px",background:"#f4f8ff",textAlign:"center",fontWeight:700,marginTop:2}}>
           THE SAFE LOAD INDICATOR HAS BEEN COMPARED TO THE CRANE'S LOAD CHART AND TESTED CORRECTLY TO ORIGINAL MANUFACTURERS SPECIFICATIONS.
@@ -405,8 +452,10 @@ function CraneChecklistPage({c,pn,pm,logo}){
   const swl=val(c.swl);
   const machineHours=val(c.machine_hours||pn["Machine hours"]||pn["Machine Hours"]);
   const defects=val(c.defects_found)||"";
+  const comments=val(c.comments||c.remarks);
   const inspName=val(c.inspector_name)||"Moemedi Masupe";
   const inspId=val(c.inspector_id)||"700117910";
+  const photos=parsePhotoEvidence(c.photo_evidence);
 
   const structural=pn["Structural"]||"PASS";
   const boom=pn["Boom"]||"PASS";
@@ -474,6 +523,10 @@ function CraneChecklistPage({c,pn,pm,logo}){
             <CI label="Boom Cylinder holding under load" result={boom}/><CI label="Counterweights" result="PASS"/>
           </div>
         </div>
+
+        {/* ── Comments / Photo Evidence (checklist page) ── */}
+        {comments&&<div className="pro-comments-box" style={{marginTop:5}}><div className="pro-comments-lbl">Comments / Remarks</div><div className="pro-comments-val">{comments}</div></div>}
+        <ProEvidence photos={photos}/>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
       <ProFooter/>
@@ -497,8 +550,10 @@ function HookRopePage({c,pn,tone,pm,logo,isRope}){
   const machineHours=val(c.machine_hours||pn["Machine hours"]);
   const defects=val(c.defects_found);
   const recommendations=val(c.recommendations);
+  const comments=val(c.comments||c.remarks);
   const inspName=val(c.inspector_name)||"Moemedi Masupe";
   const inspId=val(c.inspector_id)||"700117910";
+  const photos=parsePhotoEvidence(c.photo_evidence);
 
   const latch=pn["Latch"]||"PASS";
   const structural=pn["Structural"]||"PASS";
@@ -589,6 +644,8 @@ function HookRopePage({c,pn,tone,pm,logo,isRope}){
 
         {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
         {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
+        {comments&&<div className="pro-comments-box"><div className="pro-comments-lbl">Comments / Remarks</div><div className="pro-comments-val">{comments}</div></div>}
+        <ProEvidence photos={photos}/>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
       <ProFooter/>
@@ -618,9 +675,11 @@ function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
   const pvCap=pn[`PV${pvNum} capacity`]||val(c.capacity_volume);
   const defects=val(c.defects_found);
   const recommendations=val(c.recommendations);
+  const comments=val(c.comments||c.remarks);
   const inspName=val(c.inspector_name)||"Moemedi Masupe";
   const inspId=val(c.inspector_id)||"700117910";
   const pressureUnit=val(c.pressure_unit)||"bar";
+  const photos=parsePhotoEvidence(c.photo_evidence);
 
   return(
     <div className={`pro-page${pm?" pm":""}`}>
@@ -677,6 +736,8 @@ function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
 
         {defects&&<div className="pro-red-box" style={{marginTop:6}}><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
         {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
+        {comments&&<div className="pro-comments-box"><div className="pro-comments-lbl">Comments / Remarks</div><div className="pro-comments-val">{comments}</div></div>}
+        <ProEvidence photos={photos}/>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
       <ProFooter/>
@@ -699,6 +760,7 @@ function WireRopeSlingPage({c,pn,tone,pm,logo}){
   const swl=val(c.swl);
   const defects=val(c.defects_found);
   const recommendations=val(c.recommendations);
+  const comments=val(c.comments||c.remarks);
   const inspName=val(c.inspector_name)||"Moemedi Masupe";
   const inspId=val(c.inspector_id)||"700117910";
   const slingType=val(c.equipment_type)||"Wire Rope Sling";
@@ -711,6 +773,7 @@ function WireRopeSlingPage({c,pn,tone,pm,logo}){
   const brokenWires=pn["Broken wires"]||"none";
   const kinks=pn["Kinks"]||"none";
   const endFittings=pn["End fittings"]||"Good";
+  const photos=parsePhotoEvidence(c.photo_evidence);
 
   return(
     <div className={`pro-page${pm?" pm":""}`}>
@@ -761,6 +824,8 @@ function WireRopeSlingPage({c,pn,tone,pm,logo}){
 
         {defects&&<div className="pro-red-box" style={{marginTop:6}}><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
         {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
+        {comments&&<div className="pro-comments-box"><div className="pro-comments-lbl">Comments / Remarks</div><div className="pro-comments-val">{comments}</div></div>}
+        <ProEvidence photos={photos}/>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
       <ProFooter/>
@@ -785,8 +850,10 @@ function MachinePage({c,pn,tone,pm,logo}){
   const machineHours=val(c.machine_hours||pn["Machine hours"]);
   const defects=val(c.defects_found)||"";
   const recommendations=val(c.recommendations);
+  const comments=val(c.comments||c.remarks);
   const inspName=val(c.inspector_name)||"Moemedi Masupe";
   const inspId=val(c.inspector_id)||"700117910";
+  const photos=parsePhotoEvidence(c.photo_evidence);
 
   const isCherryPicker=/cherry.picker|boom.lift|aerial/i.test(equipType);
   const isTelehandler=/telehandler|tele.handler/i.test(equipType);
@@ -906,6 +973,8 @@ function MachinePage({c,pn,tone,pm,logo}){
 
         {defects&&<div className="pro-red-box" style={{marginTop:5}}><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
         {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
+        {comments&&<div className="pro-comments-box" style={{marginTop:5}}><div className="pro-comments-lbl">Comments / Remarks</div><div className="pro-comments-val">{comments}</div></div>}
+        <ProEvidence photos={photos}/>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
       <ProFooter/>
@@ -945,14 +1014,18 @@ function GenericCert({c,pm,logo}){
   const legalFmwk=val(c.legal_framework)||"Mines, Quarries, Works and Machinery Act Cap 44:02";
   const inspName=val(c.inspector_name||ex.inspector_name)||"Moemedi Masupe";
   const inspId=val(c.inspector_id||ex.inspector_id)||"700117910";
+  // ── defects: check both defects_found AND the comments field ──
   const defects=val(c.defects_found||ex.defects_found);
   const recommendations=val(c.recommendations||ex.recommendations);
+  // ── comments: raw_text_summary, comments, remarks all surfaced ──
+  const comments=val(c.comments||ex.comments||c.remarks||ex.remarks);
+  const rawTextSummary=val(c.raw_text_summary||ex.raw_text_summary);
   const rawNotes=val(c.notes||"")||"";
   const pressureUnit=val(c.pressure_unit||ex.pressure_unit)||"bar";
   const lanyardSN=val(c.lanyard_serial_no||ex.lanyard_serial_no);
-  const remarks=val(c.remarks||c.comments||ex.remarks||c.description||ex.comments);
   const _isBoom=/boom/i.test(_rawType);
   const _isCraneRope=_rawType==="wire rope";
+  const photos=parsePhotoEvidence(c.photo_evidence);
 
   const pn=parseNotes(rawNotes);
   const tone=resultStyle(pickResult(c));
@@ -1046,16 +1119,40 @@ function GenericCert({c,pm,logo}){
                 {pn["Notes"]         &&<Field label="Notes"                  value={pn["Notes"]} full/>}
               </Section>
             )}
+            {/* ── Defects & Recommendations ── */}
             {(defects||recommendations)&&(
               <Section title="Defects &amp; Recommendations">
                 {defects         &&<Field label="Defects Found"   value={defects}         full red/>}
                 {recommendations &&<Field label="Recommendations" value={recommendations} full red/>}
               </Section>
             )}
-            {remarks&&(
+            {/* ── Comments / Remarks / Raw AI summary ── */}
+            {(comments||rawTextSummary)&&(
               <div className="cs-sec">
-                <div className="cs-sec-ttl">Remarks / Comments</div>
-                <div className="cs-remarks">{remarks}</div>
+                <div className="cs-sec-ttl">Comments &amp; Remarks</div>
+                {comments&&<div className="cs-remarks">{comments}</div>}
+                {rawTextSummary&&!comments&&<div className="cs-remarks" style={{color:"#64748b",fontStyle:"italic"}}>{rawTextSummary}</div>}
+              </div>
+            )}
+            {/* ── Photo Evidence ── */}
+            {photos.length>0&&(
+              <div className="cs-sec">
+                <div className="cs-sec-ttl">Photo Evidence ({photos.length})</div>
+                <div className="cs-evidence">
+                  <div className="cs-evidence-grid">
+                    {photos.map((p,i)=>(
+                      <div className="cs-evidence-item" key={i}>
+                        <img
+                          className="cs-evidence-img"
+                          src={p.dataURL}
+                          alt={p.caption||p.name||`Photo ${i+1}`}
+                          onError={e=>e.target.style.display="none"}
+                        />
+                        {p.caption&&<div className="cs-evidence-cap">{p.caption}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
           </div>
