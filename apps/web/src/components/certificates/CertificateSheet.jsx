@@ -45,50 +45,50 @@ const CSS=`
   .cs-page.pm{box-shadow:none;width:100%}
   .cs-hdr{background:#0b1d3a;position:relative;overflow:hidden;flex-shrink:0}
   .cs-geo{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
-  .cs-hdr-inner{position:relative;z-index:2;display:flex;align-items:stretch;min-height:100px}
-  .cs-logo-box{background:#fff;width:120px;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:10px;position:relative}
-  .cs-logo-box::after{content:'';position:absolute;right:-20px;top:0;width:0;height:0;border-top:50px solid #fff;border-bottom:50px solid #fff;border-right:20px solid transparent}
-  .cs-logo-box img{width:90px;height:90px;object-fit:contain}
-  .cs-hdr-text{flex:1;padding:14px 14px 14px 36px;display:flex;flex-direction:column;justify-content:center}
-  .cs-brand{font-size:8px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#4fc3f7;margin-bottom:4px}
-  .cs-title{font-size:18px;font-weight:900;letter-spacing:-.02em;color:#fff;line-height:1.1;margin-bottom:4px}
-  .cs-sub{font-size:9px;color:rgba(255,255,255,0.50);font-weight:500}
-  .cs-hdr-right{padding:14px 18px;display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:8px;flex-shrink:0}
-  .cs-badge{font-size:10px;font-weight:900;padding:5px 13px;border-radius:99px;letter-spacing:.10em;text-transform:uppercase}
+  .cs-hdr-inner{position:relative;z-index:2;display:flex;align-items:stretch;min-height:90px}
+  .cs-logo-box{background:#fff;width:110px;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:8px;position:relative}
+  .cs-logo-box::after{content:'';position:absolute;right:-18px;top:0;width:0;height:0;border-top:45px solid #fff;border-bottom:45px solid #fff;border-right:18px solid transparent}
+  .cs-logo-box img{width:82px;height:82px;object-fit:contain}
+  .cs-hdr-text{flex:1;padding:12px 12px 12px 32px;display:flex;flex-direction:column;justify-content:center}
+  .cs-brand{font-size:7.5px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#4fc3f7;margin-bottom:3px}
+  .cs-title{font-size:17px;font-weight:900;letter-spacing:-.02em;color:#fff;line-height:1.1;margin-bottom:3px}
+  .cs-sub{font-size:8.5px;color:rgba(255,255,255,0.50);font-weight:500}
+  .cs-hdr-right{padding:12px 16px;display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:6px;flex-shrink:0}
+  .cs-badge{font-size:10px;font-weight:900;padding:4px 12px;border-radius:99px;letter-spacing:.10em;text-transform:uppercase}
   .cs-certno{font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:rgba(255,255,255,0.50)}
   .cs-accent{height:3px;background:linear-gradient(90deg,#22d3ee 0%,#3b82f6 55%,#a78bfa 100%);flex-shrink:0}
-  .cs-body{flex:1;padding:10px 18px 0;display:flex;flex-direction:column;gap:6px;overflow:hidden;min-height:0}
-  .cs-sec{border:1px solid #1e3a5f;border-radius:6px;overflow:hidden;flex-shrink:0}
-  .cs-sec-ttl{background:#0b1d3a;border-bottom:1px solid #22d3ee;padding:4px 10px;font-size:7.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4fc3f7;display:flex;align-items:center;gap:6px}
+  .cs-body{flex:1;padding:5px 16px 0;display:flex;flex-direction:column;gap:4px;overflow:hidden;min-height:0}
+  .cs-sec{border:1px solid #1e3a5f;border-radius:5px;overflow:hidden;flex-shrink:0}
+  .cs-sec-ttl{background:#0b1d3a;border-bottom:1px solid #22d3ee;padding:3px 10px;font-size:7.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4fc3f7;display:flex;align-items:center;gap:6px}
   .cs-sec-ttl::before{content:'';width:2px;height:8px;background:#22d3ee;border-radius:2px;flex-shrink:0}
   .cs-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
-  .cs-field{padding:5px 10px;border-right:1px solid #dbeafe;border-bottom:1px solid #dbeafe;background:#f4f8ff}
+  .cs-field{padding:3px 10px;border-right:1px solid #dbeafe;border-bottom:1px solid #dbeafe;background:#f4f8ff}
   .cs-field:nth-child(odd){background:#eef4ff}
   .cs-field:last-child{border-right:none}
-  .cs-fl{font-size:7px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#3b6ea5;margin-bottom:2px}
-  .cs-fv{font-size:10.5px;font-weight:600;color:#0b1d3a;line-height:1.3;word-break:break-word}
-  .cs-fv.mono{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#0e7490}
-  .cs-fv.large{font-size:12px;font-weight:900;color:#0b1d3a}
-  .cs-remarks{font-size:9.5px;color:#334155;line-height:1.55;padding:6px 10px;background:#f4f8ff}
-  .cs-sig-wrap{padding:0 18px 6px;flex-shrink:0}
-  .cs-sig-card{background:#fff;border:1px solid #1e3a5f;border-radius:7px;padding:10px 14px}
-  .cs-sig-card-title{font-size:7.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#3b6ea5;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .cs-fl{font-size:7px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#3b6ea5;margin-bottom:1px}
+  .cs-fv{font-size:10px;font-weight:600;color:#0b1d3a;line-height:1.25;word-break:break-word}
+  .cs-fv.mono{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#0e7490}
+  .cs-fv.large{font-size:11px;font-weight:900;color:#0b1d3a}
+  .cs-remarks{font-size:9px;color:#334155;line-height:1.4;padding:4px 10px;background:#f4f8ff}
+  .cs-sig-wrap{padding:0 16px 3px;flex-shrink:0}
+  .cs-sig-card{background:#fff;border:1px solid #1e3a5f;border-radius:6px;padding:6px 12px}
+  .cs-sig-card-title{font-size:7px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#3b6ea5;margin-bottom:6px;display:flex;align-items:center;gap:6px}
   .cs-sig-card-title::before{content:'';width:2px;height:8px;background:#22d3ee;border-radius:2px}
-  .cs-sig-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .cs-sig-label{font-size:7px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#3b6ea5;margin-bottom:4px}
-  .cs-sig-name{font-size:9px;color:#0b1d3a;font-weight:700;margin-top:4px}
-  .cs-sig-role{font-size:8px;color:#64748b;margin-top:1px}
-  .cs-sig-img-wrap{background:#fff;border:1px solid #1e3a5f;border-radius:4px;min-height:40px;display:flex;align-items:flex-end;padding:3px 6px;margin-bottom:3px}
-  .cs-legal{padding:6px 18px 6px;flex-shrink:0}
-  .cs-legal-box{border:1px solid #1e3a5f;border-radius:5px;padding:6px 10px;font-size:8px;color:#4b5563;line-height:1.5}
-  .cs-services{background:#c41e3a;padding:4px 18px;flex-shrink:0}
-  .cs-services p{font-size:7px;color:#fff;margin:0;line-height:1.45;text-align:center;font-weight:600;letter-spacing:0.02em}
-  .cs-footer{background:#0b1d3a;border-top:2px solid #22d3ee;padding:4px 18px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+  .cs-sig-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .cs-sig-label{font-size:7px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#3b6ea5;margin-bottom:3px}
+  .cs-sig-name{font-size:8.5px;color:#0b1d3a;font-weight:700;margin-top:3px}
+  .cs-sig-role{font-size:7.5px;color:#64748b;margin-top:1px}
+  .cs-sig-img-wrap{background:#fff;border:1px solid #1e3a5f;border-radius:4px;min-height:36px;display:flex;align-items:flex-end;padding:2px 6px;margin-bottom:2px}
+  .cs-legal{padding:3px 16px;flex-shrink:0}
+  .cs-legal-box{border:1px solid #1e3a5f;border-radius:5px;padding:5px 10px;font-size:7.5px;color:#4b5563;line-height:1.4}
+  .cs-services{background:#c41e3a;padding:3px 16px;flex-shrink:0}
+  .cs-services p{font-size:7px;color:#fff;margin:0;line-height:1.4;text-align:center;font-weight:600;letter-spacing:0.02em}
+  .cs-footer{background:#0b1d3a;border-top:2px solid #22d3ee;padding:3px 16px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
   .cs-footer span{font-size:7px;color:rgba(255,255,255,0.35);font-weight:600;letter-spacing:.05em}
-  .cs-evidence{padding:7px 10px;background:#f4f8ff;border-top:1px solid #dbeafe}
-  .cs-evidence-grid{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
-  .cs-evidence-item{display:flex;flex-direction:column;gap:2px;max-width:100px}
-  .cs-evidence-img{width:100px;height:66px;object-fit:cover;border-radius:4px;border:1px solid #c3d4e8;display:block}
+  .cs-evidence{padding:5px 10px;background:#f4f8ff;border-top:1px solid #dbeafe}
+  .cs-evidence-grid{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+  .cs-evidence-item{display:flex;flex-direction:column;gap:2px;max-width:90px}
+  .cs-evidence-img{width:90px;height:60px;object-fit:cover;border-radius:4px;border:1px solid #c3d4e8;display:block}
   .cs-evidence-cap{font-size:6.5px;color:#4b5563;line-height:1.4;text-align:center;word-break:break-word}
 
   /* ── PRO FORMAT (pro-*) ── */
@@ -213,15 +213,15 @@ const CSS=`
   .pro-evidence-img{width:96px;height:66px;object-fit:cover;border-radius:3px;border:1px solid #c3d4e8;display:block}
   .pro-evidence-cap{font-size:6.5px;color:#4b5563;line-height:1.4;text-align:center;max-width:96px;word-break:break-word}
 
-  .pro-sig{padding:7px 12px 6px;flex-shrink:0}
+  .pro-sig{padding:5px 12px 4px;flex-shrink:0}
   .pro-sigg{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .pro-sgl{font-size:7px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#3b6ea5;margin-bottom:2px}
   .pro-sgline{border-bottom:1px solid #1e3a5f;min-height:34px;display:flex;align-items:flex-end;padding-bottom:2px;margin-bottom:2px}
   .pro-sgname{font-size:8.5px;font-weight:700;color:#0b1d3a}
   .pro-sgrole{font-size:7.5px;color:#64748b}
 
-  .pro-svc{background:#c41e3a;padding:4px 12px;flex-shrink:0}
-  .pro-svc p{font-size:6.5px;color:#fff;margin:0;line-height:1.45;text-align:center;font-weight:600;letter-spacing:.02em}
+  .pro-svc{background:#c41e3a;padding:3px 12px;flex-shrink:0}
+  .pro-svc p{font-size:6.5px;color:#fff;margin:0;line-height:1.4;text-align:center;font-weight:600;letter-spacing:.02em}
   .pro-foot{background:#0b1d3a;border-top:2px solid #22d3ee;padding:3px 12px;display:flex;justify-content:space-between;flex-shrink:0}
   .pro-foot span{font-size:7px;color:rgba(255,255,255,0.35);font-weight:600}
 
@@ -1038,7 +1038,7 @@ function GenericCert({c,pm,logo}){
               <div className="cs-sec-ttl">Legal Compliance</div>
               <div className="cs-fields">
                 <div className="cs-field" style={{gridColumn:"1/-1",background:"#f4f8ff"}}>
-                  <div className="cs-fv" style={{fontSize:8,color:"#4b5563",lineHeight:1.5,fontWeight:400}}>
+                  <div className="cs-fv" style={{fontSize:8,color:"#4b5563",lineHeight:1.4,fontWeight:400}}>
                     This inspection has been performed by a <strong>competent person</strong> as defined under the <strong>{legalFmwk}</strong> of the Laws of Botswana.
                   </div>
                 </div>
@@ -1080,7 +1080,7 @@ function GenericCert({c,pm,logo}){
                 <div>
                   <div className="cs-sig-label">Inspector Signature</div>
                   <div className="cs-sig-img-wrap">
-                    <img src="/Signature" alt="sig" style={{maxHeight:36,maxWidth:100,objectFit:"contain"}} onError={e=>e.target.style.display="none"}/>
+                    <img src="/Signature" alt="sig" style={{maxHeight:32,maxWidth:96,objectFit:"contain"}} onError={e=>e.target.style.display="none"}/>
                   </div>
                   <div className="cs-sig-name">{inspName}</div>
                   <div className="cs-sig-role">Inspector ID: {inspId}</div>
@@ -1088,7 +1088,7 @@ function GenericCert({c,pm,logo}){
                 <div>
                   <div className="cs-sig-label">Client / Witness Signature</div>
                   <div className="cs-sig-img-wrap"/>
-                  <div className="cs-sig-name" style={{minHeight:14}}></div>
+                  <div className="cs-sig-name" style={{minHeight:12}}></div>
                   <div className="cs-sig-role">Client representative sign here</div>
                 </div>
               </div>
