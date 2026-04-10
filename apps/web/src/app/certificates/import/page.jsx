@@ -985,18 +985,62 @@ function ListMode() {
       const json=await res.json();
       if(!res.ok)throw new Error(json?.error||`Server error ${res.status}`);
 
-      let allItems=[];
-      for(const result of(json.results||[])){
-        if(!result.ok)continue;
-        let parsed=result.data;
-        if(typeof parsed==="string"){try{parsed=JSON.parse(parsed);}catch(e){}}
-        const arr=parsed?.items||[];
-        allItems=[...allItems,...arr];
+      // ── Robust list parser — handles all shapes the API route might return ──
+      let allItems = [];
+      let parseDebug = [];
+
+      function stripFences(str) {
+        return str
+          .replace(/^```(?:json)?\s*/im, "")
+          .replace(/\s*```\s*$/im, "")
+          .trim();
       }
 
-      if(!allItems.length){
-        setError("AI could not extract individual items. Make sure the photo is clear and well-lit, then try again.");
-        setProgress(100,"Extraction failed");
+      function extractItems(val) {
+        // Already a proper { items: [...] } object
+        if (val && typeof val === "object" && !Array.isArray(val) && Array.isArray(val.items)) {
+          return val.items;
+        }
+        // Already an array — treat as items directly
+        if (Array.isArray(val)) return val;
+        // String — strip fences, parse JSON, recurse once
+        if (typeof val === "string") {
+          try {
+            const obj = JSON.parse(stripFences(val));
+            return extractItems(obj);
+          } catch (e) {
+            // Last resort: try to find a JSON array inside the string
+            const m = val.match(/\[\s*\{[\s\S]*\}\s*\]/);
+            if (m) {
+              try { return JSON.parse(m[0]); } catch (_) {}
+            }
+          }
+        }
+        // Object without .items — check other common key names
+        if (val && typeof val === "object") {
+          for (const key of ["data", "list", "equipment", "records", "results"]) {
+            if (Array.isArray(val[key])) return val[key];
+          }
+        }
+        return [];
+      }
+
+      for (const result of (json.results || [])) {
+        if (!result.ok) { parseDebug.push(`result not ok: ${result.error}`); continue; }
+        const items = extractItems(result.data);
+        parseDebug.push(`extracted ${items.length} items from result (data type: ${typeof result.data})`);
+        allItems = [...allItems, ...items];
+      }
+
+      // Always log so you can see what happened in the browser console
+      console.log("[List Import] parse debug:", parseDebug, "| total items:", allItems.length, "| raw json:", json);
+
+      if (!allItems.length) {
+        const hint = parseDebug.length
+          ? `Debug: ${parseDebug.join("; ")}`
+          : "No results from API.";
+        setError(`AI could not extract individual items. ${hint} — Check the browser console for details.`);
+        setProgress(100, "Extraction failed");
         setExtracting(false);
         return;
       }
