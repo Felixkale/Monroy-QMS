@@ -557,7 +557,17 @@ function DocumentMode() {
       setProgress(42,"Sending to Gemini 2.5 Flash...");
       const res=await fetch("/api/ai/extract",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({files:payloads,systemPrompt:DOC_PROMPT})});
       setProgress(85,"Parsing results...");
-      const json=await res.json();
+      const rawText2 = await res.text();
+      if (rawText2.trimStart().startsWith("<")) {
+        throw new Error(
+          `API route returned HTML instead of JSON (HTTP ${res.status}). ` +
+          `Check that /src/app/api/ai/extract/route.js is deployed and GEMINI_API_KEY is set on Render.`
+        );
+      }
+      let json = null;
+      try { json = JSON.parse(rawText2); } catch(e) {
+        throw new Error(`API returned invalid response: ${rawText2.slice(0,150)}`);
+      }
       if(!res.ok)throw new Error(json?.error||`Server error ${res.status}`);
       if(!Array.isArray(json?.results))throw new Error("Unexpected response");
       const mapped=json.results.map(item=>{
@@ -982,8 +992,22 @@ function ListMode() {
       setProgress(50,"AI reading list — this may take a moment...");
       const res=await fetch("/api/ai/extract",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({files:payloads,systemPrompt:buildListPrompt(overrides.client_name,overrides.inspection_date,overrides.expiry_date),listMode:true})});
       setProgress(80,"Parsing items...");
-      const json=await res.json();
-      if(!res.ok)throw new Error(json?.error||`Server error ${res.status}`);
+
+      // Catch HTML error pages (404/500) before trying JSON.parse
+      // "Unexpected token '<'" means the route doesn't exist or crashed
+      const rawText = await res.text();
+      if (rawText.trimStart().startsWith("<")) {
+        throw new Error(
+          `API route returned HTML instead of JSON (HTTP ${res.status}). ` +
+          `Check that /src/app/api/ai/extract/route.js is deployed on Render ` +
+          `and your GEMINI_API_KEY env var is set.`
+        );
+      }
+      let json = null;
+      try { json = JSON.parse(rawText); } catch(e) {
+        throw new Error(`API returned invalid response: ${rawText.slice(0,150)}`);
+      }
+      if(!res.ok) throw new Error(json?.error || `Server error ${res.status}`);
 
       // ── Robust list parser — handles all shapes the API route might return ──
       let allItems = [];
