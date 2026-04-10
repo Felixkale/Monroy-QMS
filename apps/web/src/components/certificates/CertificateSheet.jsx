@@ -32,13 +32,13 @@ const CSS=`
   .cs-page{
     background:#fff;
     width:210mm;
-    height:297mm;          /* FIXED height — not min-height */
+    height:297mm;
     display:flex;
     flex-direction:column;
     font-family:'IBM Plex Sans',sans-serif;
     color:#0f1923;
     box-shadow:0 8px 40px rgba(0,0,0,0.28);
-    overflow:hidden;       /* clip anything that overflows */
+    overflow:hidden;
     page-break-after:always;
     break-after:page;
   }
@@ -57,7 +57,6 @@ const CSS=`
   .cs-badge{font-size:10px;font-weight:900;padding:5px 13px;border-radius:99px;letter-spacing:.10em;text-transform:uppercase}
   .cs-certno{font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:rgba(255,255,255,0.50)}
   .cs-accent{height:3px;background:linear-gradient(90deg,#22d3ee 0%,#3b82f6 55%,#a78bfa 100%);flex-shrink:0}
-  /* body is flex:1 and overflow:hidden — content must fit */
   .cs-body{flex:1;padding:10px 18px 0;display:flex;flex-direction:column;gap:6px;overflow:hidden;min-height:0}
   .cs-sec{border:1px solid #1e3a5f;border-radius:6px;overflow:hidden;flex-shrink:0}
   .cs-sec-ttl{background:#0b1d3a;border-bottom:1px solid #22d3ee;padding:4px 10px;font-size:7.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4fc3f7;display:flex;align-items:center;gap:6px}
@@ -71,7 +70,6 @@ const CSS=`
   .cs-fv.mono{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#0e7490}
   .cs-fv.large{font-size:12px;font-weight:900;color:#0b1d3a}
   .cs-remarks{font-size:9.5px;color:#334155;line-height:1.55;padding:6px 10px;background:#f4f8ff}
-  /* signature — compact */
   .cs-sig-wrap{padding:0 18px 6px;flex-shrink:0}
   .cs-sig-card{background:#fff;border:1px solid #1e3a5f;border-radius:7px;padding:10px 14px}
   .cs-sig-card-title{font-size:7.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#3b6ea5;margin-bottom:8px;display:flex;align-items:center;gap:6px}
@@ -87,7 +85,6 @@ const CSS=`
   .cs-services p{font-size:7px;color:#fff;margin:0;line-height:1.45;text-align:center;font-weight:600;letter-spacing:0.02em}
   .cs-footer{background:#0b1d3a;border-top:2px solid #22d3ee;padding:4px 18px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
   .cs-footer span{font-size:7px;color:rgba(255,255,255,0.35);font-weight:600;letter-spacing:.05em}
-  /* photo evidence */
   .cs-evidence{padding:7px 10px;background:#f4f8ff;border-top:1px solid #dbeafe}
   .cs-evidence-grid{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
   .cs-evidence-item{display:flex;flex-direction:column;gap:2px;max-width:100px}
@@ -99,19 +96,18 @@ const CSS=`
   .pro-page{
     background:#fff;
     width:210mm;
-    height:297mm;          /* FIXED — not min-height */
+    height:297mm;
     display:flex;
     flex-direction:column;
     font-family:'IBM Plex Sans',sans-serif;
     color:#0f1923;
     box-shadow:0 8px 40px rgba(0,0,0,0.28);
-    overflow:hidden;       /* clip overflow */
+    overflow:hidden;
     page-break-after:always;
     break-after:page;
   }
   .pro-page.pm{box-shadow:none;width:100%}
 
-  /* header — tighter */
   .pro-hdr{background:#0b1d3a;display:flex;align-items:center;min-height:76px;flex-shrink:0}
   .pro-logo-box{background:#fff;width:108px;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:8px;clip-path:polygon(0 0,100% 0,82% 100%,0 100%)}
   .pro-logo-box img{width:86px;height:64px;object-fit:contain}
@@ -122,7 +118,6 @@ const CSS=`
   .pro-hdr-contact{padding:8px 12px;display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0}
   .pro-cr{font-size:7.5px;color:rgba(255,255,255,0.65)}
 
-  /* body — this MUST be flex:1 overflow:hidden */
   .pro-body{
     flex:1;
     padding:8px 12px 0;
@@ -133,13 +128,11 @@ const CSS=`
     min-height:0;
   }
 
-  /* info table */
   .pro-ct{width:100%;border-collapse:collapse;font-size:8.5px;border:1px solid #1e3a5f;flex-shrink:0}
   .pro-ct td{padding:3px 6px;border:1px solid #c3d4e8}
   .pro-ct td:first-child,.pro-ct td:nth-child(3){font-weight:700;background:#0b1d3a;color:#4fc3f7;width:80px;white-space:nowrap}
   .pro-ct td:nth-child(2),.pro-ct td:nth-child(4){background:#f4f8ff;font-weight:600;color:#0b1d3a}
 
-  /* cert boxes */
   .pro-cb{display:flex;align-items:center;border:1px solid #1e3a5f;border-radius:4px;overflow:hidden;margin-bottom:2px}
   .pro-cb-lbl{background:#0b1d3a;color:#4fc3f7;font-size:9.5px;font-weight:800;padding:5px 10px;flex:1}
   .pro-cb-yes{background:#eef4ff;color:#0b1d3a;font-size:9.5px;font-weight:800;padding:5px 10px;width:42px;text-align:center}
@@ -149,7 +142,6 @@ const CSS=`
   .pro-fail{color:#9ca3af;font-size:10px;font-weight:700}
   .pro-fail-active{color:#b91c1c;font-size:10px;font-weight:900;background:#fee2e2;padding:3px 11px;border-radius:3px;border:1px solid #fca5a5}
 
-  /* data tables */
   .pro-lt{width:100%;border-collapse:collapse;font-size:7.5px;border:1px solid #1e3a5f;flex-shrink:0}
   .pro-lt th{background:#0b1d3a;color:#4fc3f7;padding:3px 4px;text-align:center;border:1px solid #1e3a5f;font-size:7px;font-weight:700}
   .pro-lt td{padding:2.5px 4px;border:1px solid #c3d4e8;text-align:center;font-weight:600;font-size:8px}
@@ -166,14 +158,12 @@ const CSS=`
 
   .pro-stl{font-size:7.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#0b1d3a;margin:4px 0 2px;padding-left:4px;border-left:3px solid #22d3ee;flex-shrink:0}
 
-  /* MCIR */
   .pro-mhdr{display:flex;align-items:flex-start;justify-content:space-between;border:1px solid #1e3a5f;border-radius:4px;padding:7px 10px;background:#f4f8ff;margin-bottom:4px;flex-shrink:0}
   .pro-mt{font-size:11px;font-weight:900;color:#0b1d3a}
   .pro-ms{font-size:7px;color:#64748b;margin-top:1px}
   .pro-mf{display:flex;flex-direction:column;gap:2px;font-size:8px;font-weight:700;color:#0b1d3a}
   .pro-mfr{display:flex;align-items:center;gap:5px}
 
-  /* checklist grid — the big one that causes overflow */
   .pro-cg{
     display:grid;
     grid-template-columns:1fr 1fr;
@@ -181,7 +171,7 @@ const CSS=`
     border:1px solid #1e3a5f;
     border-radius:4px;
     overflow:hidden;
-    flex:1;           /* take remaining space */
+    flex:1;
     min-height:0;
   }
   .pro-cc{border-right:1px solid #1e3a5f;overflow:hidden}
@@ -196,7 +186,6 @@ const CSS=`
   .pro-f{color:#b91c1c;font-weight:900;font-size:8.5px;width:14px;text-align:center}
   .pro-na{color:#9ca3af;font-size:7px;width:14px;text-align:center}
 
-  /* hook/rope */
   .pro-hrt{width:100%;border-collapse:collapse;font-size:8px;border:1px solid #1e3a5f;flex-shrink:0}
   .pro-hrt th{background:#0b1d3a;color:#4fc3f7;padding:3px 6px;text-align:center;border:1px solid #1e3a5f;font-weight:700;font-size:7px}
   .pro-hrt th:first-child{text-align:left}
@@ -205,7 +194,6 @@ const CSS=`
   .pro-hrt td:not(:first-child){background:#fff;text-align:center;font-weight:600}
   .pro-compbox{border:2px solid #1e3a5f;border-radius:6px;padding:7px 10px;display:flex;align-items:center;justify-content:space-between;background:#f4f8ff;flex-shrink:0}
 
-  /* alert boxes */
   .pro-red-box{border:1px solid #fca5a5;border-radius:4px;padding:5px 9px;background:#fff5f5;flex-shrink:0}
   .pro-red-lbl{font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#b91c1c;margin-bottom:2px}
   .pro-red-val{font-size:8.5px;font-weight:700;color:#b91c1c;line-height:1.45}
@@ -213,13 +201,11 @@ const CSS=`
   .pro-comments-lbl{font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#3b6ea5;margin-bottom:2px}
   .pro-comments-val{font-size:8.5px;color:#334155;line-height:1.5}
 
-  /* pressure vessel */
   .pro-pv{width:100%;border-collapse:collapse;font-size:8px;border:1px solid #1e3a5f;flex-shrink:0}
   .pro-pv th{background:#0b1d3a;color:#4fc3f7;padding:3px 7px;text-align:left;border:1px solid #1e3a5f;font-size:7.5px;font-weight:700}
   .pro-pv td{padding:3px 7px;border:1px solid #c3d4e8}
   .pro-pv td:first-child{font-weight:700;background:#eef4ff;color:#0b1d3a}
 
-  /* photo evidence */
   .pro-evidence{border:1px solid #1e3a5f;border-radius:4px;overflow:hidden;flex-shrink:0}
   .pro-evidence-hdr{background:#0b1d3a;color:#4fc3f7;font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-bottom:1px solid #22d3ee}
   .pro-evidence-grid{display:flex;gap:6px;flex-wrap:wrap;padding:7px 8px;background:#f4f8ff}
@@ -227,7 +213,6 @@ const CSS=`
   .pro-evidence-img{width:96px;height:66px;object-fit:cover;border-radius:3px;border:1px solid #c3d4e8;display:block}
   .pro-evidence-cap{font-size:6.5px;color:#4b5563;line-height:1.4;text-align:center;max-width:96px;word-break:break-word}
 
-  /* signature — compact fixed height */
   .pro-sig{padding:7px 12px 6px;flex-shrink:0}
   .pro-sigg{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .pro-sgl{font-size:7px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#3b6ea5;margin-bottom:2px}
@@ -235,13 +220,11 @@ const CSS=`
   .pro-sgname{font-size:8.5px;font-weight:700;color:#0b1d3a}
   .pro-sgrole{font-size:7.5px;color:#64748b}
 
-  /* footer bars — fixed, never shrink */
   .pro-svc{background:#c41e3a;padding:4px 12px;flex-shrink:0}
   .pro-svc p{font-size:6.5px;color:#fff;margin:0;line-height:1.45;text-align:center;font-weight:600;letter-spacing:.02em}
   .pro-foot{background:#0b1d3a;border-top:2px solid #22d3ee;padding:3px 12px;display:flex;justify-content:space-between;flex-shrink:0}
   .pro-foot span{font-size:7px;color:rgba(255,255,255,0.35);font-weight:600}
 
-  /* page break between crane pages */
   .pro-pb{
     page-break-after:always;
     break-after:page;
@@ -252,7 +235,14 @@ const CSS=`
   @media print{
     @page { size: A4; margin: 0; }
     html, body { margin: 0; padding: 0; }
-    .cs-wrap,.pro-wrap{background:none!important;padding:0!important;border:none!important}
+    .cs-wrap,.pro-wrap{
+      background:none!important;
+      padding:0!important;
+      border:none!important;
+      gap:0!important;
+      border-radius:0!important;
+      display:block!important;
+    }
     .cs-page,.pro-page{
       box-shadow:none!important;
       width:210mm!important;
@@ -260,6 +250,7 @@ const CSS=`
       overflow:hidden!important;
       page-break-after:always;
       break-after:page;
+      margin:0!important;
     }
     .pro-pb{page-break-after:always;break-after:page;height:0}
   }
@@ -542,7 +533,6 @@ function CraneChecklistPage({c,pn,pm,logo}){
             <div className="pro-mfr"><span>Quarterly:</span><span></span></div>
           </div>
         </div>
-        {/* checklist takes remaining vertical space via flex:1 on pro-cg */}
         <div className="pro-cg">
           <div className="pro-cc">
             <div className="pro-csec">Cab Condition</div>
@@ -986,7 +976,6 @@ function GenericCert({c,pm,logo}){
   const rawTextSummary=val(c.raw_text_summary||ex.raw_text_summary);
   const rawNotes=val(c.notes||"")||"";
   const pressureUnit=val(c.pressure_unit||ex.pressure_unit)||"bar";
-  const _isBoom=/boom/i.test(_rawType);
   const _isCraneRope=_rawType==="wire rope";
   const photos=parsePhotoEvidence(c.photo_evidence);
   const pn=parseNotes(rawNotes);
