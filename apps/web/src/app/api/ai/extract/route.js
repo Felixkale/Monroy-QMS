@@ -7,7 +7,7 @@ export const maxDuration = 300; // 5 min — needed for large batches
 
 const MODEL = "gemini-2.5-flash";
 const FILE_API_BASE = "https://generativelanguage.googleapis.com";
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 5;
 
 // ── Key pool — add up to 5 keys to multiply your rate limit ──────────────
 const KEY_POOL = [
@@ -221,11 +221,13 @@ async function callGemini(file, fileName, systemPrompt, apiKey, listMode = false
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
     );
 
-    if (res.status === 429) {
-      // FIX: was using undefined FREE_TIER_DELAY_MS — now correctly uses EFFECTIVE_DELAY_MS
-      const retryAfter = parseInt(res.headers.get("retry-after") || "60") * 1000;
-      const waitMs = Math.max(retryAfter, EFFECTIVE_DELAY_MS * (attempt + 1));
-      console.log(`Rate limited. Waiting ${waitMs}ms before retry ${attempt + 1}/${MAX_RETRIES}`);
+    // Retry on 429 (rate limit) AND 503/500 (overload/transient errors)
+    if (res.status === 429 || res.status === 503 || res.status === 500) {
+      const retryAfter = parseInt(res.headers.get("retry-after") || "0") * 1000;
+      // Exponential backoff: 15s, 30s, 60s — longer for overload than rate limit
+      const baseWait = res.status === 429 ? EFFECTIVE_DELAY_MS : 15000;
+      const waitMs = Math.max(retryAfter, baseWait * Math.pow(2, attempt));
+      console.log(`Gemini ${res.status} on attempt ${attempt + 1}/${MAX_RETRIES}. Waiting ${Math.round(waitMs/1000)}s...`);
       await sleep(waitMs);
       continue;
     }
@@ -239,9 +241,20 @@ async function callGemini(file, fileName, systemPrompt, apiKey, listMode = false
       throw new Error(`Gemini blocked response: ${finishReason}`);
     }
 
+    // Check for model overload message inside a 200 response (Gemini sometimes does this)
+    const textCheck = (json?.candidates?.[0]?.content?.parts || []).map(p => p?.text || "").join("");
+    if (textCheck.toLowerCase().includes("experiencing high demand") || textCheck.toLowerCase().includes("try again later")) {
+      if (attempt < MAX_RETRIES - 1) {
+        const waitMs = 20000 * (attempt + 1);
+        console.log(`Gemini overload message in 200 response. Waiting ${waitMs/1000}s before retry ${attempt + 1}...`);
+        await sleep(waitMs);
+        continue;
+      }
+    }
+
     return json;
   }
-  throw new Error("Rate limit exceeded after retries. Please try again in 1 minute.");
+  throw new Error("Gemini is overloaded. Waited and retried — please try again in a few minutes.");
 }
 
 async function processOneFile(fileData, systemPrompt, listMode = false) {
