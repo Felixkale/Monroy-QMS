@@ -307,17 +307,24 @@ export default function MachineInspectionPage() {
 
   function buildNotes() {
     if (!machineType) return "";
-    const parts = (machineType.fields||[]).filter(f=>f.type==="result"&&insp[f.key]).map(f=>`${f.label.split("/")[0].trim()}: ${insp[f.key]}`);
-    if (insp.test_load) parts.push(`Test: ${insp.test_load}`);
-    if (machineType.baseSteps.includes(3)) {
-      if (boom.actual_boom_length) parts.push(`Boom: ${boom.actual_boom_length}m`);
-      if (boom.boom_angle) parts.push(`Angle: ${boom.boom_angle}°`);
-      if (boom.test_load) parts.push(`Boom test: ${boom.test_load}T`);
-      if (boom.swl_at_actual_config) parts.push(`SWL@config: ${boom.swl_at_actual_config}`);
+    // Store rich structured JSON so CertificateSheet can render full detail tables
+    const data = {};
+    // Checklist results
+    if ((machineType.fields||[]).length) {
+      data.checklist = {};
+      (machineType.fields||[]).forEach(f => { data.checklist[f.key] = insp[f.key]||""; });
+      data.overall_result    = insp.overall_result||"PASS";
+      data.defects           = insp.defects||"";
+      data.recommendations   = insp.recommendations||"";
     }
-    if (machineType.baseSteps.includes(4)) forks.forEach((f,i)=>{ if(f.swl||f.length) parts.push(`Fork${i+1} SWL:${f.swl||"—"} L:${f.length||"—"}mm`); });
-    if (machineType.baseSteps.includes(5)&&bucket.platform_swl) parts.push(`Platform SWL: ${bucket.platform_swl}`);
-    return parts.join(" | ");
+    // Boom data
+    if (machineType.baseSteps.includes(3)) data.boom = { ...boom };
+    // Fork data
+    if (machineType.baseSteps.includes(4)) data.forks = forks;
+    // Bucket/platform data
+    if (machineType.baseSteps.includes(5)) data.bucket = { ...bucket };
+    // Horse & trailer data stored in the horse/trailer cert notes separately
+    return JSON.stringify(data);
   }
 
   async function ensureClient(name, city) {
@@ -350,8 +357,9 @@ export default function MachineInspectionPage() {
     }
 
     if (machineType.id === "horse_trailer") {
-      certs.push({ certificate_number:nextNo(), equipment_type:"Horse / Prime Mover", equipment_description:`Horse ${ht.horse_make} ${ht.horse_model} Reg ${ht.horse_reg}`.trim(), serial_number:ht.horse_vin, fleet_number:ht.horse_fleet, registration_number:ht.horse_reg, model:ht.horse_model, manufacturer:ht.horse_make, swl:ht.horse_gvm?`GVM ${ht.horse_gvm}`:"", client_name:equip.client_name, client_id:equip.client_id, location:equip.client_location, issue_date:iDate, inspection_date:iDate, expiry_date:expiryDate, next_inspection_due:expiryDate, result:ht.horse_result, defects_found:ht.horse_notes, inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID, certificate_type:"Vehicle Registration Certificate", folder_id:folderId, folder_name:folderName, folder_position:1, notes:`Horse Reg: ${ht.horse_reg} VIN: ${ht.horse_vin}` });
-      if (ht.has_trailer) certs.push({ certificate_number:nextNo(), equipment_type:"Trailer", equipment_description:`Trailer ${ht.trailer_make} ${ht.trailer_model} Reg ${ht.trailer_reg}`.trim(), serial_number:ht.trailer_vin, fleet_number:ht.trailer_fleet, registration_number:ht.trailer_reg, model:ht.trailer_model, manufacturer:ht.trailer_make, swl:ht.trailer_gvm?`GVM ${ht.trailer_gvm}`:"", client_name:equip.client_name, client_id:equip.client_id, location:equip.client_location, issue_date:iDate, inspection_date:iDate, expiry_date:expiryDate, next_inspection_due:expiryDate, result:ht.trailer_result, defects_found:ht.trailer_notes, inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID, certificate_type:"Trailer Registration Certificate", folder_id:folderId, folder_name:folderName, folder_position:2, notes:`Trailer Reg: ${ht.trailer_reg} VIN: ${ht.trailer_vin}` });
+      const htNotes = JSON.stringify({ horse: { reg:ht.horse_reg, make:ht.horse_make, model:ht.horse_model, vin:ht.horse_vin, year:ht.horse_year, fleet:ht.horse_fleet, gvm:ht.horse_gvm, result:ht.horse_result, notes:ht.horse_notes }, trailer: ht.has_trailer ? { reg:ht.trailer_reg, make:ht.trailer_make, model:ht.trailer_model, vin:ht.trailer_vin, year:ht.trailer_year, fleet:ht.trailer_fleet, gvm:ht.trailer_gvm, result:ht.trailer_result, notes:ht.trailer_notes } : null });
+      certs.push({ certificate_number:nextNo(), equipment_type:"Horse / Prime Mover", equipment_description:`Horse ${ht.horse_make} ${ht.horse_model} Reg ${ht.horse_reg}`.trim(), serial_number:ht.horse_vin, fleet_number:ht.horse_fleet, registration_number:ht.horse_reg, model:ht.horse_model, manufacturer:ht.horse_make, swl:ht.horse_gvm?`GVM ${ht.horse_gvm}`:"", client_name:equip.client_name, client_id:equip.client_id, location:equip.client_location, issue_date:iDate, inspection_date:iDate, expiry_date:expiryDate, next_inspection_due:expiryDate, result:ht.horse_result, defects_found:ht.horse_notes, inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID, certificate_type:"Vehicle Registration Certificate", folder_id:folderId, folder_name:folderName, folder_position:1, notes:htNotes });
+      if (ht.has_trailer) certs.push({ certificate_number:nextNo(), equipment_type:"Trailer", equipment_description:`Trailer ${ht.trailer_make} ${ht.trailer_model} Reg ${ht.trailer_reg}`.trim(), serial_number:ht.trailer_vin, fleet_number:ht.trailer_fleet, registration_number:ht.trailer_reg, model:ht.trailer_model, manufacturer:ht.trailer_make, swl:ht.trailer_gvm?`GVM ${ht.trailer_gvm}`:"", client_name:equip.client_name, client_id:equip.client_id, location:equip.client_location, issue_date:iDate, inspection_date:iDate, expiry_date:expiryDate, next_inspection_due:expiryDate, result:ht.trailer_result, defects_found:ht.trailer_notes, inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID, certificate_type:"Trailer Registration Certificate", folder_id:folderId, folder_name:folderName, folder_position:2, notes:htNotes });
     }
 
     if (machineType.baseSteps.includes(4)) {
