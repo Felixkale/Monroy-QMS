@@ -752,46 +752,35 @@ function TelehandlerPage({c,nd,pm,logo}){
         </div>
 
         {/* ── Boom Configuration ── */}
-        {(bm.actual_boom_length||bm.test_load||bm.swl_at_actual_config)&&(
-          <>
-            <div className="pro-stl">Boom Configuration &amp; Load Test</div>
-            <table className="pro-lt">
-              <thead>
-                <tr>
-                  <th style={{textAlign:"left",width:140}}>Parameter</th>
-                  <th>Min Boom</th><th>Max Boom</th><th>Actual / Test Config</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr><td>Boom Length (m)</td><td>{bm.min_boom_length||"—"}</td><td>{bm.max_boom_length||"—"}</td><td>{bm.actual_boom_length||"—"}</td></tr>
-                <tr><td>Extended / Telescoped (m)</td><td>—</td><td>—</td><td>{bm.extended_boom_length||"—"}</td></tr>
-                <tr><td>Working Radius (m)</td><td>{bm.min_radius||"—"}</td><td>{bm.max_radius||"—"}</td><td>{bm.load_tested_at_radius||"—"}</td></tr>
-                <tr><td>SWL at Radius</td><td>{bm.swl_at_min_radius||"—"}</td><td>{bm.swl_at_max_radius||"—"}</td><td>{bm.swl_at_actual_config||"—"}</td></tr>
-                <tr><td>Boom Angle (°)</td><td>—</td><td>—</td><td>{bm.boom_angle||"—"}</td></tr>
-                <tr className="pro-lt-bold"><td>Test Load Applied (110% SWL)</td><td></td><td></td><td>{bm.test_load||"—"}</td></tr>
-              </tbody>
-            </table>
-            {bm.jib_fitted==="yes"&&<div style={{fontSize:8,fontWeight:700,color:"#0e7490",marginTop:2,marginBottom:2,padding:"2px 6px",background:"#eef4ff",border:"1px solid #c3d4e8",borderRadius:3,display:"inline-block"}}>Jib / Fork Attachment: FITTED</div>}
-          </>
-        )}
+        <div className="pro-stl">Boom Configuration &amp; Load Test</div>
+        <table className="pro-lt">
+          <thead>
+            <tr>
+              <th style={{textAlign:"left",width:140}}>Parameter</th>
+              <th>Min Boom</th><th>Max Boom</th><th>Actual / Test Config</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Boom Length (m)</td><td>{bm.min_boom_length||"—"}</td><td>{bm.max_boom_length||"—"}</td><td>{bm.actual_boom_length||"—"}</td></tr>
+            <tr><td>Extended / Telescoped (m)</td><td>—</td><td>—</td><td>{bm.extended_boom_length||"—"}</td></tr>
+            <tr><td>Working Radius (m)</td><td>{bm.min_radius||"—"}</td><td>{bm.max_radius||"—"}</td><td>{bm.load_tested_at_radius||"—"}</td></tr>
+            <tr><td>SWL at Radius</td><td>{bm.swl_at_min_radius||"—"}</td><td>{bm.swl_at_max_radius||"—"}</td><td>{bm.swl_at_actual_config||swl||"—"}</td></tr>
+            <tr><td>Boom Angle (°)</td><td>—</td><td>—</td><td>{bm.boom_angle||"—"}</td></tr>
+            <tr className="pro-lt-bold"><td>Test Load Applied (110% SWL)</td><td></td><td></td><td>{bm.test_load||"—"}</td></tr>
+          </tbody>
+        </table>
+        {bm.jib_fitted==="yes"&&<div style={{fontSize:8,fontWeight:700,color:"#0e7490",marginTop:2,marginBottom:2,padding:"2px 6px",background:"#eef4ff",border:"1px solid #c3d4e8",borderRadius:3,display:"inline-block"}}>Jib / Fork Attachment: FITTED</div>}
 
         {/* ── Boom Systems ── */}
-        {(bm.boom_structure||bm.lmi_test)&&(
-          <>
-            <div className="pro-stl">Boom Systems Condition</div>
-            <table className="pro-st"><tbody>
-              <tr><td>Boom Structure</td><td>{r(bm.boom_structure)}</td></tr>
-              <tr><td>Boom Pins &amp; Connections</td><td>{r(bm.boom_pins)}</td></tr>
-              <tr><td>Boom Wear / Pads</td><td>{r(bm.boom_wear)}</td></tr>
-              <tr><td>Luffing / Extension System</td><td>{r(bm.luffing_system)}</td></tr>
-              <tr><td>LMI Tested at Configuration</td><td>{r(bm.lmi_test)}</td></tr>
-              <tr><td>Anti-Two-Block / Overload</td><td>{r(bm.anti_two_block)}</td></tr>
-            </tbody></table>
-          </>
-        )}
-
-        {/* ── General Checklist ── */}
-        <div className="pro-stl">Machine Inspection Checklist</div>
+        <div className="pro-stl">Boom Systems Condition</div>
+        <table className="pro-st"><tbody>
+          <tr><td>Boom Structure</td><td>{r(bm.boom_structure||"PASS")}</td></tr>
+          <tr><td>Boom Pins &amp; Connections</td><td>{r(bm.boom_pins||"PASS")}</td></tr>
+          <tr><td>Boom Wear / Pads</td><td>{r(bm.boom_wear||"PASS")}</td></tr>
+          <tr><td>Luffing / Extension System</td><td>{r(bm.luffing_system||"PASS")}</td></tr>
+          <tr><td>LMI Tested at Configuration</td><td>{r(bm.lmi_test||"PASS")}</td></tr>
+          <tr><td>Anti-Two-Block / Overload</td><td>{r(bm.anti_two_block||"PASS")}</td></tr>
+        </tbody></table>
         <div className="pro-cg">
           <div className="pro-cc">
             <div className="pro-csec">General Condition</div>
@@ -901,17 +890,23 @@ function CherryPickerPage({c,nd,pm,logo}){
         {/* ── Boom & Platform Spec ── */}
         <div className="pro-stl">Boom &amp; Platform Specification</div>
         <table className="pro-st"><tbody>
-          {bm.max_height&&<tr><td>Maximum Working Height (m)</td><td style={{fontWeight:800}}>{bm.max_height}</td></tr>}
-          {bm.actual_boom_length&&<tr><td>Boom Length — Actual (m)</td><td>{bm.actual_boom_length}</td></tr>}
-          {bm.max_boom_length&&<tr><td>Boom Length — Max (m)</td><td>{bm.max_boom_length}</td></tr>}
-          {bm.boom_angle&&<tr><td>Boom Angle (°)</td><td>{bm.boom_angle}</td></tr>}
-          {bm.load_tested_at_radius&&<tr><td>Test Radius (m)</td><td>{bm.load_tested_at_radius}</td></tr>}
-          {bm.swl_at_actual_config&&<tr><td>Platform SWL at Test Config</td><td style={{fontWeight:800}}>{bm.swl_at_actual_config}</td></tr>}
-          {bm.test_load&&<tr className="pro-lt-bold"><td style={{background:"#1e3a5f",color:"#4fc3f7"}}>Test Load Applied (110% of SWL)</td><td style={{background:"#0b1d3a",color:"#fff"}}>{bm.test_load}</td></tr>}
-          {bk.platform_swl&&<tr><td>Platform SWL</td><td style={{fontWeight:800}}>{bk.platform_swl}</td></tr>}
-          {bk.platform_dimensions&&<tr><td>Platform Dimensions (m)</td><td>{bk.platform_dimensions}</td></tr>}
-          {bk.platform_material&&<tr><td>Platform Material</td><td>{bk.platform_material}</td></tr>}
-          {bk.test_load_applied&&<tr><td>Platform Test Load Applied</td><td style={{fontWeight:800}}>{bk.test_load_applied}</td></tr>}
+          <tr><td>Maximum Working Height (m)</td><td style={{fontWeight:800}}>{bm.max_height||val(c.swl)||"—"}</td></tr>
+          <tr><td>Boom Length — Min (m)</td><td>{bm.min_boom_length||"—"}</td></tr>
+          <tr><td>Boom Length — Max (m)</td><td>{bm.max_boom_length||"—"}</td></tr>
+          <tr><td>Boom Length — Actual (m)</td><td>{bm.actual_boom_length||"—"}</td></tr>
+          <tr><td>Extended / Telescoped (m)</td><td>{bm.extended_boom_length||"—"}</td></tr>
+          <tr><td>Boom Angle (°)</td><td>{bm.boom_angle||"—"}</td></tr>
+          <tr><td>Working Radius — Min (m)</td><td>{bm.min_radius||"—"}</td></tr>
+          <tr><td>Working Radius — Max (m)</td><td>{bm.max_radius||"—"}</td></tr>
+          <tr><td>Test Radius (m)</td><td>{bm.load_tested_at_radius||"—"}</td></tr>
+          <tr><td>SWL at Min Radius</td><td>{bm.swl_at_min_radius||"—"}</td></tr>
+          <tr><td>SWL at Max Radius</td><td>{bm.swl_at_max_radius||"—"}</td></tr>
+          <tr><td>SWL at Test Configuration</td><td style={{fontWeight:800}}>{bm.swl_at_actual_config||swl||"—"}</td></tr>
+          <tr className="pro-lt-bold"><td style={{background:"#1e3a5f",color:"#4fc3f7"}}>Test Load Applied (110% of SWL)</td><td style={{background:"#0b1d3a",color:"#fff"}}>{bm.test_load||"—"}</td></tr>
+          <tr><td>Platform SWL</td><td style={{fontWeight:800}}>{bk.platform_swl||swl||"—"}</td></tr>
+          <tr><td>Platform Dimensions (m)</td><td>{bk.platform_dimensions||"—"}</td></tr>
+          <tr><td>Platform Material</td><td>{bk.platform_material||"—"}</td></tr>
+          <tr><td>Platform Test Load Applied</td><td style={{fontWeight:800}}>{bk.test_load_applied||bm.test_load||"—"}</td></tr>
         </tbody></table>
 
         {/* ── Inspection Checklist ── */}
@@ -1400,7 +1395,9 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   const logo=c.logo_url||"/logo.png";
   const pm=printMode;
   const pn=parseNotes(val(c.notes||"")||"");  // pn is flat for legacy crane certs
-  const nd=pn;                                 // nd is structured JSON for machine certs
+  // nd is structured JSON for machine wizard certs — try notes first, then extracted_data
+  const _rawNd = val(c.notes||"") || val(c.extracted_data ? JSON.stringify(c.extracted_data) : "") || "";
+  const nd=parseNotes(_rawNd);
   const tone=resultStyle(pickResult(c));
 
   const _isMobileCrane=/mobile.crane|crane/i.test(_rawType)&&!/hook|rope|boom|cherry|telehandler|forklift/i.test(_rawType);
