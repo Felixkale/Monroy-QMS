@@ -125,46 +125,45 @@ function StepBar({ current }) {
 
 const emptyPV = () => ({ sn:"", description:"", capacity:"", working_pressure:"", test_pressure:"", pressure_unit:"bar", result:"PASS", notes:"" });
 
-// ── ATOMIC SEQUENCE VIA POSTGRES FUNCTION ────────────────────────────────────
-// Calls next_cert_seq() which wraps nextval('certificate_number_seq').
-// This is atomic at the DB level — zero race conditions, zero collisions.
-// Each call returns a unique integer regardless of concurrent inserts.
+// ── ATOMIC SEQUENCE VIA POSTGRES BATCH FUNCTION ──────────────────────────────
+// One RPC call returns N guaranteed-unique sequential integers.
+// Zero race conditions — nextval() inside a loop is atomic per call.
 //
 // SETUP (run once in Supabase SQL Editor):
 //
 //   CREATE SEQUENCE IF NOT EXISTS certificate_number_seq START 1;
 //
-//   CREATE OR REPLACE FUNCTION next_cert_seq()
-//   RETURNS integer LANGUAGE sql AS $$
-//     SELECT nextval('certificate_number_seq')::integer;
+//   CREATE OR REPLACE FUNCTION next_cert_seq_batch(batch_size integer)
+//   RETURNS integer[]
+//   LANGUAGE plpgsql AS $$
+//   DECLARE
+//     result integer[];
+//     i integer;
+//   BEGIN
+//     result := ARRAY[]::integer[];
+//     FOR i IN 1..batch_size LOOP
+//       result := array_append(result, nextval('certificate_number_seq')::integer);
+//     END LOOP;
+//     RETURN result;
+//   END;
 //   $$;
 //
-//   -- Sync to your current highest cert number (prevents restarts from 1):
+//   -- Sync sequence to current highest cert number (run once):
 //   SELECT setval(
 //     'certificate_number_seq',
-//     COALESCE(
+//     GREATEST(1, COALESCE(
 //       (SELECT MAX((regexp_match(certificate_number, '(\d+)$'))[1]::integer)
-//        FROM certificates WHERE certificate_number ~ '\d+$'),
-//       0
-//     )
+//        FROM certificates WHERE certificate_number ~ '\d+$'), 1))
 //   );
 //
 async function fetchNextSeqBatch(count) {
-  // Call the Postgres function `count` times in parallel.
-  // nextval() is transactionally safe — each call is atomic.
-  const calls = Array.from({ length: count }, () =>
-    supabase.rpc("next_cert_seq")
-  );
-  const results = await Promise.all(calls);
-
-  const nums = results.map(({ data, error }) => {
-    if (error) throw new Error("Sequence RPC error: " + error.message);
-    return data; // integer
-  });
-
-  // Sort ascending so the lowest number goes to the first cert type
-  nums.sort((a, b) => a - b);
-  return nums;
+  const { data, error } = await supabase.rpc("next_cert_seq_batch", { batch_size: count });
+  if (error) throw new Error("Sequence RPC error: " + error.message);
+  // data is an integer[] from Postgres — already in ascending order
+  if (!Array.isArray(data) || data.length !== count) {
+    throw new Error(`Sequence returned ${data?.length ?? 0} numbers, expected ${count}`);
+  }
+  return data;
 }
 
 function pad5(n) {
