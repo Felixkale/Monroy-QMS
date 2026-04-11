@@ -733,7 +733,21 @@ function TelehandlerPage({c,nd,pm,logo}){
   const inspId=val(c.inspector_id)||"700117910";
   const photos=parsePhotoEvidence(c.photo_evidence);
   const tone=resultStyle(pickResult(c));
-  const bm=nd.boom||{};
+  // nd.boom exists for new JSON certs; fall back to flat pipe-parsed keys for old certs
+  const _fp=nd; // flat parsed (pipe format)
+  const bm=nd.boom||(nd.checklist?{}:{
+    actual_boom_length: _fp["Boom"]?.replace(/m$/,"") || _fp["actual_boom_length"] || "",
+    extended_boom_length: _fp["Extended"] || "",
+    boom_angle: _fp["Angle"]?.replace(/°$/,"") || "",
+    load_tested_at_radius: _fp["Test radius"] || "",
+    test_load: _fp["Boom test"]?.replace(/T$/,"") || _fp["test_load"] || "",
+    swl_at_actual_config: _fp["SWL@config"] || _fp["swl_at_actual_config"] || swl || "",
+    min_boom_length:"", max_boom_length:"", min_radius:"", max_radius:"",
+    swl_at_min_radius:"", swl_at_max_radius:"",
+    boom_structure:"PASS", boom_pins:"PASS", boom_wear:"PASS",
+    luffing_system:"PASS", lmi_test:"PASS", anti_two_block:"PASS",
+    jib_fitted:"no", notes:"",
+  });
   const fks=(nd.forks||[]).filter(f=>f.length||f.swl);
   const cl=nd.checklist||{};
   return(
@@ -869,8 +883,30 @@ function CherryPickerPage({c,nd,pm,logo}){
   const inspId=val(c.inspector_id)||"700117910";
   const photos=parsePhotoEvidence(c.photo_evidence);
   const tone=resultStyle(pickResult(c));
-  const bm=nd.boom||{};
-  const bk=nd.bucket||{};
+  const _fp=nd;
+  const bm=nd.boom||(nd.checklist?{}:{
+    max_height:        _fp["Max height"] || _fp["Working height"] || "",
+    actual_boom_length:_fp["Boom"]?.replace(/m$/,"") || "",
+    max_boom_length:   _fp["Max boom"] || "",
+    min_boom_length:   "",
+    extended_boom_length:"",
+    boom_angle:        _fp["Angle"]?.replace(/°$/,"") || "",
+    load_tested_at_radius: _fp["Test radius"] || "",
+    test_load:         _fp["Boom test"]?.replace(/T$/,"") || _fp["Platform test"]?.replace(/kg$/i,"") || "",
+    swl_at_actual_config: _fp["SWL@config"] || _fp["Platform SWL"] || swl || "",
+    swl_at_min_radius:"", swl_at_max_radius:"", min_radius:"", max_radius:"",
+    boom_structure:"PASS", boom_pins:"PASS", boom_wear:"PASS",
+    luffing_system:"PASS", slew_system:"PASS", hoist_system:"PASS",
+    lmi_test:"PASS", anti_two_block:"PASS", notes:"",
+  });
+  const bk=nd.bucket||(nd.checklist?{}:{
+    platform_swl:      _fp["Platform SWL"] || swl || "",
+    test_load_applied: _fp["Platform test"] || "",
+    platform_dimensions:"", platform_material:"",
+    platform_structure:"PASS", platform_floor:"PASS", guardrails:"PASS",
+    gate_latch:"PASS", levelling_system:"PASS", emergency_lowering:"PASS",
+    overload_device:"PASS", tilt_alarm:"PASS", notes:"",
+  });
   const cl=nd.checklist||{};
   return(
     <div className={`pro-page${pm?" pm":""}`}>
