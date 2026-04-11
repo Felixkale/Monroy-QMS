@@ -125,6 +125,52 @@ function StepBar({ current }) {
 
 const emptyPV = () => ({ sn:"", description:"", capacity:"", working_pressure:"", test_pressure:"", pressure_unit:"bar", result:"PASS", notes:"" });
 
+// ── ATOMIC SEQUENCE VIA POSTGRES FUNCTION ────────────────────────────────────
+// Calls next_cert_seq() which wraps nextval('certificate_number_seq').
+// This is atomic at the DB level — zero race conditions, zero collisions.
+// Each call returns a unique integer regardless of concurrent inserts.
+//
+// SETUP (run once in Supabase SQL Editor):
+//
+//   CREATE SEQUENCE IF NOT EXISTS certificate_number_seq START 1;
+//
+//   CREATE OR REPLACE FUNCTION next_cert_seq()
+//   RETURNS integer LANGUAGE sql AS $$
+//     SELECT nextval('certificate_number_seq')::integer;
+//   $$;
+//
+//   -- Sync to your current highest cert number (prevents restarts from 1):
+//   SELECT setval(
+//     'certificate_number_seq',
+//     COALESCE(
+//       (SELECT MAX((regexp_match(certificate_number, '(\d+)$'))[1]::integer)
+//        FROM certificates WHERE certificate_number ~ '\d+$'),
+//       0
+//     )
+//   );
+//
+async function fetchNextSeqBatch(count) {
+  // Call the Postgres function `count` times in parallel.
+  // nextval() is transactionally safe — each call is atomic.
+  const calls = Array.from({ length: count }, () =>
+    supabase.rpc("next_cert_seq")
+  );
+  const results = await Promise.all(calls);
+
+  const nums = results.map(({ data, error }) => {
+    if (error) throw new Error("Sequence RPC error: " + error.message);
+    return data; // integer
+  });
+
+  // Sort ascending so the lowest number goes to the first cert type
+  nums.sort((a, b) => a - b);
+  return nums;
+}
+
+function pad5(n) {
+  return String(n).padStart(5, "0");
+}
+
 export default function CraneInspectionPage() {
   const router = useRouter();
   const [step,      setStep]      = useState(1);
@@ -305,296 +351,273 @@ export default function CraneInspectionPage() {
     setImporting(false);
   }
 
-  // ── FIXED SEQUENCE GENERATOR ─────────────────────────────────────────────
-  // Uses the highest existing cert number suffix — never count(*) which breaks on deletions
-  async function getNextSeq() {
-    try {
-      const { data } = await supabase
-        .from("certificates")
-        .select("certificate_number")
-        .order("created_at", { ascending: false })
-        .limit(100);
-
-      if (!data || data.length === 0) return 1;
-
-      let max = 0;
-      for (const row of data) {
-        const match = (row.certificate_number || "").match(/(\d+)$/);
-        if (match) {
-          const n = parseInt(match[1], 10);
-          if (n > max) max = n;
-        }
-      }
-      return max + 1;
-    } catch {
-      // Fallback: timestamp-based suffix guarantees uniqueness
-      return parseInt(String(Date.now()).slice(-6), 10);
-    }
-  }
-
+  // ── GENERATE ──────────────────────────────────────────────────────────────
   async function handleGenerate() {
-    if (!crane.client_id || !crane.serial_number) { setError("Please fill crane serial number and client."); return; }
-    setSaving(true); setError("");
-
-    await ensureClient(crane.client_name, crane.client_location);
-
-    const craneData = { ...crane };
-    if (!craneData.serial_number?.trim()) {
-      const cc = (craneData.client_name||"UNK").trim().split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
-      craneData.serial_number = `${cc}-CRN-${String(Date.now()).slice(-6)}`;
+    if (!crane.client_id || !crane.serial_number) {
+      setError("Please fill crane serial number and client.");
+      return;
     }
+    setSaving(true);
+    setError("");
 
-    const folderId   = crypto.randomUUID();
-    const folderName = `Crane-${crane.serial_number}-${crane.inspection_date}`;
-    const iDate      = crane.inspection_date;
-    const exp1yr     = addMonths(iDate, 12);
-    const exp6mo     = addMonths(iDate, 6);
-    const certs      = [];
+    try {
+      await ensureClient(crane.client_name, crane.client_location);
 
-    const pad = n => String(n).padStart(5, "0");
+      const craneData = { ...crane };
+      if (!craneData.serial_number?.trim()) {
+        const cc = (craneData.client_name||"UNK").trim().split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
+        craneData.serial_number = `${cc}-CRN-${String(Date.now()).slice(-6)}`;
+      }
 
-    // ✅ FIXED: get highest existing number, not row count
-    let seq = await getNextSeq();
-    const nextNo = (prefix) => `CERT-${prefix}${pad(seq++)}`;
+      const folderId   = crypto.randomUUID();
+      const folderName = `Crane-${crane.serial_number}-${crane.inspection_date}`;
+      const iDate      = crane.inspection_date;
+      const exp1yr     = addMonths(iDate, 12);
+      const exp6mo     = addMonths(iDate, 6);
 
-    const c1_boom   = boom.c1_boom_length || boom.min_boom_length || "";
-    const c1_angle  = boom.c1_angle || "";
-    const c1_radius = boom.c1_radius || boom.min_radius || "";
-    const c1_rated  = boom.c1_rated || boom.swl_at_min_radius || "";
-    const c1_test   = boom.c1_test || "";
-    const c1_hw     = boom.c1_hook_weight || "";
-    const c2_boom   = boom.c2_boom_length || boom.actual_boom_length || "";
-    const c2_angle  = boom.c2_angle || boom.boom_angle || "";
-    const c2_radius = boom.c2_radius || boom.load_tested_at_radius || "";
-    const c2_rated  = boom.c2_rated || boom.swl_at_actual_config || "";
-    const c2_test   = boom.c2_test || boom.test_load || "";
-    const c2_hw     = boom.c2_hook_weight || "";
-    const c3_boom   = boom.c3_boom_length || boom.max_boom_length || "";
-    const c3_angle  = boom.c3_angle || "";
-    const c3_radius = boom.c3_radius || boom.max_radius || "";
-    const c3_rated  = boom.c3_rated || boom.swl_at_max_radius || "";
-    const c3_test   = boom.c3_test || "";
-    const c3_hw     = boom.c3_hook_weight || "";
+      // Count how many certs we'll insert (4 fixed + PVs with data)
+      const filledPVs = pvs.filter(p => p.sn || p.description);
+      const totalCerts = 4 + filledPVs.length;
 
-    // ── 1. CRANE ─────────────────────────────────────────────────────────
-    certs.push({
-      certificate_number: nextNo("CR"),
-      equipment_type: craneData.crane_type,
-      equipment_description: [
-        craneData.crane_type, craneData.model,
-        craneData.swl ? `SWL ${craneData.swl}` : "",
-        craneData.fleet_number        ? `Fleet ${craneData.fleet_number}`      : "",
-        craneData.registration_number ? `Reg ${craneData.registration_number}` : "",
-      ].filter(Boolean).join(" "),
-      serial_number:        craneData.serial_number,
-      fleet_number:         craneData.fleet_number,
-      registration_number:  craneData.registration_number,
-      model:                craneData.model,
-      swl:                  craneData.swl,
-      client_name:          craneData.client_name,
-      client_id:            craneData.client_id,
-      location:             craneData.client_location,
-      issue_date:           iDate, inspection_date: iDate,
-      expiry_date:          exp1yr, next_inspection_due: exp1yr,
-      result:               craneInsp.result,
-      defects_found:        craneInsp.defects,
-      recommendations:      craneInsp.recommendations,
-      inspector_name:       INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-      certificate_type:     "Load Test Certificate",
-      folder_id: folderId, folder_name: folderName, folder_position: 1,
-      notes: [
-        `Structural: ${craneInsp.structural_result}`, `Boom: ${craneInsp.boom_condition}`,
-        `Outriggers: ${craneInsp.outriggers}`, `Computer: ${craneInsp.crane_computer}`,
-        craneData.machine_hours ? `Machine Hours: ${craneData.machine_hours}` : "",
-        craneInsp.test_load     ? `Crane test load: ${craneInsp.test_load}`   : "",
-        c1_boom   ? `C1 boom: ${c1_boom}m`     : "", c1_angle  ? `C1 angle: ${c1_angle}`    : "",
-        c1_radius ? `C1 radius: ${c1_radius}m` : "", c1_rated  ? `C1 rated: ${c1_rated}`    : "",
-        c1_test   ? `C1 test: ${c1_test}T`     : "", c1_hw     ? `C1 hook weight: ${c1_hw}` : "",
-        c2_boom   ? `C2 boom: ${c2_boom}m`     : "", c2_angle  ? `C2 angle: ${c2_angle}`    : "",
-        c2_radius ? `C2 radius: ${c2_radius}m` : "", c2_rated  ? `C2 rated: ${c2_rated}`    : "",
-        c2_test   ? `C2 test: ${c2_test}T`     : "", c2_hw     ? `C2 hook weight: ${c2_hw}` : "",
-        c3_boom   ? `C3 boom: ${c3_boom}m`     : "", c3_angle  ? `C3 angle: ${c3_angle}`    : "",
-        c3_radius ? `C3 radius: ${c3_radius}m` : "", c3_rated  ? `C3 rated: ${c3_rated}`    : "",
-        c3_test   ? `C3 test: ${c3_test}T`     : "", c3_hw     ? `C3 hook weight: ${c3_hw}` : "",
-        boom.jib_fitted === "yes" && boom.jib_length ? `Jib: ${boom.jib_length}m @ ${boom.jib_angle}°` : "",
-        boom.sli_make_model     ? `SLI model: ${boom.sli_make_model}`   : "",
-        boom.hook_block_reeving ? `Reeving: ${boom.hook_block_reeving}` : "",
-        boom.lmi_test !== "PASS" ? `SLI: ${boom.lmi_test}` : "SLI: PASS",
-        `Operating code: MAIN/AUX-FULL OUTRIGGER-360DEG`, `Counterweights: STD FITTED`,
-        craneData.notes ? `Notes: ${craneData.notes}` : "",
-      ].filter(Boolean).join(" | "),
-    });
+      // ── ATOMIC: fetch all sequence numbers from Postgres in one go ──────
+      // nextval() is per-call atomic — parallel calls each get a unique value
+      const seqNums = await fetchNextSeqBatch(totalCerts);
+      // seqNums is already sorted ascending; assign in order:
+      // [0]=CR  [1]=BM  [2]=HK  [3]=RP  [4..n]=PV
+      const prefixes = ["CR", "BM", "HK", "RP", ...filledPVs.map(() => "PV")];
+      const certNumbers = seqNums.map((n, i) => `CERT-${prefixes[i]}${pad5(n)}`);
 
-    // ── 2. BOOM ──────────────────────────────────────────────────────────
-    certs.push({
-      certificate_number: nextNo("BM"),
-      equipment_type: "Crane Boom",
-      equipment_description: [
-        craneData.crane_type || "Mobile Crane",
-        c2_boom ? `Boom ${c2_boom}m` : boom.actual_boom_length ? `Boom ${boom.actual_boom_length}m` : "",
-        boom.extended_boom_length ? `ext ${boom.extended_boom_length}m` : "",
-        c2_angle ? `@ ${c2_angle}°` : boom.boom_angle ? `@ ${boom.boom_angle}°` : "",
-        c2_rated ? `SWL ${c2_rated}` : craneData.swl ? `SWL ${craneData.swl}` : "",
-        `SN ${craneData.serial_number}`,
-      ].filter(Boolean).join(" — "),
-      serial_number: craneData.serial_number, fleet_number: craneData.fleet_number,
-      model: craneData.model, swl: c2_rated || boom.swl_at_actual_config || craneData.swl,
-      client_name: craneData.client_name, client_id: craneData.client_id,
-      location: craneData.client_location,
-      issue_date: iDate, inspection_date: iDate,
-      expiry_date: exp1yr, next_inspection_due: exp1yr,
-      result: (boom.boom_structure === "FAIL" || boom.lmi_test === "FAIL") ? "FAIL" : craneInsp.result,
-      inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-      certificate_type: "Load Test Certificate",
-      folder_id: folderId, folder_name: folderName, folder_position: 2,
-      notes: [
-        c2_boom ? `Actual length: ${c2_boom}m` : boom.actual_boom_length ? `Actual length: ${boom.actual_boom_length}m` : "",
-        boom.extended_boom_length ? `Extended: ${boom.extended_boom_length}m` : "",
-        c1_boom ? `Min length: ${c1_boom}m` : boom.min_boom_length ? `Min length: ${boom.min_boom_length}m` : "",
-        c3_boom ? `Max length: ${c3_boom}m` : boom.max_boom_length ? `Max length: ${boom.max_boom_length}m` : "",
-        c2_angle ? `Angle: ${c2_angle}°` : boom.boom_angle ? `Angle: ${boom.boom_angle}°` : "",
-        boom.jib_fitted === "yes" && boom.jib_length ? `Jib: ${boom.jib_length}m @ ${boom.jib_angle}°` : "",
-        c1_radius ? `Min radius: ${c1_radius}m` : boom.min_radius ? `Min radius: ${boom.min_radius}m` : "",
-        c3_radius ? `Max radius: ${c3_radius}m` : boom.max_radius ? `Max radius: ${boom.max_radius}m` : "",
-        c2_radius ? `Test radius: ${c2_radius}m` : boom.load_tested_at_radius ? `Test radius: ${boom.load_tested_at_radius}m` : "",
-        c1_rated ? `SWL@min: ${c1_rated}` : boom.swl_at_min_radius ? `SWL@min: ${boom.swl_at_min_radius}` : "",
-        c3_rated ? `SWL@max: ${c3_rated}` : boom.swl_at_max_radius ? `SWL@max: ${boom.swl_at_max_radius}` : "",
-        c2_rated ? `SWL@config: ${c2_rated}` : boom.swl_at_actual_config ? `SWL@config: ${boom.swl_at_actual_config}` : "",
-        c2_test ? `Test load: ${c2_test}T` : boom.test_load ? `Test load: ${boom.test_load}T` : "",
-        `Boom structure: ${boom.boom_structure}`, `Boom pins: ${boom.boom_pins}`,
-        `Luffing: ${boom.luffing_system}`, `Slew: ${boom.slew_system}`, `Hoist: ${boom.hoist_system}`,
-        `LMI: ${boom.lmi_test}`, `Anti-two-block: ${boom.anti_two_block}`, `Anemometer: ${boom.anemometer}`,
-        boom.notes ? `Notes: ${boom.notes}` : "",
-      ].filter(Boolean).join(" | "),
-    });
+      const c1_boom   = boom.c1_boom_length || boom.min_boom_length || "";
+      const c1_angle  = boom.c1_angle || "";
+      const c1_radius = boom.c1_radius || boom.min_radius || "";
+      const c1_rated  = boom.c1_rated || boom.swl_at_min_radius || "";
+      const c1_test   = boom.c1_test || "";
+      const c1_hw     = boom.c1_hook_weight || "";
+      const c2_boom   = boom.c2_boom_length || boom.actual_boom_length || "";
+      const c2_angle  = boom.c2_angle || boom.boom_angle || "";
+      const c2_radius = boom.c2_radius || boom.load_tested_at_radius || "";
+      const c2_rated  = boom.c2_rated || boom.swl_at_actual_config || "";
+      const c2_test   = boom.c2_test || boom.test_load || "";
+      const c2_hw     = boom.c2_hook_weight || "";
+      const c3_boom   = boom.c3_boom_length || boom.max_boom_length || "";
+      const c3_angle  = boom.c3_angle || "";
+      const c3_radius = boom.c3_radius || boom.max_radius || "";
+      const c3_rated  = boom.c3_rated || boom.swl_at_max_radius || "";
+      const c3_test   = boom.c3_test || "";
+      const c3_hw     = boom.c3_hook_weight || "";
 
-    // ── 3. HOOK ──────────────────────────────────────────────────────────
-    certs.push({
-      certificate_number: nextNo("HK"),
-      equipment_type: "Crane Hook",
-      equipment_description: `Crane Hook & Wire Rope — SWL ${hook.swl || craneData.swl} — ${craneData.crane_type} SN ${craneData.serial_number}`,
-      serial_number: hook.serial_number || craneData.serial_number,
-      swl: hook.swl || craneData.swl,
-      client_name: craneData.client_name, client_id: craneData.client_id,
-      location: craneData.client_location,
-      issue_date: iDate, inspection_date: iDate,
-      expiry_date: exp6mo, next_inspection_due: exp6mo,
-      result: hook.result,
-      inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-      certificate_type: "Load Test Certificate",
-      folder_id: folderId, folder_name: folderName, folder_position: 3,
-      notes: [
-        `Latch: ${hook.latch_condition}`, `Structural: ${hook.structural_result}`,
-        hook.wear_percentage ? `Wear: ${hook.wear_percentage}`    : "",
-        hook.swl             ? `Hook 1 SWL: ${hook.swl}`          : "",
-        hook.serial_number   ? `Hook 1 SN: ${hook.serial_number}` : "",
-        boom.hook_ab  ? `Hook AB: ${boom.hook_ab}`   : "", boom.hook_ac  ? `Hook AC: ${boom.hook_ac}`   : "",
-        hook.hook2_swl    ? `Hook 2 SWL: ${hook.hook2_swl}`   : "", hook.hook2_serial ? `Hook 2 SN: ${hook.hook2_serial}`  : "",
-        boom.hook2_ab ? `Hook 2 AB: ${boom.hook2_ab}` : "", boom.hook2_ac ? `Hook 2 AC: ${boom.hook2_ac}` : "",
-        hook.hook3_swl    ? `Hook 3 SWL: ${hook.hook3_swl}`   : "", hook.hook3_serial ? `Hook 3 SN: ${hook.hook3_serial}`  : "",
-        boom.hook3_ab ? `Hook 3 AB: ${boom.hook3_ab}` : "", boom.hook3_ac ? `Hook 3 AC: ${boom.hook3_ac}` : "",
-        rope.diameter        ? `Rope dia: ${rope.diameter}mm`           : "",
-        `Broken wires: ${rope.broken_wires}`, `Corrosion: ${rope.corrosion}`, `Kinks: ${rope.kinks}`,
-        rope.reduction_dia      ? `Reduction dia: ${rope.reduction_dia}`       : "",
-        rope.core_protrusion    ? `Core protrusion: ${rope.core_protrusion}`   : "",
-        rope.damaged_strands    ? `Damaged strands: ${rope.damaged_strands}`   : "",
-        rope.end_fittings       ? `End fittings: ${rope.end_fittings}`         : "",
-        rope.other_defects      ? `Other defects: ${rope.other_defects}`       : "",
-        rope.serviceability     ? `Serviceability: ${rope.serviceability}`     : "",
-        rope.lower_limit        ? `Lower limit: ${rope.lower_limit}`           : "",
-        rope.length_3x_windings ? `3x windings: ${rope.length_3x_windings}`   : "",
-        rope.drum_condition     ? `Drum condition: ${rope.drum_condition}`     : "",
-        rope.rope_lay           ? `Rope lay: ${rope.rope_lay}`                 : "",
-        rope.aux_diameter       ? `Aux rope dia: ${rope.aux_diameter}mm`       : "",
-        `Aux broken wires: ${rope.aux_broken_wires}`, `Aux corrosion: ${rope.aux_corrosion}`, `Aux kinks: ${rope.aux_kinks}`,
-        rope.aux_reduction_dia      ? `Aux reduction dia: ${rope.aux_reduction_dia}`     : "",
-        rope.aux_core_protrusion    ? `Aux core protrusion: ${rope.aux_core_protrusion}` : "",
-        rope.aux_damaged_strands    ? `Aux damaged strands: ${rope.aux_damaged_strands}` : "",
-        rope.aux_end_fittings       ? `Aux end fittings: ${rope.aux_end_fittings}`       : "",
-        rope.aux_other_defects      ? `Aux other defects: ${rope.aux_other_defects}`     : "",
-        rope.aux_serviceability     ? `Aux serviceability: ${rope.aux_serviceability}`   : "",
-        rope.aux_lower_limit        ? `Aux lower limit: ${rope.aux_lower_limit}`         : "",
-        rope.aux_length_3x_windings ? `Aux 3x windings: ${rope.aux_length_3x_windings}` : "",
-        rope.aux_drum_condition     ? `Aux drum condition: ${rope.aux_drum_condition}`   : "",
-        rope.aux_rope_lay           ? `Aux rope lay: ${rope.aux_rope_lay}`               : "",
-        hook.notes ? `Notes: ${hook.notes}`      : "",
-        rope.notes ? `Rope notes: ${rope.notes}` : "",
-      ].filter(Boolean).join(" | "),
-    });
+      const certs = [];
 
-    // ── 4. ROPE ──────────────────────────────────────────────────────────
-    certs.push({
-      certificate_number: nextNo("RP"),
-      equipment_type: "Wire Rope",
-      equipment_description: [rope.rope_type, rope.diameter ? `Ø${rope.diameter}mm` : "", `— ${craneData.crane_type} SN ${craneData.serial_number}`].filter(Boolean).join(" "),
-      serial_number: craneData.serial_number, capacity_volume: rope.diameter ? `Ø${rope.diameter}mm` : "",
-      swl: craneData.swl, client_name: craneData.client_name, client_id: craneData.client_id,
-      location: craneData.client_location,
-      issue_date: iDate, inspection_date: iDate,
-      expiry_date: exp6mo, next_inspection_due: exp6mo,
-      result: rope.result,
-      inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-      certificate_type: "Load Test Certificate",
-      folder_id: folderId, folder_name: folderName, folder_position: 4,
-      notes: [
-        rope.diameter ? `Rope dia: ${rope.diameter}mm` : "",
-        `Broken wires: ${rope.broken_wires}`, `Corrosion: ${rope.corrosion}`, `Kinks: ${rope.kinks}`,
-        rope.notes ? `Notes: ${rope.notes}` : "",
-      ].filter(Boolean).join(" | "),
-    });
-
-    // ── 5. PRESSURE VESSELS ───────────────────────────────────────────────
-    for (let i = 0; i < pvs.length; i++) {
-      const pv = pvs[i];
-      if (!pv.sn && !pv.description) continue;
+      // ── 1. CRANE ──────────────────────────────────────────────────────
       certs.push({
-        certificate_number: nextNo("PV"),
-        equipment_type: "Pressure Vessel",
-        equipment_description: pv.description || `Pressure Vessel ${i + 1} — ${craneData.crane_type} SN ${craneData.serial_number}`,
-        serial_number: pv.sn, capacity_volume: pv.capacity,
-        working_pressure: pv.working_pressure, mawp: pv.working_pressure,
-        test_pressure: pv.test_pressure, pressure_unit: pv.pressure_unit,
+        certificate_number: certNumbers[0],
+        equipment_type: craneData.crane_type,
+        equipment_description: [
+          craneData.crane_type, craneData.model,
+          craneData.swl ? `SWL ${craneData.swl}` : "",
+          craneData.fleet_number        ? `Fleet ${craneData.fleet_number}`      : "",
+          craneData.registration_number ? `Reg ${craneData.registration_number}` : "",
+        ].filter(Boolean).join(" "),
+        serial_number:        craneData.serial_number,
+        fleet_number:         craneData.fleet_number,
+        registration_number:  craneData.registration_number,
+        model:                craneData.model,
+        swl:                  craneData.swl,
+        client_name:          craneData.client_name,
+        client_id:            craneData.client_id,
+        location:             craneData.client_location,
+        issue_date:           iDate, inspection_date: iDate,
+        expiry_date:          exp1yr, next_inspection_due: exp1yr,
+        result:               craneInsp.result,
+        defects_found:        craneInsp.defects,
+        recommendations:      craneInsp.recommendations,
+        inspector_name:       INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
+        certificate_type:     "Load Test Certificate",
+        folder_id: folderId, folder_name: folderName, folder_position: 1,
+        notes: [
+          `Structural: ${craneInsp.structural_result}`, `Boom: ${craneInsp.boom_condition}`,
+          `Outriggers: ${craneInsp.outriggers}`, `Computer: ${craneInsp.crane_computer}`,
+          craneData.machine_hours ? `Machine Hours: ${craneData.machine_hours}` : "",
+          craneInsp.test_load     ? `Crane test load: ${craneInsp.test_load}`   : "",
+          c1_boom   ? `C1 boom: ${c1_boom}m`     : "", c1_angle  ? `C1 angle: ${c1_angle}`    : "",
+          c1_radius ? `C1 radius: ${c1_radius}m` : "", c1_rated  ? `C1 rated: ${c1_rated}`    : "",
+          c1_test   ? `C1 test: ${c1_test}T`     : "", c1_hw     ? `C1 hook weight: ${c1_hw}` : "",
+          c2_boom   ? `C2 boom: ${c2_boom}m`     : "", c2_angle  ? `C2 angle: ${c2_angle}`    : "",
+          c2_radius ? `C2 radius: ${c2_radius}m` : "", c2_rated  ? `C2 rated: ${c2_rated}`    : "",
+          c2_test   ? `C2 test: ${c2_test}T`     : "", c2_hw     ? `C2 hook weight: ${c2_hw}` : "",
+          c3_boom   ? `C3 boom: ${c3_boom}m`     : "", c3_angle  ? `C3 angle: ${c3_angle}`    : "",
+          c3_radius ? `C3 radius: ${c3_radius}m` : "", c3_rated  ? `C3 rated: ${c3_rated}`    : "",
+          c3_test   ? `C3 test: ${c3_test}T`     : "", c3_hw     ? `C3 hook weight: ${c3_hw}` : "",
+          boom.jib_fitted === "yes" && boom.jib_length ? `Jib: ${boom.jib_length}m @ ${boom.jib_angle}°` : "",
+          boom.sli_make_model     ? `SLI model: ${boom.sli_make_model}`   : "",
+          boom.hook_block_reeving ? `Reeving: ${boom.hook_block_reeving}` : "",
+          boom.lmi_test !== "PASS" ? `SLI: ${boom.lmi_test}` : "SLI: PASS",
+          `Operating code: MAIN/AUX-FULL OUTRIGGER-360DEG`, `Counterweights: STD FITTED`,
+          craneData.notes ? `Notes: ${craneData.notes}` : "",
+        ].filter(Boolean).join(" | "),
+      });
+
+      // ── 2. BOOM ───────────────────────────────────────────────────────
+      certs.push({
+        certificate_number: certNumbers[1],
+        equipment_type: "Crane Boom",
+        equipment_description: [
+          craneData.crane_type || "Mobile Crane",
+          c2_boom ? `Boom ${c2_boom}m` : boom.actual_boom_length ? `Boom ${boom.actual_boom_length}m` : "",
+          boom.extended_boom_length ? `ext ${boom.extended_boom_length}m` : "",
+          c2_angle ? `@ ${c2_angle}°` : boom.boom_angle ? `@ ${boom.boom_angle}°` : "",
+          c2_rated ? `SWL ${c2_rated}` : craneData.swl ? `SWL ${craneData.swl}` : "",
+          `SN ${craneData.serial_number}`,
+        ].filter(Boolean).join(" — "),
+        serial_number: craneData.serial_number, fleet_number: craneData.fleet_number,
+        model: craneData.model, swl: c2_rated || boom.swl_at_actual_config || craneData.swl,
         client_name: craneData.client_name, client_id: craneData.client_id,
         location: craneData.client_location,
         issue_date: iDate, inspection_date: iDate,
         expiry_date: exp1yr, next_inspection_due: exp1yr,
-        result: pv.result, defects_found: pv.notes,
+        result: (boom.boom_structure === "FAIL" || boom.lmi_test === "FAIL") ? "FAIL" : craneInsp.result,
         inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-        certificate_type: "Pressure Test Certificate",
-        folder_id: folderId, folder_name: folderName, folder_position: 5 + i,
+        certificate_type: "Load Test Certificate",
+        folder_id: folderId, folder_name: folderName, folder_position: 2,
+        notes: [
+          c2_boom ? `Actual length: ${c2_boom}m` : boom.actual_boom_length ? `Actual length: ${boom.actual_boom_length}m` : "",
+          boom.extended_boom_length ? `Extended: ${boom.extended_boom_length}m` : "",
+          c1_boom ? `Min length: ${c1_boom}m` : boom.min_boom_length ? `Min length: ${boom.min_boom_length}m` : "",
+          c3_boom ? `Max length: ${c3_boom}m` : boom.max_boom_length ? `Max length: ${boom.max_boom_length}m` : "",
+          c2_angle ? `Angle: ${c2_angle}°` : boom.boom_angle ? `Angle: ${boom.boom_angle}°` : "",
+          boom.jib_fitted === "yes" && boom.jib_length ? `Jib: ${boom.jib_length}m @ ${boom.jib_angle}°` : "",
+          c1_radius ? `Min radius: ${c1_radius}m` : boom.min_radius ? `Min radius: ${boom.min_radius}m` : "",
+          c3_radius ? `Max radius: ${c3_radius}m` : boom.max_radius ? `Max radius: ${boom.max_radius}m` : "",
+          c2_radius ? `Test radius: ${c2_radius}m` : boom.load_tested_at_radius ? `Test radius: ${boom.load_tested_at_radius}m` : "",
+          c1_rated ? `SWL@min: ${c1_rated}` : boom.swl_at_min_radius ? `SWL@min: ${boom.swl_at_min_radius}` : "",
+          c3_rated ? `SWL@max: ${c3_rated}` : boom.swl_at_max_radius ? `SWL@max: ${boom.swl_at_max_radius}` : "",
+          c2_rated ? `SWL@config: ${c2_rated}` : boom.swl_at_actual_config ? `SWL@config: ${boom.swl_at_actual_config}` : "",
+          c2_test ? `Test load: ${c2_test}T` : boom.test_load ? `Test load: ${boom.test_load}T` : "",
+          `Boom structure: ${boom.boom_structure}`, `Boom pins: ${boom.boom_pins}`,
+          `Luffing: ${boom.luffing_system}`, `Slew: ${boom.slew_system}`, `Hoist: ${boom.hoist_system}`,
+          `LMI: ${boom.lmi_test}`, `Anti-two-block: ${boom.anti_two_block}`, `Anemometer: ${boom.anemometer}`,
+          boom.notes ? `Notes: ${boom.notes}` : "",
+        ].filter(Boolean).join(" | "),
       });
-    }
 
-    // ── INSERT with duplicate-safe retry ─────────────────────────────────
-    const { data, error: dbErr } = await supabase
-      .from("certificates").insert(certs)
-      .select("id,certificate_number,equipment_type,result,expiry_date");
+      // ── 3. HOOK ───────────────────────────────────────────────────────
+      certs.push({
+        certificate_number: certNumbers[2],
+        equipment_type: "Crane Hook",
+        equipment_description: `Crane Hook & Wire Rope — SWL ${hook.swl || craneData.swl} — ${craneData.crane_type} SN ${craneData.serial_number}`,
+        serial_number: hook.serial_number || craneData.serial_number,
+        swl: hook.swl || craneData.swl,
+        client_name: craneData.client_name, client_id: craneData.client_id,
+        location: craneData.client_location,
+        issue_date: iDate, inspection_date: iDate,
+        expiry_date: exp6mo, next_inspection_due: exp6mo,
+        result: hook.result,
+        inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
+        certificate_type: "Load Test Certificate",
+        folder_id: folderId, folder_name: folderName, folder_position: 3,
+        notes: [
+          `Latch: ${hook.latch_condition}`, `Structural: ${hook.structural_result}`,
+          hook.wear_percentage ? `Wear: ${hook.wear_percentage}`    : "",
+          hook.swl             ? `Hook 1 SWL: ${hook.swl}`          : "",
+          hook.serial_number   ? `Hook 1 SN: ${hook.serial_number}` : "",
+          boom.hook_ab  ? `Hook AB: ${boom.hook_ab}`   : "", boom.hook_ac  ? `Hook AC: ${boom.hook_ac}`   : "",
+          hook.hook2_swl    ? `Hook 2 SWL: ${hook.hook2_swl}`   : "", hook.hook2_serial ? `Hook 2 SN: ${hook.hook2_serial}`  : "",
+          boom.hook2_ab ? `Hook 2 AB: ${boom.hook2_ab}` : "", boom.hook2_ac ? `Hook 2 AC: ${boom.hook2_ac}` : "",
+          hook.hook3_swl    ? `Hook 3 SWL: ${hook.hook3_swl}`   : "", hook.hook3_serial ? `Hook 3 SN: ${hook.hook3_serial}`  : "",
+          boom.hook3_ab ? `Hook 3 AB: ${boom.hook3_ab}` : "", boom.hook3_ac ? `Hook 3 AC: ${boom.hook3_ac}` : "",
+          rope.diameter        ? `Rope dia: ${rope.diameter}mm`           : "",
+          `Broken wires: ${rope.broken_wires}`, `Corrosion: ${rope.corrosion}`, `Kinks: ${rope.kinks}`,
+          rope.reduction_dia      ? `Reduction dia: ${rope.reduction_dia}`       : "",
+          rope.core_protrusion    ? `Core protrusion: ${rope.core_protrusion}`   : "",
+          rope.damaged_strands    ? `Damaged strands: ${rope.damaged_strands}`   : "",
+          rope.end_fittings       ? `End fittings: ${rope.end_fittings}`         : "",
+          rope.other_defects      ? `Other defects: ${rope.other_defects}`       : "",
+          rope.serviceability     ? `Serviceability: ${rope.serviceability}`     : "",
+          rope.lower_limit        ? `Lower limit: ${rope.lower_limit}`           : "",
+          rope.length_3x_windings ? `3x windings: ${rope.length_3x_windings}`   : "",
+          rope.drum_condition     ? `Drum condition: ${rope.drum_condition}`     : "",
+          rope.rope_lay           ? `Rope lay: ${rope.rope_lay}`                 : "",
+          rope.aux_diameter       ? `Aux rope dia: ${rope.aux_diameter}mm`       : "",
+          `Aux broken wires: ${rope.aux_broken_wires}`, `Aux corrosion: ${rope.aux_corrosion}`, `Aux kinks: ${rope.aux_kinks}`,
+          rope.aux_reduction_dia      ? `Aux reduction dia: ${rope.aux_reduction_dia}`     : "",
+          rope.aux_core_protrusion    ? `Aux core protrusion: ${rope.aux_core_protrusion}` : "",
+          rope.aux_damaged_strands    ? `Aux damaged strands: ${rope.aux_damaged_strands}` : "",
+          rope.aux_end_fittings       ? `Aux end fittings: ${rope.aux_end_fittings}`       : "",
+          rope.aux_other_defects      ? `Aux other defects: ${rope.aux_other_defects}`     : "",
+          rope.aux_serviceability     ? `Aux serviceability: ${rope.aux_serviceability}`   : "",
+          rope.aux_lower_limit        ? `Aux lower limit: ${rope.aux_lower_limit}`         : "",
+          rope.aux_length_3x_windings ? `Aux 3x windings: ${rope.aux_length_3x_windings}` : "",
+          rope.aux_drum_condition     ? `Aux drum condition: ${rope.aux_drum_condition}`   : "",
+          rope.aux_rope_lay           ? `Aux rope lay: ${rope.aux_rope_lay}`               : "",
+          hook.notes ? `Notes: ${hook.notes}`      : "",
+          rope.notes ? `Rope notes: ${rope.notes}` : "",
+        ].filter(Boolean).join(" | "),
+      });
 
-    if (dbErr) {
-      if (dbErr.code === "23505") {
-        // Race condition fallback — rebuild numbers with timestamp suffix
-        const ts = String(Date.now()).slice(-7);
-        const prefixes = ["CR","BM","HK","RP"];
-        certs.slice(0, 4).forEach((cert, i) => { cert.certificate_number = `CERT-${prefixes[i]}T${ts}${i}`; });
-        certs.slice(4).forEach((cert, i)  => { cert.certificate_number = `CERT-PVT${ts}${i}`; });
-        const { data: retryData, error: retryErr } = await supabase
-          .from("certificates").insert(certs)
-          .select("id,certificate_number,equipment_type,result,expiry_date");
-        if (retryErr) { setError("Failed to save: " + retryErr.message); setSaving(false); return; }
-        setSaved({ folderName, folderId, certs: retryData });
+      // ── 4. ROPE ───────────────────────────────────────────────────────
+      certs.push({
+        certificate_number: certNumbers[3],
+        equipment_type: "Wire Rope",
+        equipment_description: [rope.rope_type, rope.diameter ? `Ø${rope.diameter}mm` : "", `— ${craneData.crane_type} SN ${craneData.serial_number}`].filter(Boolean).join(" "),
+        serial_number: craneData.serial_number, capacity_volume: rope.diameter ? `Ø${rope.diameter}mm` : "",
+        swl: craneData.swl, client_name: craneData.client_name, client_id: craneData.client_id,
+        location: craneData.client_location,
+        issue_date: iDate, inspection_date: iDate,
+        expiry_date: exp6mo, next_inspection_due: exp6mo,
+        result: rope.result,
+        inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
+        certificate_type: "Load Test Certificate",
+        folder_id: folderId, folder_name: folderName, folder_position: 4,
+        notes: [
+          rope.diameter ? `Rope dia: ${rope.diameter}mm` : "",
+          `Broken wires: ${rope.broken_wires}`, `Corrosion: ${rope.corrosion}`, `Kinks: ${rope.kinks}`,
+          rope.notes ? `Notes: ${rope.notes}` : "",
+        ].filter(Boolean).join(" | "),
+      });
+
+      // ── 5. PRESSURE VESSELS ───────────────────────────────────────────
+      filledPVs.forEach((pv, i) => {
+        certs.push({
+          certificate_number: certNumbers[4 + i],
+          equipment_type: "Pressure Vessel",
+          equipment_description: pv.description || `Pressure Vessel ${i + 1} — ${craneData.crane_type} SN ${craneData.serial_number}`,
+          serial_number: pv.sn, capacity_volume: pv.capacity,
+          working_pressure: pv.working_pressure, mawp: pv.working_pressure,
+          test_pressure: pv.test_pressure, pressure_unit: pv.pressure_unit,
+          client_name: craneData.client_name, client_id: craneData.client_id,
+          location: craneData.client_location,
+          issue_date: iDate, inspection_date: iDate,
+          expiry_date: exp1yr, next_inspection_due: exp1yr,
+          result: pv.result, defects_found: pv.notes,
+          inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
+          certificate_type: "Pressure Test Certificate",
+          folder_id: folderId, folder_name: folderName, folder_position: 5 + i,
+        });
+      });
+
+      // ── INSERT ────────────────────────────────────────────────────────
+      const { data, error: dbErr } = await supabase
+        .from("certificates")
+        .insert(certs)
+        .select("id,certificate_number,equipment_type,result,expiry_date");
+
+      if (dbErr) {
+        // Should never be a duplicate now, but handle gracefully anyway
+        setError("Failed to save: " + dbErr.message);
         setSaving(false);
         return;
       }
-      setError("Failed to save: " + dbErr.message);
-      setSaving(false);
-      return;
+
+      setSaved({ folderName, folderId, certs: data });
+    } catch (e) {
+      console.error(e);
+      setError("Failed to generate: " + e.message);
     }
 
-    setSaved({ folderName, folderId, certs: data });
     setSaving(false);
   }
 
-  // ── SAVED STATE ──────────────────────────────────────────────────────────
+  // ── SAVED STATE ───────────────────────────────────────────────────────────
   if (saved) return (
     <AppLayout title="Crane Inspection — Complete">
       <div style={{ fontFamily:"'IBM Plex Sans',sans-serif", color:T.text, padding:20, maxWidth:800, margin:"0 auto" }}>
@@ -635,7 +658,7 @@ export default function CraneInspectionPage() {
     </AppLayout>
   );
 
-  // ── WIZARD ───────────────────────────────────────────────────────────────
+  // ── WIZARD ────────────────────────────────────────────────────────────────
   return (
     <AppLayout title="Crane Inspection">
       <style>{`
