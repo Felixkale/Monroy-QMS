@@ -24,116 +24,163 @@ const LS = { fontSize:10, fontWeight:700, letterSpacing:"0.08em", textTransform:
 const INSPECTOR_NAME = "Moemedi Masupe";
 const INSPECTOR_ID   = "700117910";
 
-// ── Equipment type definitions ──────────────────────────────────────────────
-// pvOnly: true = vehicle identification + pressure vessels ONLY (no inspection checklist)
-// pvOnly: false = full inspection checklist + optional pressure vessels
+// ── Step IDs (each machine type declares which steps it uses) ───────────────
+// 1 = Equipment Identity
+// 2 = Inspection Checklist
+// 3 = Boom Inspection
+// 4 = Fork Inspection
+// 5 = Bucket Inspection
+// 6 = Pressure Vessels
+// 7 = Horse & Trailer Registration
+// 8 = Review & Generate
+
 const MACHINE_TYPES = [
-  // ── FULL INSPECTION TYPES ─────────────────────────────────────────────────
+  // ── FULL INSPECTION + BOOM + FORK ─────────────────────────────────────────
   {
     id:"telehandler", label:"Telehandler", icon:"🏗",
-    certType:"Load Test Certificate", expiry:12, hasPV:true, pvOnly:false, hasBoom:true,
+    certType:"Load Test Certificate", expiry:12,
+    steps:[1,2,3,4,6,8],  // checklist + boom + fork + optional PV
+    hasPV:true,
     fields:[
-      { key:"structural_result", label:"Structural Integrity",          type:"result" },
-      { key:"boom_result",       label:"Boom / Mast Condition",         type:"result" },
-      { key:"forks_result",      label:"Forks / Attachment",            type:"result" },
-      { key:"hydraulics_result", label:"Hydraulic System",              type:"result" },
-      { key:"lmi_result",        label:"Load Management Indicator (LMI)", type:"result" },
-      { key:"test_load",         label:"Test Load Applied (Tonnes)",    type:"text", placeholder:"e.g. 5.5" },
-      { key:"swl",               label:"Safe Working Load (SWL)",       type:"text", placeholder:"e.g. 5T" },
-    ],
-  },
-  {
-    id:"cherry_picker", label:"Cherry Picker / Aerial Work Platform", icon:"🚒",
-    certType:"Load Test Certificate", expiry:12, hasPV:true, pvOnly:false, hasBoom:true,
-    fields:[
-      { key:"structural_result",  label:"Structural Integrity",          type:"result" },
-      { key:"boom_result",        label:"Boom / Platform Condition",     type:"result" },
-      { key:"hydraulics_result",  label:"Hydraulic System",              type:"result" },
-      { key:"safety_devices",     label:"Safety Devices / Interlocks",  type:"result" },
-      { key:"emergency_lowering", label:"Emergency Lowering System",    type:"result" },
-      { key:"test_load",          label:"Test Load Applied (kg)",        type:"text", placeholder:"e.g. 280" },
-      { key:"swl",                label:"Platform SWL",                  type:"text", placeholder:"e.g. 250kg" },
-      { key:"max_height",         label:"Max Working Height (m)",        type:"text", placeholder:"e.g. 18" },
-    ],
-  },
-  {
-    id:"forklift", label:"Forklift", icon:"🏭",
-    certType:"Load Test Certificate", expiry:12, hasPV:false, pvOnly:false,
-    fields:[
-      { key:"structural_result", label:"Mast / Structural Integrity",   type:"result" },
-      { key:"forks_result",      label:"Forks Condition",               type:"result" },
-      { key:"hydraulics_result", label:"Hydraulic System",              type:"result" },
-      { key:"brakes_result",     label:"Brake System",                  type:"result" },
-      { key:"lmi_result",        label:"Load Indicator / SWL Plate",   type:"result" },
-      { key:"test_load",         label:"Test Load Applied (Tonnes)",    type:"text", placeholder:"e.g. 3.5" },
-      { key:"swl",               label:"Safe Working Load (SWL)",       type:"text", placeholder:"e.g. 3T" },
-    ],
-  },
-  {
-    id:"tlb", label:"TLB (Tractor Loader Backhoe)", icon:"🚜",
-    certType:"Certificate of Inspection", expiry:12, hasPV:false, pvOnly:false,
-    fields:[
-      { key:"structural_result", label:"Structural Integrity",          type:"result" },
-      { key:"loader_result",     label:"Front Loader / Bucket",        type:"result" },
-      { key:"backhoe_result",    label:"Backhoe / Excavator Arm",      type:"result" },
-      { key:"hydraulics_result", label:"Hydraulic System",              type:"result" },
-      { key:"safety_result",     label:"ROPS / Safety Structures",     type:"result" },
-      { key:"swl",               label:"Rated Digging Force / SWL",    type:"text", placeholder:"e.g. 3T" },
-    ],
-  },
-  {
-    id:"frontloader", label:"Front Loader / Wheel Loader", icon:"🏗",
-    certType:"Certificate of Inspection", expiry:12, hasPV:false, pvOnly:false,
-    fields:[
-      { key:"structural_result", label:"Structural Integrity",          type:"result" },
-      { key:"bucket_result",     label:"Bucket / Attachment",          type:"result" },
-      { key:"hydraulics_result", label:"Hydraulic System",              type:"result" },
-      { key:"safety_result",     label:"ROPS / Safety Structures",     type:"result" },
-      { key:"swl",               label:"Rated Operating Capacity",     type:"text", placeholder:"e.g. 3.5T" },
+      { key:"structural_result", label:"Structural Integrity",              type:"result" },
+      { key:"hydraulics_result", label:"Hydraulic System",                  type:"result" },
+      { key:"lmi_result",        label:"Load Management Indicator (LMI)",  type:"result" },
+      { key:"brakes_result",     label:"Brake / Drive System",              type:"result" },
+      { key:"tyres_result",      label:"Tyres & Wheels",                    type:"result" },
+      { key:"test_load",         label:"Main Test Load Applied (Tonnes)",   type:"text", placeholder:"e.g. 5.5" },
+      { key:"swl",               label:"Safe Working Load (SWL)",           type:"text", placeholder:"e.g. 5T" },
     ],
   },
 
-  // ── VEHICLE TYPES — Pressure Vessels ONLY ────────────────────────────────
-  // These get vehicle identification + PV certificates only. No inspection checklist.
+  // ── CHERRY PICKER — BOOM + BUCKET ─────────────────────────────────────────
   {
-    id:"crane_truck",   label:"Crane Truck / Hiab",       icon:"🚛",
-    certType:"Pressure Test Certificate", expiry:12, hasPV:true, pvOnly:true, fields:[],
+    id:"cherry_picker", label:"Cherry Picker / AWP", icon:"🚒",
+    certType:"Load Test Certificate", expiry:12,
+    steps:[1,2,3,5,6,8],  // checklist + boom + bucket + optional PV
+    hasPV:true,
+    fields:[
+      { key:"structural_result",  label:"Structural Integrity",             type:"result" },
+      { key:"hydraulics_result",  label:"Hydraulic System",                 type:"result" },
+      { key:"safety_devices",     label:"Safety Devices / Interlocks",     type:"result" },
+      { key:"emergency_lowering", label:"Emergency Lowering System",       type:"result" },
+      { key:"test_load",          label:"Test Load Applied (kg)",           type:"text", placeholder:"e.g. 280" },
+      { key:"swl",                label:"Platform SWL",                     type:"text", placeholder:"e.g. 250kg" },
+    ],
+  },
+
+  // ── FORKLIFT — FORK INSPECTION ─────────────────────────────────────────────
+  {
+    id:"forklift", label:"Forklift", icon:"🏭",
+    certType:"Load Test Certificate", expiry:12,
+    steps:[1,2,4,8],  // checklist + fork + no PV
+    hasPV:false,
+    fields:[
+      { key:"structural_result", label:"Mast / Structural Integrity",       type:"result" },
+      { key:"hydraulics_result", label:"Hydraulic System",                  type:"result" },
+      { key:"brakes_result",     label:"Brake System",                      type:"result" },
+      { key:"lmi_result",        label:"Load Indicator / SWL Plate",       type:"result" },
+      { key:"tyres_result",      label:"Tyres / Wheels",                    type:"result" },
+      { key:"test_load",         label:"Test Load Applied (Tonnes)",        type:"text", placeholder:"e.g. 3.5" },
+      { key:"swl",               label:"Safe Working Load (SWL)",           type:"text", placeholder:"e.g. 3T" },
+    ],
+  },
+
+  // ── TLB ──────────────────────────────────────────────────────────────────
+  {
+    id:"tlb", label:"TLB (Tractor Loader Backhoe)", icon:"🚜",
+    certType:"Certificate of Inspection", expiry:12,
+    steps:[1,2,8],
+    hasPV:false,
+    fields:[
+      { key:"structural_result", label:"Structural Integrity",              type:"result" },
+      { key:"loader_result",     label:"Front Loader / Bucket",            type:"result" },
+      { key:"backhoe_result",    label:"Backhoe / Excavator Arm",          type:"result" },
+      { key:"hydraulics_result", label:"Hydraulic System",                  type:"result" },
+      { key:"safety_result",     label:"ROPS / Safety Structures",         type:"result" },
+      { key:"swl",               label:"Rated Digging Force / SWL",        type:"text", placeholder:"e.g. 3T" },
+    ],
+  },
+
+  // ── FRONT LOADER ──────────────────────────────────────────────────────────
+  {
+    id:"frontloader", label:"Front Loader / Wheel Loader", icon:"🏗",
+    certType:"Certificate of Inspection", expiry:12,
+    steps:[1,2,8],
+    hasPV:false,
+    fields:[
+      { key:"structural_result", label:"Structural Integrity",              type:"result" },
+      { key:"bucket_result",     label:"Bucket / Attachment",              type:"result" },
+      { key:"hydraulics_result", label:"Hydraulic System",                  type:"result" },
+      { key:"safety_result",     label:"ROPS / Safety Structures",         type:"result" },
+      { key:"swl",               label:"Rated Operating Capacity",         type:"text", placeholder:"e.g. 3.5T" },
+    ],
+  },
+
+  // ── HORSE & TRAILER ───────────────────────────────────────────────────────
+  {
+    id:"horse_trailer", label:"Horse & Trailer", icon:"🚛",
+    certType:"Vehicle Registration Certificate", expiry:12,
+    steps:[1,7,6,8],  // identity + horse/trailer registration + optional PV
+    hasPV:true,
+    fields:[],  // no checklist; registration handled in step 7
+  },
+
+  // ── VEHICLE TYPES — PV ONLY ───────────────────────────────────────────────
+  {
+    id:"crane_truck",  label:"Crane Truck / Hiab",     icon:"🚛",
+    certType:"Pressure Test Certificate", expiry:12,
+    steps:[1,6,8],
+    hasPV:true, pvOnly:true, fields:[],
   },
   {
-    id:"water_bowser",  label:"Water Bowser",              icon:"🚰",
-    certType:"Pressure Test Certificate", expiry:12, hasPV:true, pvOnly:true, fields:[],
+    id:"water_bowser", label:"Water Bowser",             icon:"🚰",
+    certType:"Pressure Test Certificate", expiry:12,
+    steps:[1,6,8],
+    hasPV:true, pvOnly:true, fields:[],
   },
   {
-    id:"tipper_truck",  label:"Tipper Truck",              icon:"🚚",
-    certType:"Pressure Test Certificate", expiry:12, hasPV:true, pvOnly:true, fields:[],
+    id:"tipper_truck", label:"Tipper Truck",             icon:"🚚",
+    certType:"Pressure Test Certificate", expiry:12,
+    steps:[1,6,8],
+    hasPV:true, pvOnly:true, fields:[],
   },
   {
-    id:"bus",           label:"Bus / Personnel Carrier",   icon:"🚌",
-    certType:"Pressure Test Certificate", expiry:12, hasPV:true, pvOnly:true, fields:[],
+    id:"bus",          label:"Bus / Personnel Carrier",  icon:"🚌",
+    certType:"Pressure Test Certificate", expiry:12,
+    steps:[1,6,8],
+    hasPV:true, pvOnly:true, fields:[],
   },
   {
-    id:"compressor",    label:"Air Compressor",            icon:"⚙️",
-    certType:"Pressure Test Certificate", expiry:12, hasPV:true, pvOnly:true, fields:[],
+    id:"compressor",   label:"Air Compressor",           icon:"⚙️",
+    certType:"Pressure Test Certificate", expiry:12,
+    steps:[1,6,8],
+    hasPV:true, pvOnly:true, fields:[],
   },
   {
     id:"other", label:"Other Machine / Equipment", icon:"🔧",
-    certType:"Certificate of Inspection", expiry:12, hasPV:true, pvOnly:false,
+    certType:"Certificate of Inspection", expiry:12,
+    steps:[1,2,6,8],
+    hasPV:true,
     fields:[
-      { key:"structural_result",  label:"Structural Integrity",         type:"result" },
-      { key:"operational_result", label:"Operational Check",           type:"result" },
-      { key:"safety_result",      label:"Safety Systems",              type:"result" },
-      { key:"swl",                label:"Rated Capacity / SWL",        type:"text", placeholder:"e.g. 5T" },
+      { key:"structural_result",  label:"Structural Integrity",            type:"result" },
+      { key:"operational_result", label:"Operational Check",              type:"result" },
+      { key:"safety_result",      label:"Safety Systems",                 type:"result" },
+      { key:"swl",                label:"Rated Capacity / SWL",           type:"text", placeholder:"e.g. 5T" },
     ],
   },
 ];
 
-const STEPS = [
-  { id:1, label:"Equipment",  icon:"🔧" },
-  { id:2, label:"Inspection", icon:"🔍" },
-  { id:3, label:"Boom",       icon:"📐" },
-  { id:4, label:"Vessels",    icon:"⚙️" },
-  { id:5, label:"Generate",   icon:"📜" },
-];
+// ── Step metadata ────────────────────────────────────────────────────────────
+const STEP_META = {
+  1: { label:"Equipment",   icon:"🔧" },
+  2: { label:"Checklist",   icon:"🔍" },
+  3: { label:"Boom",        icon:"📐" },
+  4: { label:"Forks",       icon:"🍴" },
+  5: { label:"Bucket",      icon:"🪣" },
+  6: { label:"Vessels",     icon:"⚙️" },
+  7: { label:"Horse/Trailer",icon:"🚛" },
+  8: { label:"Generate",    icon:"📜" },
+};
 
 function addMonths(dateStr, m) {
   const d = new Date(dateStr);
@@ -161,8 +208,8 @@ function ResultSelect({ value, onChange }) {
 }
 
 function ResultBadge({ result }) {
-  const s = result === "PASS" ? { c:T.green, bg:T.greenDim, brd:T.greenBrd, l:"Pass" }
-          : result === "FAIL" ? { c:T.red,   bg:T.redDim,   brd:T.redBrd,   l:"Fail" }
+  const s = result === "PASS"   ? { c:T.green, bg:T.greenDim, brd:T.greenBrd, l:"Pass" }
+          : result === "FAIL"   ? { c:T.red,   bg:T.redDim,   brd:T.redBrd,   l:"Fail" }
           : { c:T.amber, bg:T.amberDim, brd:T.amberBrd, l: result === "REPAIR_REQUIRED" ? "Repair Required" : "Conditional" };
   return <span style={{ padding:"3px 10px", borderRadius:99, fontSize:11, fontWeight:800, background:s.bg, border:`1px solid ${s.brd}`, color:s.c }}>{s.l}</span>;
 }
@@ -190,33 +237,39 @@ function Card({ title, icon, color=T.accent, brd, children }) {
   );
 }
 
-function StepBar({ current, hasPV, pvOnly }) {
-  let steps = STEPS;
-  if (pvOnly)  steps = steps.filter(s => s.id !== 2); // no checklist
-  if (!hasPV)  steps = steps.filter(s => s.id !== 3); // no vessels
+function SectionHeading({ label }) {
   return (
-    <div style={{ display:"flex", alignItems:"flex-start", marginBottom:24, gap:0 }}>
-      {steps.map((s, i) => {
-        const done   = s.id < current;
-        const active = s.id === current;
+    <div style={{ fontSize:11, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.09em", margin:"18px 0 10px", paddingBottom:6, borderBottom:`1px solid ${T.border}` }}>
+      {label}
+    </div>
+  );
+}
+
+function StepBar({ steps, currentStep }) {
+  return (
+    <div style={{ display:"flex", alignItems:"flex-start", marginBottom:24, gap:0, overflowX:"auto", paddingBottom:4 }}>
+      {steps.map((sid, i) => {
+        const meta   = STEP_META[sid];
+        const done   = sid < currentStep;
+        const active = sid === currentStep;
         return (
-          <div key={s.id} style={{ display:"flex", alignItems:"center", flex:1, minWidth:0 }}>
+          <div key={sid} style={{ display:"flex", alignItems:"center", flex:1, minWidth:0 }}>
             <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:5, flex:1 }}>
               <div style={{
                 width:36, height:36, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center",
-                fontSize:14, fontWeight:900, flexShrink:0,
+                fontSize:13, fontWeight:900, flexShrink:0,
                 background: done ? T.green : active ? T.accent : T.card,
                 border: `2px solid ${done ? T.green : active ? T.accent : T.border}`,
                 color: (done||active) ? "#052e16" : T.textDim,
               }}>
-                {done ? "✓" : s.icon}
+                {done ? "✓" : meta.icon}
               </div>
               <div style={{ fontSize:9, fontWeight:700, color:active?T.accent:done?T.green:T.textDim, textAlign:"center", textTransform:"uppercase", letterSpacing:"0.04em", whiteSpace:"nowrap" }}>
-                {s.label}
+                {meta.label}
               </div>
             </div>
             {i < steps.length - 1 && (
-              <div style={{ height:2, width:24, background:done?T.green:T.border, marginBottom:20, flexShrink:0 }}/>
+              <div style={{ height:2, width:20, background:done?T.green:T.border, marginBottom:20, flexShrink:0 }}/>
             )}
           </div>
         );
@@ -225,7 +278,34 @@ function StepBar({ current, hasPV, pvOnly }) {
   );
 }
 
-const emptyPV = () => ({ sn:"", description:"", manufacturer:"", year_manufacture:"", country_origin:"", capacity:"", working_pressure:"", test_pressure:"", pressure_unit:"bar", result:"PASS", notes:"" });
+const emptyPV   = () => ({ sn:"", description:"", manufacturer:"", year_manufacture:"", country_origin:"", capacity:"", working_pressure:"", test_pressure:"", pressure_unit:"bar", result:"PASS", notes:"" });
+const emptyFork = () => ({ fork_number:"", length:"", thickness_heel:"", thickness_blade:"", width:"", swl:"", result:"PASS", cracks:"no", bending:"no", wear_pct:"", notes:"" });
+const emptyBoom = () => ({
+  min_radius:"", max_radius:"", min_boom_length:"", max_boom_length:"",
+  actual_boom_length:"", extended_boom_length:"", max_height:"",
+  jib_fitted:"no",
+  swl_at_min_radius:"", swl_at_max_radius:"", swl_at_actual_config:"",
+  boom_angle:"", load_tested_at_radius:"", test_load:"",
+  luffing_system:"PASS", slew_system:"PASS", hoist_system:"PASS",
+  boom_structure:"PASS", boom_pins:"PASS", boom_wear:"PASS",
+  lmi_test:"PASS", anti_two_block:"PASS", notes:"",
+});
+const emptyBucket = () => ({
+  platform_swl:"", platform_dimensions:"", platform_material:"",
+  platform_structure:"PASS", platform_floor:"PASS", guardrails:"PASS",
+  gate_latch:"PASS", levelling_system:"PASS", emergency_lowering:"PASS",
+  overload_device:"PASS", tilt_alarm:"PASS",
+  test_load_applied:"", notes:"",
+});
+const emptyHorseTrailer = () => ({
+  // Horse (truck/prime mover)
+  horse_reg:"", horse_make:"", horse_model:"", horse_vin:"", horse_year:"",
+  horse_fleet:"", horse_gvm:"", horse_result:"PASS", horse_notes:"",
+  // Trailer
+  trailer_reg:"", trailer_make:"", trailer_model:"", trailer_vin:"", trailer_year:"",
+  trailer_fleet:"", trailer_gvm:"", trailer_result:"PASS", trailer_notes:"",
+  has_trailer: true,
+});
 
 const defaultInspFields = (type) => {
   if (!type) return {};
@@ -239,17 +319,25 @@ const defaultInspFields = (type) => {
 
 export default function MachineInspectionPage() {
   const router = useRouter();
-  const [step,    setStep]    = useState(1);
-  const [clients, setClients] = useState([]);
-  const [saving,    setSaving]    = useState(false);
-  const [saved,     setSaved]     = useState(null);
-  const [error,     setError]     = useState("");
+
+  const [clients, setClients]   = useState([]);
+  const [saving,  setSaving]    = useState(false);
+  const [saved,   setSaved]     = useState(null);
+  const [error,   setError]     = useState("");
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState("");
 
   // Selected machine type
   const [machineTypeId, setMachineTypeId] = useState("");
   const machineType = MACHINE_TYPES.find(m => m.id === machineTypeId);
+
+  // Derived step list for current machine type
+  const stepList = machineType
+    ? machineType.steps.filter(s => s !== 6 || hasPVs)  // hide PV step if toggled off
+    : [1];
+
+  // Current step (using step IDs, not indices)
+  const [currentStep, setCurrentStep] = useState(1);
 
   // Step 1 — equipment identity
   const [equip, setEquip] = useState({
@@ -261,77 +349,94 @@ export default function MachineInspectionPage() {
 
   // Step 2 — dynamic inspection fields
   const [insp, setInsp] = useState({});
-  const [boom, setBoom] = useState({
-    min_radius:"", max_radius:"", min_boom_length:"", max_boom_length:"",
-    actual_boom_length:"", extended_boom_length:"", max_height:"",
-    jib_fitted:"no",
-    swl_at_min_radius:"", swl_at_max_radius:"", swl_at_actual_config:"",
-    boom_angle:"", load_tested_at_radius:"", test_load:"",
-    luffing_system:"PASS", slew_system:"PASS", hoist_system:"PASS",
-    boom_structure:"PASS", boom_pins:"PASS", boom_wear:"PASS",
-    lmi_test:"PASS", anti_two_block:"PASS", notes:"",
-  });
 
-  // Step 3 — pressure vessels
-  const [pvs, setPvs] = useState([emptyPV()]);
+  // Step 3 — boom
+  const [boom, setBoom] = useState(emptyBoom());
+
+  // Step 4 — forks
+  const [forks, setForks] = useState([emptyFork(), emptyFork()]);
+
+  // Step 5 — bucket/platform
+  const [bucket, setBucket] = useState(emptyBucket());
+
+  // Step 6 — pressure vessels
+  const [pvs,    setPvs]    = useState([emptyPV()]);
   const [hasPVs, setHasPVs] = useState(false);
+
+  // Step 7 — horse & trailer registration
+  const [horseTrailer, setHorseTrailer] = useState(emptyHorseTrailer());
 
   useEffect(() => {
     supabase.from("clients").select("id,company_name,city").order("company_name")
       .then(({ data }) => setClients(data || []));
   }, []);
 
-  // Reset inspection fields when machine type changes
+  // Reset when machine type changes
   useEffect(() => {
     if (machineType) {
       setInsp(defaultInspFields(machineType));
       setHasPVs(machineType.hasPV);
+      setCurrentStep(1);
     }
   }, [machineTypeId]);
 
-  const ue = (k,v) => setEquip(p => ({ ...p, [k]:v }));
-  const ub = (k,v) => setBoom(p => ({ ...p, [k]:v }));
-  const ui = (k,v) => setInsp(p => ({ ...p, [k]:v }));
+  // Recompute step list whenever hasPVs changes (adds/removes step 6)
+  const effectiveSteps = machineType
+    ? machineType.steps.filter(s => s !== 6 || hasPVs)
+    : [1];
+
+  const ue  = (k,v) => setEquip(p => ({ ...p, [k]:v }));
+  const ub  = (k,v) => setBoom(p => ({ ...p, [k]:v }));
+  const ui  = (k,v) => setInsp(p => ({ ...p, [k]:v }));
+  const ubu = (k,v) => setBucket(p => ({ ...p, [k]:v }));
+  const uht = (k,v) => setHorseTrailer(p => ({ ...p, [k]:v }));
   const upv = (i,k,v) => setPvs(p => p.map((x,j) => j===i ? {...x,[k]:v} : x));
+  const ufk = (i,k,v) => setForks(p => p.map((x,j) => j===i ? {...x,[k]:v} : x));
 
   function clientSelected(id) {
     const c = clients.find(x => x.id === id);
     setEquip(p => ({ ...p, client_id:id, client_name:c?.company_name||"", client_location:c?.city||"" }));
   }
 
-  // Smart step navigation — pvOnly skips step 2; no PVs skips step 3
   function nextStep() {
     setError("");
-    if (step === 1 && (!machineTypeId || !equip.client_id || !equip.serial_number)) {
+    if (currentStep === 1 && (!machineTypeId || !equip.client_id || !equip.serial_number)) {
       setError("Please select equipment type, client and enter a serial number."); return;
     }
-    if (step === 1 && machineType?.pvOnly) { setStep(3); return; } // skip checklist
-    if (step === 2 && !hasPVs)            { setStep(4); return; } // skip PV step
-    if (step === 2 &&  hasPVs)            { setStep(3); return; }
-    if (step === 3)                        { setStep(4); return; }
-    setStep(s => s + 1);
+    const idx = effectiveSteps.indexOf(currentStep);
+    if (idx < effectiveSteps.length - 1) {
+      setCurrentStep(effectiveSteps[idx + 1]);
+    }
   }
   function prevStep() {
-    if (step === 3 && machineType?.pvOnly) { setStep(1); return; } // back past checklist
-    if (step === 4 && machineType?.pvOnly) { setStep(3); return; }
-    if (step === 4 && !hasPVs)            { setStep(2); return; }
-    setStep(s => Math.max(1, s - 1));
+    const idx = effectiveSteps.indexOf(currentStep);
+    if (idx > 0) setCurrentStep(effectiveSteps[idx - 1]);
+    else router.push("/certificates");
   }
 
-  // Build notes string from inspection fields
   function buildNotes() {
     if (!machineType) return "";
     const parts = machineType.fields
       .filter(f => f.type === "result" && insp[f.key])
       .map(f => `${f.label.split("/")[0].trim()}: ${insp[f.key]}`);
-    if (insp.test_load) parts.push(`Test load: ${insp.test_load}T`);
-    if (machineType?.hasBoom) {
+    if (insp.test_load) parts.push(`Test load: ${insp.test_load}`);
+    // Boom summary
+    if (machineType.steps.includes(3)) {
       if (boom.actual_boom_length) parts.push(`Boom: ${boom.actual_boom_length}m`);
-      if (boom.extended_boom_length) parts.push(`Extended: ${boom.extended_boom_length}m`);
-      if (boom.boom_angle) parts.push(`Angle: ${boom.boom_angle}°`);
-      if (boom.load_tested_at_radius) parts.push(`Test radius: ${boom.load_tested_at_radius}m`);
-      if (boom.test_load) parts.push(`Boom test: ${boom.test_load}T`);
+      if (boom.boom_angle)         parts.push(`Angle: ${boom.boom_angle}°`);
+      if (boom.test_load)          parts.push(`Boom test: ${boom.test_load}T`);
       if (boom.swl_at_actual_config) parts.push(`SWL@config: ${boom.swl_at_actual_config}`);
+    }
+    // Fork summary
+    if (machineType.steps.includes(4)) {
+      forks.forEach((f,i) => {
+        if (f.swl || f.length) parts.push(`Fork${i+1}: SWL ${f.swl||"—"} L${f.length||"—"}mm`);
+      });
+    }
+    // Bucket summary
+    if (machineType.steps.includes(5)) {
+      if (bucket.platform_swl) parts.push(`Platform SWL: ${bucket.platform_swl}`);
+      if (bucket.test_load_applied) parts.push(`Platform test: ${bucket.test_load_applied}`);
     }
     return parts.join(" | ");
   }
@@ -344,72 +449,6 @@ export default function MachineInspectionPage() {
     }
   }
 
-  async function handleImport(file) {
-    if (!file) return;
-    setImporting(true); setImportMsg("Reading notes…");
-    try {
-      const base64 = await toBase64(file);
-      const mime   = file.type || "image/jpeg";
-      setImportMsg("Extracting data with AI…");
-      const d = await extractMachineDataFromImage(base64, mime);
-
-      // Equipment identity
-      if (d.serial_number)        ue("serial_number",        d.serial_number);
-      if (d.fleet_number)         ue("fleet_number",         d.fleet_number);
-      if (d.registration_number)  ue("registration_number",  d.registration_number);
-      if (d.manufacturer)         ue("manufacturer",         d.manufacturer);
-      if (d.model)                ue("model",                d.model);
-
-      // Inspection results — only set if field exists in current machine type
-      if (d.overall_result)       ui("overall_result",       d.overall_result);
-      if (d.defects)              ui("defects",              d.defects);
-      if (d.recommendations)      ui("recommendations",      d.recommendations);
-      if (d.swl)                  ui("swl",                  d.swl);
-      if (d.test_load)            ui("test_load",            d.test_load);
-      if (d.structural_result)    ui("structural_result",    d.structural_result);
-      if (d.hydraulics_result)    ui("hydraulics_result",    d.hydraulics_result);
-      if (d.boom_result)          ui("boom_result",          d.boom_result);
-
-      // Boom fields
-      if (d.boom_actual_length)    ub("actual_boom_length",    d.boom_actual_length);
-      if (d.boom_extended_length)  ub("extended_boom_length",  d.boom_extended_length);
-      if (d.boom_radius)           ub("load_tested_at_radius",  d.boom_radius);
-      if (d.boom_angle)            ub("boom_angle",             d.boom_angle);
-      if (d.boom_test_load)        ub("test_load",              d.boom_test_load);
-      if (d.boom_swl_at_config)    ub("swl_at_actual_config",  d.boom_swl_at_config);
-      if (d.boom_swl_min)          ub("swl_at_min_radius",     d.boom_swl_min);
-      if (d.boom_swl_max)          ub("swl_at_max_radius",     d.boom_swl_max);
-      if (d.boom_min_radius)       ub("min_radius",             d.boom_min_radius);
-      if (d.boom_max_radius)       ub("max_radius",             d.boom_max_radius);
-
-      // Pressure vessels
-      if (d.pressure_vessels?.length > 0) {
-        const newPvs = d.pressure_vessels.map(pv => ({
-          sn:               pv.sn || "",
-          description:      pv.description || "",
-          manufacturer:     pv.manufacturer || "",
-          year_manufacture: pv.year_manufacture || "",
-          country_origin:   pv.country_origin || "",
-          capacity:         pv.capacity || "",
-          working_pressure: pv.working_pressure || "",
-          test_pressure:    pv.test_pressure || "",
-          pressure_unit:    pv.pressure_unit || "bar",
-          result:           pv.result || "PASS",
-          notes:            pv.notes || "",
-        }));
-        setPvs(newPvs);
-        setHasPVs(true);
-      }
-
-      const count = Object.values(d).filter(v => v && v !== "PASS" && typeof v !== "object").length;
-      setImportMsg(`✓ Extracted data — review and complete missing fields`);
-    } catch(e) {
-      console.error(e);
-      setImportMsg("⚠ Could not read image — please fill manually");
-    }
-    setImporting(false);
-  }
-
   async function handleGenerate() {
     if (!machineType || !equip.client_id || !equip.serial_number) {
       setError("Missing required fields."); return;
@@ -417,7 +456,6 @@ export default function MachineInspectionPage() {
     setSaving(true); setError("");
     await ensureClient(equip.client_name, equip.client_location);
 
-    // Auto-generate serial if blank
     const equipRef = { ...equip };
     if (!equipRef.serial_number?.trim()) {
       const cc = (equipRef.client_name||"UNK").split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
@@ -437,8 +475,7 @@ export default function MachineInspectionPage() {
     const prefix = machineType.id.slice(0,2).toUpperCase();
     const nextNo = () => `CERT-${prefix}${pad(seq++)}`;
 
-    // ── Main equipment certificate ──────────────────────────────────────────
-    const swl = insp.swl || "";
+    const swl  = insp.swl || "";
     const desc = [
       machineType.label,
       equip.model ? `(${equip.model})` : "",
@@ -447,43 +484,140 @@ export default function MachineInspectionPage() {
       equip.registration_number ? `Reg ${equip.registration_number}` : "",
     ].filter(Boolean).join(" ");
 
-    certs.push({
-      certificate_number: nextNo(),
-      equipment_type: machineType.label,
-      equipment_description: desc,
-      serial_number: equipRef.serial_number,
-      fleet_number: equipRef.fleet_number,
-      registration_number: equip.registration_number,
-      model: equip.model,
-      manufacturer: equip.manufacturer,
-      swl,
-      capacity_volume: insp.capacity || "",
-      working_pressure: insp.working_pressure || "",
-      test_pressure: insp.test_pressure || "",
-      client_name: equip.client_name,
-      client_id: equip.client_id,
-      location: equip.client_location,
-      issue_date: iDate,
-      inspection_date: iDate,
-      expiry_date: expiry,
-      next_inspection_due: expiry,
-      result: insp.overall_result || "PASS",
-      defects_found: insp.defects || "",
-      recommendations: insp.recommendations || "",
-      inspector_name: INSPECTOR_NAME,
-      inspector_id: INSPECTOR_ID,
-      certificate_type: machineType.certType,
-      folder_id: folderId,
-      folder_name: folderName,
-      folder_position: 1,
-      notes: buildNotes(),
-    });
+    // ── Main equipment cert (skip for horse_trailer — those get split certs below) ──
+    if (machineType.id !== "horse_trailer") {
+      certs.push({
+        certificate_number: nextNo(),
+        equipment_type: machineType.label,
+        equipment_description: desc,
+        serial_number: equipRef.serial_number,
+        fleet_number: equipRef.fleet_number,
+        registration_number: equip.registration_number,
+        model: equip.model,
+        manufacturer: equip.manufacturer,
+        swl,
+        client_name: equip.client_name,
+        client_id: equip.client_id,
+        location: equip.client_location,
+        issue_date: iDate,
+        inspection_date: iDate,
+        expiry_date: expiry,
+        next_inspection_due: expiry,
+        result: insp.overall_result || "PASS",
+        defects_found: insp.defects || "",
+        recommendations: insp.recommendations || "",
+        inspector_name: INSPECTOR_NAME,
+        inspector_id: INSPECTOR_ID,
+        certificate_type: machineType.certType,
+        folder_id: folderId,
+        folder_name: folderName,
+        folder_position: 1,
+        notes: buildNotes(),
+      });
+    }
 
-    // ── Pressure vessel certificates ─────────────────────────────────────────
+    // ── Horse cert ──────────────────────────────────────────────────────────
+    if (machineType.id === "horse_trailer") {
+      certs.push({
+        certificate_number: nextNo(),
+        equipment_type: "Horse / Prime Mover",
+        equipment_description: `Horse ${horseTrailer.horse_make} ${horseTrailer.horse_model} Reg ${horseTrailer.horse_reg}`.trim(),
+        serial_number: horseTrailer.horse_vin,
+        fleet_number: horseTrailer.horse_fleet,
+        registration_number: horseTrailer.horse_reg,
+        model: horseTrailer.horse_model,
+        manufacturer: horseTrailer.horse_make,
+        swl: horseTrailer.horse_gvm ? `GVM ${horseTrailer.horse_gvm}` : "",
+        client_name: equip.client_name,
+        client_id: equip.client_id,
+        location: equip.client_location,
+        issue_date: iDate,
+        inspection_date: iDate,
+        expiry_date: expiry,
+        next_inspection_due: expiry,
+        result: horseTrailer.horse_result,
+        defects_found: horseTrailer.horse_notes,
+        inspector_name: INSPECTOR_NAME,
+        inspector_id: INSPECTOR_ID,
+        certificate_type: "Vehicle Registration Certificate",
+        folder_id: folderId,
+        folder_name: folderName,
+        folder_position: 1,
+        notes: `Horse Reg: ${horseTrailer.horse_reg} VIN: ${horseTrailer.horse_vin}`,
+      });
+
+      if (horseTrailer.has_trailer) {
+        certs.push({
+          certificate_number: nextNo(),
+          equipment_type: "Trailer",
+          equipment_description: `Trailer ${horseTrailer.trailer_make} ${horseTrailer.trailer_model} Reg ${horseTrailer.trailer_reg}`.trim(),
+          serial_number: horseTrailer.trailer_vin,
+          fleet_number: horseTrailer.trailer_fleet,
+          registration_number: horseTrailer.trailer_reg,
+          model: horseTrailer.trailer_model,
+          manufacturer: horseTrailer.trailer_make,
+          swl: horseTrailer.trailer_gvm ? `GVM ${horseTrailer.trailer_gvm}` : "",
+          client_name: equip.client_name,
+          client_id: equip.client_id,
+          location: equip.client_location,
+          issue_date: iDate,
+          inspection_date: iDate,
+          expiry_date: expiry,
+          next_inspection_due: expiry,
+          result: horseTrailer.trailer_result,
+          defects_found: horseTrailer.trailer_notes,
+          inspector_name: INSPECTOR_NAME,
+          inspector_id: INSPECTOR_ID,
+          certificate_type: "Trailer Registration Certificate",
+          folder_id: folderId,
+          folder_name: folderName,
+          folder_position: 2,
+          notes: `Trailer Reg: ${horseTrailer.trailer_reg} VIN: ${horseTrailer.trailer_vin}`,
+        });
+      }
+    }
+
+    // ── Fork certs ──────────────────────────────────────────────────────────
+    if (machineType.steps.includes(4)) {
+      forks.forEach((fk, i) => {
+        if (!fk.length && !fk.swl) return; // skip blank forks
+        certs.push({
+          certificate_number: nextNo(),
+          equipment_type: "Fork Arm",
+          equipment_description: `Fork Arm ${i+1} — ${machineType.label} SN ${equipRef.serial_number}`,
+          serial_number: fk.fork_number || `FORK-${equipRef.serial_number}-${i+1}`,
+          client_name: equip.client_name,
+          client_id: equip.client_id,
+          location: equip.client_location,
+          issue_date: iDate,
+          inspection_date: iDate,
+          expiry_date: expiry,
+          next_inspection_due: expiry,
+          result: fk.result,
+          defects_found: fk.notes || "",
+          swl: fk.swl || "",
+          inspector_name: INSPECTOR_NAME,
+          inspector_id: INSPECTOR_ID,
+          certificate_type: "Fork Arm Inspection Certificate",
+          folder_id: folderId,
+          folder_name: folderName,
+          folder_position: 10 + i,
+          notes: [
+            fk.length      ? `Length: ${fk.length}mm`           : "",
+            fk.thickness_heel ? `Heel: ${fk.thickness_heel}mm`  : "",
+            fk.thickness_blade ? `Blade: ${fk.thickness_blade}mm`: "",
+            fk.wear_pct    ? `Wear: ${fk.wear_pct}%`            : "",
+            fk.cracks==="yes"   ? "CRACKS FOUND"                : "",
+            fk.bending==="yes"  ? "BENDING DETECTED"            : "",
+          ].filter(Boolean).join(" | "),
+        });
+      });
+    }
+
+    // ── Pressure vessel certs ───────────────────────────────────────────────
     if (hasPVs) {
-      for (let i = 0; i < pvs.length; i++) {
-        const pv = pvs[i];
-        if (!pv.sn && !pv.description) continue;
+      pvs.forEach((pv, i) => {
+        if (!pv.sn && !pv.description) return;
         certs.push({
           certificate_number: nextNo(),
           equipment_type: "Pressure Vessel",
@@ -501,8 +635,8 @@ export default function MachineInspectionPage() {
           location: equip.client_location,
           issue_date: iDate,
           inspection_date: iDate,
-          expiry_date: expiry, // 1 year
-          next_inspection_due: expiry,
+          expiry_date: addMonths(iDate, 12),
+          next_inspection_due: addMonths(iDate, 12),
           result: pv.result,
           defects_found: pv.notes || "",
           inspector_name: INSPECTOR_NAME,
@@ -510,9 +644,9 @@ export default function MachineInspectionPage() {
           certificate_type: "Pressure Test Certificate",
           folder_id: folderId,
           folder_name: folderName,
-          folder_position: 2 + i,
+          folder_position: 20 + i,
         });
-      }
+      });
     }
 
     const { data, error: dbErr } = await supabase.from("certificates").insert(certs).select("id,certificate_number,equipment_type,result,expiry_date");
@@ -549,7 +683,7 @@ export default function MachineInspectionPage() {
           ))}
         </div>
         <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
-          <button type="button" onClick={()=>{ setSaved(null); setStep(1); setMachineTypeId(""); setEquip(p=>({...p,serial_number:"",fleet_number:"",registration_number:"",model:"",manufacturer:""})); }}
+          <button type="button" onClick={()=>{ setSaved(null); setCurrentStep(1); setMachineTypeId(""); setEquip(p=>({...p,serial_number:"",fleet_number:"",registration_number:"",model:"",manufacturer:""})); }}
             style={{ padding:"11px 20px", borderRadius:10, border:`1px solid ${T.border}`, background:T.card, color:T.text, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
             New Inspection
           </button>
@@ -572,10 +706,11 @@ export default function MachineInspectionPage() {
         textarea{resize:vertical}
         .g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
         .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+        .g4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px}
         .mtype{padding:12px 14px;border-radius:12px;border:1px solid ${T.border};background:${T.card};cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:10px;-webkit-tap-highlight-color:transparent}
         .mtype:hover{border-color:${T.accentBrd};background:${T.accentDim}}
         .mtype.sel{border-color:${T.accent};background:${T.accentDim};box-shadow:0 0 0 1px ${T.accent}}
-        @media(max-width:640px){.g2{grid-template-columns:1fr!important}.g3{grid-template-columns:1fr 1fr!important}}
+        @media(max-width:640px){.g2{grid-template-columns:1fr!important}.g3{grid-template-columns:1fr 1fr!important}.g4{grid-template-columns:1fr 1fr!important}}
       `}</style>
 
       <div style={{ fontFamily:"'IBM Plex Sans',sans-serif", color:T.text, padding:20, maxWidth:900, margin:"0 auto" }}>
@@ -584,40 +719,21 @@ export default function MachineInspectionPage() {
         <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:18, padding:"14px 20px", marginBottom:20, backdropFilter:"blur(20px)" }}>
           <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", textTransform:"uppercase", color:T.accent, marginBottom:4 }}>Certificates · Inspection Wizard</div>
           <h1 style={{ margin:"0 0 2px", fontSize:22, fontWeight:900, letterSpacing:"-0.02em" }}>Machine Inspection</h1>
-          <p style={{ margin:0, fontSize:12, color:T.textDim }}>Telehandlers · Cherry Pickers · Crane Trucks · Bowsers · Tippers · Buses · Forklifts · TLBs · Any machine with pressure vessels</p>
+          <p style={{ margin:0, fontSize:12, color:T.textDim }}>Telehandlers · Cherry Pickers · Forklifts · TLBs · Crane Trucks · Bowsers · Tippers · Horse & Trailer</p>
           <div style={{ display:"flex", gap:12, marginTop:10, flexWrap:"wrap" }}>
             <a href="/certificates/crane-inspection" style={{ fontSize:11, color:T.accent, textDecoration:"none", fontWeight:700 }}>🏗 Crane Inspection →</a>
             <a href="/certificates" style={{ fontSize:11, color:T.accent, textDecoration:"none", fontWeight:700 }}>📜 All Certificates →</a>
           </div>
         </div>
 
-        <StepBar current={step} hasPV={hasPVs && machineTypeId !== ""} pvOnly={machineType?.pvOnly||false} hasBoom={machineType?.hasBoom||false}/>
+        {/* Step bar */}
+        {machineType && <StepBar steps={effectiveSteps} currentStep={currentStep}/>}
 
         {error && <div style={{ padding:"10px 14px", borderRadius:10, border:`1px solid ${T.redBrd}`, background:T.redDim, color:T.red, fontSize:13, fontWeight:700, marginBottom:16 }}>⚠ {error}</div>}
 
-        {/* ── PHOTO IMPORT ── */}
-        {step === 1 && (
-          <div style={{ background:T.purpleDim, border:`1px solid ${T.purpleBrd}`, borderRadius:14, padding:"14px 18px", marginBottom:16, display:"flex", alignItems:"center", gap:14, flexWrap:"wrap" }}>
-            <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontSize:13, fontWeight:800, color:T.purple, marginBottom:3 }}>📷 Import from Handwritten Note</div>
-              <div style={{ fontSize:11, color:T.textDim }}>Take a photo of your inspection notes — AI fills serial number, SWL, results and pressure vessels automatically</div>
-              {importMsg && <div style={{ fontSize:12, fontWeight:700, marginTop:6, color:importMsg.startsWith("✓")?T.green:importMsg.startsWith("⚠")?T.red:T.amber }}>{importMsg}</div>}
-            </div>
-            <label style={{ cursor:"pointer", flexShrink:0 }}>
-              <input type="file" accept="image/*" capture="environment" style={{ display:"none" }}
-                onChange={async e => { const f = e.target.files?.[0]; if(f) await handleImport(f); e.target.value=""; }}
-              />
-              <div style={{ padding:"10px 18px", borderRadius:10, background:importing?T.card:"linear-gradient(135deg,#a78bfa,#7c3aed)", color:importing?T.textDim:"#fff", fontWeight:800, fontSize:13, display:"flex", alignItems:"center", gap:8, opacity:importing?0.6:1 }}>
-                {importing ? "🔄 Reading…" : "📷 Choose / Take Photo"}
-              </div>
-            </label>
-          </div>
-        )}
-
         {/* ── STEP 1: Equipment Identity ── */}
-        {step === 1 && (
+        {currentStep === 1 && (
           <>
-            {/* Machine type selector */}
             <Card title="Select Equipment Type" icon="🔧" color={T.accent} brd={T.accentBrd}>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:10 }}>
                 {MACHINE_TYPES.map(m => (
@@ -641,11 +757,9 @@ export default function MachineInspectionPage() {
                       <option value="">— Select Client —</option>
                       {clients.map(c=><option key={c.id} value={c.id}>{c.company_name}{c.city?` — ${c.city}`:""}</option>)}
                     </select>
-                    {clients.length > 0 && (
-                      <div style={{ fontSize:11, color:T.textDim, marginTop:5 }}>
-                        Not listed? <a href="/clients/register" target="_blank" style={{ color:T.accent, fontWeight:700 }}>+ Register client</a>
-                      </div>
-                    )}
+                    <div style={{ fontSize:11, color:T.textDim, marginTop:5 }}>
+                      Not listed? <a href="/clients/register" target="_blank" style={{ color:T.accent, fontWeight:700 }}>+ Register client</a>
+                    </div>
                   </Field>
                   <Field label="Inspection Date">
                     <input style={IS} type="date" value={equip.inspection_date} onChange={e=>ue("inspection_date",e.target.value)}/>
@@ -671,13 +785,11 @@ export default function MachineInspectionPage() {
                   </Field>
                 </div>
 
-                {/* Expiry preview */}
                 {equip.inspection_date && machineType && (
                   <div style={{ marginTop:14, padding:"10px 14px", borderRadius:10, background:T.accentDim, border:`1px solid ${T.accentBrd}`, fontSize:12, color:T.textMid }}>
-                    📅 <strong style={{ color:T.text }}>{machineType.label}</strong> certificate expires: <strong style={{ color:T.accent }}>{fmt(addMonths(equip.inspection_date, machineType.expiry))}</strong>
+                    📅 <strong style={{ color:T.text }}>{machineType.label}</strong> expires: <strong style={{ color:T.accent }}>{fmt(addMonths(equip.inspection_date, machineType.expiry))}</strong>
                     <span style={{ color:T.textDim }}> ({machineType.expiry} months)</span>
-                    {machineType.hasPV && <span style={{ marginLeft:16 }}>· Pressure vessels: <strong style={{ color:T.accent }}>{fmt(addMonths(equip.inspection_date, 12))}</strong></span>}
-                {machineType.pvOnly && <span style={{ marginLeft:16, color:T.amber }}>· Vehicle identification + pressure vessel certificates only</span>}
+                    {machineType.hasPV && <span style={{ marginLeft:16 }}>· PV expires: <strong style={{ color:T.accent }}>{fmt(addMonths(equip.inspection_date, 12))}</strong></span>}
                   </div>
                 )}
               </Card>
@@ -685,8 +797,8 @@ export default function MachineInspectionPage() {
           </>
         )}
 
-        {/* ── STEP 2: Dynamic Inspection Fields — only for full inspection types ── */}
-        {step === 2 && machineType && !machineType.pvOnly && (
+        {/* ── STEP 2: Inspection Checklist ── */}
+        {currentStep === 2 && machineType && (
           <>
             <Card title={`${machineType.label} — Inspection Checklist`} icon={machineType.icon} color={T.blue} brd={T.blueBrd}>
               <div className="g2" style={{ marginBottom:14 }}>
@@ -699,7 +811,6 @@ export default function MachineInspectionPage() {
                   </Field>
                 ))}
               </div>
-
               <div style={{ borderTop:`1px solid ${T.border}`, paddingTop:14, display:"grid", gap:12 }}>
                 <div className="g2">
                   <Field label="Overall Result">
@@ -710,12 +821,12 @@ export default function MachineInspectionPage() {
                   </Field>
                 </div>
                 <Field label="Recommendations">
-                  <textarea style={{ ...IS, minHeight:60 }} placeholder="Recommendations for maintenance or repair..." value={insp.recommendations||""} onChange={e=>ui("recommendations",e.target.value)}/>
+                  <textarea style={{ ...IS, minHeight:60 }} placeholder="Recommendations..." value={insp.recommendations||""} onChange={e=>ui("recommendations",e.target.value)}/>
                 </Field>
               </div>
             </Card>
 
-            {/* Toggle pressure vessels */}
+            {/* Toggle PV */}
             {machineType.hasPV && (
               <div style={{ background:T.panel, border:`1px solid ${T.border}`, borderRadius:14, padding:16, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap" }}>
                 <div>
@@ -723,24 +834,22 @@ export default function MachineInspectionPage() {
                   <div style={{ fontSize:11, color:T.textDim, marginTop:2 }}>Does this {machineType.label} have pressure vessels?</div>
                 </div>
                 <div style={{ display:"flex", gap:8 }}>
-                  <button type="button" onClick={()=>setHasPVs(true)}
-                    style={{ padding:"8px 18px", borderRadius:9, border:`1px solid ${hasPVs?T.greenBrd:T.border}`, background:hasPVs?T.greenDim:T.card, color:hasPVs?T.green:T.textMid, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
-                    ✓ Yes
-                  </button>
-                  <button type="button" onClick={()=>setHasPVs(false)}
-                    style={{ padding:"8px 18px", borderRadius:9, border:`1px solid ${!hasPVs?T.redBrd:T.border}`, background:!hasPVs?T.redDim:T.card, color:!hasPVs?T.red:T.textMid, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
-                    ✗ No
-                  </button>
+                  {[{v:true,l:"✓ Yes",c:T.green,bg:T.greenDim,brd:T.greenBrd},{v:false,l:"✗ No",c:T.red,bg:T.redDim,brd:T.redBrd}].map(o=>(
+                    <button key={String(o.v)} type="button" onClick={()=>setHasPVs(o.v)}
+                      style={{ padding:"8px 18px", borderRadius:9, border:`1px solid ${hasPVs===o.v?o.brd:T.border}`, background:hasPVs===o.v?o.bg:T.card, color:hasPVs===o.v?o.c:T.textMid, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+                      {o.l}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
           </>
         )}
 
-        {/* ── STEP 3: Boom Inspection (Telehandler / Cherry Picker only) ── */}
-        {step === 3 && machineType?.hasBoom && (
+        {/* ── STEP 3: Boom Inspection ── */}
+        {currentStep === 3 && (
           <Card title="Boom Configuration & Load Chart" icon="📐" color={T.blue} brd={T.blueBrd}>
-            <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>Boom Geometry</div>
+            <SectionHeading label="Boom Geometry"/>
             <div className="g3" style={{ marginBottom:14 }}>
               <Field label="Min Boom Length (m)"><input style={IS} placeholder="e.g. 6" value={boom.min_boom_length} onChange={e=>ub("min_boom_length",e.target.value)}/></Field>
               <Field label="Max Boom Length (m)"><input style={IS} placeholder="e.g. 18" value={boom.max_boom_length} onChange={e=>ub("max_boom_length",e.target.value)}/></Field>
@@ -750,7 +859,7 @@ export default function MachineInspectionPage() {
               <Field label="Extended / Telescoped (m)"><input style={IS} placeholder="e.g. 10" value={boom.extended_boom_length} onChange={e=>ub("extended_boom_length",e.target.value)}/></Field>
               <Field label="Boom Angle (°)"><input style={IS} placeholder="e.g. 60" value={boom.boom_angle} onChange={e=>ub("boom_angle",e.target.value)}/></Field>
               {machineType?.id === "cherry_picker" && (
-                <Field label="Max Working Height (m)"><input style={IS} placeholder="e.g. 18" value={boom.max_height||""} onChange={e=>ub("max_height",e.target.value)}/></Field>
+                <Field label="Max Working Height (m)"><input style={IS} placeholder="e.g. 18" value={boom.max_height} onChange={e=>ub("max_height",e.target.value)}/></Field>
               )}
               {machineType?.id === "telehandler" && (
                 <Field label="Jib / Fork Attachment">
@@ -760,7 +869,8 @@ export default function MachineInspectionPage() {
                 </Field>
               )}
             </div>
-            <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", margin:"18px 0 10px" }}>Working Radius & SWL</div>
+
+            <SectionHeading label="Working Radius & SWL"/>
             <div className="g3" style={{ marginBottom:14 }}>
               <Field label="Min Radius (m)"><input style={IS} placeholder="e.g. 1.5" value={boom.min_radius} onChange={e=>ub("min_radius",e.target.value)}/></Field>
               <Field label="Max Radius (m)"><input style={IS} placeholder="e.g. 14" value={boom.max_radius} onChange={e=>ub("max_radius",e.target.value)}/></Field>
@@ -774,7 +884,8 @@ export default function MachineInspectionPage() {
             <Field label="Load Test Applied (Tonnes) — 110% of SWL at test config">
               <input style={IS} placeholder="e.g. 4.4" value={boom.test_load} onChange={e=>ub("test_load",e.target.value)}/>
             </Field>
-            <div style={{ fontSize:12, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em", margin:"18px 0 10px" }}>Boom Systems Condition</div>
+
+            <SectionHeading label="Boom Systems Condition"/>
             <div className="g3" style={{ marginBottom:14 }}>
               <Field label="Boom Structure"><ResultSelect value={boom.boom_structure} onChange={v=>ub("boom_structure",v)}/></Field>
               <Field label="Boom Pins & Connections"><ResultSelect value={boom.boom_pins} onChange={v=>ub("boom_pins",v)}/></Field>
@@ -795,15 +906,139 @@ export default function MachineInspectionPage() {
           </Card>
         )}
 
-        {/* ── STEP 3: Boom Inspection — Telehandler / Cherry Picker only ── */}
-        
-
-        {/* ── STEP 4: Pressure Vessels ── */}
-        {step === 4 && (
+        {/* ── STEP 4: Fork Inspection ── */}
+        {currentStep === 4 && (
           <>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
-              <div style={{ fontSize:14, fontWeight:800 }}>
-                Pressure Vessels <span style={{ fontSize:12, color:T.textDim, fontWeight:400 }}>— up to 8 — expires 1 year</span>
+              <div>
+                <div style={{ fontSize:15, fontWeight:800, color:T.text }}>Fork Arms Inspection</div>
+                <div style={{ fontSize:12, color:T.textDim, marginTop:2 }}>Each fork arm gets its own inspection certificate</div>
+              </div>
+              {forks.length < 4 && (
+                <button type="button" onClick={()=>setForks(p=>[...p,emptyFork()])}
+                  style={{ padding:"8px 16px", borderRadius:9, border:`1px solid ${T.greenBrd}`, background:T.greenDim, color:T.green, fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+                  + Add Fork
+                </button>
+              )}
+            </div>
+
+            {forks.map((fk, i) => (
+              <Card key={i} title={`Fork Arm ${i+1}`} icon="🍴" color={T.amber} brd={T.amberBrd}>
+                <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:10 }}>
+                  {forks.length > 1 && (
+                    <button type="button" onClick={()=>setForks(p=>p.filter((_,j)=>j!==i))}
+                      style={{ padding:"4px 10px", borderRadius:7, border:`1px solid ${T.redBrd}`, background:T.redDim, color:T.red, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
+                      Remove
+                    </button>
+                  )}
+                </div>
+
+                <SectionHeading label="Fork Identification"/>
+                <div className="g2" style={{ marginBottom:14 }}>
+                  <Field label="Fork Serial / ID Number">
+                    <input style={IS} placeholder="e.g. FK-001-A" value={fk.fork_number} onChange={e=>ufk(i,"fork_number",e.target.value)}/>
+                  </Field>
+                  <Field label="Safe Working Load (SWL)">
+                    <input style={IS} placeholder="e.g. 3T" value={fk.swl} onChange={e=>ufk(i,"swl",e.target.value)}/>
+                  </Field>
+                </div>
+
+                <SectionHeading label="Fork Dimensions"/>
+                <div className="g4" style={{ marginBottom:14 }}>
+                  <Field label="Fork Length (mm)">
+                    <input style={IS} placeholder="e.g. 1200" value={fk.length} onChange={e=>ufk(i,"length",e.target.value)}/>
+                  </Field>
+                  <Field label="Thickness at Heel (mm)">
+                    <input style={IS} placeholder="e.g. 50" value={fk.thickness_heel} onChange={e=>ufk(i,"thickness_heel",e.target.value)}/>
+                  </Field>
+                  <Field label="Thickness at Blade (mm)">
+                    <input style={IS} placeholder="e.g. 48" value={fk.thickness_blade} onChange={e=>ufk(i,"thickness_blade",e.target.value)}/>
+                  </Field>
+                  <Field label="Fork Width (mm)">
+                    <input style={IS} placeholder="e.g. 150" value={fk.width} onChange={e=>ufk(i,"width",e.target.value)}/>
+                  </Field>
+                </div>
+                <div className="g2" style={{ marginBottom:14 }}>
+                  <Field label="Wear % (vs original thickness)">
+                    <input style={IS} placeholder="e.g. 8" value={fk.wear_pct} onChange={e=>ufk(i,"wear_pct",e.target.value)}/>
+                  </Field>
+                  <Field label="Overall Result">
+                    <ResultSelect value={fk.result} onChange={v=>ufk(i,"result",v)}/>
+                  </Field>
+                </div>
+
+                <SectionHeading label="Defect Assessment"/>
+                <div className="g2" style={{ marginBottom:14 }}>
+                  <Field label="Cracks / Fractures Found?">
+                    <select style={IS} value={fk.cracks} onChange={e=>ufk(i,"cracks",e.target.value)}>
+                      <option value="no">No</option>
+                      <option value="yes">Yes — FAIL</option>
+                    </select>
+                  </Field>
+                  <Field label="Bending / Deformation?">
+                    <select style={IS} value={fk.bending} onChange={e=>ufk(i,"bending",e.target.value)}>
+                      <option value="no">No</option>
+                      <option value="yes">Yes — FAIL</option>
+                    </select>
+                  </Field>
+                </div>
+                <Field label="Notes / Observations">
+                  <textarea style={{ ...IS, minHeight:60 }} placeholder="Any additional fork inspection notes..." value={fk.notes} onChange={e=>ufk(i,"notes",e.target.value)}/>
+                </Field>
+              </Card>
+            ))}
+          </>
+        )}
+
+        {/* ── STEP 5: Bucket / Platform Inspection (Cherry Picker) ── */}
+        {currentStep === 5 && (
+          <Card title="Platform / Bucket Inspection" icon="🪣" color={T.blue} brd={T.blueBrd}>
+            <SectionHeading label="Platform Specification"/>
+            <div className="g3" style={{ marginBottom:14 }}>
+              <Field label="Platform SWL">
+                <input style={IS} placeholder="e.g. 250kg" value={bucket.platform_swl} onChange={e=>ubu("platform_swl",e.target.value)}/>
+              </Field>
+              <Field label="Platform Dimensions (m)">
+                <input style={IS} placeholder="e.g. 1.2 x 0.8" value={bucket.platform_dimensions} onChange={e=>ubu("platform_dimensions",e.target.value)}/>
+              </Field>
+              <Field label="Platform Material">
+                <input style={IS} placeholder="e.g. Steel, Fibreglass" value={bucket.platform_material} onChange={e=>ubu("platform_material",e.target.value)}/>
+              </Field>
+            </div>
+            <Field label="Test Load Applied">
+              <input style={{ ...IS, marginBottom:14 }} placeholder="e.g. 275kg (110% of SWL)" value={bucket.test_load_applied} onChange={e=>ubu("test_load_applied",e.target.value)}/>
+            </Field>
+
+            <SectionHeading label="Platform Structural Condition"/>
+            <div className="g3" style={{ marginBottom:14 }}>
+              <Field label="Platform Structure"><ResultSelect value={bucket.platform_structure} onChange={v=>ubu("platform_structure",v)}/></Field>
+              <Field label="Platform Floor"><ResultSelect value={bucket.platform_floor} onChange={v=>ubu("platform_floor",v)}/></Field>
+              <Field label="Guardrails / Toe Boards"><ResultSelect value={bucket.guardrails} onChange={v=>ubu("guardrails",v)}/></Field>
+            </div>
+
+            <SectionHeading label="Safety Systems"/>
+            <div className="g3" style={{ marginBottom:14 }}>
+              <Field label="Gate / Latch System"><ResultSelect value={bucket.gate_latch} onChange={v=>ubu("gate_latch",v)}/></Field>
+              <Field label="Platform Levelling"><ResultSelect value={bucket.levelling_system} onChange={v=>ubu("levelling_system",v)}/></Field>
+              <Field label="Emergency Lowering"><ResultSelect value={bucket.emergency_lowering} onChange={v=>ubu("emergency_lowering",v)}/></Field>
+            </div>
+            <div className="g2" style={{ marginBottom:14 }}>
+              <Field label="Overload / SWL Device"><ResultSelect value={bucket.overload_device} onChange={v=>ubu("overload_device",v)}/></Field>
+              <Field label="Tilt / Alarm System"><ResultSelect value={bucket.tilt_alarm} onChange={v=>ubu("tilt_alarm",v)}/></Field>
+            </div>
+            <Field label="Platform Notes">
+              <textarea style={{ ...IS, minHeight:70 }} placeholder="Additional platform inspection notes..." value={bucket.notes} onChange={e=>ubu("notes",e.target.value)}/>
+            </Field>
+          </Card>
+        )}
+
+        {/* ── STEP 6: Pressure Vessels ── */}
+        {currentStep === 6 && (
+          <>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+              <div>
+                <div style={{ fontSize:15, fontWeight:800, color:T.text }}>Pressure Vessels</div>
+                <div style={{ fontSize:12, color:T.textDim, marginTop:2 }}>Up to 8 vessels · Each expires 1 year</div>
               </div>
               {pvs.length < 8 && (
                 <button type="button" onClick={()=>setPvs(p=>[...p,emptyPV()])}
@@ -827,7 +1062,7 @@ export default function MachineInspectionPage() {
                   <Field label="Description"><input style={IS} placeholder="e.g. Hydraulic Oil Tank" value={pv.description} onChange={e=>upv(i,"description",e.target.value)}/></Field>
                 </div>
                 <div className="g3" style={{ marginBottom:14 }}>
-                  <Field label="Manufacturer"><input style={IS} placeholder="e.g. ASME, Atlas Copco" value={pv.manufacturer} onChange={e=>upv(i,"manufacturer",e.target.value)}/></Field>
+                  <Field label="Manufacturer"><input style={IS} placeholder="e.g. ASME" value={pv.manufacturer} onChange={e=>upv(i,"manufacturer",e.target.value)}/></Field>
                   <Field label="Year of Manufacture"><input style={IS} placeholder="e.g. 2018" value={pv.year_manufacture} onChange={e=>upv(i,"year_manufacture",e.target.value)}/></Field>
                   <Field label="Country of Origin"><input style={IS} placeholder="e.g. South Africa" value={pv.country_origin} onChange={e=>upv(i,"country_origin",e.target.value)}/></Field>
                 </div>
@@ -855,56 +1090,213 @@ export default function MachineInspectionPage() {
           </>
         )}
 
-        {/* ── STEP 4: Review & Generate ── */}
-        {step === 5 && machineType && (
+        {/* ── STEP 7: Horse & Trailer Registration ── */}
+        {currentStep === 7 && (
+          <>
+            {/* Horse */}
+            <Card title="Horse / Prime Mover Registration" icon="🚛" color={T.accent} brd={T.accentBrd}>
+              <div className="g3" style={{ marginBottom:14 }}>
+                <Field label="Registration Number *">
+                  <input style={IS} placeholder="e.g. B 123 ABC" value={horseTrailer.horse_reg} onChange={e=>uht("horse_reg",e.target.value)}/>
+                </Field>
+                <Field label="Make / Manufacturer">
+                  <input style={IS} placeholder="e.g. Mercedes, Scania" value={horseTrailer.horse_make} onChange={e=>uht("horse_make",e.target.value)}/>
+                </Field>
+                <Field label="Model">
+                  <input style={IS} placeholder="e.g. Actros 2648" value={horseTrailer.horse_model} onChange={e=>uht("horse_model",e.target.value)}/>
+                </Field>
+              </div>
+              <div className="g3" style={{ marginBottom:14 }}>
+                <Field label="VIN / Chassis Number">
+                  <input style={IS} placeholder="e.g. WDB9340031L123456" value={horseTrailer.horse_vin} onChange={e=>uht("horse_vin",e.target.value)}/>
+                </Field>
+                <Field label="Year of Manufacture">
+                  <input style={IS} placeholder="e.g. 2019" value={horseTrailer.horse_year} onChange={e=>uht("horse_year",e.target.value)}/>
+                </Field>
+                <Field label="Fleet Number">
+                  <input style={IS} placeholder="e.g. TRK-005" value={horseTrailer.horse_fleet} onChange={e=>uht("horse_fleet",e.target.value)}/>
+                </Field>
+              </div>
+              <div className="g2" style={{ marginBottom:14 }}>
+                <Field label="GVM (Gross Vehicle Mass)">
+                  <input style={IS} placeholder="e.g. 26000kg" value={horseTrailer.horse_gvm} onChange={e=>uht("horse_gvm",e.target.value)}/>
+                </Field>
+                <Field label="Overall Result">
+                  <ResultSelect value={horseTrailer.horse_result} onChange={v=>uht("horse_result",v)}/>
+                </Field>
+              </div>
+              <Field label="Notes / Defects">
+                <textarea style={{ ...IS, minHeight:60 }} placeholder="Any defects or observations on the horse..." value={horseTrailer.horse_notes} onChange={e=>uht("horse_notes",e.target.value)}/>
+              </Field>
+            </Card>
+
+            {/* Toggle trailer */}
+            <div style={{ background:T.panel, border:`1px solid ${T.border}`, borderRadius:14, padding:16, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap", marginBottom:14 }}>
+              <div>
+                <div style={{ fontSize:13, fontWeight:800, color:T.text }}>Trailer Attached?</div>
+                <div style={{ fontSize:11, color:T.textDim, marginTop:2 }}>Does this horse have a trailer to register?</div>
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                {[{v:true,l:"✓ Yes",c:T.green,bg:T.greenDim,brd:T.greenBrd},{v:false,l:"✗ No",c:T.red,bg:T.redDim,brd:T.redBrd}].map(o=>(
+                  <button key={String(o.v)} type="button" onClick={()=>uht("has_trailer",o.v)}
+                    style={{ padding:"8px 18px", borderRadius:9, border:`1px solid ${horseTrailer.has_trailer===o.v?o.brd:T.border}`, background:horseTrailer.has_trailer===o.v?o.bg:T.card, color:horseTrailer.has_trailer===o.v?o.c:T.textMid, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+                    {o.l}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Trailer */}
+            {horseTrailer.has_trailer && (
+              <Card title="Trailer Registration" icon="🚚" color={T.purple} brd={T.purpleBrd}>
+                <div className="g3" style={{ marginBottom:14 }}>
+                  <Field label="Registration Number *">
+                    <input style={IS} placeholder="e.g. B 456 DEF" value={horseTrailer.trailer_reg} onChange={e=>uht("trailer_reg",e.target.value)}/>
+                  </Field>
+                  <Field label="Make / Manufacturer">
+                    <input style={IS} placeholder="e.g. Afrit, SA Truck Bodies" value={horseTrailer.trailer_make} onChange={e=>uht("trailer_make",e.target.value)}/>
+                  </Field>
+                  <Field label="Model / Type">
+                    <input style={IS} placeholder="e.g. Side Tipper, Flatdeck" value={horseTrailer.trailer_model} onChange={e=>uht("trailer_model",e.target.value)}/>
+                  </Field>
+                </div>
+                <div className="g3" style={{ marginBottom:14 }}>
+                  <Field label="VIN / Chassis Number">
+                    <input style={IS} placeholder="e.g. AF1234567890" value={horseTrailer.trailer_vin} onChange={e=>uht("trailer_vin",e.target.value)}/>
+                  </Field>
+                  <Field label="Year of Manufacture">
+                    <input style={IS} placeholder="e.g. 2020" value={horseTrailer.trailer_year} onChange={e=>uht("trailer_year",e.target.value)}/>
+                  </Field>
+                  <Field label="Fleet Number">
+                    <input style={IS} placeholder="e.g. TRL-005" value={horseTrailer.trailer_fleet} onChange={e=>uht("trailer_fleet",e.target.value)}/>
+                  </Field>
+                </div>
+                <div className="g2" style={{ marginBottom:14 }}>
+                  <Field label="GVM (Gross Vehicle Mass)">
+                    <input style={IS} placeholder="e.g. 34000kg" value={horseTrailer.trailer_gvm} onChange={e=>uht("trailer_gvm",e.target.value)}/>
+                  </Field>
+                  <Field label="Overall Result">
+                    <ResultSelect value={horseTrailer.trailer_result} onChange={v=>uht("trailer_result",v)}/>
+                  </Field>
+                </div>
+                <Field label="Notes / Defects">
+                  <textarea style={{ ...IS, minHeight:60 }} placeholder="Any defects or observations on the trailer..." value={horseTrailer.trailer_notes} onChange={e=>uht("trailer_notes",e.target.value)}/>
+                </Field>
+              </Card>
+            )}
+
+            {/* Pressure vessels toggle for horse/trailer */}
+            <div style={{ background:T.panel, border:`1px solid ${T.border}`, borderRadius:14, padding:16, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap" }}>
+              <div>
+                <div style={{ fontSize:13, fontWeight:800, color:T.text }}>Pressure Vessels</div>
+                <div style={{ fontSize:11, color:T.textDim, marginTop:2 }}>Does this horse/trailer have pressure vessels?</div>
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                {[{v:true,l:"✓ Yes",c:T.green,bg:T.greenDim,brd:T.greenBrd},{v:false,l:"✗ No",c:T.red,bg:T.redDim,brd:T.redBrd}].map(o=>(
+                  <button key={String(o.v)} type="button" onClick={()=>setHasPVs(o.v)}
+                    style={{ padding:"8px 18px", borderRadius:9, border:`1px solid ${hasPVs===o.v?o.brd:T.border}`, background:hasPVs===o.v?o.bg:T.card, color:hasPVs===o.v?o.c:T.textMid, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+                    {o.l}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── STEP 8: Review & Generate ── */}
+        {currentStep === 8 && machineType && (
           <Card title="Review & Confirm" icon="📋" color={T.accent}>
             <div style={{ display:"grid", gap:10, marginBottom:16 }}>
-              {/* Main equipment */}
-              <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
-                <div style={{ fontSize:20 }}>{machineType.icon}</div>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:13, fontWeight:800, color:T.text }}>{machineType.label}</div>
-                  <div style={{ fontSize:11, color:T.textDim }}>
-                    SN {equip.serial_number}{equip.fleet_number?` · Fleet ${equip.fleet_number}`:""}{equip.registration_number?` · Reg ${equip.registration_number}`:""}
-                    {equip.model?` · ${equip.model}`:""}
+
+              {/* Horse & Trailer summary */}
+              {machineType.id === "horse_trailer" && (
+                <>
+                  <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
+                    <div style={{ fontSize:20 }}>🚛</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:800 }}>Horse — {horseTrailer.horse_make} {horseTrailer.horse_model}</div>
+                      <div style={{ fontSize:11, color:T.textDim }}>Reg {horseTrailer.horse_reg} · VIN {horseTrailer.horse_vin||"—"} · Vehicle Registration Certificate · Expires {fmt(expiry)}</div>
+                    </div>
+                    <ResultBadge result={horseTrailer.horse_result}/>
                   </div>
-                  <div style={{ fontSize:11, color:T.textDim }}>{machineType.certType} · Expires {fmt(addMonths(equip.inspection_date, machineType.expiry))}</div>
+                  {horseTrailer.has_trailer && (
+                    <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
+                      <div style={{ fontSize:20 }}>🚚</div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:13, fontWeight:800 }}>Trailer — {horseTrailer.trailer_make} {horseTrailer.trailer_model}</div>
+                        <div style={{ fontSize:11, color:T.textDim }}>Reg {horseTrailer.trailer_reg} · VIN {horseTrailer.trailer_vin||"—"} · Trailer Registration Certificate · Expires {fmt(addMonths(equip.inspection_date, machineType.expiry))}</div>
+                      </div>
+                      <ResultBadge result={horseTrailer.trailer_result}/>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Main equipment */}
+              {machineType.id !== "horse_trailer" && (
+                <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
+                  <div style={{ fontSize:20 }}>{machineType.icon}</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13, fontWeight:800 }}>{machineType.label}</div>
+                    <div style={{ fontSize:11, color:T.textDim }}>SN {equip.serial_number}{equip.fleet_number?` · Fleet ${equip.fleet_number}`:""}{equip.registration_number?` · Reg ${equip.registration_number}`:""}{equip.model?` · ${equip.model}`:""}</div>
+                    <div style={{ fontSize:11, color:T.textDim }}>{machineType.certType} · Expires {fmt(addMonths(equip.inspection_date, machineType.expiry))}</div>
+                  </div>
+                  <ResultBadge result={insp.overall_result||"PASS"}/>
                 </div>
-                <ResultBadge result={insp.overall_result||"PASS"}/>
-              </div>
+              )}
+
+              {/* Fork summary */}
+              {machineType.steps.includes(4) && forks.filter(f=>f.length||f.swl).map((fk,i)=>(
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
+                  <div style={{ fontSize:18 }}>🍴</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13, fontWeight:700 }}>Fork Arm {i+1} — {fk.fork_number||"—"}</div>
+                    <div style={{ fontSize:11, color:T.textDim }}>SWL {fk.swl||"—"} · Length {fk.length||"—"}mm · Wear {fk.wear_pct||"—"}% · Fork Arm Inspection Certificate</div>
+                  </div>
+                  <ResultBadge result={fk.result}/>
+                </div>
+              ))}
 
               {/* Pressure vessels */}
               {hasPVs && pvs.filter(p=>p.sn||p.description).map((pv,i)=>(
                 <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
                   <div style={{ fontSize:18 }}>⚙️</div>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:700, color:T.text }}>Pressure Vessel {i+1} — {pv.description||"—"}</div>
-                    <div style={{ fontSize:11, color:T.textDim }}>SN {pv.sn||"—"} · {pv.capacity||"—"} · {pv.working_pressure||"—"}/{pv.test_pressure||"—"} {pv.pressure_unit}</div>
-                    <div style={{ fontSize:11, color:T.textDim }}>Pressure Test Certificate · Expires {fmt(addMonths(equip.inspection_date, 12))}</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13, fontWeight:700 }}>Pressure Vessel {i+1} — {pv.description||"—"}</div>
+                    <div style={{ fontSize:11, color:T.textDim }}>SN {pv.sn||"—"} · {pv.capacity||"—"} · {pv.working_pressure||"—"}/{pv.test_pressure||"—"} {pv.pressure_unit} · Expires {fmt(addMonths(equip.inspection_date, 12))}</div>
                   </div>
                   <ResultBadge result={pv.result}/>
                 </div>
               ))}
             </div>
 
-            <div style={{ padding:"12px 14px", borderRadius:10, background:T.accentDim, border:`1px solid ${T.accentBrd}`, fontSize:12, color:T.textMid }}>
-              📋 Client: <strong style={{ color:T.text }}>{equip.client_name}</strong> &nbsp;·&nbsp;
-              Inspector: <strong style={{ color:T.text }}>{INSPECTOR_NAME}</strong> &nbsp;·&nbsp;
-              Date: <strong style={{ color:T.text }}>{fmt(equip.inspection_date)}</strong> &nbsp;·&nbsp;
-              Total: <strong style={{ color:T.accent }}>{1 + (hasPVs ? pvs.filter(p=>p.sn||p.description).length : 0)} certificate{(1+(hasPVs?pvs.filter(p=>p.sn||p.description).length:0))>1?"s":""}</strong>
-            </div>
+            {(() => {
+              const expiry = addMonths(equip.inspection_date, machineType.expiry);
+              const totalCerts =
+                (machineType.id === "horse_trailer" ? (1 + (horseTrailer.has_trailer?1:0)) : 1) +
+                (machineType.steps.includes(4) ? forks.filter(f=>f.length||f.swl).length : 0) +
+                (hasPVs ? pvs.filter(p=>p.sn||p.description).length : 0);
+              return (
+                <div style={{ padding:"12px 14px", borderRadius:10, background:T.accentDim, border:`1px solid ${T.accentBrd}`, fontSize:12, color:T.textMid }}>
+                  📋 Client: <strong style={{ color:T.text }}>{equip.client_name}</strong> &nbsp;·&nbsp;
+                  Inspector: <strong style={{ color:T.text }}>{INSPECTOR_NAME}</strong> &nbsp;·&nbsp;
+                  Date: <strong style={{ color:T.text }}>{fmt(equip.inspection_date)}</strong> &nbsp;·&nbsp;
+                  Total: <strong style={{ color:T.accent }}>{totalCerts} certificate{totalCerts>1?"s":""}</strong>
+                </div>
+              );
+            })()}
           </Card>
         )}
 
         {/* ── Navigation ── */}
         <div style={{ display:"flex", justifyContent:"space-between", gap:12, marginTop:8, flexWrap:"wrap" }}>
           <button type="button"
-            onClick={step === 1 ? ()=>router.push("/certificates") : prevStep}
+            onClick={currentStep === 1 ? ()=>router.push("/certificates") : prevStep}
             style={{ padding:"11px 20px", borderRadius:10, border:`1px solid ${T.border}`, background:T.card, color:T.textMid, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
-            {step === 1 ? "← Cancel" : "← Back"}
+            {currentStep === 1 ? "← Cancel" : "← Back"}
           </button>
 
-          {step < 5 ? (
+          {currentStep < 8 ? (
             <button type="button" onClick={nextStep}
               style={{ padding:"11px 24px", borderRadius:10, border:"none", background:"linear-gradient(135deg,#22d3ee,#0891b2)", color:"#052e16", fontWeight:900, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
               Next →
