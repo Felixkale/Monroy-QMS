@@ -33,8 +33,6 @@ const CSS = `
   }
   @keyframes spin{to{transform:rotate(360deg)}}
 
-  /* Render area — positioned in viewport so html2canvas can see it,
-     but covered by a dark overlay so user doesn't see it */
   #cert-render-portal {
     position: fixed;
     top: 0;
@@ -114,7 +112,7 @@ export default function BulkExportClient() {
     document.head.appendChild(s);
   }, []);
 
-  // Load client options
+  // Load client options — trim names to deduplicate trailing spaces
   useEffect(() => {
     supabase.from("certificates").select("client_name").then(({ data }) => {
       if (!data) return;
@@ -132,13 +130,17 @@ export default function BulkExportClient() {
 
   async function handlePreview() {
     setError(""); setLoadingPreview(true); setPreviewLoaded(false); setDoneMsg("");
+
     let query = supabase
       .from("certificates")
       .select("id,certificate_number,client_name,equipment_type,equipment_description,inspection_date,issue_date,expiry_date,status,result")
       .order("certificate_number", { ascending: true })
-      .limit(500);
-    if (clientName)     query = query.eq("client_name", clientName);
+      .limit(1000);
+
+    // Use ilike with trimmed name to catch trailing/leading space variants
+    if (clientName)     query = query.ilike("client_name", clientName.trim());
     if (inspectionDate) query = query.eq("inspection_date", inspectionDate);
+
     const { data, error: qErr } = await query;
     setLoadingPreview(false);
     if (qErr) { setError(qErr.message); return; }
@@ -149,34 +151,30 @@ export default function BulkExportClient() {
   // ── Capture one cert as ArrayBuffer ──────────────────────────────────────
   function captureOneCert(cert, stepMsg) {
     return new Promise((resolve, reject) => {
-      // Show overlay so user sees progress but not the cert render
       setOverlayMsg(stepMsg);
-      // Mount cert into visible render portal
       setRenderCert(cert);
 
-      // Wait for React to paint + fonts to load
       setTimeout(async () => {
         try {
           const el = renderRef.current;
           if (!el) throw new Error("Render container not found");
 
-          // Confirm it has content
           const height = el.scrollHeight;
-          if (height < 100) throw new Error("Certificate did not render (height too small)");
+          if (height < 100) throw new Error("Certificate did not render");
 
           const opt = {
             margin:      0,
             filename:    `${cert.certificate_number || cert.id}.pdf`,
             image:       { type: "jpeg", quality: 0.95 },
             html2canvas: {
-              scale:            2,
-              useCORS:          true,
-              logging:          false,
-              letterRendering:  true,
-              windowWidth:      794,
-              backgroundColor:  "#ffffff",
-              scrollX:          0,
-              scrollY:          0,
+              scale:           2,
+              useCORS:         true,
+              logging:         false,
+              letterRendering: true,
+              windowWidth:     794,
+              backgroundColor: "#ffffff",
+              scrollX:         0,
+              scrollY:         0,
             },
             jsPDF: {
               unit:        "mm",
@@ -201,7 +199,7 @@ export default function BulkExportClient() {
           setRenderCert(null);
           setOverlayMsg("");
         }
-      }, 2000); // 2s — enough for CertificateSheet + Google Fonts
+      }, 2000);
     });
   }
 
@@ -222,6 +220,7 @@ export default function BulkExportClient() {
       const ids = preview.map(c => c.id);
       const allCerts = [];
 
+      // Fetch full data in batches of 50
       for (let i = 0; i < ids.length; i += 50) {
         const batch = ids.slice(i, i + 50);
         const { data, error: e } = await supabase
@@ -244,7 +243,8 @@ export default function BulkExportClient() {
           const ab = await captureOneCert(cert, stepMsg);
 
           const clientFolder = (cert.client_name || "Unknown")
-            .replace(/[^a-zA-Z0-9_\- ]/g, "_").trim();
+            .trim()
+            .replace(/[^a-zA-Z0-9_\- ]/g, "_");
           const safeDate    = (cert.inspection_date || cert.issue_date || "NoDate").replace(/-/g, "");
           const safeCertNum = (cert.certificate_number || cert.id).toString().replace(/[^a-zA-Z0-9_-]/g, "_");
 
@@ -267,7 +267,7 @@ export default function BulkExportClient() {
 
       if (zipBlob.size < 100) throw new Error("ZIP is empty — no PDFs were generated successfully.");
 
-      const clientLabel = clientName ? clientName.replace(/\s+/g, "_") : "AllClients";
+      const clientLabel = clientName ? clientName.trim().replace(/\s+/g, "_") : "AllClients";
       const dateLabel   = inspectionDate ? `_${inspectionDate}` : "";
       const zipName     = `Certificates_${clientLabel}${dateLabel}.zip`;
 
@@ -296,7 +296,7 @@ export default function BulkExportClient() {
     <AppLayout title="Bulk Export">
       <style>{CSS}</style>
 
-      {/* Dark overlay shown during render — hides cert from user */}
+      {/* Dark overlay during render */}
       <div id="cert-render-overlay" className={renderCert ? "visible" : ""}>
         <div style={{ display:"flex", alignItems:"center", gap:12 }}>
           <span style={{ display:"inline-block", width:18, height:18, border:"3px solid rgba(34,211,238,0.3)", borderTopColor:"#22d3ee", borderRadius:"50%", animation:"spin 0.7s linear infinite" }}/>
@@ -309,7 +309,7 @@ export default function BulkExportClient() {
         </div>
       </div>
 
-      {/* Render portal — visible so html2canvas can capture it */}
+      {/* Visible render portal for html2canvas */}
       <div id="cert-render-portal" className={renderCert ? "visible" : ""} ref={renderRef}>
         {renderCert && (
           <CertificateSheet
@@ -357,7 +357,7 @@ export default function BulkExportClient() {
             {(clientName || inspectionDate) && (
               <div style={{ marginTop:10, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
                 <span style={{ fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>Active:</span>
-                {clientName     && <span style={{ padding:"3px 10px", borderRadius:99, background:T.accentDim, border:`1px solid ${T.accentBrd}`, color:T.accent, fontSize:11, fontWeight:700 }}>{clientName}</span>}
+                {clientName     && <span style={{ padding:"3px 10px", borderRadius:99, background:T.accentDim, border:`1px solid ${T.accentBrd}`, color:T.accent, fontSize:11, fontWeight:700 }}>{clientName.trim()}</span>}
                 {inspectionDate && <span style={{ padding:"3px 10px", borderRadius:99, background:T.amberDim,  border:`1px solid ${T.amberBrd}`,  color:T.amber,  fontSize:11, fontWeight:700 }}>Inspected {formatDate(inspectionDate)}</span>}
                 <button onClick={() => { setClientName(""); setInspectionDate(""); setPreviewLoaded(false); setPreview([]); setDoneMsg(""); }}
                   style={{ background:"none", border:"none", color:T.textDim, fontSize:11, cursor:"pointer", fontWeight:700, padding:"3px 6px" }}>
@@ -455,7 +455,7 @@ export default function BulkExportClient() {
                           return (
                             <tr key={cert.id} style={{ borderBottom:`1px solid ${T.border}` }}>
                               <td style={{ padding:"10px 14px", fontFamily:"'IBM Plex Mono',monospace", fontSize:12, color:T.accent, fontWeight:800, whiteSpace:"nowrap" }}>{cert.certificate_number || "—"}</td>
-                              <td style={{ padding:"10px 14px", fontSize:12, color:T.textMid }}>{cert.client_name || "—"}</td>
+                              <td style={{ padding:"10px 14px", fontSize:12, color:T.textMid }}>{cert.client_name?.trim() || "—"}</td>
                               <td style={{ padding:"10px 14px", fontSize:12, color:T.textMid, maxWidth:220, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cert.equipment_description || cert.equipment_type || "—"}</td>
                               <td style={{ padding:"10px 14px", fontSize:12, color:T.textMid, whiteSpace:"nowrap" }}>{formatDate(cert.inspection_date)}</td>
                               <td style={{ padding:"10px 14px", fontSize:12, color:T.textMid, whiteSpace:"nowrap" }}>{formatDate(cert.issue_date)}</td>
@@ -483,7 +483,7 @@ export default function BulkExportClient() {
                           </div>
                           <div style={{ fontSize:12, color:T.textMid }}>{cert.equipment_description || cert.equipment_type || "—"}</div>
                           <div style={{ fontSize:11, color:T.textDim, display:"flex", gap:12, flexWrap:"wrap" }}>
-                            <span>{cert.client_name || "—"}</span>
+                            <span>{cert.client_name?.trim() || "—"}</span>
                             <span>Inspected: {formatDate(cert.inspection_date)}</span>
                             <span>Expiry: {formatDate(cert.expiry_date)}</span>
                           </div>
