@@ -14,7 +14,6 @@ export async function POST(req) {
   try {
     const { clientName, dateFrom, dateTo } = await req.json();
 
-    // Build query using only columns that actually exist
     let query = supabase
       .from("certificates")
       .select(
@@ -23,14 +22,14 @@ export async function POST(req) {
         "inspection_date, issue_date, expiry_date, " +
         "pdf_url, status"
       )
-      .order("issue_date", { ascending: false, nullsFirst: false })
+      .order("inspection_date", { ascending: false, nullsFirst: false })
       .limit(2000);
 
     if (clientName) query = query.eq("client_name", clientName);
 
-    // Filter dates at DB level — issue_date is a proper date column
-    if (dateFrom) query = query.gte("issue_date", dateFrom);
-    if (dateTo)   query = query.lte("issue_date", dateTo);
+    // Filter on inspection_date at DB level
+    if (dateFrom) query = query.gte("inspection_date", dateFrom);
+    if (dateTo)   query = query.lte("inspection_date", dateTo);
 
     const { data: certs, error } = await query;
 
@@ -40,7 +39,6 @@ export async function POST(req) {
     if (!certs || certs.length === 0)
       return NextResponse.json({ error: "No certificates match the selected filters." }, { status: 404 });
 
-    // Build ZIP — one folder per client
     const zip = new JSZip();
     let filesAdded = 0;
 
@@ -66,10 +64,10 @@ export async function POST(req) {
           .replace(/[^a-zA-Z0-9_\- ]/g, "_")
           .trim();
 
-        const safeDate = cert.issue_date
-          ? cert.issue_date.replace(/-/g, "")
-          : cert.inspection_date
+        const safeDate = cert.inspection_date
           ? cert.inspection_date.replace(/-/g, "")
+          : cert.issue_date
+          ? cert.issue_date.replace(/-/g, "")
           : "NoDate";
 
         const safeCertNum = (cert.certificate_number || cert.id)
