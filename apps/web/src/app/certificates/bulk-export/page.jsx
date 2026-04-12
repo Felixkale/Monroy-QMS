@@ -1,287 +1,272 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import AppLayout from "@/components/AppLayout";
+import { supabase } from "@/lib/supabaseClient";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+const T = {
+  bg:"#070e18",surface:"rgba(13,22,38,0.80)",panel:"rgba(10,18,32,0.92)",
+  panel2:"rgba(18,30,50,0.70)",card:"rgba(255,255,255,0.025)",
+  border:"rgba(148,163,184,0.12)",borderMid:"rgba(148,163,184,0.22)",
+  text:"#f0f6ff",textMid:"rgba(240,246,255,0.72)",textDim:"rgba(240,246,255,0.40)",
+  accent:"#22d3ee",accentDim:"rgba(34,211,238,0.10)",accentBrd:"rgba(34,211,238,0.25)",
+  green:"#34d399",greenDim:"rgba(52,211,153,0.10)",greenBrd:"rgba(52,211,153,0.25)",
+  red:"#f87171",redDim:"rgba(248,113,113,0.10)",redBrd:"rgba(248,113,113,0.25)",
+  amber:"#fbbf24",amberDim:"rgba(251,191,36,0.10)",amberBrd:"rgba(251,191,36,0.25)",
+  purple:"#a78bfa",purpleDim:"rgba(167,139,250,0.10)",purpleBrd:"rgba(167,139,250,0.25)",
+};
 
-export default function BulkExportPage() {
-  const [clients, setClients] = useState([]);
-  const [clientId, setClientId] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [preview, setPreview] = useState([]);
-  const [loadingPreview, setLoadingPreview] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [error, setError] = useState("");
-  const [previewLoaded, setPreviewLoaded] = useState(false);
+const CSS = `
+  *,*::before,*::after{box-sizing:border-box}
+  ::-webkit-scrollbar{width:4px;height:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.2);border-radius:99px}
+  select option{background:#0a1420;color:#f0f6ff}
+  input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.6)}
+  .be-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .be-table{display:block}
+  .be-mob{display:none}
+  @media(max-width:900px){.be-grid{grid-template-columns:1fr 1fr}}
+  @media(max-width:600px){
+    .be-grid{grid-template-columns:1fr}
+    .be-table{display:none!important}
+    .be-mob{display:grid!important;gap:0}
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+`;
 
-  useEffect(() => {
-    supabase
-      .from("clients")
-      .select("id, name")
-      .order("name")
-      .then(({ data }) => setClients(data || []));
-  }, []);
+function formatDate(v){
+  if(!v)return "—";
+  const d=new Date(v);
+  if(isNaN(d))return String(v);
+  return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
+}
 
-  async function handlePreview() {
-    setError("");
-    setLoadingPreview(true);
-    setPreviewLoaded(false);
+const inputStyle={
+  width:"100%",background:"rgba(255,255,255,0.04)",border:`1px solid rgba(148,163,184,0.2)`,
+  borderRadius:9,padding:"9px 12px",color:"#f0f6ff",fontSize:13,
+  fontFamily:"'IBM Plex Sans',sans-serif",outline:"none",
+};
+const labelStyle={
+  fontSize:9,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",
+  color:"rgba(240,246,255,0.40)",marginBottom:6,display:"block",
+};
 
-    let query = supabase
+export default function BulkExportPage(){
+  const [clients,setClients]=useState([]);
+  const [clientId,setClientId]=useState("");
+  const [dateFrom,setDateFrom]=useState("");
+  const [dateTo,setDateTo]=useState("");
+  const [preview,setPreview]=useState([]);
+  const [loadingPreview,setLoadingPreview]=useState(false);
+  const [exporting,setExporting]=useState(false);
+  const [error,setError]=useState("");
+  const [previewLoaded,setPreviewLoaded]=useState(false);
+
+  useEffect(()=>{
+    supabase.from("clients").select("id,company_name").order("company_name")
+      .then(({data})=>setClients(data||[]));
+  },[]);
+
+  async function handlePreview(){
+    setError("");setLoadingPreview(true);setPreviewLoaded(false);
+    let query=supabase
       .from("certificates")
-      .select(
-        "id, certificate_number, inspection_date, expiry_date, status, equipment_type, serial_number, client_id, clients(name)"
-      )
-      .order("inspection_date", { ascending: false })
-      .limit(200);
-
-    if (clientId) query = query.eq("client_id", clientId);
-    if (dateFrom) query = query.gte("inspection_date", dateFrom);
-    if (dateTo) query = query.lte("inspection_date", dateTo);
-
-    const { data, error: qErr } = await query;
+      .select("id,certificate_number,issue_date,expiry_date,status,equipment_type,equipment_description,client_name,clients(company_name)")
+      .order("issue_date",{ascending:false})
+      .limit(500);
+    if(clientId) query=query.eq("client_id",clientId);
+    if(dateFrom) query=query.gte("issue_date",dateFrom);
+    if(dateTo)   query=query.lte("issue_date",dateTo);
+    const{data,error:qErr}=await query;
     setLoadingPreview(false);
-
-    if (qErr) {
-      setError(qErr.message);
-      return;
-    }
-    setPreview(data || []);
+    if(qErr){setError(qErr.message);return;}
+    setPreview(data||[]);
     setPreviewLoaded(true);
   }
 
-  async function handleExport() {
-    if (preview.length === 0) return;
-    setExporting(true);
-    setError("");
-
-    try {
-      const res = await fetch("/api/certificates/bulk-export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId, dateFrom, dateTo }),
+  async function handleExport(){
+    if(!preview.length)return;
+    setExporting(true);setError("");
+    try{
+      const res=await fetch("/api/certificates/bulk-export",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({clientId,dateFrom,dateTo}),
       });
-
-      if (!res.ok) {
-        const json = await res.json();
-        setError(json.error || "Export failed.");
-        setExporting(false);
-        return;
+      if(!res.ok){
+        const json=await res.json();
+        setError(json.error||"Export failed.");
+        setExporting(false);return;
       }
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-
-      const disposition = res.headers.get("Content-Disposition") || "";
-      const match = disposition.match(/filename="(.+?)"/);
-      a.download = match ? match[1] : "certificates.zip";
+      const blob=await res.blob();
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url;
+      const disposition=res.headers.get("Content-Disposition")||"";
+      const match=disposition.match(/filename="(.+?)"/);
+      a.download=match?match[1]:"certificates.zip";
       a.click();
       URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err.message || "Unexpected error.");
-    }
+    }catch(err){setError(err.message||"Unexpected error.");}
     setExporting(false);
   }
 
-  const statusBadge = (status) => {
-    const map = {
-      active: "bg-green-100 text-green-800",
-      expired: "bg-red-100 text-red-800",
-      pending: "bg-yellow-100 text-yellow-800",
-    };
-    return (
-      <span
-        className={`px-2 py-0.5 rounded-full text-xs font-medium ${map[status] || "bg-gray-100 text-gray-700"}`}
-      >
-        {status || "—"}
-      </span>
-    );
-  };
+  function statusColor(s){
+    if(!s||s==="active")return{color:T.green,bg:T.greenDim,brd:T.greenBrd};
+    if(s==="expired")   return{color:T.red,  bg:T.redDim,  brd:T.redBrd};
+    return{color:T.textDim,bg:T.card,brd:T.border};
+  }
 
-  return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-5xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Bulk Export Certificates</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Filter by client and inspection date, preview matching certificates, then download as a ZIP.
-          </p>
-        </div>
+  return(
+    <AppLayout title="Bulk Export">
+      <style>{CSS}</style>
+      <div style={{
+        background:`radial-gradient(ellipse 70% 50% at 0% 0%,rgba(34,211,238,0.06),transparent),radial-gradient(ellipse 60% 50% at 100% 100%,rgba(167,139,250,0.05),transparent),${T.bg}`,
+        color:T.text,fontFamily:"'IBM Plex Sans',sans-serif",padding:20,paddingBottom:60,minHeight:"100vh",
+      }}>
+        <div style={{maxWidth:1400,margin:"0 auto",display:"grid",gap:16}}>
 
-        {/* Filter Card */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-6">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">
-            Filters
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {/* Client */}
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Client</label>
-              <select
-                value={clientId}
-                onChange={(e) => {
-                  setClientId(e.target.value);
-                  setPreviewLoaded(false);
-                }}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">All Clients</option>
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+          {/* HEADER */}
+          <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:20,padding:"18px 20px",backdropFilter:"blur(20px)"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+              <div style={{width:4,height:20,borderRadius:2,background:`linear-gradient(to bottom,${T.green},rgba(52,211,153,0.3))`,flexShrink:0}}/>
+              <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.14em",textTransform:"uppercase",color:T.green}}>ISO 9001 · Document Export</span>
             </div>
-
-            {/* Date From */}
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                Inspection Date From
-              </label>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => {
-                  setDateFrom(e.target.value);
-                  setPreviewLoaded(false);
-                }}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            {/* Date To */}
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                Inspection Date To
-              </label>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => {
-                  setDateTo(e.target.value);
-                  setPreviewLoaded(false);
-                }}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+            <h1 style={{margin:0,fontSize:"clamp(18px,3vw,26px)",fontWeight:900,letterSpacing:"-0.02em"}}>Bulk Export Certificates</h1>
+            <p style={{margin:"5px 0 0",color:T.textDim,fontSize:12}}>Filter by client and inspection date · preview matches · download as ZIP</p>
           </div>
 
-          {/* Actions */}
-          <div className="flex items-center gap-3 mt-5">
-            <button
-              onClick={handlePreview}
-              disabled={loadingPreview}
-              className="px-4 py-2 bg-gray-800 text-white text-sm font-medium rounded-lg hover:bg-gray-700 disabled:opacity-50 transition"
-            >
-              {loadingPreview ? "Loading…" : "Preview Matches"}
-            </button>
+          {/* FILTERS */}
+          <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:16,padding:"16px 18px",backdropFilter:"blur(20px)"}}>
+            <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",color:T.textDim,marginBottom:14}}>Filters</div>
+            <div className="be-grid">
+              <div>
+                <label style={labelStyle}>Client</label>
+                <select value={clientId} onChange={e=>{setClientId(e.target.value);setPreviewLoaded(false);}} style={{...inputStyle,cursor:"pointer"}}>
+                  <option value="">All Clients</option>
+                  {clients.map(c=>(
+                    <option key={c.id} value={c.id}>{c.company_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Inspection Date From</label>
+                <input type="date" value={dateFrom} onChange={e=>{setDateFrom(e.target.value);setPreviewLoaded(false);}} style={inputStyle}/>
+              </div>
+              <div>
+                <label style={labelStyle}>Inspection Date To</label>
+                <input type="date" value={dateTo} onChange={e=>{setDateTo(e.target.value);setPreviewLoaded(false);}} style={inputStyle}/>
+              </div>
+            </div>
 
-            {previewLoaded && preview.length > 0 && (
-              <button
-                onClick={handleExport}
-                disabled={exporting}
-                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition flex items-center gap-2"
-              >
-                {exporting ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8v8H4z"
-                      />
-                    </svg>
-                    Exporting…
-                  </>
-                ) : (
-                  <>
-                    ⬇ Export {preview.length} Certificate{preview.length !== 1 ? "s" : ""} as ZIP
-                  </>
-                )}
+            <div style={{display:"flex",gap:10,marginTop:16,flexWrap:"wrap"}}>
+              <button onClick={handlePreview} disabled={loadingPreview} style={{
+                padding:"9px 20px",borderRadius:10,border:`1px solid ${T.accentBrd}`,
+                background:T.accentDim,color:T.accent,fontWeight:900,fontSize:13,
+                cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",opacity:loadingPreview?0.6:1,
+              }}>
+                {loadingPreview?"Loading…":"Preview Matches"}
               </button>
-            )}
-          </div>
 
-          {error && (
-            <p className="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-              {error}
-            </p>
-          )}
-        </div>
-
-        {/* Preview Table */}
-        {previewLoaded && (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-700">
-                Preview —{" "}
-                <span className="text-blue-600">
-                  {preview.length} certificate{preview.length !== 1 ? "s" : ""}
-                </span>
-              </h2>
-              {preview.length === 0 && (
-                <span className="text-xs text-gray-400">No results for selected filters.</span>
+              {previewLoaded&&preview.length>0&&(
+                <button onClick={handleExport} disabled={exporting} style={{
+                  padding:"9px 20px",borderRadius:10,border:`1px solid ${T.greenBrd}`,
+                  background:T.greenDim,color:T.green,fontWeight:900,fontSize:13,
+                  cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",
+                  display:"flex",alignItems:"center",gap:8,opacity:exporting?0.6:1,
+                }}>
+                  {exporting?(
+                    <>
+                      <span style={{display:"inline-block",width:13,height:13,border:`2px solid ${T.green}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>
+                      Exporting…
+                    </>
+                  ):(
+                    <>⬇ Export {preview.length} Certificate{preview.length!==1?"s":""} as ZIP</>
+                  )}
+                </button>
               )}
             </div>
 
-            {preview.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    <tr>
-                      <th className="px-4 py-3 text-left">Certificate #</th>
-                      <th className="px-4 py-3 text-left">Client</th>
-                      <th className="px-4 py-3 text-left">Equipment</th>
-                      <th className="px-4 py-3 text-left">Inspection Date</th>
-                      <th className="px-4 py-3 text-left">Expiry Date</th>
-                      <th className="px-4 py-3 text-left">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {preview.map((cert) => (
-                      <tr key={cert.id} className="hover:bg-gray-50 transition">
-                        <td className="px-4 py-3 font-mono text-xs text-gray-700">
-                          {cert.certificate_number || cert.id.slice(0, 8)}
-                        </td>
-                        <td className="px-4 py-3 text-gray-700">
-                          {cert.clients?.name || "—"}
-                        </td>
-                        <td className="px-4 py-3 text-gray-600">
-                          {cert.equipment_type || "—"}
-                        </td>
-                        <td className="px-4 py-3 text-gray-600">
-                          {cert.inspection_date || "—"}
-                        </td>
-                        <td className="px-4 py-3 text-gray-600">
-                          {cert.expiry_date || "—"}
-                        </td>
-                        <td className="px-4 py-3">{statusBadge(cert.status)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {error&&(
+              <div style={{marginTop:12,padding:"10px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,background:T.redDim,color:T.red,fontSize:13,fontWeight:600}}>
+                ⚠ {error}
               </div>
             )}
           </div>
-        )}
+
+          {/* PREVIEW */}
+          {previewLoaded&&(
+            <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:16,overflow:"hidden"}}>
+              <div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+                <span style={{fontSize:13,fontWeight:800}}>
+                  Preview —{" "}
+                  <span style={{color:T.accent}}>{preview.length} certificate{preview.length!==1?"s":""}</span>
+                </span>
+                {preview.length===0&&<span style={{fontSize:12,color:T.textDim}}>No results for selected filters.</span>}
+              </div>
+
+              {preview.length>0&&(
+                <>
+                  {/* Desktop table */}
+                  <div className="be-table" style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+                      <thead>
+                        <tr style={{background:"rgba(255,255,255,0.02)"}}>
+                          {["Certificate No","Client","Equipment","Issue Date","Expiry Date","Status"].map(h=>(
+                            <td key={h} style={{padding:"9px 14px",fontSize:9,color:T.textDim,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{h}</td>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {preview.map(cert=>{
+                          const sc=statusColor(cert.status);
+                          return(
+                            <tr key={cert.id} style={{borderBottom:`1px solid ${T.border}`}}>
+                              <td style={{padding:"10px 14px",fontFamily:"'IBM Plex Mono',monospace",fontSize:12,color:T.accent,fontWeight:800,whiteSpace:"nowrap"}}>{cert.certificate_number||"—"}</td>
+                              <td style={{padding:"10px 14px",fontSize:12,color:T.textMid}}>{cert.clients?.company_name||cert.client_name||"—"}</td>
+                              <td style={{padding:"10px 14px",fontSize:12,color:T.textMid,maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cert.equipment_description||cert.equipment_type||"—"}</td>
+                              <td style={{padding:"10px 14px",fontSize:12,color:T.textMid,whiteSpace:"nowrap"}}>{formatDate(cert.issue_date)}</td>
+                              <td style={{padding:"10px 14px",fontSize:12,color:T.textMid,whiteSpace:"nowrap"}}>{formatDate(cert.expiry_date)}</td>
+                              <td style={{padding:"10px 14px"}}>
+                                <span style={{display:"inline-flex",alignItems:"center",padding:"3px 9px",borderRadius:99,background:sc.bg,color:sc.color,border:`1px solid ${sc.brd}`,fontSize:10,fontWeight:800,textTransform:"capitalize",whiteSpace:"nowrap"}}>
+                                  {cert.status||"active"}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile cards */}
+                  <div className="be-mob">
+                    {preview.map(cert=>{
+                      const sc=statusColor(cert.status);
+                      return(
+                        <div key={cert.id} style={{padding:"13px 14px",borderBottom:`1px solid ${T.border}`,display:"grid",gap:6}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,flexWrap:"wrap"}}>
+                            <span style={{color:T.accent,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",fontSize:13}}>{cert.certificate_number||"—"}</span>
+                            <span style={{display:"inline-flex",alignItems:"center",padding:"3px 9px",borderRadius:99,background:sc.bg,color:sc.color,border:`1px solid ${sc.brd}`,fontSize:10,fontWeight:800,textTransform:"capitalize"}}>{cert.status||"active"}</span>
+                          </div>
+                          <div style={{fontSize:12,color:T.textMid}}>{cert.equipment_description||cert.equipment_type||"—"}</div>
+                          <div style={{fontSize:11,color:T.textDim,display:"flex",gap:12,flexWrap:"wrap"}}>
+                            <span>{cert.clients?.company_name||cert.client_name||"—"}</span>
+                            <span>Issue: {formatDate(cert.issue_date)}</span>
+                            <span>Expiry: {formatDate(cert.expiry_date)}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+        </div>
       </div>
-    </div>
+    </AppLayout>
   );
 }
