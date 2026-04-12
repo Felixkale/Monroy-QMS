@@ -22,10 +22,9 @@ const CSS = `
   ::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.2);border-radius:99px}
   select option{background:#0a1420;color:#f0f6ff}
   input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.6)}
-  .be-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .be-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .be-table{display:block}
   .be-mob{display:none}
-  @media(max-width:900px){.be-grid{grid-template-columns:1fr 1fr}}
   @media(max-width:600px){
     .be-grid{grid-template-columns:1fr}
     .be-table{display:none!important}
@@ -55,8 +54,7 @@ const labelStyle = {
 export default function BulkExportClient(){
   const [clientOpts, setClientOpts] = useState([]);
   const [clientName, setClientName] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [inspectionDate, setInspectionDate] = useState("");
   const [preview, setPreview] = useState([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -86,14 +84,12 @@ export default function BulkExportClient(){
         "id,certificate_number,client_name,equipment_type,equipment_description," +
         "inspection_date,issue_date,expiry_date,status,result"
       )
-      .order("inspection_date", { ascending: false, nullsFirst: false })
+      .order("certificate_number", { ascending: true })
       .limit(2000);
 
-    if(clientName) query = query.eq("client_name", clientName);
-
-    // Filter on inspection_date — the date the physical inspection took place
-    if(dateFrom) query = query.gte("inspection_date", dateFrom);
-    if(dateTo)   query = query.lte("inspection_date", dateTo);
+    if(clientName)     query = query.eq("client_name", clientName);
+    // Exact match — only certificates from this specific inspection date
+    if(inspectionDate) query = query.eq("inspection_date", inspectionDate);
 
     const { data, error: qErr } = await query;
     setLoadingPreview(false);
@@ -110,7 +106,7 @@ export default function BulkExportClient(){
       const res = await fetch("/api/certificates/bulk-export",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({clientName, dateFrom, dateTo}),
+        body: JSON.stringify({clientName, inspectionDate}),
       });
       if(!res.ok){
         const json = await res.json();
@@ -167,22 +163,17 @@ export default function BulkExportClient(){
                 </select>
               </div>
               <div>
-                <label style={labelStyle}>Inspection Date From</label>
-                <input type="date" value={dateFrom} onChange={e=>{setDateFrom(e.target.value);setPreviewLoaded(false);}} style={inputStyle}/>
-              </div>
-              <div>
-                <label style={labelStyle}>Inspection Date To</label>
-                <input type="date" value={dateTo} onChange={e=>{setDateTo(e.target.value);setPreviewLoaded(false);}} style={inputStyle}/>
+                <label style={labelStyle}>Inspection Date</label>
+                <input type="date" value={inspectionDate} onChange={e=>{setInspectionDate(e.target.value);setPreviewLoaded(false);}} style={inputStyle}/>
               </div>
             </div>
 
-            {(clientName||dateFrom||dateTo)&&(
+            {(clientName||inspectionDate)&&(
               <div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
                 <span style={{fontSize:10,fontWeight:700,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.08em"}}>Active:</span>
                 {clientName&&<span style={{padding:"3px 10px",borderRadius:99,background:T.accentDim,border:`1px solid ${T.accentBrd}`,color:T.accent,fontSize:11,fontWeight:700}}>{clientName}</span>}
-                {dateFrom&&<span style={{padding:"3px 10px",borderRadius:99,background:T.amberDim,border:`1px solid ${T.amberBrd}`,color:T.amber,fontSize:11,fontWeight:700}}>From {dateFrom}</span>}
-                {dateTo&&<span style={{padding:"3px 10px",borderRadius:99,background:T.amberDim,border:`1px solid ${T.amberBrd}`,color:T.amber,fontSize:11,fontWeight:700}}>To {dateTo}</span>}
-                <button onClick={()=>{setClientName("");setDateFrom("");setDateTo("");setPreviewLoaded(false);setPreview([]);}}
+                {inspectionDate&&<span style={{padding:"3px 10px",borderRadius:99,background:T.amberDim,border:`1px solid ${T.amberBrd}`,color:T.amber,fontSize:11,fontWeight:700}}>Inspected {formatDate(inspectionDate)}</span>}
+                <button onClick={()=>{setClientName("");setInspectionDate("");setPreviewLoaded(false);setPreview([]);}}
                   style={{background:"none",border:"none",color:T.textDim,fontSize:11,cursor:"pointer",fontWeight:700,padding:"3px 6px"}}>
                   Clear ×
                 </button>
