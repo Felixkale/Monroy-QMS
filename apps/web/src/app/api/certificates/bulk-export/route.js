@@ -9,46 +9,63 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+function resolveIssueDate(r) {
+  return r.issue_date || r.issued_at || r.extracted_data?.issue_date || null;
+}
+
 export async function POST(req) {
   try {
-    const { clientId, dateFrom, dateTo } = await req.json();
+    const { clientName, dateFrom, dateTo } = await req.json();
 
-    // Build query
     let query = supabase
       .from("certificates")
-      .select(
-        `
-        id,
-        certificate_number,
-        inspection_date,
-        expiry_date,
-        status,
-        file_url,
-        client_id,
-        clients ( name ),
-        equipment_type,
-        serial_number
-      `
-      )
-      .order("inspection_date", { ascending: false });
+      .select(`
+        id, certificate_number,
+        issue_date, issued_at, extracted_data,
+        expiry_date, valid_to,
+        file_url, status,
+        client_name, company,
+        equipment_type, equipment_description,
+        clients(company_name),
+        assets(clients(company_name))
+      `)
+      .order("issue_date", { ascending: false })
+      .limit(2000);
 
-    if (clientId) query = query.eq("client_id", clientId);
-    if (dateFrom) query = query.gte("inspection_date", dateFrom);
-    if (dateTo) query = query.lte("inspection_date", dateTo);
+    if (clientName) query = query.eq("client_name", clientName);
 
-    const { data: certs, error } = await query;
+    const { data: rows, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    if (!certs || certs.length === 0)
-      return NextResponse.json({ error: "No certificates found for the selected filters." }, { status: 404 });
+    if (!rows || rows.length === 0)
+      return NextResponse.json({ error: "No certificates found." }, { status: 404 });
+
+    // Apply date filter server-side (same logic as page)
+    let certs = rows;
+    if (dateFrom) {
+      const from = new Date(dateFrom);
+      certs = certs.filter(r => {
+        const d = resolveIssueDate(r);
+        return d && new Date(d) >= from;
+      });
+    }
+    if (dateTo) {
+      const to = new Date(dateTo);
+      to.setHours(23, 59, 59, 999);
+      certs = certs.filter(r => {
+        const d = resolveIssueDate(r);
+        return d && new Date(d) <= to;
+      });
+    }
+
+    if (certs.length === 0)
+      return NextResponse.json({ error: "No certificates match the selected filters." }, { status: 404 });
 
     const zip = new JSZip();
 
     for (const cert of certs) {
       if (!cert.file_url) continue;
-
       try {
         let fileBuffer;
-
         if (cert.file_url.startsWith("http")) {
           const res = await fetch(cert.file_url);
           if (!res.ok) continue;
@@ -61,23 +78,35 @@ export async function POST(req) {
           fileBuffer = await data.arrayBuffer();
         }
 
-        const clientName = (cert.clients?.name || "Unknown_Client").replace(/[^a-zA-Z0-9_-]/g, "_");
-        const safeDate = (cert.inspection_date || "NoDate").replace(/-/g, "");
+        const resolvedClient = (
+          cert.client_name || cert.company ||
+          cert.clients?.company_name ||
+          cert.assets?.clients?.company_name || "Unknown"
+        ).replace(/[^a-zA-Z0-9_-]/g, "_");
+
+        const issueDate = resolveIssueDate(cert);
+        const safeDate = issueDate ? issueDate.slice(0, 10).replace(/-/g, "") : "NoDate";
         const safeCertNum = (cert.certificate_number || cert.id).replace(/[^a-zA-Z0-9_-]/g, "_");
-        const filename = `${clientName}/${safeDate}_${safeCertNum}.pdf`;
+        const filename = `${resolvedClient}/${safeDate}_${safeCertNum}.pdf`;
 
         zip.file(filename, fileBuffer);
       } catch {
-        // skip failed individual downloads
+        // skip individual failures silently
       }
     }
 
     const zipBuffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
 
-    const clientLabel = certs[0]?.clients?.name
-      ? certs[0].clients.name.replace(/\s+/g, "_")
+    const clientLabel = clientName
+      ? clientName.replace(/\s+/g, "_")
       : "AllClients";
-    const dateLabel = dateFrom && dateTo ? `_${dateFrom}_to_${dateTo}` : "";
+    const dateLabel = dateFrom && dateTo
+      ? `_${dateFrom}_to_${dateTo}`
+      : dateFrom
+      ? `_from_${dateFrom}`
+      : dateTo
+      ? `_to_${dateTo}`
+      : "";
     const zipName = `Certificates_${clientLabel}${dateLabel}.zip`;
 
     return new NextResponse(zipBuffer, {
