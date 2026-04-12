@@ -32,22 +32,23 @@ const CSS = `
   }
   @keyframes spin{to{transform:rotate(360deg)}}
 
-  /* iframe sits in viewport so html2canvas inside it works */
-  #bulk-iframe-wrap {
+  /* 3 parallel iframes stacked, hidden behind overlay */
+  #iframe-pool {
     position: fixed;
     top: 0; left: 0;
     width: 794px;
     height: 100vh;
     z-index: 9999;
-    overflow: hidden;
     display: none;
+    flex-direction: column;
   }
-  #bulk-iframe-wrap.active { display: block; }
-  #bulk-iframe {
+  #iframe-pool.active { display: flex; }
+  .pool-frame {
     width: 794px;
-    height: 1200px;
+    height: 400px;
     border: none;
     background: #fff;
+    flex-shrink: 0;
   }
   #bulk-overlay {
     position: fixed;
@@ -62,6 +63,9 @@ const CSS = `
   }
   #bulk-overlay.active { display: flex; }
 `;
+
+const PARALLEL = 3; // number of concurrent iframes
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function formatDate(v) {
   if (!v) return "—";
@@ -81,8 +85,6 @@ const labelStyle = {
   color:"rgba(240,246,255,0.40)", marginBottom:6, display:"block",
 };
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
 export default function BulkExportClient() {
   const [clientOpts,     setClientOpts]     = useState([]);
   const [clientName,     setClientName]     = useState("");
@@ -97,11 +99,14 @@ export default function BulkExportClient() {
   const [exportDone,     setExportDone]     = useState(0);
   const [exportTotal,    setExportTotal]    = useState(0);
   const [doneMsg,        setDoneMsg]        = useState("");
-  const [overlayMsg,     setOverlayMsg]     = useState("");
-  const [iframeActive,   setIframeActive]   = useState(false);
-  const iframeRef = useRef(null);
+  const [poolActive,     setPoolActive]     = useState(false);
 
-  // Load client options
+  // 3 iframe refs
+  const frameRefs = [useRef(null), useRef(null), useRef(null)];
+  // Track which frames are free
+  const freeSlots = useRef([0, 1, 2]);
+  const slotLocks = useRef([false, false, false]);
+
   useEffect(() => {
     supabase.from("certificates").select("client_name").then(({ data }) => {
       if (!data) return;
@@ -133,102 +138,91 @@ export default function BulkExportClient() {
     setPreviewLoaded(true);
   }
 
-  // ── Load one cert's print page into iframe and capture PDF ───────────────
-  function captureViaIframe(certId, certNumber) {
+  // ── Capture one cert in a specific iframe slot ────────────────────────────
+  function captureInSlot(slotIdx, cert) {
     return new Promise((resolve, reject) => {
-      const iframe = iframeRef.current;
-      if (!iframe) { reject(new Error("iframe not found")); return; }
+      const iframe = frameRefs[slotIdx].current;
+      if (!iframe) { reject(new Error(`iframe slot ${slotIdx} not found`)); return; }
 
-      // Point iframe at the existing print page
-      const printUrl = `/certificates/print/${encodeURIComponent(String(certId))}`;
+      const printUrl = `/certificates/print/${encodeURIComponent(String(cert.id))}`;
       iframe.src = printUrl;
 
+      const timeout = setTimeout(() => {
+        reject(new Error(`Timeout: ${cert.certificate_number}`));
+      }, 30000);
+
       iframe.onload = async () => {
+        clearTimeout(timeout);
         try {
           const iDoc = iframe.contentDocument || iframe.contentWindow?.document;
-          if (!iDoc) throw new Error("Cannot access iframe document");
-
           const iWin = iframe.contentWindow;
+          if (!iDoc || !iWin) throw new Error("Cannot access iframe");
 
-          // Wait for fonts inside the iframe
+          // Wait for fonts
           try { await iDoc.fonts.ready; } catch {}
 
-          // Wait for all images in the iframe to load
+          // Wait for images
           const imgs = Array.from(iDoc.querySelectorAll("img"));
           await Promise.all(imgs.map(img =>
             img.complete ? Promise.resolve() :
             new Promise(r => { img.onload = r; img.onerror = r; })
           ));
 
-          // Extra wait for CSS paint
+          // CSS repaint buffer — shorter since we run in parallel
           await sleep(800);
 
-          // Check html2pdf is loaded inside iframe, inject if not
+          // Inject html2pdf if not already present
           if (!iWin.html2pdf) {
             await new Promise((res, rej) => {
               const s = iDoc.createElement("script");
               s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
-              s.onload = res;
-              s.onerror = rej;
+              s.onload = res; s.onerror = rej;
               iDoc.head.appendChild(s);
             });
-            await sleep(500);
+            await sleep(300);
           }
 
-          // Target the certificate content element (same as print page uses)
-          const certEl = iDoc.querySelector(".pt-content") || iDoc.body;
-
-          // Hide the toolbar
+          // Hide toolbar
           const toolbar = iDoc.querySelector(".pt-toolbar");
           if (toolbar) toolbar.style.display = "none";
 
+          const certEl = iDoc.querySelector(".pt-content") || iDoc.body;
+
           const opt = {
-            margin:      0,
-            filename:    `${certNumber || certId}.pdf`,
-            image:       { type: "jpeg", quality: 0.97 },
+            margin: 0,
+            filename: `${cert.certificate_number || cert.id}.pdf`,
+            image: { type: "jpeg", quality: 0.95 },
             html2canvas: {
-              scale:           2,
-              useCORS:         true,
-              allowTaint:      true,
-              logging:         false,
-              letterRendering: true,
-              windowWidth:     794,
-              backgroundColor: "#ffffff",
-              scrollX:         0,
-              scrollY:         0,
+              scale: 2, useCORS: true, allowTaint: true,
+              logging: false, letterRendering: true,
+              windowWidth: 794, backgroundColor: "#ffffff",
+              scrollX: 0, scrollY: 0,
             },
-            jsPDF: {
-              unit:        "mm",
-              format:      "a4",
-              orientation: "portrait",
-              compress:    true,
-            },
+            jsPDF: { unit: "mm", format: "a4", orientation: "portrait", compress: true },
           };
 
-          const blob = await iWin.html2pdf()
-            .set(opt)
-            .from(certEl)
-            .outputPdf("blob");
-
+          const blob = await iWin.html2pdf().set(opt).from(certEl).outputPdf("blob");
           const ab = await blob.arrayBuffer();
-          if (!ab || ab.byteLength < 1000) throw new Error("PDF was empty");
+          if (!ab || ab.byteLength < 1000) throw new Error("PDF empty");
           resolve(ab);
 
         } catch (e) {
           reject(e);
+        } finally {
+          iframe.src = "about:blank";
         }
       };
 
-      iframe.onerror = () => reject(new Error("iframe failed to load"));
+      iframe.onerror = () => { clearTimeout(timeout); reject(new Error("iframe load error")); };
     });
   }
 
-  // ── Main export ───────────────────────────────────────────────────────────
+  // ── Main export with parallel processing ─────────────────────────────────
   async function handleExport() {
     if (!preview.length) return;
 
     setExporting(true);
-    setIframeActive(true);
+    setPoolActive(true);
     setError("");
     setDoneMsg("");
     setExportDone(0);
@@ -253,32 +247,39 @@ export default function BulkExportClient() {
 
       const zip = new JSZip();
       let done = 0;
+      const total = allCerts.length;
 
-      for (const cert of allCerts) {
-        const stepMsg = `Rendering ${done + 1} / ${allCerts.length}: ${cert.certificate_number || cert.id}`;
-        setExportStep(stepMsg);
-        setOverlayMsg(stepMsg);
+      // Process in batches of PARALLEL
+      for (let i = 0; i < total; i += PARALLEL) {
+        const batch = allCerts.slice(i, i + PARALLEL);
 
-        try {
-          const ab = await captureViaIframe(cert.id, cert.certificate_number);
+        setExportStep(`Rendering ${i + 1}–${Math.min(i + PARALLEL, total)} of ${total}…`);
 
-          const clientFolder = (cert.client_name || "Unknown").trim().replace(/[^a-zA-Z0-9_\- ]/g, "_");
-          const safeDate     = (cert.inspection_date || cert.issue_date || "NoDate").replace(/-/g, "");
-          const safeCertNum  = (cert.certificate_number || cert.id).toString().replace(/[^a-zA-Z0-9_-]/g, "_");
+        // Run PARALLEL captures simultaneously
+        const results = await Promise.allSettled(
+          batch.map((cert, batchIdx) => captureInSlot(batchIdx, cert))
+        );
 
-          zip.file(`${clientFolder}/${safeDate}_${safeCertNum}.pdf`, ab);
-        } catch (e) {
-          console.error(`Skipped ${cert.certificate_number}:`, e.message);
-        }
+        // Collect results
+        results.forEach((result, batchIdx) => {
+          const cert = batch[batchIdx];
+          if (result.status === "fulfilled") {
+            const ab = result.value;
+            const clientFolder = (cert.client_name || "Unknown").trim().replace(/[^a-zA-Z0-9_\- ]/g, "_");
+            const safeDate     = (cert.inspection_date || cert.issue_date || "NoDate").replace(/-/g, "");
+            const safeCertNum  = (cert.certificate_number || cert.id).toString().replace(/[^a-zA-Z0-9_-]/g, "_");
+            zip.file(`${clientFolder}/${safeDate}_${safeCertNum}.pdf`, ab);
+          } else {
+            console.error(`Skipped ${cert.certificate_number}:`, result.reason?.message);
+          }
+          done++;
+        });
 
-        done++;
         setExportDone(done);
-        setExportProgress(Math.round((done / allCerts.length) * 100));
+        setExportProgress(Math.round((done / total) * 100));
       }
 
       setExportStep("Compressing ZIP…");
-      setOverlayMsg("Compressing ZIP…");
-
       const zipBlob = await zip.generateAsync({
         type: "blob",
         compression: "DEFLATE",
@@ -304,11 +305,9 @@ export default function BulkExportClient() {
       setError(err.message || "Export failed.");
     } finally {
       setExporting(false);
-      setIframeActive(false);
+      setPoolActive(false);
       setExportStep("");
-      setOverlayMsg("");
-      // Clear iframe
-      if (iframeRef.current) iframeRef.current.src = "about:blank";
+      frameRefs.forEach(r => { if (r.current) r.current.src = "about:blank"; });
     }
   }
 
@@ -316,30 +315,34 @@ export default function BulkExportClient() {
     <AppLayout title="Bulk Export">
       <style>{CSS}</style>
 
-      {/* Overlay shown during export */}
+      {/* Overlay during export */}
       <div id="bulk-overlay" className={exporting ? "active" : ""}>
         <div style={{ display:"flex", alignItems:"center", gap:12 }}>
           <span style={{ display:"inline-block", width:18, height:18, border:"3px solid rgba(34,211,238,0.3)", borderTopColor:"#22d3ee", borderRadius:"50%", animation:"spin 0.7s linear infinite" }}/>
           <span style={{ color:"#f0f6ff", fontFamily:"'IBM Plex Sans',sans-serif", fontSize:14, fontWeight:700 }}>
-            {overlayMsg || "Exporting…"}
+            {exportStep || "Exporting…"}
           </span>
         </div>
-        <div style={{ color:"rgba(240,246,255,0.4)", fontFamily:"'IBM Plex Sans',sans-serif", fontSize:12 }}>
-          Please wait — do not close this tab
-        </div>
         {exportTotal > 0 && (
-          <div style={{ width:300 }}>
+          <div style={{ width:320 }}>
             <div style={{ background:"rgba(34,211,238,0.1)", borderRadius:99, height:6, overflow:"hidden" }}>
               <div style={{ height:"100%", borderRadius:99, background:"linear-gradient(90deg,#22d3ee,#34d399)", width:`${exportProgress}%`, transition:"width 0.3s ease" }}/>
             </div>
-            <div style={{ marginTop:6, fontSize:11, color:"rgba(240,246,255,0.4)", textAlign:"center" }}>{exportDone} of {exportTotal}</div>
+            <div style={{ marginTop:6, fontSize:12, color:"rgba(240,246,255,0.5)", textAlign:"center" }}>
+              {exportDone} of {exportTotal} certificates
+            </div>
           </div>
         )}
+        <div style={{ fontSize:11, color:"rgba(240,246,255,0.3)", fontFamily:"'IBM Plex Sans',sans-serif" }}>
+          Do not close this tab
+        </div>
       </div>
 
-      {/* Hidden iframe — loads actual print pages */}
-      <div id="bulk-iframe-wrap" className={iframeActive ? "active" : ""}>
-        <iframe id="bulk-iframe" ref={iframeRef} src="about:blank" title="cert-render"/>
+      {/* 3 parallel iframes */}
+      <div id="iframe-pool" className={poolActive ? "active" : ""}>
+        {frameRefs.map((ref, i) => (
+          <iframe key={i} className="pool-frame" ref={ref} src="about:blank" title={`cert-frame-${i}`}/>
+        ))}
       </div>
 
       <div style={{
