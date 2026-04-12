@@ -3,36 +3,30 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 // ── Robust date normalizer ──────────────────────────────────────────────────
-// Handles: YYYY-MM-DD, DD/MM/YYYY, MM/YYYY, MM/YY, YYYY, "March 2030", etc.
 function normalizeDate(raw) {
   if (!raw) return null;
   const s = String(raw).trim();
   if (!s || s === "—" || s === "-" || s.toLowerCase() === "null") return null;
 
-  // Already ISO format YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
-  // YYYY-MM (year-month only) → last day of month
   if (/^\d{4}-\d{2}$/.test(s)) {
     const [y, m] = s.split("-").map(Number);
     const lastDay = new Date(y, m, 0).getDate();
     return `${y}-${String(m).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`;
   }
 
-  // DD/MM/YYYY
   if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
     const [d, m, y] = s.split("/").map(Number);
     return `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
   }
 
-  // MM/YYYY → last day of that month
   if (/^\d{1,2}\/\d{4}$/.test(s)) {
     const [m, y] = s.split("/").map(Number);
     const lastDay = new Date(y, m, 0).getDate();
     return `${y}-${String(m).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`;
   }
 
-  // MM/YY → assume 20YY, last day of month
   if (/^\d{1,2}\/\d{2}$/.test(s)) {
     const [m, y] = s.split("/").map(Number);
     const fullYear = 2000 + y;
@@ -40,10 +34,8 @@ function normalizeDate(raw) {
     return `${fullYear}-${String(m).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`;
   }
 
-  // YYYY only → Jan 1st of that year
   if (/^\d{4}$/.test(s)) return `${s}-01-01`;
 
-  // "Month YYYY" or "Month, YYYY" → first day of that month
   const monthNames = ["january","february","march","april","may","june","july","august","september","october","november","december"];
   const monthMatch = s.toLowerCase().match(/([a-z]+)\s*,?\s*(\d{4})/);
   if (monthMatch) {
@@ -55,11 +47,10 @@ function normalizeDate(raw) {
     }
   }
 
-  // Try native Date parse as last resort
   const d = new Date(s);
   if (!isNaN(d.getTime())) return d.toISOString().slice(0,10);
 
-  return null; // give up — don't insert garbage
+  return null;
 }
 
 function supabaseAdmin() {
@@ -69,7 +60,6 @@ function supabaseAdmin() {
   );
 }
 
-// Determine certificate type from equipment type string
 function resolveCertType(equipType) {
   if (!equipType) return "Certificate of Inspection";
   const t = equipType.toLowerCase();
@@ -101,32 +91,29 @@ export async function POST(request) {
       clientId = existingClient?.id || null;
     }
 
-    // ── 2. Resolve asset — search by serial, asset_tag, OR name+client ────
-    let assetId = body.asset_id || null;
+    // ── 2. Resolve asset (equipment_id in certificates table) ─────────────
+    let equipmentId = body.equipment_id || null;
 
-    if (!assetId) {
-      // Try serial number first (most reliable)
+    if (!equipmentId) {
       if (body.serial_number) {
         const { data: bySerial } = await supabase
           .from("assets")
           .select("id")
           .ilike("serial_number", body.serial_number.trim())
           .maybeSingle();
-        assetId = bySerial?.id || null;
+        equipmentId = bySerial?.id || null;
       }
 
-      // Try asset_tag
-      if (!assetId && body.asset_tag) {
+      if (!equipmentId && body.asset_tag) {
         const { data: byTag } = await supabase
           .from("assets")
           .select("id")
           .ilike("asset_tag", body.asset_tag.trim())
           .maybeSingle();
-        assetId = byTag?.id || null;
+        equipmentId = byTag?.id || null;
       }
 
-      // Try name + client match (avoid duplicates for same equipment)
-      if (!assetId && (body.asset_name || body.equipment_description) && clientId) {
+      if (!equipmentId && (body.asset_name || body.equipment_description) && clientId) {
         const nameToMatch = (body.asset_name || body.equipment_description).trim();
         const { data: byName } = await supabase
           .from("assets")
@@ -134,12 +121,12 @@ export async function POST(request) {
           .ilike("asset_name", nameToMatch)
           .eq("client_id", clientId)
           .maybeSingle();
-        assetId = byName?.id || null;
+        equipmentId = byName?.id || null;
       }
     }
 
     // ── 3. Create asset only if truly not found ────────────────────────────
-    if (!assetId && (body.asset_name || body.equipment_description)) {
+    if (!equipmentId && (body.asset_name || body.equipment_description)) {
       const assetTag =
         body.asset_tag ||
         `IMP-${Date.now().toString(36).toUpperCase().slice(-6)}`;
@@ -147,26 +134,28 @@ export async function POST(request) {
       const { data: newAsset, error: assetErr } = await supabase
         .from("assets")
         .insert({
-          asset_tag:    assetTag,
-          asset_name:   body.asset_name || body.equipment_description || "Imported Equipment",
-          asset_type:   equipType || null,
+          asset_tag:     assetTag,
+          asset_name:    body.asset_name || body.equipment_description || "Imported Equipment",
+          asset_type:    equipType || null,
           serial_number: body.serial_number || null,
-          manufacturer: body.manufacturer  || null,
-          model:        body.model         || null,
-          year_built:   body.year_built    || null,
-          location:     body.location      || null,
-          client_id:    clientId           || null,
-          status:       "active",
+          manufacturer:  body.manufacturer  || null,
+          model:         body.model         || null,
+          year_built:    body.year_built    || null,
+          location:      body.location      || null,
+          client_id:     clientId           || null,
+          status:        "active",
         })
         .select("id")
         .single();
 
       if (!assetErr && newAsset) {
-        assetId = newAsset.id;
+        equipmentId = newAsset.id;
       }
     }
 
     // ── 4. Insert certificate ──────────────────────────────────────────────
+    // Only columns that actually exist in the certificates table.
+    // REMOVED: equipment_status, asset_id, remarks, next_inspection_date
     const certType = resolveCertType(equipType);
 
     const { data: cert, error: certErr } = await supabase
@@ -176,22 +165,29 @@ export async function POST(request) {
         inspection_number:     body.inspection_number     || null,
         certificate_type:      certType,
         result:                body.result                || "UNKNOWN",
-        equipment_status:      body.result                || "UNKNOWN",
+        // Dates
         issue_date:            normalizeDate(body.issue_date || body.inspection_date) || null,
         inspection_date:       normalizeDate(body.inspection_date) || null,
         expiry_date:           normalizeDate(body.expiry_date) || null,
-        next_inspection_date:  normalizeDate(body.next_inspection_due) || null,
         next_inspection_due:   normalizeDate(body.next_inspection_due) || null,
-        asset_id:              assetId                    || null,
+        // FKs — use the correct column names from the schema
+        equipment_id:          equipmentId                || null,
         client_id:             clientId                   || null,
+        // Descriptive fields
         client_name:           body.client_name           || null,
         equipment_type:        equipType                  || null,
         equipment_description: body.equipment_description || null,
         asset_name:            body.asset_name            || body.equipment_description || null,
+        asset_type:            body.asset_type            || null,
         manufacturer:          body.manufacturer          || null,
         model:                 body.model                 || null,
         serial_number:         body.serial_number         || null,
+        fleet_number:          body.fleet_number          || null,
+        registration_number:   body.registration_number   || null,
         year_built:            body.year_built            || null,
+        country_of_origin:     body.country_of_origin     || null,
+        asset_tag:             body.asset_tag             || null,
+        lanyard_serial_no:     body.lanyard_serial_no     || null,
         swl:                   body.swl                   || null,
         working_pressure:      body.working_pressure      || null,
         design_pressure:       body.design_pressure       || null,
@@ -201,14 +197,18 @@ export async function POST(request) {
         material:              body.material              || null,
         standard_code:         body.standard_code         || null,
         location:              body.location              || null,
+        site_name:             body.site_name             || null,
         inspector_name:        body.inspector_name        || null,
+        inspector_id:          body.inspector_id          || null,
         inspection_body:       body.inspection_body       || null,
         defects_found:         body.defects_found         || null,
         recommendations:       body.recommendations       || null,
         comments:              body.comments              || null,
-        remarks:               body.comments              || null,
+        // comments maps to both `comments` and `notes` — no `remarks` column exists
+        notes:                 body.notes || body.comments || null,
         nameplate_data:        body.nameplate_data        || null,
         raw_text_summary:      body.raw_text_summary      || null,
+        ai_confidence:         body.ai_confidence         || null,
         status:                "active",
       })
       .select("id")
@@ -222,7 +222,11 @@ export async function POST(request) {
       );
     }
 
-    return NextResponse.json({ id: cert.id, certificate_number: body.certificate_number, certificate_type: certType });
+    return NextResponse.json({
+      id: cert.id,
+      certificate_number: body.certificate_number,
+      certificate_type: certType,
+    });
   } catch (err) {
     console.error("API /certificates error:", err);
     return NextResponse.json(
