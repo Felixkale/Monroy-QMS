@@ -88,29 +88,43 @@ export default function BulkExportClient(){
     let query = supabase
       .from("certificates")
       .select("id,certificate_number,issue_date,issued_at,extracted_data,expiry_date,valid_to,status,equipment_type,equipment_description,client_name")
-      .order("issue_date", {ascending:false})
+      .order("issue_date", { ascending: false })
       .limit(2000);
 
     if(clientName) query = query.eq("client_name", clientName);
 
-    const {data, error:qErr} = await query;
+    // Push date filters to Supabase — filters at DB level, not in memory
+    if(dateFrom) query = query.gte("issue_date", dateFrom);
+    if(dateTo)   query = query.lte("issue_date", dateTo);
+
+    const { data, error: qErr } = await query;
     setLoadingPreview(false);
     if(qErr){ setError(qErr.message); return; }
 
-    let rows = (data||[]).map(r => ({
+    let rows = (data || []).map(r => ({
       ...r,
       _issueDate: resolveIssueDate(r),
       _expiryDate: r.expiry_date || r.valid_to || null,
     }));
 
-    if(dateFrom){
-      const from = new Date(dateFrom);
-      rows = rows.filter(r => r._issueDate && new Date(r._issueDate) >= from);
-    }
-    if(dateTo){
-      const to = new Date(dateTo);
-      to.setHours(23,59,59,999);
-      rows = rows.filter(r => r._issueDate && new Date(r._issueDate) <= to);
+    // Secondary client-side pass: catches rows where issue_date was NULL
+    // but a fallback date (issued_at / extracted_data.issue_date) exists.
+    // These weren't filtered by Supabase, so we check them manually here.
+    if(dateFrom || dateTo){
+      const from = dateFrom ? new Date(dateFrom) : null;
+      const to   = dateTo   ? new Date(dateTo + "T23:59:59.999") : null;
+
+      rows = rows.filter(r => {
+        // If issue_date was populated, Supabase already validated it — keep the row
+        if(r.issue_date) return true;
+        // Fallback date: validate manually
+        if(!r._issueDate) return false;
+        const d = new Date(r._issueDate);
+        if(isNaN(d)) return false;
+        if(from && d < from) return false;
+        if(to   && d > to)   return false;
+        return true;
+      });
     }
 
     setPreview(rows);
@@ -247,6 +261,7 @@ export default function BulkExportClient(){
 
               {preview.length>0&&(
                 <>
+                  {/* DESKTOP TABLE */}
                   <div className="be-table" style={{overflowX:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
                       <thead>
@@ -278,6 +293,7 @@ export default function BulkExportClient(){
                     </table>
                   </div>
 
+                  {/* MOBILE CARDS */}
                   <div className="be-mob">
                     {preview.map(cert=>{
                       const sc = statusColor(cert.status);
