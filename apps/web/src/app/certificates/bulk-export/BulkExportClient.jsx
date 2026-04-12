@@ -74,8 +74,8 @@ export default function BulkExportClient() {
   const [exporting,      setExporting]      = useState(false);
   const [exportStep,     setExportStep]     = useState("");
   const [exportProgress, setExportProgress] = useState(0);
-  const [exportTotal,    setExportTotal]    = useState(0);
   const [exportDone,     setExportDone]     = useState(0);
+  const [exportTotal,    setExportTotal]    = useState(0);
   const [doneMsg,        setDoneMsg]        = useState("");
   const [html2pdfReady,  setHtml2pdfReady]  = useState(false);
   const [renderCert,     setRenderCert]     = useState(null);
@@ -124,54 +124,52 @@ export default function BulkExportClient() {
     setPreviewLoaded(true);
   }
 
-  // ── Render one cert → ArrayBuffer via html2pdf ───────────────────────────
+  // ── Capture one cert as ArrayBuffer ──────────────────────────────────────
   function captureOneCert(cert) {
     return new Promise((resolve, reject) => {
       setRenderCert(cert);
 
-      // Wait for React to paint the cert into the off-screen div
-      requestAnimationFrame(() => {
-        setTimeout(async () => {
-          try {
-            const el = renderRef.current;
-            if (!el) throw new Error("Render container not found");
+      setTimeout(async () => {
+        try {
+          const el = renderRef.current;
+          if (!el) throw new Error("Render container not found");
 
-            const opt = {
-              margin:      0,
-              filename:    `${cert.certificate_number || cert.id}.pdf`,
-              image:       { type: "jpeg", quality: 0.97 },
-              html2canvas: {
-                scale:           2,
-                useCORS:         true,
-                logging:         false,
-                letterRendering: true,
-                windowWidth:     794,
-                backgroundColor: "#ffffff",
-              },
-              jsPDF: {
-                unit:        "mm",
-                format:      "a4",
-                orientation: "portrait",
-                compress:    true,
-              },
-              pagebreak: { mode: ["css", "legacy"] },
-            };
+          const opt = {
+            margin:      0,
+            filename:    `${cert.certificate_number || cert.id}.pdf`,
+            image:       { type: "jpeg", quality: 0.95 },
+            html2canvas: {
+              scale:           2,
+              useCORS:         true,
+              logging:         false,
+              letterRendering: true,
+              windowWidth:     794,
+              backgroundColor: "#ffffff",
+            },
+            jsPDF: {
+              unit:        "mm",
+              format:      "a4",
+              orientation: "portrait",
+              compress:    true,
+            },
+          };
 
-            // Correct chain: toPdf() → get("pdf") → output("arraybuffer")
-            const worker  = window.html2pdf().set(opt).from(el);
-            const pdfObj  = await worker.toPdf().get("pdf");
-            const ab      = pdfObj.output("arraybuffer");
+          // Generate blob then convert to ArrayBuffer for JSZip
+          const blob = await window.html2pdf()
+            .set(opt)
+            .from(el)
+            .outputPdf("blob");
 
-            if (!ab || ab.byteLength < 500) throw new Error("PDF output was empty");
+          const ab = await blob.arrayBuffer();
+          if (!ab || ab.byteLength < 500) throw new Error("PDF output was empty");
+          resolve(ab);
 
-            resolve(ab);
-          } catch (e) {
-            reject(e);
-          } finally {
-            setRenderCert(null);
-          }
-        }, 1200); // wait for fonts + images to load
-      });
+        } catch (e) {
+          reject(e);
+        } finally {
+          setRenderCert(null);
+        }
+      }, 1500); // wait for fonts + images
     });
   }
 
