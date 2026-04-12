@@ -38,14 +38,13 @@ const CSS = `
     top: 0;
     left: 0;
     width: 794px;
-    min-height: 100vh;
+    min-height: 1123px;
     z-index: 9999;
     background: #fff;
     pointer-events: none;
     opacity: 0;
-    transition: none;
   }
-  #cert-render-portal.visible {
+  #cert-render-portal.active {
     opacity: 1;
   }
   #cert-render-overlay {
@@ -59,7 +58,7 @@ const CSS = `
     flex-direction: column;
     gap: 16px;
   }
-  #cert-render-overlay.visible {
+  #cert-render-overlay.active {
     display: flex;
   }
 `;
@@ -82,6 +81,8 @@ const labelStyle = {
   color:"rgba(240,246,255,0.40)", marginBottom:6, display:"block",
 };
 
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
 export default function BulkExportClient() {
   const [clientOpts,     setClientOpts]     = useState([]);
   const [clientName,     setClientName]     = useState("");
@@ -99,7 +100,8 @@ export default function BulkExportClient() {
   const [html2pdfReady,  setHtml2pdfReady]  = useState(false);
   const [renderCert,     setRenderCert]     = useState(null);
   const [overlayMsg,     setOverlayMsg]     = useState("");
-  const renderRef = useRef(null);
+  const renderRef  = useRef(null);
+  const resolveRef = useRef(null);
 
   // Load html2pdf from CDN
   useEffect(() => {
@@ -108,11 +110,11 @@ export default function BulkExportClient() {
     const s = document.createElement("script");
     s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
     s.onload  = () => setHtml2pdfReady(true);
-    s.onerror = () => setError("Failed to load PDF engine. Check your connection.");
+    s.onerror = () => setError("Failed to load PDF engine.");
     document.head.appendChild(s);
   }, []);
 
-  // Load client options — trim names to deduplicate trailing spaces
+  // Load client options
   useEffect(() => {
     supabase.from("certificates").select("client_name").then(({ data }) => {
       if (!data) return;
@@ -130,17 +132,13 @@ export default function BulkExportClient() {
 
   async function handlePreview() {
     setError(""); setLoadingPreview(true); setPreviewLoaded(false); setDoneMsg("");
-
     let query = supabase
       .from("certificates")
       .select("id,certificate_number,client_name,equipment_type,equipment_description,inspection_date,issue_date,expiry_date,status,result")
       .order("certificate_number", { ascending: true })
       .limit(1000);
-
-    // Use ilike with trimmed name to catch trailing/leading space variants
     if (clientName)     query = query.ilike("client_name", clientName.trim());
     if (inspectionDate) query = query.eq("inspection_date", inspectionDate);
-
     const { data, error: qErr } = await query;
     setLoadingPreview(false);
     if (qErr) { setError(qErr.message); return; }
@@ -148,65 +146,75 @@ export default function BulkExportClient() {
     setPreviewLoaded(true);
   }
 
-  // ── Capture one cert as ArrayBuffer ──────────────────────────────────────
-  function captureOneCert(cert, stepMsg) {
-    return new Promise((resolve, reject) => {
-      setOverlayMsg(stepMsg);
-      setRenderCert(cert);
+  // ── Capture one cert ──────────────────────────────────────────────────────
+  async function captureOneCert(cert, stepMsg) {
+    setOverlayMsg(stepMsg);
+    setRenderCert(cert);
 
-      setTimeout(async () => {
-        try {
-          const el = renderRef.current;
-          if (!el) throw new Error("Render container not found");
+    // Wait for React to commit the render
+    await sleep(100);
 
-          const height = el.scrollHeight;
-          if (height < 100) throw new Error("Certificate did not render");
+    const el = renderRef.current;
+    if (!el) throw new Error("Render container not found");
 
-          const opt = {
-            margin:      0,
-            filename:    `${cert.certificate_number || cert.id}.pdf`,
-            image:       { type: "jpeg", quality: 0.95 },
-            html2canvas: {
-              scale:           2,
-              useCORS:         true,
-              logging:         false,
-              letterRendering: true,
-              windowWidth:     794,
-              backgroundColor: "#ffffff",
-              scrollX:         0,
-              scrollY:         0,
-            },
-            jsPDF: {
-              unit:        "mm",
-              format:      "a4",
-              orientation: "portrait",
-              compress:    true,
-            },
-          };
+    // Wait for fonts to be ready
+    try { await document.fonts.ready; } catch {}
 
-          const blob = await window.html2pdf()
-            .set(opt)
-            .from(el)
-            .outputPdf("blob");
+    // Wait for all images inside the cert to load
+    const imgs = Array.from(el.querySelectorAll("img"));
+    await Promise.all(imgs.map(img =>
+      img.complete ? Promise.resolve() :
+      new Promise(r => { img.onload = r; img.onerror = r; })
+    ));
 
-          const ab = await blob.arrayBuffer();
-          if (!ab || ab.byteLength < 1000) throw new Error("PDF output was empty");
-          resolve(ab);
+    // Extra buffer for any CSS animations / repaints
+    await sleep(1500);
 
-        } catch (e) {
-          reject(e);
-        } finally {
-          setRenderCert(null);
-          setOverlayMsg("");
-        }
-      }, 2000);
-    });
+    // Confirm content rendered
+    if (el.scrollHeight < 200) throw new Error("Certificate did not render properly");
+
+    const opt = {
+      margin:      0,
+      filename:    `${cert.certificate_number || cert.id}.pdf`,
+      image:       { type: "jpeg", quality: 0.95 },
+      html2canvas: {
+        scale:           2,
+        useCORS:         true,
+        allowTaint:      true,
+        logging:         false,
+        letterRendering: true,
+        windowWidth:     794,
+        backgroundColor: "#ffffff",
+        scrollX:         0,
+        scrollY:         0,
+        x:               0,
+        y:               0,
+      },
+      jsPDF: {
+        unit:        "mm",
+        format:      "a4",
+        orientation: "portrait",
+        compress:    true,
+      },
+    };
+
+    const blob = await window.html2pdf()
+      .set(opt)
+      .from(el)
+      .outputPdf("blob");
+
+    setRenderCert(null);
+    setOverlayMsg("");
+
+    const ab = await blob.arrayBuffer();
+    if (!ab || ab.byteLength < 1000) throw new Error("PDF output was empty");
+    return ab;
   }
 
-  // ── Main export ──────────────────────────────────────────────────────────
+  // ── Main export ───────────────────────────────────────────────────────────
   async function handleExport() {
     if (!preview.length) return;
-    if (!html2pdfReady) { setError("PDF engine not ready. Please wait and try again."); return; }
+    if (!html2pdfReady) { setError("PDF engine not ready. Please wait."); return; }
 
     setExporting(true);
     setError("");
@@ -220,7 +228,6 @@ export default function BulkExportClient() {
       const ids = preview.map(c => c.id);
       const allCerts = [];
 
-      // Fetch full data in batches of 50
       for (let i = 0; i < ids.length; i += 50) {
         const batch = ids.slice(i, i + 50);
         const { data, error: e } = await supabase
@@ -241,16 +248,14 @@ export default function BulkExportClient() {
 
         try {
           const ab = await captureOneCert(cert, stepMsg);
-
-          const clientFolder = (cert.client_name || "Unknown")
-            .trim()
-            .replace(/[^a-zA-Z0-9_\- ]/g, "_");
-          const safeDate    = (cert.inspection_date || cert.issue_date || "NoDate").replace(/-/g, "");
-          const safeCertNum = (cert.certificate_number || cert.id).toString().replace(/[^a-zA-Z0-9_-]/g, "_");
-
+          const clientFolder = (cert.client_name || "Unknown").trim().replace(/[^a-zA-Z0-9_\- ]/g, "_");
+          const safeDate     = (cert.inspection_date || cert.issue_date || "NoDate").replace(/-/g, "");
+          const safeCertNum  = (cert.certificate_number || cert.id).toString().replace(/[^a-zA-Z0-9_-]/g, "_");
           zip.file(`${clientFolder}/${safeDate}_${safeCertNum}.pdf`, ab);
         } catch (e) {
           console.error(`Skipped ${cert.certificate_number}:`, e.message);
+          setRenderCert(null);
+          setOverlayMsg("");
         }
 
         done++;
@@ -265,7 +270,7 @@ export default function BulkExportClient() {
         compressionOptions: { level: 6 },
       });
 
-      if (zipBlob.size < 100) throw new Error("ZIP is empty — no PDFs were generated successfully.");
+      if (zipBlob.size < 100) throw new Error("ZIP is empty — no PDFs were generated.");
 
       const clientLabel = clientName ? clientName.trim().replace(/\s+/g, "_") : "AllClients";
       const dateLabel   = inspectionDate ? `_${inspectionDate}` : "";
@@ -273,10 +278,8 @@ export default function BulkExportClient() {
 
       const url = URL.createObjectURL(zipBlob);
       const a   = document.createElement("a");
-      a.href     = url;
-      a.download = zipName;
-      document.body.appendChild(a);
-      a.click();
+      a.href = url; a.download = zipName;
+      document.body.appendChild(a); a.click();
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 5000);
 
@@ -296,8 +299,8 @@ export default function BulkExportClient() {
     <AppLayout title="Bulk Export">
       <style>{CSS}</style>
 
-      {/* Dark overlay during render */}
-      <div id="cert-render-overlay" className={renderCert ? "visible" : ""}>
+      {/* Overlay shown during render */}
+      <div id="cert-render-overlay" className={renderCert ? "active" : ""}>
         <div style={{ display:"flex", alignItems:"center", gap:12 }}>
           <span style={{ display:"inline-block", width:18, height:18, border:"3px solid rgba(34,211,238,0.3)", borderTopColor:"#22d3ee", borderRadius:"50%", animation:"spin 0.7s linear infinite" }}/>
           <span style={{ color:"#f0f6ff", fontFamily:"'IBM Plex Sans',sans-serif", fontSize:14, fontWeight:700 }}>
@@ -305,12 +308,12 @@ export default function BulkExportClient() {
           </span>
         </div>
         <div style={{ color:"rgba(240,246,255,0.4)", fontFamily:"'IBM Plex Sans',sans-serif", fontSize:12 }}>
-          Please wait, do not close this tab
+          Please wait — do not close this tab
         </div>
       </div>
 
-      {/* Visible render portal for html2canvas */}
-      <div id="cert-render-portal" className={renderCert ? "visible" : ""} ref={renderRef}>
+      {/* Render portal — must be visible for html2canvas to work */}
+      <div id="cert-render-portal" className={renderCert ? "active" : ""} ref={renderRef}>
         {renderCert && (
           <CertificateSheet
             certificate={renderCert}
@@ -396,7 +399,6 @@ export default function BulkExportClient() {
               )}
             </div>
 
-            {/* PROGRESS */}
             {exporting && (
               <div style={{ marginTop:16, padding:"14px 16px", borderRadius:12, border:`1px solid ${T.accentBrd}`, background:T.accentDim }}>
                 <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
@@ -404,12 +406,7 @@ export default function BulkExportClient() {
                   <span style={{ fontSize:12, fontWeight:700, color:T.accent }}>{exportStep}</span>
                 </div>
                 <div style={{ background:"rgba(34,211,238,0.1)", borderRadius:99, height:6, overflow:"hidden" }}>
-                  <div style={{
-                    height:"100%", borderRadius:99,
-                    background:`linear-gradient(90deg,${T.accent},${T.green})`,
-                    width:`${exportProgress}%`,
-                    transition:"width 0.4s ease",
-                  }}/>
+                  <div style={{ height:"100%", borderRadius:99, background:`linear-gradient(90deg,${T.accent},${T.green})`, width:`${exportProgress}%`, transition:"width 0.4s ease" }}/>
                 </div>
                 <div style={{ marginTop:6, fontSize:11, color:T.textDim }}>{exportDone} of {exportTotal} certificates</div>
               </div>
@@ -435,9 +432,8 @@ export default function BulkExportClient() {
                 <span style={{ fontSize:13, fontWeight:800 }}>
                   Preview — <span style={{ color:T.accent }}>{preview.length} certificate{preview.length !== 1 ? "s" : ""}</span>
                 </span>
-                {preview.length === 0 && <span style={{ fontSize:12, color:T.textDim }}>No results for selected filters.</span>}
+                {preview.length === 0 && <span style={{ fontSize:12, color:T.textDim }}>No results.</span>}
               </div>
-
               {preview.length > 0 && (
                 <>
                   <div className="be-table" style={{ overflowX:"auto" }}>
@@ -471,7 +467,6 @@ export default function BulkExportClient() {
                       </tbody>
                     </table>
                   </div>
-
                   <div className="be-mob">
                     {preview.map(cert => {
                       const sc = statusColor(cert.status);
