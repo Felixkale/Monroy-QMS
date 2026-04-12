@@ -19,6 +19,7 @@
     "recharts": "^2.12.7",
     "pdf-lib": "^1.17.1",
     "react-pdf": "^9.1.1",
+    "puppeteer": "^22.0.0",
     "pdfjs-dist": "^4.8.69"
   },
   "devDependencies": {
