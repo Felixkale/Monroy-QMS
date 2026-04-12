@@ -32,16 +32,37 @@ const CSS = `
     .be-mob{display:grid!important;gap:0}
   }
   @keyframes spin{to{transform:rotate(360deg)}}
-  #cert-offscreen{
-    position:fixed;
-    left:-9999px;
-    top:0;
-    width:794px;
-    min-height:1123px;
-    background:#fff;
-    z-index:-100;
-    overflow:visible;
-    pointer-events:none;
+
+  /* Render area — positioned in viewport so html2canvas can see it,
+     but covered by a dark overlay so user doesn't see it */
+  #cert-render-portal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 794px;
+    min-height: 100vh;
+    z-index: 9999;
+    background: #fff;
+    pointer-events: none;
+    opacity: 0;
+    transition: none;
+  }
+  #cert-render-portal.visible {
+    opacity: 1;
+  }
+  #cert-render-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    background: rgba(7,14,24,0.97);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+  }
+  #cert-render-overlay.visible {
+    display: flex;
   }
 `;
 
@@ -79,6 +100,7 @@ export default function BulkExportClient() {
   const [doneMsg,        setDoneMsg]        = useState("");
   const [html2pdfReady,  setHtml2pdfReady]  = useState(false);
   const [renderCert,     setRenderCert]     = useState(null);
+  const [overlayMsg,     setOverlayMsg]     = useState("");
   const renderRef = useRef(null);
 
   // Load html2pdf from CDN
@@ -125,26 +147,36 @@ export default function BulkExportClient() {
   }
 
   // ── Capture one cert as ArrayBuffer ──────────────────────────────────────
-  function captureOneCert(cert) {
+  function captureOneCert(cert, stepMsg) {
     return new Promise((resolve, reject) => {
+      // Show overlay so user sees progress but not the cert render
+      setOverlayMsg(stepMsg);
+      // Mount cert into visible render portal
       setRenderCert(cert);
 
+      // Wait for React to paint + fonts to load
       setTimeout(async () => {
         try {
           const el = renderRef.current;
           if (!el) throw new Error("Render container not found");
+
+          // Confirm it has content
+          const height = el.scrollHeight;
+          if (height < 100) throw new Error("Certificate did not render (height too small)");
 
           const opt = {
             margin:      0,
             filename:    `${cert.certificate_number || cert.id}.pdf`,
             image:       { type: "jpeg", quality: 0.95 },
             html2canvas: {
-              scale:           2,
-              useCORS:         true,
-              logging:         false,
-              letterRendering: true,
-              windowWidth:     794,
-              backgroundColor: "#ffffff",
+              scale:            2,
+              useCORS:          true,
+              logging:          false,
+              letterRendering:  true,
+              windowWidth:      794,
+              backgroundColor:  "#ffffff",
+              scrollX:          0,
+              scrollY:          0,
             },
             jsPDF: {
               unit:        "mm",
@@ -154,22 +186,22 @@ export default function BulkExportClient() {
             },
           };
 
-          // Generate blob then convert to ArrayBuffer for JSZip
           const blob = await window.html2pdf()
             .set(opt)
             .from(el)
             .outputPdf("blob");
 
           const ab = await blob.arrayBuffer();
-          if (!ab || ab.byteLength < 500) throw new Error("PDF output was empty");
+          if (!ab || ab.byteLength < 1000) throw new Error("PDF output was empty");
           resolve(ab);
 
         } catch (e) {
           reject(e);
         } finally {
           setRenderCert(null);
+          setOverlayMsg("");
         }
-      }, 1500); // wait for fonts + images
+      }, 2000); // 2s — enough for CertificateSheet + Google Fonts
     });
   }
 
@@ -205,10 +237,11 @@ export default function BulkExportClient() {
       let done = 0;
 
       for (const cert of allCerts) {
-        setExportStep(`Generating ${done + 1} / ${allCerts.length}: ${cert.certificate_number || cert.id}`);
+        const stepMsg = `Generating ${done + 1} / ${allCerts.length}: ${cert.certificate_number || cert.id}`;
+        setExportStep(stepMsg);
 
         try {
-          const ab = await captureOneCert(cert);
+          const ab = await captureOneCert(cert, stepMsg);
 
           const clientFolder = (cert.client_name || "Unknown")
             .replace(/[^a-zA-Z0-9_\- ]/g, "_").trim();
@@ -255,6 +288,7 @@ export default function BulkExportClient() {
       setExporting(false);
       setExportStep("");
       setRenderCert(null);
+      setOverlayMsg("");
     }
   }
 
@@ -262,8 +296,21 @@ export default function BulkExportClient() {
     <AppLayout title="Bulk Export">
       <style>{CSS}</style>
 
-      {/* Off-screen render container */}
-      <div id="cert-offscreen" ref={renderRef}>
+      {/* Dark overlay shown during render — hides cert from user */}
+      <div id="cert-render-overlay" className={renderCert ? "visible" : ""}>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <span style={{ display:"inline-block", width:18, height:18, border:"3px solid rgba(34,211,238,0.3)", borderTopColor:"#22d3ee", borderRadius:"50%", animation:"spin 0.7s linear infinite" }}/>
+          <span style={{ color:"#f0f6ff", fontFamily:"'IBM Plex Sans',sans-serif", fontSize:14, fontWeight:700 }}>
+            {overlayMsg || "Rendering certificate…"}
+          </span>
+        </div>
+        <div style={{ color:"rgba(240,246,255,0.4)", fontFamily:"'IBM Plex Sans',sans-serif", fontSize:12 }}>
+          Please wait, do not close this tab
+        </div>
+      </div>
+
+      {/* Render portal — visible so html2canvas can capture it */}
+      <div id="cert-render-portal" className={renderCert ? "visible" : ""} ref={renderRef}>
         {renderCert && (
           <CertificateSheet
             certificate={renderCert}
