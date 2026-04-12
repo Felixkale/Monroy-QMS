@@ -36,13 +36,10 @@ const CSS = `
 
 function formatDate(v){
   if(!v) return "—";
-  const d = new Date(v);
+  // date columns come back as "YYYY-MM-DD" strings — parse as UTC to avoid timezone shift
+  const d = new Date(v + "T00:00:00Z");
   if(isNaN(d)) return String(v);
-  return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
-}
-
-function resolveIssueDate(r){
-  return r.issue_date || r.issued_at || (r.extracted_data && r.extracted_data.issue_date) || null;
+  return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric",timeZone:"UTC"});
 }
 
 const inputStyle = {
@@ -67,7 +64,6 @@ export default function BulkExportClient(){
   const [error, setError] = useState("");
   const [previewLoaded, setPreviewLoaded] = useState(false);
 
-  // Load distinct client names from certificates table
   useEffect(()=>{
     supabase
       .from("certificates")
@@ -87,13 +83,16 @@ export default function BulkExportClient(){
 
     let query = supabase
       .from("certificates")
-      .select("id,certificate_number,issue_date,issued_at,extracted_data,expiry_date,valid_to,status,equipment_type,equipment_description,client_name")
-      .order("issue_date", { ascending: false })
+      .select(
+        "id,certificate_number,client_name,equipment_type,equipment_description," +
+        "inspection_date,issue_date,expiry_date,status,result"
+      )
+      .order("issue_date", { ascending: false, nullsFirst: false })
       .limit(2000);
 
     if(clientName) query = query.eq("client_name", clientName);
 
-    // Push date filters to Supabase — filters at DB level, not in memory
+    // Both are proper `date` columns — Supabase filters these correctly
     if(dateFrom) query = query.gte("issue_date", dateFrom);
     if(dateTo)   query = query.lte("issue_date", dateTo);
 
@@ -101,33 +100,7 @@ export default function BulkExportClient(){
     setLoadingPreview(false);
     if(qErr){ setError(qErr.message); return; }
 
-    let rows = (data || []).map(r => ({
-      ...r,
-      _issueDate: resolveIssueDate(r),
-      _expiryDate: r.expiry_date || r.valid_to || null,
-    }));
-
-    // Secondary client-side pass: catches rows where issue_date was NULL
-    // but a fallback date (issued_at / extracted_data.issue_date) exists.
-    // These weren't filtered by Supabase, so we check them manually here.
-    if(dateFrom || dateTo){
-      const from = dateFrom ? new Date(dateFrom) : null;
-      const to   = dateTo   ? new Date(dateTo + "T23:59:59.999") : null;
-
-      rows = rows.filter(r => {
-        // If issue_date was populated, Supabase already validated it — keep the row
-        if(r.issue_date) return true;
-        // Fallback date: validate manually
-        if(!r._issueDate) return false;
-        const d = new Date(r._issueDate);
-        if(isNaN(d)) return false;
-        if(from && d < from) return false;
-        if(to   && d > to)   return false;
-        return true;
-      });
-    }
-
-    setPreview(rows);
+    setPreview(data || []);
     setPreviewLoaded(true);
   }
 
@@ -266,7 +239,7 @@ export default function BulkExportClient(){
                     <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
                       <thead>
                         <tr style={{background:"rgba(255,255,255,0.02)"}}>
-                          {["Certificate No","Client","Equipment","Issue Date","Expiry Date","Status"].map(h=>(
+                          {["Certificate No","Client","Equipment","Inspection Date","Issue Date","Expiry Date","Status"].map(h=>(
                             <td key={h} style={{padding:"9px 14px",fontSize:9,color:T.textDim,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{h}</td>
                           ))}
                         </tr>
@@ -279,8 +252,9 @@ export default function BulkExportClient(){
                               <td style={{padding:"10px 14px",fontFamily:"'IBM Plex Mono',monospace",fontSize:12,color:T.accent,fontWeight:800,whiteSpace:"nowrap"}}>{cert.certificate_number||"—"}</td>
                               <td style={{padding:"10px 14px",fontSize:12,color:T.textMid}}>{cert.client_name||"—"}</td>
                               <td style={{padding:"10px 14px",fontSize:12,color:T.textMid,maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cert.equipment_description||cert.equipment_type||"—"}</td>
-                              <td style={{padding:"10px 14px",fontSize:12,color:T.textMid,whiteSpace:"nowrap"}}>{formatDate(cert._issueDate)}</td>
-                              <td style={{padding:"10px 14px",fontSize:12,color:T.textMid,whiteSpace:"nowrap"}}>{formatDate(cert._expiryDate)}</td>
+                              <td style={{padding:"10px 14px",fontSize:12,color:T.textMid,whiteSpace:"nowrap"}}>{formatDate(cert.inspection_date)}</td>
+                              <td style={{padding:"10px 14px",fontSize:12,color:T.textMid,whiteSpace:"nowrap"}}>{formatDate(cert.issue_date)}</td>
+                              <td style={{padding:"10px 14px",fontSize:12,color:T.textMid,whiteSpace:"nowrap"}}>{formatDate(cert.expiry_date)}</td>
                               <td style={{padding:"10px 14px"}}>
                                 <span style={{display:"inline-flex",alignItems:"center",padding:"3px 9px",borderRadius:99,background:sc.bg,color:sc.color,border:`1px solid ${sc.brd}`,fontSize:10,fontWeight:800,textTransform:"capitalize",whiteSpace:"nowrap"}}>
                                   {cert.status||"active"}
@@ -306,8 +280,9 @@ export default function BulkExportClient(){
                           <div style={{fontSize:12,color:T.textMid}}>{cert.equipment_description||cert.equipment_type||"—"}</div>
                           <div style={{fontSize:11,color:T.textDim,display:"flex",gap:12,flexWrap:"wrap"}}>
                             <span>{cert.client_name||"—"}</span>
-                            <span>Issue: {formatDate(cert._issueDate)}</span>
-                            <span>Expiry: {formatDate(cert._expiryDate)}</span>
+                            <span>Inspection: {formatDate(cert.inspection_date)}</span>
+                            <span>Issue: {formatDate(cert.issue_date)}</span>
+                            <span>Expiry: {formatDate(cert.expiry_date)}</span>
                           </div>
                         </div>
                       );
