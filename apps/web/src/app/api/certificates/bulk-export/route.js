@@ -2,6 +2,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import JSZip from "jszip";
+import PDFDocument from "pdfkit";
 
 export const dynamic = "force-dynamic";
 
@@ -10,12 +11,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// ── helpers ─────────────────────────────────────────────────────────────────
+// ── helpers ──────────────────────────────────────────────────────────────────
 function val(v) { return v && String(v).trim() !== "" ? String(v).trim() : null; }
-function formatDate(raw) {
-  if (!raw) return null;
-  const d = new Date(raw + (String(raw).includes("T") ? "" : "T00:00:00Z"));
-  if (isNaN(d.getTime())) return raw;
+function fmtDate(raw) {
+  if (!raw) return "—";
+  const d = new Date(String(raw).includes("T") ? raw : raw + "T00:00:00Z");
+  if (isNaN(d.getTime())) return String(raw);
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
 }
 function parseNotes(str) {
@@ -30,188 +31,441 @@ function parseNotes(str) {
   return obj;
 }
 function pickResult(c) { return (c?.result || c?.equipment_status || "PASS").toUpperCase(); }
-function resultStyle(r) {
-  if (r === "PASS")            return { color: "#15803d", bg: "#dcfce7", brd: "#86efac", label: "PASS" };
-  if (r === "FAIL")            return { color: "#b91c1c", bg: "#fee2e2", brd: "#fca5a5", label: "FAIL" };
-  if (r === "REPAIR_REQUIRED") return { color: "#b45309", bg: "#fef3c7", brd: "#fcd34d", label: "Repair Required" };
-  if (r === "CONDITIONAL")     return { color: "#b45309", bg: "#fef3c7", brd: "#fcd34d", label: "Conditional" };
-  if (r === "OUT_OF_SERVICE")  return { color: "#7f1d1d", bg: "#fee2e2", brd: "#fca5a5", label: "Out of Service" };
-  return { color: "#374151", bg: "#f3f4f6", brd: "#d1d5db", label: r || "Unknown" };
-}
 function detectFail(defects, ...kws) {
   if (!defects) return "PASS";
   const d = defects.toLowerCase();
   return kws.some(k => d.includes(k.toLowerCase())) ? "FAIL" : "PASS";
 }
 
-// ── HTML building blocks ─────────────────────────────────────────────────────
-const TD_LBL = `padding:3px 6px;border:1px solid #c3d4e8;font-weight:700;background:#0b1d3a;color:#4fc3f7;width:80px;white-space:nowrap`;
-const TD_VAL = `padding:3px 6px;border:1px solid #c3d4e8;background:#f4f8ff;font-weight:600;color:#0b1d3a`;
+// ── colours ───────────────────────────────────────────────────────────────────
+const C = {
+  navy:    "#0b1d3a",
+  cyan:    "#22d3ee",
+  blue:    "#3b82f6",
+  teal:    "#0e7490",
+  lightBg: "#f4f8ff",
+  altBg:   "#eef4ff",
+  border:  "#1e3a5f",
+  cellBrd: "#c3d4e8",
+  text:    "#0b1d3a",
+  mid:     "#334155",
+  dim:     "#64748b",
+  green:   "#15803d",
+  greenBg: "#dcfce7",
+  red:     "#b91c1c",
+  redBg:   "#fff5f5",
+  amber:   "#b45309",
+  crimson: "#c41e3a",
+  white:   "#ffffff",
+  rowAlt:  "#f8faff",
+};
 
-function redBox(label, value) {
-  if (!value) return "";
-  return `<div style="border:1px solid #fca5a5;border-radius:4px;padding:5px 9px;background:#fff5f5;flex-shrink:0;margin-top:3px">
-    <div style="font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#b91c1c;margin-bottom:2px">${label}</div>
-    <div style="font-size:8.5px;font-weight:700;color:#b91c1c;line-height:1.45">${value}</div>
-  </div>`;
-}
-function commentBox(label, value) {
-  if (!value) return "";
-  return `<div style="border:1px solid #c3d4e8;border-radius:4px;padding:5px 9px;background:#f4f8ff;flex-shrink:0;margin-top:3px">
-    <div style="font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#3b6ea5;margin-bottom:2px">${label}</div>
-    <div style="font-size:8.5px;color:#334155;line-height:1.5">${value}</div>
-  </div>`;
-}
-function stl(label) {
-  return `<div style="font-size:7.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#0b1d3a;margin:4px 0 2px;padding-left:4px;border-left:3px solid #22d3ee;flex-shrink:0">${label}</div>`;
-}
-function legalNote(text) {
-  return `<div style="font-size:7.5px;color:#4b5563;line-height:1.5;border:1px solid #1e3a5f;border-radius:4px;padding:5px 9px;background:#f4f8ff;text-align:center;font-weight:700;flex-shrink:0;margin-top:3px">${text}</div>`;
-}
-function gradBar() {
-  return `<div style="height:3px;background:linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa);flex-shrink:0"></div>`;
-}
-function proHdr() {
-  return `<div style="background:#0b1d3a;display:flex;align-items:center;min-height:76px;flex-shrink:0">
-    <div style="background:#fff;width:108px;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:8px;clip-path:polygon(0 0,100% 0,82% 100%,0 100%)">
-      <div style="font-size:10px;font-weight:900;color:#0b1d3a;text-align:center;line-height:1.2">MONROY<br><span style="font-size:7px;color:#22d3ee">PTY LTD</span></div>
-    </div>
-    <div style="flex:1;padding:10px 10px 10px 28px">
-      <div style="font-size:7.5px;letter-spacing:.18em;text-transform:uppercase;color:#4fc3f7;margin-bottom:2px;font-weight:800">Monroy (Pty) Ltd · Process Control &amp; Cranes</div>
-      <div style="font-size:12px;font-weight:900;color:#fff">WE ARE &#9658;&#9658; YOUR SOLUTION</div>
-      <div style="font-size:6.5px;color:rgba(255,255,255,0.4);margin-top:3px;line-height:1.45">Mobile Crane Hire · Rigging · NDT Test · Scaffolding · Painting · Inspection of Lifting Equipment and Machinery · Pressure Vessels &amp; Air Receiver · Steel Fabricating and Structural · Mechanical Engineering · Fencing · Maintenance</div>
-    </div>
-    <div style="padding:8px 12px;display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
-      <div style="font-size:7.5px;color:rgba(255,255,255,0.65)">(+267) 71 450 610 / 77 906 461</div>
-      <div style="font-size:7.5px;color:rgba(255,255,255,0.65)">monroybw@gmail.com</div>
-      <div style="font-size:7.5px;color:rgba(255,255,255,0.65)">Phase 2, Letlhakane</div>
-    </div>
-  </div>`;
-}
-function proFooter() {
-  return `
-    <div style="background:#c41e3a;padding:3px 12px;flex-shrink:0">
-      <p style="font-size:6.5px;color:#fff;margin:0;line-height:1.4;text-align:center;font-weight:600">
-        <b>Mobile Crane Hire</b> | <b>Rigging</b> | <b>NDT Test</b> | <b>Scaffolding</b> | <b>Painting</b> | <b>Inspection of Lifting Equipment &amp; Machinery, Pressure Vessels &amp; Air Receiver</b> | <b>Steel Fabricating &amp; Structural</b> | <b>Mechanical Engineering</b> | <b>Fencing</b> | <b>Maintenance</b>
-      </p>
-    </div>
-    <div style="background:#0b1d3a;border-top:2px solid #22d3ee;padding:3px 12px;display:flex;justify-content:space-between;flex-shrink:0">
-      <span style="font-size:7px;color:rgba(255,255,255,0.35);font-weight:600">Monroy (Pty) Ltd · Mophane Avenue, Maun, Botswana</span>
-      <span style="font-size:7px;color:rgba(255,255,255,0.35);font-weight:600">Quality · Safety · Excellence</span>
-    </div>`;
-}
-function proSig(inspName, inspId) {
-  return `<div style="padding:5px 12px 4px;flex-shrink:0">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div>
-        <div style="font-size:7px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#3b6ea5;margin-bottom:2px">Competent Person / Inspector</div>
-        <div style="border-bottom:1px solid #1e3a5f;min-height:34px;margin-bottom:2px"></div>
-        <div style="font-size:8.5px;font-weight:700;color:#0b1d3a">${inspName || "Moemedi Masupe"}</div>
-        <div style="font-size:7.5px;color:#64748b">Inspector ID: ${inspId || "700117910"}</div>
-      </div>
-      <div>
-        <div style="font-size:7px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#3b6ea5;margin-bottom:2px">Client / User / Owner</div>
-        <div style="border-bottom:1px solid #1e3a5f;min-height:34px;margin-bottom:2px"></div>
-        <div style="font-size:7.5px;color:#64748b">Name &amp; Signature</div>
-      </div>
-    </div>
-  </div>`;
-}
-function proCT(company, location, issueDate, equipMake, serialNo, fleetNo, swl, machineHours) {
-  return `<table style="width:100%;border-collapse:collapse;font-size:8.5px;border:1px solid #1e3a5f;flex-shrink:0"><tbody>
-    <tr><td style="${TD_LBL}">Customer</td><td style="${TD_VAL}">${company||"—"}</td><td style="${TD_LBL}">Make / Type</td><td style="${TD_VAL}">${equipMake||"—"}</td></tr>
-    <tr><td style="${TD_LBL}">Site location</td><td style="${TD_VAL}">${location||"—"}</td><td style="${TD_LBL}">Serial number</td><td style="${TD_VAL}">${serialNo||"—"}</td></tr>
-    <tr><td style="${TD_LBL}">Date</td><td style="${TD_VAL}">${issueDate||"—"}</td><td style="${TD_LBL}">Fleet number</td><td style="${TD_VAL}">${fleetNo||"—"}</td></tr>
-    <tr><td style="${TD_LBL}"></td><td style="${TD_VAL}"></td><td style="${TD_LBL}">Capacity / SWL</td><td style="${TD_VAL}">${swl||"—"}</td></tr>
-    ${machineHours?`<tr><td style="${TD_LBL}"></td><td style="${TD_VAL}"></td><td style="${TD_LBL}">Machine Hours</td><td style="${TD_VAL}">${machineHours}</td></tr>`:""}
-  </tbody></table>`;
-}
-function pfBadge(result) {
-  const isPass = result === "PASS";
-  return `<div style="border:1px solid #1e3a5f;border-radius:4px;overflow:hidden;display:flex;align-items:center;padding:5px 12px;gap:14px;background:#f4f8ff">
-    <span style="color:${isPass?"#15803d":"#9ca3af"};font-size:10px;font-weight:${isPass?900:700};${isPass?"background:#dcfce7;padding:3px 11px;border-radius:3px;border:1px solid #86efac":""}">Pass</span>
-    <span style="color:${!isPass?"#b91c1c":"#9ca3af"};font-size:10px;font-weight:${!isPass?900:700};${!isPass?"background:#fee2e2;padding:3px 11px;border-radius:3px;border:1px solid #fca5a5":""}">Fail</span>
-  </div>`;
-}
-function ci(label, result = "PASS", na = false) {
-  const pass = result === "PASS";
-  const fail = result === "FAIL" || result === "REPAIR_REQUIRED";
-  return `<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 8px;border-bottom:1px solid #e8f0fb;font-size:7.5px">
-    <span style="color:#0b1d3a;font-weight:500;flex:1">${label}</span>
-    <div style="display:flex;gap:4px;flex-shrink:0">
-      ${na
-        ? `<span style="color:#9ca3af;font-size:7px;width:14px;text-align:center">N/A</span>`
-        : `<span style="color:#15803d;font-weight:900;font-size:8.5px;width:14px;text-align:center">${pass?"✓":""}</span><span style="color:#b91c1c;font-weight:900;font-size:8.5px;width:14px;text-align:center">${fail?"✗":""}</span>`
-      }
-    </div>
-  </div>`;
-}
-function csec(title) {
-  return `<div style="background:#0b1d3a;color:#4fc3f7;font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-bottom:1px solid #22d3ee">${title}</div>`;
+function resultColors(r) {
+  if (r === "PASS")            return { fg: C.green,  bg: C.greenBg, label: "PASS" };
+  if (r === "FAIL")            return { fg: C.red,    bg: "#fee2e2", label: "FAIL" };
+  if (r === "REPAIR_REQUIRED") return { fg: C.amber,  bg: "#fef3c7", label: "Repair Required" };
+  if (r === "CONDITIONAL")     return { fg: C.amber,  bg: "#fef3c7", label: "Conditional" };
+  if (r === "OUT_OF_SERVICE")  return { fg: "#7f1d1d",bg: "#fee2e2", label: "Out of Service" };
+  return { fg: "#374151", bg: "#f3f4f6", label: r || "Unknown" };
 }
 
-// ── Page shell ────────────────────────────────────────────────────────────────
-function wrapPage(inner) {
-  return `<!DOCTYPE html>
-<html><head>
-<meta charset="UTF-8">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700;800;900&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
-<style>
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  body{background:#e5e7eb;font-family:'IBM Plex Sans',sans-serif;padding:20px;display:flex;flex-direction:column;align-items:center;gap:20px}
-  @page{size:A4;margin:0}
-  @media print{
-    *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
-    body{background:#fff!important;padding:0!important;gap:0!important}
-    .page{box-shadow:none!important;page-break-after:always;break-after:page;margin:0!important}
+// ── PDF helpers ───────────────────────────────────────────────────────────────
+const A4W = 595.28;
+const A4H = 841.89;
+const ML  = 20;  // margin left
+const MR  = 20;  // margin right
+const CW  = A4W - ML - MR; // content width
+
+function hex2rgb(hex) {
+  const h = hex.replace("#","");
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+function setFill(doc, hex)   { const [r,g,b] = hex2rgb(hex); doc.fillColor([r,g,b]); }
+function setStroke(doc, hex) { const [r,g,b] = hex2rgb(hex); doc.strokeColor([r,g,b]); }
+
+function rect(doc, x, y, w, h, fillHex, strokeHex) {
+  doc.save();
+  if (fillHex)   setFill(doc, fillHex);
+  if (strokeHex) { setStroke(doc, strokeHex); doc.lineWidth(0.5); }
+  if (fillHex && strokeHex) doc.rect(x,y,w,h).fillAndStroke();
+  else if (fillHex)         doc.rect(x,y,w,h).fill();
+  else if (strokeHex)       doc.rect(x,y,w,h).stroke();
+  doc.restore();
+}
+
+function text(doc, str, x, y, opts = {}) {
+  doc.save();
+  if (opts.color) setFill(doc, opts.color);
+  doc.fontSize(opts.size || 8)
+     .font(opts.bold ? "Helvetica-Bold" : opts.italic ? "Helvetica-Oblique" : "Helvetica")
+     .text(String(str || ""), x, y, {
+       width: opts.width,
+       align: opts.align || "left",
+       lineBreak: opts.wrap !== false,
+       ellipsis: opts.ellipsis || false,
+     });
+  doc.restore();
+}
+
+// ── Header ────────────────────────────────────────────────────────────────────
+function drawHeader(doc, certTitle, certNumber, resultLabel, resultFg, resultBg, y = 0) {
+  const HDR_H = 72;
+  // navy background
+  rect(doc, 0, y, A4W, HDR_H, C.navy);
+  // white logo box
+  rect(doc, 0, y, 100, HDR_H, C.white);
+  // logo text
+  text(doc, "MONROY", 8, y + 20, { bold: true, size: 11, color: C.navy, width: 84, align: "center" });
+  text(doc, "(PTY) LTD", 8, y + 33, { bold: true, size: 7, color: C.teal, width: 84, align: "center" });
+  text(doc, "Process Control\n& Cranes", 8, y + 44, { size: 6, color: C.navy, width: 84, align: "center" });
+  // brand + title
+  text(doc, "Monroy (Pty) Ltd · Process Control & Cranes", 110, y + 10, { size: 6.5, color: C.cyan, width: 320 });
+  text(doc, certTitle, 110, y + 22, { bold: true, size: 14, color: C.white, width: 300 });
+  // contact right
+  const cx = A4W - 165;
+  text(doc, "(+267) 71 450 610 / 77 906 461", cx, y + 12, { size: 6.5, color: C.white, width: 155 });
+  text(doc, "monroybw@gmail.com", cx, y + 23, { size: 6.5, color: C.white, width: 155 });
+  text(doc, "Phase 2, Letlhakane, Botswana", cx, y + 34, { size: 6.5, color: C.white, width: 155 });
+  // result badge
+  if (resultLabel) {
+    const bw = 70, bh = 16, bx = cx, by = y + 48;
+    rect(doc, bx, by, bw, bh, resultBg, resultFg);
+    text(doc, resultLabel, bx, by + 4, { bold: true, size: 8, color: resultFg, width: bw, align: "center" });
   }
-</style>
-</head><body>
-${inner}
-<p style="font-size:11px;color:#6b7280;margin-top:8px;text-align:center">To save as PDF: Press <strong>Ctrl+P</strong> → Destination: <strong>Save as PDF</strong> → Paper: <strong>A4</strong> → Margins: <strong>None</strong> → Enable <strong>Background graphics</strong></p>
-</body></html>`;
+  // cert number
+  if (certNumber) {
+    text(doc, certNumber, 110, y + 52, { size: 7.5, color: "rgba(255,255,255,0.6)", width: 280 });
+  }
+  // gradient accent bar
+  rect(doc, 0, y + HDR_H, A4W, 3, C.cyan);
+  return y + HDR_H + 3;
 }
 
-function certPage(content) {
-  return `<div class="page" style="background:#fff;width:210mm;min-height:297mm;max-height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.18)">
-    ${content}
-  </div>`;
+// ── Info table (2-col key/value) ───────────────────────────────────────────
+function drawInfoTable(doc, rows, y, colW = [120, CW / 2 - 120, 100, CW / 2 - 100]) {
+  const ROW_H = 14;
+  rows.forEach((pair, i) => {
+    const rowY = y + i * ROW_H;
+    const bg   = i % 2 === 0 ? C.lightBg : C.altBg;
+    rect(doc, ML, rowY, CW, ROW_H, bg, C.cellBrd);
+    // col 1 label
+    rect(doc, ML, rowY, colW[0], ROW_H, C.navy, C.border);
+    text(doc, pair[0] || "", ML + 4, rowY + 4, { bold: true, size: 6.5, color: C.cyan, width: colW[0] - 6, wrap: false, ellipsis: true });
+    // col 1 value
+    rect(doc, ML + colW[0], rowY, colW[1], ROW_H, bg, C.cellBrd);
+    text(doc, pair[1] || "—", ML + colW[0] + 4, rowY + 4, { size: 7.5, color: C.text, width: colW[1] - 6, wrap: false, ellipsis: true });
+    if (pair.length > 2) {
+      // col 2 label
+      const x2 = ML + colW[0] + colW[1];
+      rect(doc, x2, rowY, colW[2], ROW_H, C.navy, C.border);
+      text(doc, pair[2] || "", x2 + 4, rowY + 4, { bold: true, size: 6.5, color: C.cyan, width: colW[2] - 6, wrap: false, ellipsis: true });
+      // col 2 value
+      rect(doc, x2 + colW[2], rowY, colW[3], ROW_H, bg, C.cellBrd);
+      text(doc, pair[3] || "—", x2 + colW[2] + 4, rowY + 4, { size: 7.5, color: C.text, width: colW[3] - 6, wrap: false, ellipsis: true });
+    }
+  });
+  return y + rows.length * ROW_H;
 }
 
-// ── Certificate generators ────────────────────────────────────────────────────
+// ── Section label ──────────────────────────────────────────────────────────
+function drawSectionLabel(doc, title, y) {
+  doc.save();
+  setFill(doc, C.cyan);
+  doc.rect(ML, y + 2, 3, 9).fill();
+  doc.restore();
+  text(doc, title.toUpperCase(), ML + 7, y + 3, { bold: true, size: 6.5, color: C.text });
+  return y + 14;
+}
 
-function genCrane(c, pn) {
+// ── Checklist column ──────────────────────────────────────────────────────
+function drawChecklist(doc, items, x, y, colW) {
+  const ROW_H = 11;
+  items.forEach((item, i) => {
+    const rowY = y + i * ROW_H;
+    const bg = i % 2 === 0 ? C.white : C.rowAlt;
+    const isHeader = item.header;
+    if (isHeader) {
+      rect(doc, x, rowY, colW, ROW_H, C.navy, C.border);
+      text(doc, item.label.toUpperCase(), x + 4, rowY + 3, { bold: true, size: 6, color: C.cyan, width: colW - 6 });
+    } else {
+      rect(doc, x, rowY, colW - 28, ROW_H, bg, C.cellBrd);
+      text(doc, item.label, x + 3, rowY + 3, { size: 7, color: C.text, width: colW - 34, wrap: false, ellipsis: true });
+      if (item.na) {
+        rect(doc, x + colW - 28, rowY, 28, ROW_H, bg, C.cellBrd);
+        text(doc, "N/A", x + colW - 22, rowY + 3, { size: 6, color: C.dim, width: 20, align: "center" });
+      } else {
+        const pass = item.result === "PASS";
+        const fail = item.result === "FAIL" || item.result === "REPAIR_REQUIRED";
+        rect(doc, x + colW - 28, rowY, 14, ROW_H, bg, C.cellBrd);
+        rect(doc, x + colW - 14, rowY, 14, ROW_H, bg, C.cellBrd);
+        text(doc, pass ? "✓" : "", x + colW - 28, rowY + 2, { bold: true, size: 8, color: C.green, width: 14, align: "center" });
+        text(doc, fail ? "✗" : "", x + colW - 14, rowY + 2, { bold: true, size: 8, color: C.red, width: 14, align: "center" });
+      }
+    }
+  });
+  return y + items.length * ROW_H;
+}
+
+// ── Signature block ───────────────────────────────────────────────────────
+function drawSignatures(doc, inspName, inspId, y) {
+  const half = CW / 2 - 8;
+  // Inspector
+  rect(doc, ML, y, half, 36, C.lightBg, C.border);
+  text(doc, "COMPETENT PERSON / INSPECTOR", ML + 4, y + 4, { bold: true, size: 6, color: C.teal });
+  doc.save(); setStroke(doc, C.border); doc.lineWidth(0.5).moveTo(ML + 4, y + 28).lineTo(ML + half - 4, y + 28).stroke(); doc.restore();
+  text(doc, inspName || "Moemedi Masupe", ML + 4, y + 30, { bold: true, size: 7.5, color: C.text, width: half - 8 });
+  // Client
+  rect(doc, ML + half + 8, y, half, 36, C.lightBg, C.border);
+  text(doc, "CLIENT / USER / OWNER", ML + half + 12, y + 4, { bold: true, size: 6, color: C.teal });
+  doc.save(); setStroke(doc, C.border); doc.lineWidth(0.5).moveTo(ML + half + 12, y + 28).lineTo(ML + CW - 4, y + 28).stroke(); doc.restore();
+  text(doc, "Name & Signature", ML + half + 12, y + 30, { size: 7, color: C.dim, width: half - 8 });
+  text(doc, `Inspector ID: ${inspId || "700117910"}`, ML + 4, y + 40, { size: 6.5, color: C.dim });
+  return y + 46;
+}
+
+// ── Red alert box ─────────────────────────────────────────────────────────
+function drawAlertBox(doc, label, value, y, color = C.red, bg = "#fff5f5") {
+  if (!value) return y;
+  const H = 24;
+  rect(doc, ML, y, CW, H, bg, color);
+  text(doc, label.toUpperCase(), ML + 6, y + 4, { bold: true, size: 6, color });
+  text(doc, value, ML + 6, y + 13, { size: 7.5, color, width: CW - 12, wrap: false, ellipsis: true });
+  return y + H + 3;
+}
+
+// ── Footer ────────────────────────────────────────────────────────────────
+function drawFooter(doc) {
+  const y = A4H - 28;
+  rect(doc, 0, y, A4W, 14, C.crimson);
+  text(doc, "Mobile Crane Hire  |  Rigging  |  NDT Test  |  Scaffolding  |  Painting  |  Inspection of Lifting Equipment & Machinery  |  Steel Fabricating & Structural  |  Mechanical Engineering  |  Fencing  |  Maintenance", 0, y + 4, { size: 5.5, color: C.white, width: A4W, align: "center" });
+  rect(doc, 0, y + 14, A4W, 14, C.navy);
+  text(doc, "Monroy (Pty) Ltd · Mophane Avenue, Maun, Botswana", ML, y + 18, { size: 6, color: "rgba(255,255,255,0.4)" });
+  text(doc, "Quality · Safety · Excellence", 0, y + 18, { size: 6, color: "rgba(255,255,255,0.4)", width: A4W - ML, align: "right" });
+}
+
+// ── Legal note ────────────────────────────────────────────────────────────
+function drawLegalNote(doc, text2, y) {
+  rect(doc, ML, y, CW, 18, C.lightBg, C.border);
+  text(doc, text2, ML + 6, y + 5, { size: 6, color: C.mid, width: CW - 12, align: "center", bold: true });
+  return y + 22;
+}
+
+// ── Pass/Fail badge (large) ───────────────────────────────────────────────
+function drawPFBadge(doc, result, x, y) {
+  const isPass = result === "PASS";
+  const BW = 80, BH = 22;
+  rect(doc, x, y, BW / 2, BH, isPass ? C.greenBg : C.lightBg, C.border);
+  rect(doc, x + BW / 2, y, BW / 2, BH, isPass ? C.lightBg : "#fee2e2", C.border);
+  text(doc, "PASS", x, y + 7, { bold: isPass, size: 9, color: isPass ? C.green : C.dim, width: BW / 2, align: "center" });
+  text(doc, "FAIL", x + BW / 2, y + 7, { bold: !isPass, size: 9, color: isPass ? C.dim : C.red, width: BW / 2, align: "center" });
+  return y + BH;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CERTIFICATE GENERATORS
+// ═══════════════════════════════════════════════════════════════════════════
+
+function buildBuffer(doc) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    doc.on("data", chunk => chunks.push(chunk));
+    doc.on("end",  ()    => resolve(Buffer.concat(chunks)));
+    doc.on("error", err  => reject(err));
+    doc.end();
+  });
+}
+
+function newDoc() {
+  return new PDFDocument({
+    size: "A4",
+    margins: { top: 0, bottom: 0, left: 0, right: 0 },
+    autoFirstPage: true,
+    bufferPages: true,
+  });
+}
+
+// ── Generic certificate ───────────────────────────────────────────────────
+async function genGeneric(c) {
+  const doc = newDoc();
+  const ex  = c.extracted_data || {};
+  const certNumber = val(c.certificate_number);
+  const equipType  = val(c.equipment_type || c.asset_type || ex.equipment_type) || "";
+  const rawType    = equipType.toLowerCase();
+  const isLifting  = /lift|hoist|crane|sling|chain|hook|rope|rigging|winch|block/i.test(rawType);
+  const isPressure = /pressure|vessel|boiler|autoclave|receiver|compressor|tank/i.test(rawType);
+  const certType   = val(c.certificate_type) || (isLifting ? "Load Test Certificate" : isPressure ? "Pressure Test Certificate" : "Certificate of Inspection");
+  const company    = val(c.client_name || c.company || ex.client_name) || "—";
+  const location   = val(c.location || ex.equipment_location) || "—";
+  const serialNo   = val(c.serial_number || ex.serial_number) || "—";
+  const fleetNo    = val(c.fleet_number || ex.fleet_number) || "—";
+  const mfg        = val(c.manufacturer || ex.manufacturer) || "—";
+  const model      = val(c.model || ex.model) || "—";
+  const swl        = val(c.swl || ex.swl) || "—";
+  const defects    = val(c.defects_found || ex.defects_found);
+  const recommendations = val(c.recommendations || ex.recommendations);
+  const comments   = val(c.comments || c.remarks || ex.comments);
+  const inspName   = val(c.inspector_name || ex.inspector_name) || "Moemedi Masupe";
+  const inspId     = val(c.inspector_id || ex.inspector_id) || "700117910";
+  const tone       = resultColors(pickResult(c));
+
+  let y = drawHeader(doc, certType, certNumber, tone.label, tone.fg, tone.bg);
+  y += 6;
+
+  y = drawSectionLabel(doc, "Certificate Details", y);
+  y = drawInfoTable(doc, [
+    ["Certificate No.", certNumber || "—", "Issue Date",    fmtDate(c.issue_date || c.issued_at)],
+    ["Client",          company,           "Expiry Date",   fmtDate(c.expiry_date)],
+    ["Location",        location,          "Equipment Type", equipType || "—"],
+    ["Serial Number",   serialNo,          "Fleet No.",     fleetNo],
+    ["Manufacturer",    mfg,               "Model",         model],
+    ["Safe Working Load (SWL)", swl,       "Result",        tone.label],
+  ], y);
+  y += 8;
+
+  y = drawSectionLabel(doc, "Legal Compliance", y);
+  rect(doc, ML, y, CW, 20, C.lightBg, C.border);
+  text(doc, "This inspection has been performed by a competent person as defined under the Mines, Quarries, Works and Machinery Act Cap 44:02 of the Laws of Botswana.", ML + 6, y + 6, { size: 7, color: C.mid, width: CW - 12 });
+  y += 24;
+
+  y = drawAlertBox(doc, "Defects Found", defects, y);
+  y = drawAlertBox(doc, "Recommendations", recommendations, y);
+  y = drawAlertBox(doc, "Comments", comments, y, C.teal, C.lightBg);
+  y += 6;
+
+  y = drawSignatures(doc, inspName, inspId, y);
+  drawFooter(doc);
+  return buildBuffer(doc);
+}
+
+// ── Crane (Load Test + Checklist) ─────────────────────────────────────────
+async function genCrane(c, pn) {
+  const doc        = newDoc();
   const certNumber = val(c.certificate_number);
   const company    = val(c.client_name || c.company) || "—";
   const location   = val(c.location) || "—";
-  const issueDate  = formatDate(c.issue_date || c.issued_at);
-  const expiryDate = formatDate(c.expiry_date);
-  const equipMake  = val(c.manufacturer || c.model || c.equipment_type);
-  const serialNo   = val(c.serial_number);
-  const fleetNo    = val(c.fleet_number);
-  const swl        = val(c.swl);
+  const issueDate  = fmtDate(c.issue_date || c.issued_at);
+  const expiryDate = fmtDate(c.expiry_date);
+  const equipMake  = val(c.manufacturer || c.model || c.equipment_type) || "—";
+  const serialNo   = val(c.serial_number) || "—";
+  const fleetNo    = val(c.fleet_number) || "—";
+  const swl        = val(c.swl) || "—";
   const mh         = val(c.machine_hours || pn["Machine hours"] || pn["Machine Hours"]);
   const defects    = val(c.defects_found);
   const recommendations = val(c.recommendations);
   const comments   = val(c.comments || c.remarks);
   const inspName   = val(c.inspector_name) || "Moemedi Masupe";
   const inspId     = val(c.inspector_id) || "700117910";
-  const tone       = resultStyle(pickResult(c));
+  const tone       = resultColors(pickResult(c));
 
-  const C1 = { boom:pn["C1 boom"]||"", angle:pn["C1 angle"]||"", radius:pn["C1 radius"]||"", rated:pn["C1 rated"]||"", test:pn["C1 test"]||"" };
-  const C2 = { boom:pn["C2 boom"]||"", angle:pn["C2 angle"]||"", radius:pn["C2 radius"]||"", rated:pn["C2 rated"]||"", test:pn["C2 test"]||pn["Crane test load"]||"" };
-  const C3 = { boom:pn["C3 boom"]||"", angle:pn["C3 angle"]||"", radius:pn["C3 radius"]||"", rated:pn["C3 rated"]||"", test:pn["C3 test"]||"" };
-  const sliRes    = pn["Computer"] || pn["SLI"] || "PASS";
-  const sliModel  = pn["SLI model"] || "";
-  const opCode    = pn["Operating code"] || "MAIN/AUX-FULL OUTRIGGER-360DEG";
-  const hookReev  = pn["Hook reeving"] || "";
-  const ctrWts    = pn["Counterweights"] || "STD FITTED";
-  const jib       = pn["Jib"] || "";
-  const sliCertNo = pn["SLI cert"] || certNumber?.replace("CERT-CR","SLI ") || "";
-  const retractBm = pn["Retract boom"] || C1.boom;
+  const C1 = { boom:pn["C1 boom"]||"—", angle:pn["C1 angle"]||"—", radius:pn["C1 radius"]||"—", rated:pn["C1 rated"]||"—", test:pn["C1 test"]||"—" };
+  const C2 = { boom:pn["C2 boom"]||"—", angle:pn["C2 angle"]||"—", radius:pn["C2 radius"]||"—", rated:pn["C2 rated"]||"—", test:pn["C2 test"]||pn["Crane test load"]||"—" };
+  const C3 = { boom:pn["C3 boom"]||"—", angle:pn["C3 angle"]||"—", radius:pn["C3 radius"]||"—", rated:pn["C3 rated"]||"—", test:pn["C3 test"]||"—" };
+  const sliRes   = pn["Computer"] || pn["SLI"] || "PASS";
+  const sliModel = pn["SLI model"] || "";
+  const opCode   = pn["Operating code"] || "MAIN/AUX-FULL OUTRIGGER-360DEG";
+  const ctrWts   = pn["Counterweights"] || "STD FITTED";
+  const jib      = pn["Jib"] || "";
+  const sliCertNo = pn["SLI cert"] || (certNumber ? certNumber.replace("CERT-CR","SLI ") : "");
 
+  // ── PAGE 1: Load Test ──
+  let y = drawHeader(doc, "Load Test Certificate — Mobile Crane", certNumber, tone.label, tone.fg, tone.bg);
+  y += 6;
+
+  // Info table
+  y = drawInfoTable(doc, [
+    ["Customer",    company,    "Make / Type",   equipMake],
+    ["Site",        location,   "Serial No.",    serialNo],
+    ["Date",        issueDate,  "Fleet No.",     fleetNo],
+    ["Expiry Date", expiryDate, "SWL",           swl],
+    ...(mh ? [["Machine Hours", mh, "", ""]] : []),
+  ], y);
+  y += 8;
+
+  // SLI / Load cert rows
+  y = drawSectionLabel(doc, "Certificates Issued", y);
+  const rowH = 14;
+  rect(doc, ML, y, CW - 82, rowH, C.navy, C.border);
+  text(doc, "SLI Certificate", ML + 4, y + 4, { bold: true, size: 7.5, color: C.cyan, width: 200 });
+  rect(doc, ML + CW - 82, y, 30, rowH, C.altBg, C.border);
+  text(doc, "YES", ML + CW - 82, y + 4, { bold: true, size: 7.5, color: C.text, width: 30, align: "center" });
+  rect(doc, ML + CW - 52, y, 52, rowH, C.lightBg, C.border);
+  text(doc, sliCertNo || "—", ML + CW - 50, y + 4, { size: 7, color: C.teal, width: 48 });
+  y += rowH;
+
+  rect(doc, ML, y, CW - 82, rowH, C.navy, C.border);
+  text(doc, "Load Test Certificate", ML + 4, y + 4, { bold: true, size: 7.5, color: C.cyan, width: 200 });
+  rect(doc, ML + CW - 82, y, 30, rowH, C.altBg, C.border);
+  text(doc, "YES", ML + CW - 82, y + 4, { bold: true, size: 7.5, color: C.text, width: 30, align: "center" });
+  rect(doc, ML + CW - 52, y, 52, rowH, C.lightBg, C.border);
+  text(doc, certNumber || "—", ML + CW - 50, y + 4, { size: 7, color: C.teal, width: 48 });
+  y += rowH + 4;
+
+  // Pass/Fail badge
+  drawPFBadge(doc, tone.label, A4W - ML - 82, y - rowH * 2 - 4);
+
+  // Applied load table
+  y = drawSectionLabel(doc, "Details of Applied Load", y);
+  const cols = [130, 44, 44, 44, 44, 44, 44 + (CW - 414)];
+  const hdrs = ["Details", "C1 Actual", "C1 SLI", "C2 Actual", "C2 SLI", "C3 Actual", "C3 SLI"];
+  const TH = 12;
+
+  // header row 1
+  let cx2 = ML;
+  hdrs.forEach((h, i) => {
+    rect(doc, cx2, y, cols[i], TH, C.navy, C.border);
+    text(doc, h, cx2 + 2, y + 3, { bold: true, size: 6, color: C.cyan, width: cols[i] - 4, align: "center" });
+    cx2 += cols[i];
+  });
+  y += TH;
+
+  const loadRows = [
+    ["Boom Length Reading", C1.boom, C1.boom, C2.boom, C2.boom, C3.boom, C3.boom],
+    ["Boom Angle Reading",  C1.angle,C1.angle,C2.angle,C2.angle,C3.angle,C3.angle],
+    ["Radius Reading",      C1.radius,C1.radius,C2.radius,C2.radius,C3.radius,C3.radius],
+    ["Rated Load",          C1.rated,C1.rated,C2.rated,C2.rated,C3.rated,C3.rated],
+    ["TEST LOAD",           C1.test, C1.test, C2.test, C2.test, C3.test, C3.test],
+  ];
+  loadRows.forEach((row, ri) => {
+    const isBold = ri === loadRows.length - 1;
+    cx2 = ML;
+    row.forEach((cell, ci) => {
+      const bg = isBold ? C.navy : (ri % 2 === 0 ? C.white : C.rowAlt);
+      const fg = isBold ? C.white : (ci === 0 ? C.text : C.teal);
+      if (ci === 0 && isBold) rect(doc, cx2, y, cols[ci], TH, "#1e3a5f", C.border);
+      else rect(doc, cx2, y, cols[ci], TH, bg, C.cellBrd);
+      text(doc, cell, cx2 + 2, y + 3, { bold: isBold, size: ci === 0 ? 6.5 : 7, color: isBold ? (ci===0?C.cyan:C.white) : fg, width: cols[ci] - 4, align: ci === 0 ? "left" : "center", wrap: false });
+      cx2 += cols[ci];
+    });
+    y += TH;
+  });
+  y += 6;
+
+  // SLI details
+  y = drawSectionLabel(doc, "SLI Details", y);
+  const sliRows = [
+    ...(sliModel ? [["SLI Make & Model", sliModel]] : []),
+    ["Operating Code used for testing", opCode],
+    ...(jib ? [["Jib Configuration", jib]] : []),
+    ["Counter weights during test", ctrWts],
+    ["SLI cut off system — Hoist up",    sliRes === "FAIL" ? "Defective" : "Yes"],
+    ["SLI cut off system — Tele out",    sliRes === "FAIL" ? "Defective" : "Yes"],
+    ["SLI cut out system — Boom down",   sliRes === "FAIL" ? "Defective" : "Yes"],
+  ];
+  y = drawInfoTable(doc, sliRows.map(([l,v]) => [l, v]), y, [180, CW - 180]);
+  y += 6;
+
+  y = drawAlertBox(doc, "Defects Found", defects, y);
+  y = drawAlertBox(doc, "Recommendations", recommendations, y);
+  y = drawAlertBox(doc, "Comments", comments, y, C.teal, C.lightBg);
+  y += 4;
+  y = drawLegalNote(doc, "THE SAFE LOAD INDICATOR HAS BEEN COMPARED TO THE CRANE'S LOAD CHART AND TESTED CORRECTLY TO ORIGINAL MANUFACTURERS SPECIFICATIONS.", y);
+  y = drawSignatures(doc, inspName, inspId, y);
+  drawFooter(doc);
+
+  // ── PAGE 2: Checklist ──
+  doc.addPage();
   const structural = pn["Structural"] || "PASS";
-  const boom       = pn["Boom"] || "PASS";
+  const boom2      = pn["Boom"] || "PASS";
   const outriggers = pn["Outriggers"] || "PASS";
   const computer   = pn["Computer"] || "PASS";
   const oilLeaks   = detectFail(defects || "", "oil leak", "leak");
@@ -220,349 +474,241 @@ function genCrane(c, pn) {
   const hoist      = detectFail(defects || "", "hoist");
   const teleCyl    = detectFail(defects || "", "tele cylinder", "cylinder");
   const boomCyl    = detectFail(defects || "", "boom cylinder", "lift cylinder");
-  const mcirNo     = "MCIR " + (c.inspection_number || c.certificate_number?.replace("CERT-CR","") || "");
+  const mcirNo     = "MCIR " + (c.inspection_number || (certNumber || "").replace("CERT-CR","") || "");
 
-  const TD  = `padding:2.5px 4px;border:1px solid #c3d4e8;text-align:center;font-weight:600;font-size:8px;background:#fff`;
-  const TDL = `padding:2.5px 4px;border:1px solid #c3d4e8;background:#eef4ff;font-weight:700;color:#0b1d3a;text-align:left`;
-  const TDK = `padding:2.5px 4px;border:1px solid #1e3a5f;text-align:center;font-weight:900;background:#0b1d3a;color:#fff`;
+  y = drawHeader(doc, "Mobile Crane Inspection Report — " + mcirNo, certNumber, tone.label, tone.fg, tone.bg, 0);
+  y += 6;
+  y = drawInfoTable(doc, [
+    ["Customer",    company,    "Make / Type",   equipMake],
+    ["Site",        location,   "Serial No.",    serialNo],
+    ["Date",        issueDate,  "Fleet No.",     fleetNo],
+    ["Validity",    expiryDate, "SWL",           swl],
+  ], y);
+  y += 6;
 
-  const p1 = certPage(`
-    ${proHdr()}${gradBar()}
-    <div style="flex:1;padding:5px 16px 0;display:flex;flex-direction:column;gap:4px;overflow:hidden;min-height:0">
-      ${proCT(company,location,issueDate,equipMake,serialNo,fleetNo,swl,mh)}
-      <div style="display:grid;grid-template-columns:1fr auto;gap:6px;flex-shrink:0">
-        <div>
-          <div style="display:flex;align-items:center;border:1px solid #1e3a5f;border-radius:4px;overflow:hidden;margin-bottom:2px">
-            <div style="background:#0b1d3a;color:#4fc3f7;font-size:9.5px;font-weight:800;padding:5px 10px;flex:1">SLI Certificate</div>
-            <div style="background:#eef4ff;color:#0b1d3a;font-size:9.5px;font-weight:800;padding:5px 10px;width:42px;text-align:center">YES</div>
-            ${sliCertNo?`<div style="background:#f4f8ff;color:#0e7490;font-size:8.5px;font-weight:700;padding:5px 10px;font-family:monospace;flex:1">${sliCertNo}</div>`:""}
-          </div>
-          <div style="display:flex;align-items:center;border:1px solid #1e3a5f;border-radius:4px;overflow:hidden;margin-bottom:2px">
-            <div style="background:#0b1d3a;color:#4fc3f7;font-size:9.5px;font-weight:800;padding:5px 10px;flex:1">Load Test Certificate</div>
-            <div style="background:#eef4ff;color:#0b1d3a;font-size:9.5px;font-weight:800;padding:5px 10px;width:42px;text-align:center">YES</div>
-            ${certNumber?`<div style="background:#f4f8ff;color:#0e7490;font-size:8.5px;font-weight:700;padding:5px 10px;font-family:monospace;flex:1">${certNumber}</div>`:""}
-          </div>
-          ${expiryDate?`<div style="font-size:9px;font-weight:800;color:#0b1d3a;margin-top:3px;border:1px solid #1e3a5f;padding:2px 7px;display:inline-block;border-radius:3px">expire date: ${expiryDate}</div>`:""}
-        </div>
-        ${pfBadge(tone.label)}
-      </div>
-      ${stl("Details of Applied Load")}
-      <table style="width:100%;border-collapse:collapse;font-size:7.5px;border:1px solid #1e3a5f;flex-shrink:0">
-        <thead>
-          <tr style="background:#0b1d3a;color:#4fc3f7">
-            <th rowspan="2" style="text-align:left;width:130px;padding:3px 4px;border:1px solid #1e3a5f;font-size:7px">Details of applied Load</th>
-            <th colspan="2" style="padding:3px 4px;border:1px solid #1e3a5f;text-align:center;font-size:7px">1 — Main (Short Boom)</th>
-            <th colspan="2" style="padding:3px 4px;border:1px solid #1e3a5f;text-align:center;font-size:7px">2 — Main (Test Config)</th>
-            <th colspan="2" style="padding:3px 4px;border:1px solid #1e3a5f;text-align:center;font-size:7px">3 — Aux / Max Boom</th>
-          </tr>
-          <tr style="background:#0b1d3a;color:#4fc3f7">
-            ${["Actual","SLI","Actual","SLI","Actual","SLI"].map(h=>`<th style="padding:3px 4px;border:1px solid #1e3a5f;text-align:center;font-size:7px">${h}</th>`).join("")}
-          </tr>
-        </thead>
-        <tbody>
-          ${[
-            ["Boom Length Reading", C1.boom, C2.boom, C3.boom],
-            ["Boom Angle Reading",  C1.angle, C2.angle, C3.angle],
-            ["Radius Reading",      C1.radius, C2.radius, C3.radius],
-            ["Rated Load",         C1.rated, C2.rated, C3.rated],
-          ].map(([l,a,b,c2])=>`<tr>
-            <td style="${TDL}">${l}</td>
-            <td style="${TD}">${a}</td><td style="${TD}">${a}</td>
-            <td style="${TD}">${b}</td><td style="${TD}">${b}</td>
-            <td style="${TD}">${c2}</td><td style="${TD}">${c2}</td>
-          </tr>`).join("")}
-          <tr>
-            <td style="${TDL.replace("#eef4ff","#1e3a5f").replace("color:#0b1d3a","color:#4fc3f7")};font-weight:900">Test Load</td>
-            <td style="${TDK}">${C1.test}</td><td style="${TDK}">${C1.test}</td>
-            <td style="${TDK}">${C2.test}</td><td style="${TDK}">${C2.test}</td>
-            <td style="${TDK}">${C3.test}</td><td style="${TDK}">${C3.test}</td>
-          </tr>
-        </tbody>
-      </table>
-      ${stl("SLI Details")}
-      <table style="width:100%;border-collapse:collapse;font-size:8px;border:1px solid #1e3a5f;flex-shrink:0"><tbody>
-        ${sliModel?`<tr><td style="padding:3px 7px;border:1px solid #c3d4e8;font-weight:700;background:#eef4ff;color:#0b1d3a;width:60%">SLI Make &amp; Model</td><td style="padding:3px 7px;border:1px solid #c3d4e8;background:#fff;font-weight:600">${sliModel}</td></tr>`:""}
-        ${retractBm?`<tr><td style="padding:3px 7px;border:1px solid #c3d4e8;font-weight:700;background:#eef4ff;color:#0b1d3a">Retract Boom vs Actual Indicated</td><td style="padding:3px 7px;border:1px solid #c3d4e8;background:#fff;font-weight:600">${retractBm}</td></tr>`:""}
-        <tr><td style="padding:3px 7px;border:1px solid #c3d4e8;font-weight:700;background:#eef4ff;color:#0b1d3a">Operating Code used for testing</td><td style="padding:3px 7px;border:1px solid #c3d4e8;background:#fff;font-weight:600">${opCode}</td></tr>
-        ${hookReev?`<tr><td style="padding:3px 7px;border:1px solid #c3d4e8;font-weight:700;background:#eef4ff;color:#0b1d3a">Hook block Reeving</td><td style="padding:3px 7px;border:1px solid #c3d4e8;background:#fff;font-weight:600">${hookReev}</td></tr>`:""}
-        ${jib?`<tr><td style="padding:3px 7px;border:1px solid #c3d4e8;font-weight:700;background:#eef4ff;color:#0b1d3a">Jib Configuration</td><td style="padding:3px 7px;border:1px solid #c3d4e8;background:#fff;font-weight:600">${jib}</td></tr>`:""}
-        <tr><td style="padding:3px 7px;border:1px solid #c3d4e8;font-weight:700;background:#eef4ff;color:#0b1d3a">Counter weights during test</td><td style="padding:3px 7px;border:1px solid #c3d4e8;background:#fff;font-weight:600">${ctrWts}</td></tr>
-        <tr><td style="padding:3px 7px;border:1px solid #c3d4e8;font-weight:700;background:#eef4ff;color:#0b1d3a">SLI cut off — Hoist up</td><td style="padding:3px 7px;border:1px solid #c3d4e8;background:#fff;font-weight:600">${sliRes==="FAIL"?"Defective":"Yes"}</td></tr>
-        <tr><td style="padding:3px 7px;border:1px solid #c3d4e8;font-weight:700;background:#eef4ff;color:#0b1d3a">SLI cut off — Tele out</td><td style="padding:3px 7px;border:1px solid #c3d4e8;background:#fff;font-weight:600">${sliRes==="FAIL"?"Defective":"Yes"}</td></tr>
-        <tr><td style="padding:3px 7px;border:1px solid #c3d4e8;font-weight:700;background:#eef4ff;color:#0b1d3a">SLI cut out — Boom down</td><td style="padding:3px 7px;border:1px solid #c3d4e8;background:#fff;font-weight:600">${sliRes==="FAIL"?"Defective":"Yes"}</td></tr>
-      </tbody></table>
-      ${redBox("Defects Found", defects)}
-      ${redBox("Recommendations", recommendations)}
-      ${commentBox("Comments", comments)}
-      ${legalNote("THE SAFE LOAD INDICATOR HAS BEEN COMPARED TO THE CRANE'S LOAD CHART AND TESTED CORRECTLY TO ORIGINAL MANUFACTURERS SPECIFICATIONS.")}
-    </div>
-    ${proSig(inspName, inspId)}
-    ${proFooter()}
-  `);
+  const colHalfW = CW / 2;
+  const leftItems = [
+    { header: true, label: "Cab Condition" },
+    { label: "Windows",                        result: "PASS" },
+    { label: "Control Levers Marked",          result: "PASS" },
+    { label: "Control Lever return to neutral",result: "PASS" },
+    { label: "Level Gauges Correct",           result: "PASS" },
+    { label: "Reverse Warning",                result: "PASS" },
+    { label: "Load Charts Available",          result: "PASS" },
+    { label: "Horn Warning",                   result: "PASS" },
+    { label: "Lights, Rotating Lights",        result: "PASS" },
+    { label: "Tires",                          result: tires  },
+    { label: "Crane Brakes",                   result: brakes },
+    { label: "Fire Extinguisher",              result: "PASS" },
+    { label: "Beacon Lights",                  result: "PASS" },
+    { label: "SWL Correctly Indicated",        result: "PASS" },
+    { label: "Oil Leaks",                      result: oilLeaks },
+    { label: "Operator Seat Condition",        result: "PASS" },
+    { header: true, label: "Safe Load Indicator" },
+    { label: "Override Key Safe",              result: computer },
+    { label: "Load Reading",                   result: computer },
+    { label: "A2B System Working",             result: computer },
+    { label: "Cut Off System Working",         result: computer },
+    { label: "Radius Reading",                 result: computer },
+    { label: "Boom Length Reading",            result: computer },
+    { label: "Boom Angle Reading",             result: computer },
+  ];
+  const rightItems = [
+    { header: true, label: "Crane Superstructure" },
+    { label: "Outrigger Beams (Visual)",       result: outriggers },
+    { label: "Outrigger Jacks (Visual)",       result: outriggers },
+    { label: "Fly-Jib Condition (Visual)",     na: true           },
+    { label: "Outrigger Pads Condition",       result: outriggers },
+    { label: "Outrigger Boxes (Cracks)",       result: outriggers },
+    { label: "Hoist Drum Condition",           result: hoist      },
+    { label: "Hoist Brake Condition",          result: hoist      },
+    { label: "Hoist Drum Mounting",            result: "PASS"     },
+    { label: "Leaks on Hoist Drum",            result: oilLeaks   },
+    { label: "Top Head Sheaves",               result: "PASS"     },
+    { label: "Bottom Head Sheaves",            result: "PASS"     },
+    { label: "Boom Retract Ropes Visible",     na: true           },
+    { label: "Boom Retract Sheaves",           na: true           },
+    { label: "Slew Bearing Checked",           result: "PASS"     },
+    { label: "Slew Brake Checked",             result: "PASS"     },
+    { label: "Boom Lock Pins Checked",         result: boom2      },
+    { label: "Boom Pivot Point Checked",       result: boom2      },
+    { label: "Control Valve Checked",          result: "PASS"     },
+    { label: "Tele Cylinders — leaks",         result: teleCyl    },
+    { label: "Tele Cylinders — load hold",     result: teleCyl    },
+    { label: "Tele Sections — damage",         result: structural },
+    { label: "Tele's — bending",               na: true           },
+    { label: "Boom Lift Cylinder — leaks",     result: boomCyl    },
+    { label: "Boom Cylinder Mounting Points",  result: boom2      },
+    { label: "Boom Cylinder load hold",        result: boom2      },
+    { label: "Counterweights",                 result: "PASS"     },
+  ];
 
-  const p2 = certPage(`
-    ${proHdr()}${gradBar()}
-    <div style="flex:1;padding:5px 16px 0;display:flex;flex-direction:column;gap:4px;overflow:hidden;min-height:0">
-      ${proCT(company,location,issueDate,equipMake,serialNo,fleetNo,swl,mh)}
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;border:1px solid #1e3a5f;border-radius:4px;padding:7px 10px;background:#f4f8ff;flex-shrink:0">
-        <div>
-          ${expiryDate?`<div style="font-size:9px;font-weight:800;color:#0b1d3a;margin-bottom:2px">Validity: ${expiryDate}</div>`:""}
-          <div style="font-size:11px;font-weight:900;color:#0b1d3a">${mcirNo}</div>
-          <div style="font-size:7px;color:#64748b;margin-top:1px">The mobile crane was inspected with regards to the MQWMR Act CAP 44:02 Under Regulations 2</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:2px;font-size:8px;font-weight:700;color:#0b1d3a">
-          <div>Annually: ✓</div><div>Bi-annually:</div><div>Quarterly:</div>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid #1e3a5f;border-radius:4px;overflow:hidden;flex:1;min-height:0">
-        <div style="border-right:1px solid #1e3a5f;overflow:hidden">
-          ${csec("Cab Condition")}
-          ${["Windows","Control Levers Marked","Control Lever return to neutral","Level Gauges Correct","Reverse Warning","Load Charts Available","Horn Warning","Lights, Rotating Lights"].map(l=>ci(l,"PASS")).join("")}
-          ${ci("Tires",tires)}${ci("Crane Brakes",brakes)}${ci("Fire Extinguisher","PASS")}${ci("Beacon Lights","PASS")}
-          ${ci("SWL Correctly Indicated","PASS")}${ci("Oil Leaks",oilLeaks)}${ci("Operator Seat Condition","PASS")}
-          ${csec("Safe Load Indicator")}
-          ${ci("Override Key Safe",computer)}${ci("Load Reading",computer)}${ci("A2B System Working",computer)}
-          ${ci("Cut Off System Working",computer)}${ci("Radius Reading",computer)}${ci("Boom Length Reading",computer)}${ci("Boom Angle Reading",computer)}
-        </div>
-        <div style="overflow:hidden">
-          ${csec("Crane Superstructure")}
-          ${ci("Outrigger Beams (Visual)",outriggers)}${ci("Outrigger Jacks (Visual)",outriggers)}
-          ${ci("Fly-Jib Condition (Visual)",undefined,true)}${ci("Outrigger Pads Condition",outriggers)}
-          ${ci("Outrigger Boxes (Cracks)",outriggers)}${ci("Hoist Drum Condition",hoist)}
-          ${ci("Hoist Brake Condition",hoist)}${ci("Hoist Drum Mounting","PASS")}
-          ${ci("Leaks on Hoist Drum",oilLeaks)}${ci("Top Head Sheaves","PASS")}
-          ${ci("Bottom Head Sheaves","PASS")}${ci("Boom Retract Ropes Visible",undefined,true)}
-          ${ci("Boom Retract Sheaves",undefined,true)}${ci("Slew Bearing Checked","PASS")}
-          ${ci("Slew Brake Checked","PASS")}${ci("Boom Lock Pins Checked",boom)}
-          ${ci("Boom Pivot Point Checked",boom)}${ci("Control Valve Checked","PASS")}
-          ${ci("Tele Cylinders — leaks",teleCyl)}${ci("Tele Cylinders — holding under load",teleCyl)}
-          ${ci("Tele Sections — damage",structural)}${ci("Tele's — bending",undefined,true)}
-          ${ci("Boom Lift Cylinder — leaks",boomCyl)}${ci("Boom Cylinder Mounting Points",boom)}
-          ${ci("Boom Cylinder holding under load",boom)}${ci("Counterweights","PASS")}
-        </div>
-      </div>
-      ${commentBox("Comments", comments)}
-    </div>
-    ${proSig(inspName, inspId)}
-    ${proFooter()}
-  `);
+  drawChecklist(doc, leftItems,  ML,                  y, colHalfW - 4);
+  drawChecklist(doc, rightItems, ML + colHalfW + 4,   y, colHalfW - 4);
+  y += Math.max(leftItems.length, rightItems.length) * 11 + 8;
 
-  return wrapPage(p1 + "\n" + p2);
+  y = drawAlertBox(doc, "Comments", comments, y, C.teal, C.lightBg);
+  y = drawSignatures(doc, inspName, inspId, y);
+  drawFooter(doc);
+
+  return buildBuffer(doc);
 }
 
-function genPressureVessel(c, pn) {
+// ── Pressure Vessel ───────────────────────────────────────────────────────
+async function genPressureVessel(c, pn) {
+  const doc        = newDoc();
   const certNumber = val(c.certificate_number);
   const company    = val(c.client_name || c.company) || "—";
   const location   = val(c.location) || "—";
-  const issueDate  = formatDate(c.issue_date || c.issued_at);
-  const expiryDate = formatDate(c.expiry_date);
+  const issueDate  = fmtDate(c.issue_date || c.issued_at);
+  const expiryDate = fmtDate(c.expiry_date);
   const equipMake  = val(c.manufacturer || c.model || c.equipment_type) || "Pressure Vessel";
-  const serialNo   = val(c.serial_number);
-  const fleetNo    = val(c.fleet_number);
-  const swl        = val(c.swl);
-  const mawp       = val(c.mawp || c.working_pressure || pn["MAWP"]);
-  const testP      = val(c.test_pressure || pn["Test pressure"]);
-  const designP    = val(c.design_pressure);
+  const serialNo   = val(c.serial_number) || "—";
+  const fleetNo    = val(c.fleet_number) || "—";
+  const mawp       = val(c.mawp || c.working_pressure || pn["MAWP"]) || "—";
+  const testP      = val(c.test_pressure || pn["Test pressure"]) || "—";
+  const designP    = val(c.design_pressure) || "—";
   const pvType     = val(c.equipment_description) || "Pressure Vessel";
-  const pvCap      = val(c.capacity_volume);
+  const pvCap      = val(c.capacity_volume) || "—";
   const defects    = val(c.defects_found);
   const recommendations = val(c.recommendations);
   const comments   = val(c.comments || c.remarks);
   const inspName   = val(c.inspector_name) || "Moemedi Masupe";
   const inspId     = val(c.inspector_id) || "700117910";
   const pu         = val(c.pressure_unit || pn.pressure_unit) || "bar";
-  const tone       = resultStyle(pickResult(c));
-  const TDE = `padding:3px 7px;border:1px solid #c3d4e8;background:#fff`;
+  const tone       = resultColors(pickResult(c));
 
-  return wrapPage(certPage(`
-    ${proHdr()}${gradBar()}
-    <div style="flex:1;padding:5px 16px 0;display:flex;flex-direction:column;gap:4px;overflow:hidden;min-height:0">
-      ${proCT(company,location,issueDate,equipMake,serialNo,fleetNo,swl)}
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;flex-shrink:0">
-        <div style="border:1px solid #1e3a5f;border-radius:4px;padding:7px 10px;background:#f4f8ff">
-          <div style="font-size:12px;font-weight:900;color:#0b1d3a">Pressure Vessel Inspection</div>
-          <div style="font-size:10px;font-weight:700;color:#0e7490;margin-top:2px">${certNumber}</div>
-          ${expiryDate?`<div style="display:inline-block;border:1px solid #1e3a5f;border-radius:3px;padding:2px 7px;margin-top:4px;font-size:8px;font-weight:700;color:#0b1d3a;background:#fff">Expiry: ${expiryDate}</div>`:""}
-        </div>
-        <div style="border:2px solid #1e3a5f;border-radius:6px;padding:7px 10px;display:flex;align-items:center;justify-content:space-between;background:#f4f8ff">
-          <div><div style="font-size:10px;font-weight:800;color:#0b1d3a">Compliance Certificate</div><div style="font-size:8px;color:#64748b">to be issued</div></div>
-          <div style="font-size:26px;color:${tone.label==="PASS"?"#15803d":"#b91c1c"};font-weight:900">${tone.label==="PASS"?"✓":"✗"}</div>
-        </div>
-      </div>
-      ${stl("Pressure Vessel Details")}
-      <table style="width:100%;border-collapse:collapse;font-size:8px;border:1px solid #1e3a5f;flex-shrink:0"><thead>
-        <tr style="background:#0b1d3a;color:#4fc3f7">
-          ${["Vessel Type",`Serial Number`,`Capacity`,`MAWP (${pu})`,`Test Pressure (${pu})`,`Design Pressure (${pu})`].map(h=>`<th style="padding:3px 7px;text-align:left;border:1px solid #1e3a5f">${h}</th>`).join("")}
-        </tr>
-      </thead><tbody>
-        <tr><td style="${TDE}">${pvType}</td><td style="${TDE};font-family:monospace">${serialNo||"—"}</td><td style="${TDE}">${pvCap||"—"}</td><td style="${TDE};font-weight:700">${mawp||"—"}</td><td style="${TDE};font-weight:700">${testP||"—"}</td><td style="${TDE}">${designP||"—"}</td></tr>
-      </tbody></table>
-      ${stl("Inspection Results")}
-      <table style="width:100%;border-collapse:collapse;font-size:8px;border:1px solid #1e3a5f;flex-shrink:0"><tbody>
-        ${[
-          ["Vessel condition — external visual","Satisfactory"],
-          ["Vessel condition — internal (if applicable)","Satisfactory"],
-          ["Safety valve fitted and operating correctly","Yes"],
-          ["Pressure gauge fitted and reading correctly","Yes"],
-          ["Drain valve fitted and operating correctly","Yes"],
-          ["Signs of corrosion, cracking or deformation","None"],
-          ["Nameplate legible and data correct","Yes"],
-          ["Hydrostatic test performed", testP?`Yes — ${testP} ${pu}`:"N/A"],
-          ["Overall assessment",`<span style="font-weight:800;color:${tone.label==="PASS"?"#15803d":"#b91c1c"}">${tone.label}</span>`],
-        ].map(([l,v])=>`<tr><td style="padding:3px 7px;border:1px solid #c3d4e8;font-weight:700;background:#eef4ff;color:#0b1d3a;width:60%">${l}</td><td style="padding:3px 7px;border:1px solid #c3d4e8;background:#fff;font-weight:600">${v}</td></tr>`).join("")}
-      </tbody></table>
-      ${legalNote("THIS PRESSURE VESSEL HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.")}
-      ${redBox("Defects Found", defects)}
-      ${redBox("Recommendations", recommendations)}
-      ${commentBox("Comments", comments)}
-    </div>
-    ${proSig(inspName, inspId)}
-    ${proFooter()}
-  `));
+  let y = drawHeader(doc, "Pressure Vessel Inspection Certificate", certNumber, tone.label, tone.fg, tone.bg);
+  y += 6;
+
+  y = drawInfoTable(doc, [
+    ["Customer",         company,    "Make / Type",       equipMake],
+    ["Site",             location,   "Serial No.",        serialNo],
+    ["Date",             issueDate,  "Fleet No.",         fleetNo],
+    ["Expiry Date",      expiryDate, "Vessel Type",       pvType],
+    [`MAWP (${pu})`,     mawp,       `Test Pressure (${pu})`, testP],
+    [`Design P (${pu})`, designP,    "Capacity",          pvCap],
+  ], y);
+  y += 8;
+
+  // Big result badge
+  drawPFBadge(doc, tone.label, A4W - ML - 82, y - 8);
+
+  y = drawSectionLabel(doc, "Inspection Results", y);
+  y = drawInfoTable(doc, [
+    ["Vessel condition — external visual",           "Satisfactory"],
+    ["Vessel condition — internal (if applicable)",  "Satisfactory"],
+    ["Safety valve fitted and operating correctly",  "Yes"],
+    ["Pressure gauge fitted and reading correctly",  "Yes"],
+    ["Drain valve fitted and operating correctly",   "Yes"],
+    ["Signs of corrosion, cracking or deformation",  "None"],
+    ["Nameplate legible and data correct",           "Yes"],
+    ["Hydrostatic test performed",                   testP !== "—" ? `Yes — ${testP} ${pu}` : "N/A"],
+    ["Overall assessment",                           tone.label],
+  ], y, [220, CW - 220]);
+  y += 8;
+
+  y = drawLegalNote(doc, "THIS PRESSURE VESSEL HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.", y);
+  y = drawAlertBox(doc, "Defects Found", defects, y);
+  y = drawAlertBox(doc, "Recommendations", recommendations, y);
+  y = drawAlertBox(doc, "Comments", comments, y, C.teal, C.lightBg);
+  y += 6;
+  y = drawSignatures(doc, inspName, inspId, y);
+  drawFooter(doc);
+  return buildBuffer(doc);
 }
 
-function genMachine(c) {
+// ── Machine (Forklift / Telehandler / etc.) ───────────────────────────────
+async function genMachine(c) {
+  const doc        = newDoc();
   const certNumber = val(c.certificate_number);
   const company    = val(c.client_name || c.company) || "—";
   const location   = val(c.location) || "—";
-  const issueDate  = formatDate(c.issue_date || c.issued_at);
-  const expiryDate = formatDate(c.expiry_date);
+  const issueDate  = fmtDate(c.issue_date || c.issued_at);
+  const expiryDate = fmtDate(c.expiry_date);
   const equipType  = val(c.equipment_type) || "Machine";
   const equipMake  = val(c.manufacturer || c.model) || equipType;
-  const serialNo   = val(c.serial_number);
-  const fleetNo    = val(c.fleet_number);
-  const swl        = val(c.swl);
+  const serialNo   = val(c.serial_number) || "—";
+  const fleetNo    = val(c.fleet_number) || "—";
+  const swl        = val(c.swl) || "—";
   const defects    = val(c.defects_found) || "";
   const recommendations = val(c.recommendations);
   const inspName   = val(c.inspector_name) || "Moemedi Masupe";
   const inspId     = val(c.inspector_id) || "700117910";
-  const tone       = resultStyle(pickResult(c));
+  const tone       = resultColors(pickResult(c));
   const oilLeaks   = detectFail(defects, "leak", "oil");
   const tires      = detectFail(defects, "tire", "tyre");
   const brakes     = detectFail(defects, "brake");
   const isForklift = /forklift|fork.lift/i.test(equipType);
 
-  return wrapPage(certPage(`
-    ${proHdr()}${gradBar()}
-    <div style="flex:1;padding:5px 16px 0;display:flex;flex-direction:column;gap:4px;overflow:hidden;min-height:0">
-      ${proCT(company,location,issueDate,equipMake,serialNo,fleetNo,swl)}
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;border:1px solid #1e3a5f;border-radius:4px;padding:7px 10px;background:#f4f8ff;flex-shrink:0">
-        <div>
-          ${expiryDate?`<div style="font-size:9px;font-weight:800;color:#0b1d3a;margin-bottom:2px">Validity: ${expiryDate}</div>`:""}
-          <div style="font-size:11px;font-weight:900;color:#0b1d3a">${equipType} Inspection — ${certNumber}</div>
-          <div style="font-size:7px;color:#64748b;margin-top:1px">Inspected in accordance with MQWMR Act CAP 44:02</div>
-        </div>
-        ${pfBadge(tone.label)}
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid #1e3a5f;border-radius:4px;overflow:hidden;flex:1;min-height:0">
-        <div style="border-right:1px solid #1e3a5f;overflow:hidden">
-          ${csec("General &amp; Cab Condition")}
-          ${ci("Structural Integrity","PASS")}${ci("Hydraulic System","PASS")}
-          ${ci("Brake System",brakes||"PASS")}${ci("Tyres / Wheels",tires||"PASS")}
-          ${ci("Oil Leaks",oilLeaks)}${ci("Lights &amp; Horn","PASS")}
-          ${ci("Fire Extinguisher","PASS")}${ci("Seat Belt","PASS")}
-          ${ci("Controls Marked Correctly","PASS")}${ci("Load Chart Available","PASS")}
-          ${isForklift?`${csec("Forks &amp; Mast")}${ci("Mast / Structural Integrity","PASS")}${ci("Fork Condition",detectFail(defects,"fork","tine"))}${ci("Fork Retention Pins","PASS")}${ci("Mast Chain Lubrication","PASS")}${ci("Tilt Cylinders — No Leaks",oilLeaks)}`:""}
-        </div>
-        <div style="overflow:hidden">
-          ${csec("Safety Systems")}
-          ${ci("Load Indicator / SWL Plate","PASS")}${ci("Emergency Stop","PASS")}${ci("Overload Protection","PASS")}
-          ${csec("Hydraulics &amp; Drive")}
-          ${ci("Hydraulic Oil Level","PASS")}${ci("Hydraulic Hoses &amp; Fittings",oilLeaks)}
-          ${ci("Drive Transmission","PASS")}${ci("Steering System","PASS")}${ci("Engine / Motor Condition","PASS")}
-          ${csec("Load Test")}
-          ${ci("Test Load Applied at Rated Capacity","PASS")}${ci("Lifting / Lowering Smooth","PASS")}
-          ${ci("No Deformation Under Load","PASS")}${ci("All Functions Operate Under Load","PASS")}
-        </div>
-      </div>
-      ${redBox("Defects Found", defects)}
-      ${redBox("Recommendations", recommendations)}
-    </div>
-    ${proSig(inspName, inspId)}
-    ${proFooter()}
-  `));
+  let y = drawHeader(doc, `${equipType} Inspection Certificate`, certNumber, tone.label, tone.fg, tone.bg);
+  y += 6;
+
+  y = drawInfoTable(doc, [
+    ["Customer",    company,    "Make / Type",  equipMake],
+    ["Site",        location,   "Serial No.",   serialNo],
+    ["Date",        issueDate,  "Fleet No.",    fleetNo],
+    ["Expiry Date", expiryDate, "SWL",          swl],
+  ], y);
+  y += 8;
+
+  drawPFBadge(doc, tone.label, A4W - ML - 82, y - 8);
+
+  const colHalfW = CW / 2;
+  const leftItems = [
+    { header: true, label: "General Condition" },
+    { label: "Structural Integrity",      result: "PASS"     },
+    { label: "Hydraulic System",          result: "PASS"     },
+    { label: "Brake System",              result: brakes||"PASS" },
+    { label: "Tyres / Wheels",            result: tires||"PASS" },
+    { label: "Oil Leaks",                 result: oilLeaks   },
+    { label: "Lights & Horn",             result: "PASS"     },
+    { label: "Fire Extinguisher",         result: "PASS"     },
+    { label: "Seat Belt",                 result: "PASS"     },
+    { label: "Controls Marked Correctly", result: "PASS"     },
+    { label: "Load Chart Available",      result: "PASS"     },
+    ...(isForklift ? [
+      { header: true, label: "Forks & Mast" },
+      { label: "Mast / Structural Integrity", result: "PASS" },
+      { label: "Fork Condition",              result: detectFail(defects,"fork","tine") },
+      { label: "Fork Retention Pins",         result: "PASS" },
+      { label: "Mast Chain Lubrication",      result: "PASS" },
+      { label: "Tilt Cylinders — No Leaks",   result: oilLeaks },
+    ] : []),
+  ];
+  const rightItems = [
+    { header: true, label: "Safety Systems" },
+    { label: "Load Indicator / SWL Plate", result: "PASS" },
+    { label: "Emergency Stop",             result: "PASS" },
+    { label: "Overload Protection",        result: "PASS" },
+    { header: true, label: "Hydraulics & Drive" },
+    { label: "Hydraulic Oil Level",        result: "PASS"     },
+    { label: "Hydraulic Hoses & Fittings", result: oilLeaks   },
+    { label: "Drive Transmission",         result: "PASS"     },
+    { label: "Steering System",            result: "PASS"     },
+    { label: "Engine / Motor Condition",   result: "PASS"     },
+    { header: true, label: "Load Test" },
+    { label: "Test Load at Rated Capacity",result: "PASS"     },
+    { label: "Lifting / Lowering Smooth",  result: "PASS"     },
+    { label: "No Deformation Under Load",  result: "PASS"     },
+    { label: "All Functions Under Load",   result: "PASS"     },
+  ];
+
+  drawChecklist(doc, leftItems,  ML,                y, colHalfW - 4);
+  drawChecklist(doc, rightItems, ML + colHalfW + 4, y, colHalfW - 4);
+  y += Math.max(leftItems.length, rightItems.length) * 11 + 8;
+
+  y = drawAlertBox(doc, "Defects Found", defects || null, y);
+  y = drawAlertBox(doc, "Recommendations", recommendations, y);
+  y += 4;
+  y = drawSignatures(doc, inspName, inspId, y);
+  drawFooter(doc);
+  return buildBuffer(doc);
 }
 
-function genGeneric(c) {
-  const ex         = c.extracted_data || {};
-  const certNumber = val(c.certificate_number);
-  const equipType  = val(c.equipment_type || c.asset_type || ex.equipment_type);
-  const rawType    = String(equipType || "").toLowerCase();
-  const isLifting  = /lift|hoist|crane|sling|chain|shackle|hook|rope|rigging|winch|pulley|block/i.test(rawType);
-  const isPressure = /pressure|vessel|boiler|autoclave|receiver|compressor|tank|cylinder/i.test(rawType);
-  const certType   = val(c.certificate_type || ex.certificate_type) || (isLifting ? "Load Test Certificate" : isPressure ? "Pressure Test Certificate" : "Certificate of Inspection");
-  const issueDate  = formatDate(c.issue_date || c.issued_at || ex.issue_date);
-  const expiryDate = formatDate(c.expiry_date || c.valid_to || ex.expiry_date);
-  const company    = val(c.company || c.client_name || ex.client_name) || "Monroy (Pty) Ltd";
-  const location   = val(c.equipment_location || c.location || ex.equipment_location);
-  const equipDesc  = val(c.equipment_description || c.asset_name || ex.equipment_description);
-  const serialNo   = val(c.serial_number || ex.serial_number);
-  const fleetNo    = val(c.fleet_number || ex.fleet_number);
-  const mfg        = val(c.manufacturer || ex.manufacturer);
-  const model      = val(c.model || ex.model);
-  const swl        = val(c.swl || ex.swl || c.safe_working_load);
-  const mawp       = val(c.mawp || ex.mawp || c.working_pressure);
-  const capacity   = val(c.capacity || ex.capacity || c.capacity_volume);
-  const testP      = val(c.test_pressure || ex.test_pressure);
-  const inspName   = val(c.inspector_name || ex.inspector_name) || "Moemedi Masupe";
-  const inspId     = val(c.inspector_id || ex.inspector_id) || "700117910";
-  const defects    = val(c.defects_found || ex.defects_found);
-  const recommendations = val(c.recommendations || ex.recommendations);
-  const comments   = val(c.comments || ex.comments || c.remarks || ex.remarks);
-  const pu         = val(c.pressure_unit || ex.pressure_unit) || "bar";
-  const tone       = resultStyle(pickResult(c));
-
-  function field(label, value, opts = {}) {
-    if (!value) return "";
-    return `<div style="padding:3px 10px;border-right:1px solid #dbeafe;border-bottom:1px solid #dbeafe;background:${opts.alt?"#eef4ff":"#f4f8ff"};${opts.full?"grid-column:1/-1;":""}">
-      <div style="font-size:7px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#3b6ea5;margin-bottom:1px">${label}</div>
-      <div style="font-size:10px;font-weight:600;color:#0b1d3a;line-height:1.25;${opts.mono?"font-family:monospace;font-size:9px;color:#0e7490;":""}">${value}</div>
-    </div>`;
-  }
-
-  function sec(title, rows) {
-    const inner = rows.filter(Boolean).join("");
-    if (!inner) return "";
-    return `<div style="border:1px solid #1e3a5f;border-radius:5px;overflow:hidden;flex-shrink:0">
-      <div style="background:#0b1d3a;border-bottom:1px solid #22d3ee;padding:3px 10px;font-size:7.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4fc3f7">${title}</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr))">${inner}</div>
-    </div>`;
-  }
-
-  return wrapPage(certPage(`
-    <div style="background:#0b1d3a;display:flex;align-items:stretch;min-height:90px;flex-shrink:0">
-      <div style="background:#fff;width:110px;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:8px">
-        <div style="font-size:10px;font-weight:900;color:#0b1d3a;text-align:center">MONROY<br><span style="font-size:7px;color:#22d3ee">PTY LTD</span></div>
-      </div>
-      <div style="flex:1;padding:12px 12px 12px 32px;display:flex;flex-direction:column;justify-content:center">
-        <div style="font-size:7.5px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#4fc3f7;margin-bottom:3px">Monroy (Pty) Ltd · Process Control &amp; Cranes</div>
-        <div style="font-size:17px;font-weight:900;letter-spacing:-.02em;color:#fff;line-height:1.1;margin-bottom:3px">${certType}</div>
-        <div style="font-size:8.5px;color:rgba(255,255,255,0.50)">${company} · ${location||"Botswana"}${fleetNo?` · ${fleetNo}`:""}</div>
-      </div>
-      <div style="padding:12px 16px;display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:6px;flex-shrink:0">
-        <span style="font-size:10px;font-weight:900;padding:4px 12px;border-radius:99px;letter-spacing:.10em;text-transform:uppercase;background:${tone.bg};color:${tone.color};border:1px solid ${tone.brd}">${tone.label}</span>
-        ${certNumber?`<div style="font-family:monospace;font-size:9px;font-weight:600;color:rgba(255,255,255,0.50)">${certNumber}</div>`:""}
-      </div>
-    </div>
-    ${gradBar()}
-    <div style="flex:1;padding:5px 16px 0;display:flex;flex-direction:column;gap:4px;overflow:hidden;min-height:0">
-      ${sec("Certificate Details",[field("Certificate Number",certNumber,{mono:true}),field("Issue Date",issueDate),field("Expiry / Next Inspection",expiryDate)])}
-      ${sec("Client &amp; Location",[field("Client / Company",company),field("Location",location),field("Certificate Type",certType)])}
-      ${sec("Equipment",[field("Description",equipDesc,{full:true}),field("Type",equipType),field("Serial Number",serialNo,{mono:true}),field("Manufacturer",mfg),field("Model",model)])}
-      ${sec("Technical Data",[swl?field("Safe Working Load",swl):"",mawp?field("Working Pressure",`${mawp} ${pu}`):"",capacity?field("Capacity",capacity):"",testP?field("Test Pressure",`${testP} ${pu}`):""]) }
-      ${sec("Legal Compliance",[`<div style="padding:4px 10px;grid-column:1/-1;background:#f4f8ff"><div style="font-size:8px;color:#4b5563;line-height:1.4">This inspection has been performed by a <strong>competent person</strong> as defined under the <strong>Mines, Quarries, Works and Machinery Act Cap 44:02</strong> of the Laws of Botswana.</div></div>`])}
-      ${redBox("Defects Found",defects)}${redBox("Recommendations",recommendations)}${commentBox("Comments",comments)}
-    </div>
-    ${proSig(inspName, inspId)}
-    <div style="background:#c41e3a;padding:3px 16px;flex-shrink:0"><p style="font-size:7px;color:#fff;margin:0;line-height:1.4;text-align:center;font-weight:600">Mobile Crane Hire | Rigging | NDT Test | Scaffolding | Painting | Inspection of Lifting Equipment &amp; Machinery | Steel Fabricating &amp; Structural | Mechanical Engineering | Fencing | Maintenance</p></div>
-    <div style="background:#0b1d3a;border-top:2px solid #22d3ee;padding:3px 16px;display:flex;justify-content:space-between;flex-shrink:0">
-      <span style="font-size:7px;color:rgba(255,255,255,0.35);font-weight:600">Monroy (Pty) Ltd · Mophane Avenue, Maun, Botswana</span>
-      <span style="font-size:7px;color:rgba(255,255,255,0.35);font-weight:600">Quality · Safety · Excellence</span>
-    </div>
-  `));
-}
-
-// ── Route handler ─────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// ROUTE HANDLER
+// ═══════════════════════════════════════════════════════════════════════════
 export async function POST(req) {
   try {
     const { clientName, inspectionDate } = await req.json();
@@ -582,27 +728,25 @@ export async function POST(req) {
       return NextResponse.json({ error: error.message }, { status: 500 });
 
     if (!certs || certs.length === 0)
-      return NextResponse.json(
-        { error: "No certificates match the selected filters." },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "No certificates match the selected filters." }, { status: 404 });
 
     const zip = new JSZip();
+    let exported = 0;
 
     for (const cert of certs) {
       try {
         const rawType = String(cert.equipment_type || "").toLowerCase();
-        const pn = parseNotes(val(cert.notes || "") || "");
+        const pn      = parseNotes(val(cert.notes || "") || "");
 
-        let html;
+        let pdfBuffer;
         if (/mobile.crane|^crane/i.test(rawType) && !/hook|sling|cherry|telehandler|forklift/i.test(rawType)) {
-          html = genCrane(cert, pn);
+          pdfBuffer = await genCrane(cert, pn);
         } else if (/pressure.vessel|air.receiver|boiler/i.test(rawType)) {
-          html = genPressureVessel(cert, pn);
+          pdfBuffer = await genPressureVessel(cert, pn);
         } else if (/forklift|fork.lift|telehandler|cherry.picker|tlb|frontloader/i.test(rawType)) {
-          html = genMachine(cert);
+          pdfBuffer = await genMachine(cert);
         } else {
-          html = genGeneric(cert);
+          pdfBuffer = await genGeneric(cert);
         }
 
         const clientFolder = (cert.client_name || "Unknown")
@@ -614,26 +758,15 @@ export async function POST(req) {
         const safeCertNum = (cert.certificate_number || cert.id)
           .toString().replace(/[^a-zA-Z0-9_-]/g, "_");
 
-        zip.file(`${clientFolder}/${safeDate}_${safeCertNum}.html`, html);
+        zip.file(`${clientFolder}/${safeDate}_${safeCertNum}.pdf`, pdfBuffer);
+        exported++;
       } catch (e) {
         console.error(`Skipped cert ${cert.certificate_number || cert.id}:`, e.message);
       }
     }
 
-    zip.file("HOW_TO_SAVE_AS_PDF.txt",
-      `MONROY QMS — CERTIFICATE EXPORT\n` +
-      `Generated: ${new Date().toISOString()}\n` +
-      `Total certificates: ${certs.length}\n\n` +
-      `TO SAVE EACH CERTIFICATE AS PDF:\n` +
-      `  1. Open the .html file in Google Chrome or Microsoft Edge\n` +
-      `  2. Press Ctrl+P  (Mac: Cmd+P)\n` +
-      `  3. Destination  →  Save as PDF\n` +
-      `  4. Paper size   →  A4\n` +
-      `  5. Margins      →  None\n` +
-      `  6. Tick "Background graphics"\n` +
-      `  7. Click Save\n\n` +
-      `The certificate will be pixel-perfect — same as the on-screen view.\n`
-    );
+    if (exported === 0)
+      return NextResponse.json({ error: "Failed to generate any PDFs. Check server logs." }, { status: 500 });
 
     const zipBuffer = await zip.generateAsync({
       type: "nodebuffer",
@@ -648,18 +781,15 @@ export async function POST(req) {
     return new NextResponse(zipBuffer, {
       status: 200,
       headers: {
-        "Content-Type": "application/zip",
+        "Content-Type":        "application/zip",
         "Content-Disposition": `attachment; filename="${zipName}"`,
-        "Content-Length": zipBuffer.length.toString(),
-        "X-Certificates-Exported": certs.length.toString(),
+        "Content-Length":      zipBuffer.length.toString(),
+        "X-Certificates-Exported": exported.toString(),
       },
     });
 
   } catch (err) {
     console.error("Bulk export error:", err);
-    return NextResponse.json(
-      { error: "Export failed: " + (err.message || "Unknown error") },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Export failed: " + (err.message || "Unknown error") }, { status: 500 });
   }
 }
