@@ -1,7 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import archiver from "archiver";
-import { Readable } from "stream";
+import JSZip from "jszip";
 
 export const dynamic = "force-dynamic";
 
@@ -42,55 +41,38 @@ export async function POST(req) {
     if (!certs || certs.length === 0)
       return NextResponse.json({ error: "No certificates found for the selected filters." }, { status: 404 });
 
-    // Download all PDFs from Supabase storage and zip them
-    const { PassThrough } = await import("stream");
-    const passThrough = new PassThrough();
-
-    const archive = archiver("zip", { zlib: { level: 6 } });
-    archive.pipe(passThrough);
+    const zip = new JSZip();
 
     for (const cert of certs) {
       if (!cert.file_url) continue;
 
-      // Support both full URLs and storage paths
-      let fileBuffer;
       try {
+        let fileBuffer;
+
         if (cert.file_url.startsWith("http")) {
           const res = await fetch(cert.file_url);
           if (!res.ok) continue;
-          const arrayBuffer = await res.arrayBuffer();
-          fileBuffer = Buffer.from(arrayBuffer);
+          fileBuffer = await res.arrayBuffer();
         } else {
           const { data, error: dlError } = await supabase.storage
             .from("certificates")
             .download(cert.file_url);
           if (dlError || !data) continue;
-          const ab = await data.arrayBuffer();
-          fileBuffer = Buffer.from(ab);
+          fileBuffer = await data.arrayBuffer();
         }
 
-        const clientName = cert.clients?.name || "Unknown_Client";
-        const safeClient = clientName.replace(/[^a-zA-Z0-9_-]/g, "_");
-        const safeDate = cert.inspection_date
-          ? cert.inspection_date.replace(/-/g, "")
-          : "NoDate";
+        const clientName = (cert.clients?.name || "Unknown_Client").replace(/[^a-zA-Z0-9_-]/g, "_");
+        const safeDate = (cert.inspection_date || "NoDate").replace(/-/g, "");
         const safeCertNum = (cert.certificate_number || cert.id).replace(/[^a-zA-Z0-9_-]/g, "_");
-        const filename = `${safeClient}/${safeDate}_${safeCertNum}.pdf`;
+        const filename = `${clientName}/${safeDate}_${safeCertNum}.pdf`;
 
-        archive.append(fileBuffer, { name: filename });
+        zip.file(filename, fileBuffer);
       } catch {
-        // skip failed downloads silently
+        // skip failed individual downloads
       }
     }
 
-    await archive.finalize();
-
-    // Collect stream into buffer
-    const chunks = [];
-    for await (const chunk of passThrough) {
-      chunks.push(chunk);
-    }
-    const zipBuffer = Buffer.concat(chunks);
+    const zipBuffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
 
     const clientLabel = certs[0]?.clients?.name
       ? certs[0].clients.name.replace(/\s+/g, "_")
