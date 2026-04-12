@@ -161,7 +161,7 @@ export default function BulkExportClient() {
           ));
 
           // Extra wait for CSS paint
-          await sleep(2000);
+          await sleep(800);
 
           // Check html2pdf is loaded inside iframe, inject if not
           if (!iWin.html2pdf) {
