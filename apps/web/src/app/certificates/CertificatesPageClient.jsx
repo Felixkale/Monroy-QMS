@@ -31,7 +31,7 @@ const CSS = `
   @media(max-width:768px){
     .cert-page{padding:10px!important}
     .cert-top{flex-direction:column!important;gap:10px!important;align-items:flex-start!important}
-    .cert-top-btns{width:100%;display:flex!important;gap:8px}
+    .cert-top-btns{width:100%;display:flex!important;gap:8px;flex-wrap:wrap}
     .cert-top-btns a{flex:1;text-align:center;justify-content:center}
     .cert-filters{grid-template-columns:1fr 1fr}
     .cert-tbl{display:none!important}
@@ -73,7 +73,6 @@ function Badge({label,color,bg,brd}){
 }
 
 function groupCerts(rows){
-  // First, collapse rows with same folder_id into a single entry
   const folderMap={};
   const standalone=[];
   for(const r of rows){
@@ -84,7 +83,6 @@ function groupCerts(rows){
       standalone.push(r);
     }
   }
-  // For each folder, keep only the first cert as the "row" but attach siblings
   const folderLeaders=Object.values(folderMap).map(certs=>{
     const sorted=[...certs].sort((a,b)=>(a.folder_position||99)-(b.folder_position||99));
     return {...sorted[0],_folderCerts:sorted};
@@ -161,18 +159,15 @@ export default function CertificatesPageClient() {
   }
 
   async function unlinkCert(id){
-    // Find which folder this cert belongs to
     const cert = certs.find(c => String(c.id) === String(id));
     const folderId = cert?.folder_id;
 
-    // Unlink this cert
     const { error: e } = await supabase.from("certificates")
       .update({ folder_id: null, folder_name: null, folder_position: null })
       .eq("id", id);
 
     if (e) { console.error("Unlink failed:", e.message); return; }
 
-    // If folder exists, check if only 1 cert remains — if so, unlink it too
     if (folderId) {
       const { data: remaining } = await supabase.from("certificates")
         .select("id").eq("folder_id", folderId);
@@ -189,7 +184,6 @@ export default function CertificatesPageClient() {
   async function deleteCert(id, folderId, certNo) {
     if (!window.confirm(`Delete ${certNo||"this certificate"}? This cannot be undone.`)) return;
     await supabase.from("certificates").delete().eq("id", id);
-    // Clean up solo remaining folder cert
     if (folderId) {
       const { data: remaining } = await supabase.from("certificates").select("id").eq("folder_id", folderId);
       if (remaining && remaining.length === 1) {
@@ -215,13 +209,11 @@ export default function CertificatesPageClient() {
       const ex=r.extracted_data||{};
       const issue=r.issue_date||r.issued_at||ex.issue_date||null;
       const expiry=r.expiry_date||r.valid_to||ex.expiry_date||null;
-      // Resolve client name from join or direct column
       const resolvedClient=
         nz(r.client_name||r.company||ex.client_name,null)||
         nz(r.clients?.company_name,null)||
         nz(r.assets?.clients?.company_name,null)||
         "UNASSIGNED";
-      // Resolve equipment from join or direct column
       const resolvedEquipDesc=
         nz(r.equipment_description||r.asset_name||ex.equipment_description,null)||
         nz(r.assets?.asset_name,null)||
@@ -284,6 +276,7 @@ export default function CertificatesPageClient() {
                 <p style={{margin:"5px 0 0",color:T.textDim,fontSize:12}}>{filtered.length} of {certs.length} records · grouped by client, equipment type, asset</p>
               </div>
               <div className="cert-top-btns" style={{display:"flex",gap:8,flexShrink:0}}>
+                <Link href="/certificates/bulk-export" style={S.export}>⬇ Bulk Export</Link>
                 <Link href="/certificates/import" style={S.ghost}>↑ AI Import</Link>
                 <Link href="/certificates/create" style={S.accent}>+ New</Link>
               </div>
@@ -420,7 +413,6 @@ function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allC
                           {tg.items.map(item=>(
                             <div key={`${tg.type}-${item.desc}`} style={{border:`1px solid ${T.border}`,borderRadius:10,overflow:"hidden",background:"rgba(255,255,255,0.015)"}}>
                               <div style={{padding:"10px 14px",borderBottom:`1px solid ${T.border}`,fontSize:13,fontWeight:800,color:T.text}}>{item.desc}</div>
-                              {/* Desktop table */}
                               <div className="cert-tbl" style={{overflowX:"auto"}}>
                                 <table style={{width:"100%",borderCollapse:"collapse",minWidth:640}}>
                                   <thead>
@@ -441,7 +433,6 @@ function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allC
                               })}</tbody>
                                 </table>
                               </div>
-                              {/* Mobile cards */}
                               <div className="cert-mob">
                                 {item.certs.map(cert=><CertMobCard key={cert.id} cert={cert} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}/>)}
                               </div>
@@ -589,8 +580,8 @@ function ActBtns({id,certNo,folderId,folderName,allCerts,certId,onUnlink,onDelet
 }
 
 const TD={padding:"10px 12px",fontSize:13,color:T.textMid,verticalAlign:"top"};
-const AB=(color,bg,brd)=>({display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"5px 10px",borderRadius:7,border:`1px solid ${brd}`,background:bg,color,fontSize:11,fontWeight:800,textDecoration:"none",whiteSpace:"nowrap"});
 const S={
   accent:{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"9px 14px",borderRadius:10,border:`1px solid ${T.accentBrd}`,background:T.accentDim,color:T.accent,fontSize:12,fontWeight:900,textDecoration:"none",whiteSpace:"nowrap"},
   ghost:{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"9px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.card,color:T.textMid,fontSize:12,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap"},
+  export:{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"9px 12px",borderRadius:10,border:`1px solid ${T.greenBrd}`,background:T.greenDim,color:T.green,fontSize:12,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap"},
 };
