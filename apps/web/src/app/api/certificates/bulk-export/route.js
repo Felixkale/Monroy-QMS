@@ -12,7 +12,7 @@ const supabase = createClient(
 
 export async function POST(req) {
   try {
-    const { clientName, dateFrom, dateTo } = await req.json();
+    const { clientName, inspectionDate } = await req.json();
 
     let query = supabase
       .from("certificates")
@@ -22,14 +22,12 @@ export async function POST(req) {
         "inspection_date, issue_date, expiry_date, " +
         "pdf_url, status"
       )
-      .order("inspection_date", { ascending: false, nullsFirst: false })
+      .order("certificate_number", { ascending: true })
       .limit(2000);
 
-    if (clientName) query = query.eq("client_name", clientName);
-
-    // Filter on inspection_date at DB level
-    if (dateFrom) query = query.gte("inspection_date", dateFrom);
-    if (dateTo)   query = query.lte("inspection_date", dateTo);
+    if (clientName)     query = query.eq("client_name", clientName);
+    // Exact match — only this specific inspection date
+    if (inspectionDate) query = query.eq("inspection_date", inspectionDate);
 
     const { data: certs, error } = await query;
 
@@ -96,11 +94,7 @@ export async function POST(req) {
       ? clientName.replace(/\s+/g, "_")
       : "AllClients";
 
-    const dateLabel =
-      dateFrom && dateTo ? `_${dateFrom}_to_${dateTo}` :
-      dateFrom           ? `_from_${dateFrom}` :
-      dateTo             ? `_to_${dateTo}` : "";
-
+    const dateLabel = inspectionDate ? `_${inspectionDate}` : "";
     const zipName = `Certificates_${clientLabel}${dateLabel}.zip`;
 
     return new NextResponse(zipBuffer, {
