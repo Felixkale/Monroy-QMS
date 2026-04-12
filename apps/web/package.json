@@ -18,8 +18,9 @@
     "jszip": "^3.10.1",
     "recharts": "^2.12.7",
     "react-pdf": "^9.1.1",
-    "puppeteer": "^22.0.0",
-    "pdfjs-dist": "^4.8.69"
+    "pdfjs-dist": "^4.8.69",
+    "puppeteer-core": "^22.0.0",
+    "@sparticuz/chromium": "^123.0.0"
   },
   "devDependencies": {
     "@types/eslint": "^8.56.2",
