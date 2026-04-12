@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 import CertificateSheet from "@/components/certificates/CertificateSheet";
+import JSZip from "jszip";
 
 const T = {
   bg:"#070e18", surface:"rgba(13,22,38,0.80)", panel:"rgba(10,18,32,0.92)",
@@ -31,18 +32,17 @@ const CSS = `
     .be-mob{display:grid!important;gap:0}
   }
   @keyframes spin{to{transform:rotate(360deg)}}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
-
-  /* Hidden render area — off screen, not display:none so html2pdf can read it */
-  .cert-render-area{
+  #cert-offscreen{
     position:fixed;
-    top:0;left:-9999px;
+    left:-9999px;
+    top:0;
     width:794px;
-    z-index:-1;
-    pointer-events:none;
+    min-height:1123px;
     background:#fff;
+    z-index:-100;
+    overflow:visible;
+    pointer-events:none;
   }
-  @media print{.cert-render-area{display:none}}
 `;
 
 function formatDate(v) {
@@ -71,16 +71,13 @@ export default function BulkExportClient() {
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [previewLoaded,  setPreviewLoaded]  = useState(false);
   const [error,          setError]          = useState("");
-
-  // Export state
   const [exporting,      setExporting]      = useState(false);
-  const [exportStep,     setExportStep]     = useState(""); // status message
-  const [exportProgress, setExportProgress] = useState(0);  // 0-100
+  const [exportStep,     setExportStep]     = useState("");
+  const [exportProgress, setExportProgress] = useState(0);
   const [exportTotal,    setExportTotal]    = useState(0);
   const [exportDone,     setExportDone]     = useState(0);
+  const [doneMsg,        setDoneMsg]        = useState("");
   const [html2pdfReady,  setHtml2pdfReady]  = useState(false);
-
-  // The cert currently being rendered for PDF capture
   const [renderCert,     setRenderCert]     = useState(null);
   const renderRef = useRef(null);
 
@@ -88,23 +85,14 @@ export default function BulkExportClient() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (window.html2pdf) { setHtml2pdfReady(true); return; }
-    const script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
-    script.onload  = () => setHtml2pdfReady(true);
-    script.onerror = () => setError("Failed to load PDF engine. Check your internet connection.");
-    document.head.appendChild(script);
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+    s.onload  = () => setHtml2pdfReady(true);
+    s.onerror = () => setError("Failed to load PDF engine. Check your connection.");
+    document.head.appendChild(s);
   }, []);
 
-  // Load JSZip from CDN (fallback if not bundled)
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.JSZip) return;
-    const script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
-    document.head.appendChild(script);
-  }, []);
-
-  // Load client name options
+  // Load client options
   useEffect(() => {
     supabase.from("certificates").select("client_name").then(({ data }) => {
       if (!data) return;
@@ -121,17 +109,14 @@ export default function BulkExportClient() {
   }
 
   async function handlePreview() {
-    setError(""); setLoadingPreview(true); setPreviewLoaded(false);
-
+    setError(""); setLoadingPreview(true); setPreviewLoaded(false); setDoneMsg("");
     let query = supabase
       .from("certificates")
       .select("id,certificate_number,client_name,equipment_type,equipment_description,inspection_date,issue_date,expiry_date,status,result")
       .order("certificate_number", { ascending: true })
       .limit(500);
-
     if (clientName)     query = query.eq("client_name", clientName);
     if (inspectionDate) query = query.eq("inspection_date", inspectionDate);
-
     const { data, error: qErr } = await query;
     setLoadingPreview(false);
     if (qErr) { setError(qErr.message); return; }
@@ -139,54 +124,102 @@ export default function BulkExportClient() {
     setPreviewLoaded(true);
   }
 
-  // ── Core export logic ────────────────────────────────────────────────────
+  // ── Render one cert → ArrayBuffer via html2pdf ───────────────────────────
+  function captureOneCert(cert) {
+    return new Promise((resolve, reject) => {
+      setRenderCert(cert);
+
+      // Wait for React to paint the cert into the off-screen div
+      requestAnimationFrame(() => {
+        setTimeout(async () => {
+          try {
+            const el = renderRef.current;
+            if (!el) throw new Error("Render container not found");
+
+            const opt = {
+              margin:      0,
+              filename:    `${cert.certificate_number || cert.id}.pdf`,
+              image:       { type: "jpeg", quality: 0.97 },
+              html2canvas: {
+                scale:           2,
+                useCORS:         true,
+                logging:         false,
+                letterRendering: true,
+                windowWidth:     794,
+                backgroundColor: "#ffffff",
+              },
+              jsPDF: {
+                unit:        "mm",
+                format:      "a4",
+                orientation: "portrait",
+                compress:    true,
+              },
+              pagebreak: { mode: ["css", "legacy"] },
+            };
+
+            // Correct chain: toPdf() → get("pdf") → output("arraybuffer")
+            const worker  = window.html2pdf().set(opt).from(el);
+            const pdfObj  = await worker.toPdf().get("pdf");
+            const ab      = pdfObj.output("arraybuffer");
+
+            if (!ab || ab.byteLength < 500) throw new Error("PDF output was empty");
+
+            resolve(ab);
+          } catch (e) {
+            reject(e);
+          } finally {
+            setRenderCert(null);
+          }
+        }, 1200); // wait for fonts + images to load
+      });
+    });
+  }
+
+  // ── Main export ──────────────────────────────────────────────────────────
   async function handleExport() {
     if (!preview.length) return;
-    if (!html2pdfReady) { setError("PDF engine not loaded yet. Please wait a moment and try again."); return; }
+    if (!html2pdfReady) { setError("PDF engine not ready. Please wait and try again."); return; }
 
     setExporting(true);
     setError("");
+    setDoneMsg("");
     setExportDone(0);
-    setExportTotal(preview.length);
     setExportProgress(0);
+    setExportTotal(preview.length);
 
     try {
-      // Fetch full certificate data for all matching certs
       setExportStep("Fetching certificate data…");
       const ids = preview.map(c => c.id);
-
-      // Fetch in batches of 50 to avoid URL length limits
       const allCerts = [];
+
       for (let i = 0; i < ids.length; i += 50) {
         const batch = ids.slice(i, i + 50);
-        const { data, error: fetchErr } = await supabase
+        const { data, error: e } = await supabase
           .from("certificates")
           .select("*")
           .in("id", batch)
           .order("certificate_number", { ascending: true });
-        if (fetchErr) throw new Error(fetchErr.message);
+        if (e) throw new Error(e.message);
         allCerts.push(...(data || []));
       }
 
-      // Create ZIP
-      const JSZip = window.JSZip || (await import("jszip")).default;
       const zip = new JSZip();
       let done = 0;
 
       for (const cert of allCerts) {
-        setExportStep(`Generating PDF ${done + 1} of ${allCerts.length}: ${cert.certificate_number || cert.id}`);
+        setExportStep(`Generating ${done + 1} / ${allCerts.length}: ${cert.certificate_number || cert.id}`);
 
         try {
-          const pdfBlob = await renderCertAsPDF(cert);
+          const ab = await captureOneCert(cert);
 
           const clientFolder = (cert.client_name || "Unknown")
             .replace(/[^a-zA-Z0-9_\- ]/g, "_").trim();
-          const safeDate = (cert.inspection_date || cert.issue_date || "NoDate").replace(/-/g, "");
+          const safeDate    = (cert.inspection_date || cert.issue_date || "NoDate").replace(/-/g, "");
           const safeCertNum = (cert.certificate_number || cert.id).toString().replace(/[^a-zA-Z0-9_-]/g, "_");
 
-          zip.file(`${clientFolder}/${safeDate}_${safeCertNum}.pdf`, pdfBlob);
+          zip.file(`${clientFolder}/${safeDate}_${safeCertNum}.pdf`, ab);
         } catch (e) {
-          console.error(`Failed cert ${cert.certificate_number}:`, e.message);
+          console.error(`Skipped ${cert.certificate_number}:`, e.message);
         }
 
         done++;
@@ -194,13 +227,14 @@ export default function BulkExportClient() {
         setExportProgress(Math.round((done / allCerts.length) * 100));
       }
 
-      // Generate and download ZIP
-      setExportStep("Building ZIP file…");
+      setExportStep("Compressing ZIP…");
       const zipBlob = await zip.generateAsync({
         type: "blob",
         compression: "DEFLATE",
         compressionOptions: { level: 6 },
       });
+
+      if (zipBlob.size < 100) throw new Error("ZIP is empty — no PDFs were generated successfully.");
 
       const clientLabel = clientName ? clientName.replace(/\s+/g, "_") : "AllClients";
       const dateLabel   = inspectionDate ? `_${inspectionDate}` : "";
@@ -210,71 +244,28 @@ export default function BulkExportClient() {
       const a   = document.createElement("a");
       a.href     = url;
       a.download = zipName;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
 
-      setExportStep(`✓ Done — ${done} certificate${done !== 1 ? "s" : ""} exported`);
-      setTimeout(() => { setExportStep(""); setExportProgress(0); }, 4000);
+      setDoneMsg(`✓ ${done} certificate${done !== 1 ? "s" : ""} exported successfully`);
 
     } catch (err) {
       setError(err.message || "Export failed.");
     } finally {
       setExporting(false);
+      setExportStep("");
       setRenderCert(null);
     }
-  }
-
-  // ── Render one cert to PDF using html2pdf ────────────────────────────────
-  function renderCertAsPDF(cert) {
-    return new Promise((resolve, reject) => {
-      // Mount the cert into the hidden render area
-      setRenderCert(cert);
-
-      // Wait for React to render it, then capture
-      setTimeout(async () => {
-        try {
-          const el = renderRef.current;
-          if (!el || !el.firstChild) throw new Error("Render element not found");
-
-          const opt = {
-            margin:      0,
-            filename:    `${cert.certificate_number || cert.id}.pdf`,
-            image:       { type: "jpeg", quality: 0.97 },
-            html2canvas: {
-              scale:           2,
-              useCORS:         true,
-              logging:         false,
-              letterRendering: true,
-              windowWidth:     794,
-            },
-            jsPDF: {
-              unit:        "mm",
-              format:      "a4",
-              orientation: "portrait",
-              compress:    true,
-            },
-            pagebreak: { mode: ["css", "legacy"] },
-          };
-
-          const pdfBlob = await window.html2pdf()
-            .set(opt)
-            .from(el.firstChild)
-            .outputPdf("blob");
-
-          resolve(pdfBlob);
-        } catch (e) {
-          reject(e);
-        }
-      }, 800); // give React time to render
-    });
   }
 
   return (
     <AppLayout title="Bulk Export">
       <style>{CSS}</style>
 
-      {/* Hidden render area for PDF capture */}
-      <div className="cert-render-area" ref={renderRef}>
+      {/* Off-screen render container */}
+      <div id="cert-offscreen" ref={renderRef}>
         {renderCert && (
           <CertificateSheet
             certificate={renderCert}
@@ -307,23 +298,23 @@ export default function BulkExportClient() {
             <div className="be-grid">
               <div>
                 <label style={labelStyle}>Client</label>
-                <select value={clientName} onChange={e => { setClientName(e.target.value); setPreviewLoaded(false); }} style={{ ...inputStyle, cursor:"pointer" }}>
+                <select value={clientName} onChange={e => { setClientName(e.target.value); setPreviewLoaded(false); setDoneMsg(""); }} style={{ ...inputStyle, cursor:"pointer" }}>
                   <option value="">All Clients</option>
                   {clientOpts.map(n => <option key={n} value={n}>{n}</option>)}
                 </select>
               </div>
               <div>
                 <label style={labelStyle}>Inspection Date</label>
-                <input type="date" value={inspectionDate} onChange={e => { setInspectionDate(e.target.value); setPreviewLoaded(false); }} style={inputStyle}/>
+                <input type="date" value={inspectionDate} onChange={e => { setInspectionDate(e.target.value); setPreviewLoaded(false); setDoneMsg(""); }} style={inputStyle}/>
               </div>
             </div>
 
             {(clientName || inspectionDate) && (
               <div style={{ marginTop:10, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
                 <span style={{ fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>Active:</span>
-                {clientName    && <span style={{ padding:"3px 10px", borderRadius:99, background:T.accentDim, border:`1px solid ${T.accentBrd}`, color:T.accent, fontSize:11, fontWeight:700 }}>{clientName}</span>}
-                {inspectionDate && <span style={{ padding:"3px 10px", borderRadius:99, background:T.amberDim, border:`1px solid ${T.amberBrd}`, color:T.amber, fontSize:11, fontWeight:700 }}>Inspected {formatDate(inspectionDate)}</span>}
-                <button onClick={() => { setClientName(""); setInspectionDate(""); setPreviewLoaded(false); setPreview([]); }}
+                {clientName     && <span style={{ padding:"3px 10px", borderRadius:99, background:T.accentDim, border:`1px solid ${T.accentBrd}`, color:T.accent, fontSize:11, fontWeight:700 }}>{clientName}</span>}
+                {inspectionDate && <span style={{ padding:"3px 10px", borderRadius:99, background:T.amberDim,  border:`1px solid ${T.amberBrd}`,  color:T.amber,  fontSize:11, fontWeight:700 }}>Inspected {formatDate(inspectionDate)}</span>}
+                <button onClick={() => { setClientName(""); setInspectionDate(""); setPreviewLoaded(false); setPreview([]); setDoneMsg(""); }}
                   style={{ background:"none", border:"none", color:T.textDim, fontSize:11, cursor:"pointer", fontWeight:700, padding:"3px 6px" }}>
                   Clear ×
                 </button>
@@ -346,43 +337,42 @@ export default function BulkExportClient() {
                   background:T.greenDim, color:T.green, fontWeight:900, fontSize:13,
                   cursor:"pointer", fontFamily:"'IBM Plex Sans',sans-serif",
                   display:"flex", alignItems:"center", gap:8,
-                  opacity: html2pdfReady ? 1 : 0.5,
+                  opacity:html2pdfReady ? 1 : 0.5,
                 }}>
                   ⬇ Export {preview.length} Certificate{preview.length !== 1 ? "s" : ""} as ZIP
                 </button>
               )}
 
-              {!html2pdfReady && (
-                <span style={{ fontSize:11, color:T.textDim }}>Loading PDF engine…</span>
+              {!html2pdfReady && !exporting && (
+                <span style={{ fontSize:11, color:T.textDim, display:"flex", alignItems:"center", gap:6 }}>
+                  <span style={{ display:"inline-block", width:10, height:10, border:`2px solid ${T.textDim}`, borderTopColor:"transparent", borderRadius:"50%", animation:"spin 0.7s linear infinite" }}/>
+                  Loading PDF engine…
+                </span>
               )}
             </div>
 
-            {/* EXPORT PROGRESS */}
+            {/* PROGRESS */}
             {exporting && (
               <div style={{ marginTop:16, padding:"14px 16px", borderRadius:12, border:`1px solid ${T.accentBrd}`, background:T.accentDim }}>
                 <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
-                  <span style={{ display:"inline-block", width:14, height:14, border:`2px solid ${T.accent}`, borderTopColor:"transparent", borderRadius:"50%", animation:"spin 0.7s linear infinite" }}/>
-                  <span style={{ fontSize:13, fontWeight:700, color:T.accent }}>{exportStep}</span>
+                  <span style={{ display:"inline-block", width:14, height:14, border:`2px solid ${T.accent}`, borderTopColor:"transparent", borderRadius:"50%", animation:"spin 0.7s linear infinite", flexShrink:0 }}/>
+                  <span style={{ fontSize:12, fontWeight:700, color:T.accent }}>{exportStep}</span>
                 </div>
-                {/* Progress bar */}
                 <div style={{ background:"rgba(34,211,238,0.1)", borderRadius:99, height:6, overflow:"hidden" }}>
                   <div style={{
                     height:"100%", borderRadius:99,
                     background:`linear-gradient(90deg,${T.accent},${T.green})`,
                     width:`${exportProgress}%`,
-                    transition:"width 0.3s ease",
+                    transition:"width 0.4s ease",
                   }}/>
                 </div>
-                <div style={{ marginTop:6, fontSize:11, color:T.textDim }}>
-                  {exportDone} of {exportTotal} certificates
-                </div>
+                <div style={{ marginTop:6, fontSize:11, color:T.textDim }}>{exportDone} of {exportTotal} certificates</div>
               </div>
             )}
 
-            {/* DONE MESSAGE */}
-            {!exporting && exportStep.startsWith("✓") && (
+            {doneMsg && !exporting && (
               <div style={{ marginTop:12, padding:"10px 14px", borderRadius:10, border:`1px solid ${T.greenBrd}`, background:T.greenDim, color:T.green, fontSize:13, fontWeight:700 }}>
-                {exportStep}
+                {doneMsg}
               </div>
             )}
 
@@ -405,7 +395,6 @@ export default function BulkExportClient() {
 
               {preview.length > 0 && (
                 <>
-                  {/* DESKTOP TABLE */}
                   <div className="be-table" style={{ overflowX:"auto" }}>
                     <table style={{ width:"100%", borderCollapse:"collapse", minWidth:700 }}>
                       <thead>
@@ -438,7 +427,6 @@ export default function BulkExportClient() {
                     </table>
                   </div>
 
-                  {/* MOBILE CARDS */}
                   <div className="be-mob">
                     {preview.map(cert => {
                       const sc = statusColor(cert.status);
@@ -451,7 +439,7 @@ export default function BulkExportClient() {
                           <div style={{ fontSize:12, color:T.textMid }}>{cert.equipment_description || cert.equipment_type || "—"}</div>
                           <div style={{ fontSize:11, color:T.textDim, display:"flex", gap:12, flexWrap:"wrap" }}>
                             <span>{cert.client_name || "—"}</span>
-                            <span>Inspection: {formatDate(cert.inspection_date)}</span>
+                            <span>Inspected: {formatDate(cert.inspection_date)}</span>
                             <span>Expiry: {formatDate(cert.expiry_date)}</span>
                           </div>
                         </div>
