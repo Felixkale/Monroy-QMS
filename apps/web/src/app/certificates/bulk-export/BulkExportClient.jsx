@@ -2,12 +2,7 @@
 
 import { useEffect, useState } from "react";
 import AppLayout from "@/components/AppLayout";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+import { supabase } from "@/lib/supabaseClient";
 
 const T = {
   bg:"#070e18",surface:"rgba(13,22,38,0.80)",panel:"rgba(10,18,32,0.92)",
@@ -72,12 +67,13 @@ export default function BulkExportClient(){
   const [error, setError] = useState("");
   const [previewLoaded, setPreviewLoaded] = useState(false);
 
+  // Load distinct client names from certificates table
   useEffect(()=>{
     supabase
       .from("certificates")
       .select("client_name")
-      .then(({data}) => {
-        if(!data) return;
+      .then(({data, error:e}) => {
+        if(e || !data) return;
         const names = new Set();
         data.forEach(r => {
           if(r.client_name && r.client_name.trim()) names.add(r.client_name.trim());
