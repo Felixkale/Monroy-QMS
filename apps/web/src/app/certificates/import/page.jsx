@@ -28,7 +28,6 @@ DATE FORMAT: Return dates as MM/YYYY or DD/MM/YYYY or YYYY only.
 Return ONLY valid JSON, no markdown:
 {"equipment_type":"","equipment_description":"","manufacturer":"","model":"","serial_number":"","asset_tag":"","year_built":"","capacity_volume":"","swl":"","working_pressure":"","design_pressure":"","test_pressure":"","pressure_unit":"","material":"","standard_code":"","inspection_number":"","client_name":"","location":"","inspection_date":"","expiry_date":"","next_inspection_due":"","inspector_name":"","inspection_body":"","result":"","defects_found":"","recommendations":"","comments":"","nameplate_data":"","raw_text_summary":""}`;
 
-// ── List prompt — AI identifies each item's equipment type individually ──
 function buildListPrompt(client, inspDate, expiryDate) {
   return `You are a senior industrial inspection AI. The image shows a HANDWRITTEN LIST of equipment items.
 
@@ -56,10 +55,9 @@ READING RULES:
 - Read serial numbers exactly, preserve dashes, slashes, zeros vs letter O
 - SWL/capacity: read number and unit together (e.g. "12 Ton", "3T", "620 kPa")
 - result: if the line says "Fail" set "FAIL", if "Pass" set "PASS", if "Conditional" set "CONDITIONAL", otherwise default to "PASS"
-- defects_found: read any defect note on that line or immediately below it (e.g. "deformed, not fit for service")
+- defects_found: read any defect note on that line or immediately below it
 - Skip page title/header lines, only extract individual equipment lines
 - Read ALL items — do not skip any
-- If a section header names the equipment type and SWL (e.g. "Trestle Jack  12 Ton") treat that as the first item AND apply that type+SWL to subsequent ditto lines
 
 Return ONLY a valid JSON object, no markdown, no explanation:
 {
@@ -76,7 +74,6 @@ Return ONLY a valid JSON object, no markdown, no explanation:
 }`;
 }
 
-// ── Constants ─────────────────────────────────────────────────────────────
 const MAX_FILES = 20;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
@@ -97,7 +94,6 @@ const EQUIPMENT_TYPES = [
   "Scaffold","Fire Extinguisher","Other",
 ];
 
-// ── Helpers ───────────────────────────────────────────────────────────────
 function uid() { return typeof crypto!=="undefined"&&crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random().toString(36).slice(2,10)}`; }
 function isAllowedFile(f) { return f&&(f.type==="application/pdf"||f.type.startsWith("image/"))&&f.size<=MAX_FILE_SIZE; }
 function nonEmpty(d) { return Object.values(d||{}).filter(v=>v!=null&&String(v).trim()!=="").length; }
@@ -126,6 +122,27 @@ function normalizeDate(raw) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// PDF UPLOAD HELPER
+// ══════════════════════════════════════════════════════════════
+async function uploadPdfToStorage(file, certId, certNumber) {
+  try {
+    if (!file || file.type !== "application/pdf") return null;
+    const safeCertNum = (certNumber || certId || "CERT").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const safeOriginal = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const storagePath = `${safeCertNum}_${safeOriginal}`;
+    const { data, error } = await supabase.storage
+      .from("certificates")
+      .upload(storagePath, file, { contentType: "application/pdf", upsert: true });
+    if (error) { console.error("PDF upload error:", error.message); return null; }
+    const { data: urlData } = supabase.storage.from("certificates").getPublicUrl(data.path);
+    return urlData?.publicUrl || null;
+  } catch (e) {
+    console.error("PDF upload failed:", e.message);
+    return null;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
 // ROOT PAGE
 // ══════════════════════════════════════════════════════════════
 export default function ImportCertificatesPage() {
@@ -150,15 +167,19 @@ export default function ImportCertificatesPage() {
           <div className="mode-toggle">
             <button type="button" className={`mode-btn${mode==="document"?" active":""}`} onClick={()=>setMode("document")}>
               📄 Document Import
-              <span className="mode-sub">1 image or PDF → 1 certificate</span>
+              <span className="mode-sub">1 PDF → 1 certificate + PDF stored</span>
             </button>
             <button type="button" className={`mode-btn${mode==="list"?" active":""}`} onClick={()=>setMode("list")}>
               📋 List Import
               <span className="mode-sub">Photo of handwritten list → many certificates</span>
             </button>
+            <button type="button" className={`mode-btn${mode==="backfill"?" active":""}`} onClick={()=>setMode("backfill")}>
+              🗂 Backfill PDFs
+              <span className="mode-sub">Upload PDFs for existing certificates</span>
+            </button>
           </div>
 
-          {mode==="document" ? <DocumentMode/> : <ListMode/>}
+          {mode==="document" ? <DocumentMode/> : mode==="list" ? <ListMode/> : <BackfillMode/>}
         </div>
 
         <style jsx global>{`
@@ -284,9 +305,12 @@ export default function ImportCertificatesPage() {
           .cert-import-page .list-input{padding:6px 9px;border-radius:6px;border:1px solid var(--b1);background:var(--s2);color:var(--text);font-size:12px;font-family:inherit;width:100%;outline:none;min-height:32px;-webkit-tap-highlight-color:transparent}
           .cert-import-page .list-input:focus{border-color:var(--blue)}
           .cert-import-page .list-input:disabled{opacity:.5}
-          .cert-import-page .list-banner{background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.2);border-radius:12px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
           .cert-import-page .list-banner-text{font-size:14px;font-weight:700;color:var(--text)}
           .cert-import-page .list-banner-sub{font-size:11px;color:var(--sub);margin-top:3px}
+          .cert-import-page .bf-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--b1);flex-wrap:wrap}
+          .cert-import-page .bf-cert{font-size:12px;font-weight:700;color:var(--accent);font-family:"IBM Plex Mono",monospace;min-width:160px}
+          .cert-import-page .bf-name{font-size:11px;color:var(--sub);flex:1;min-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+          .cert-import-page .bf-status{font-size:11px;font-weight:700;min-width:80px}
           @media(max-width:900px){
             .cert-import-page .layout{grid-template-columns:1fr}
             .cert-import-page .stats{grid-template-columns:repeat(2,1fr)}
@@ -301,7 +325,7 @@ export default function ImportCertificatesPage() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// DOCUMENT MODE
+// DOCUMENT MODE — with PDF upload
 // ══════════════════════════════════════════════════════════════
 function DocumentMode() {
   const [files, setFiles] = useState([]);
@@ -375,42 +399,20 @@ function DocumentMode() {
   function setResultField(idx,key,value){setResults(prev=>prev.map((it,i)=>i===idx?{...it,[key]:value}:it));}
   function toggleExpanded(idx){setResults(prev=>prev.map((it,i)=>i===idx?{...it,expanded:!it.expanded}:it));}
 
-  function generateCompanyCode(name) {
-    const initials = name.trim().split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
-    return `${initials}-${String(Math.floor(Math.random()*900)+100)}`;
-  }
+  function generateCompanyCode(name){const initials=name.trim().split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");return`${initials}-${String(Math.floor(Math.random()*900)+100)}`;}
+  function generateSerialNumber(clientName,equipmentType){const clientCode=(clientName||"UNK").trim().split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");const equipCode=(equipmentType||"EQP").trim().split(/[\s/—-]+/).filter(Boolean).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");const ts=String(Date.now()).slice(-6);return`${clientCode}-${equipCode}-${ts}`;}
 
-  function generateSerialNumber(clientName, equipmentType) {
-    const clientCode = (clientName||"UNK").trim()
-      .split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
-    const equipCode = (equipmentType||"EQP").trim()
-      .split(/[\s/—-]+/).filter(Boolean).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
-    const ts = String(Date.now()).slice(-6);
-    return `${clientCode}-${equipCode}-${ts}`;
-  }
-
-  async function ensureClient(clientName, city) {
-    if (!clientName || !clientName.trim()) return { skip: true };
-    const name = clientName.trim();
-    try {
-      const { data: existing, error: lookupErr } = await supabase.from("clients")
-        .select("id")
-        .ilike("company_name", name)
-        .maybeSingle();
-      if (lookupErr) return { error: lookupErr.message };
-      if (existing)  return { exists: true };
-      const { error: insertErr } = await supabase.from("clients").insert({
-        company_name: name,
-        company_code: generateCompanyCode(name),
-        city:         city || "",
-        country:      "Botswana",
-        status:       "active",
-      });
-      if (insertErr) return { error: insertErr.message };
-      return { created: true };
-    } catch(e) {
-      return { error: e.message };
-    }
+  async function ensureClient(clientName,city){
+    if(!clientName||!clientName.trim())return{skip:true};
+    const name=clientName.trim();
+    try{
+      const{data:existing,error:lookupErr}=await supabase.from("clients").select("id").ilike("company_name",name).maybeSingle();
+      if(lookupErr)return{error:lookupErr.message};
+      if(existing)return{exists:true};
+      const{error:insertErr}=await supabase.from("clients").insert({company_name:name,company_code:generateCompanyCode(name),city:city||"",country:"Botswana",status:"active"});
+      if(insertErr)return{error:insertErr.message};
+      return{created:true};
+    }catch(e){return{error:e.message};}
   }
 
   async function saveOne(idx){
@@ -419,19 +421,34 @@ function DocumentMode() {
     setResults(prev=>prev.map((it,i)=>i===idx?{...it,saving:true,saveError:null}:it));
     try{
       const certNumber=genCert(row.data,row.fileName);
-      if (!row.data.serial_number || !row.data.serial_number.trim()) {
-        const clientForSerial = overrides.client_name?.trim() || row.data.client_name || "";
-        row.data.serial_number = generateSerialNumber(clientForSerial, row.data.equipment_type);
+      if(!row.data.serial_number||!row.data.serial_number.trim()){
+        const clientForSerial=overrides.client_name?.trim()||row.data.client_name||"";
+        row.data.serial_number=generateSerialNumber(clientForSerial,row.data.equipment_type);
       }
-      const effectiveClient = overrides.client_name?.trim() || row.data.client_name;
-      const effectiveCity   = overrides.location?.trim()    || row.data.location || "";
-      const clientResult = await ensureClient(effectiveClient, effectiveCity);
-      if (clientResult?.error) console.warn("Client auto-register failed:", clientResult.error);
+      const effectiveClient=overrides.client_name?.trim()||row.data.client_name;
+      const effectiveCity=overrides.location?.trim()||row.data.location||"";
+      const clientResult=await ensureClient(effectiveClient,effectiveCity);
+      if(clientResult?.error)console.warn("Client auto-register failed:",clientResult.error);
+
       const payload={certificate_number:certNumber,inspection_number:row.data.inspection_number||null,result:row.manualResult||row.data.result||"UNKNOWN",issue_date:row.data.inspection_date||null,inspection_date:row.data.inspection_date||null,expiry_date:row.data.expiry_date||null,next_inspection_due:row.data.next_inspection_due||null,equipment_description:row.data.equipment_description||row.data.equipment_type||null,equipment_type:row.data.equipment_type||null,asset_name:row.data.equipment_description||row.data.equipment_type||null,asset_type:row.data.equipment_type||null,client_name:row.data.client_name||null,status:"active",manufacturer:row.data.manufacturer||null,model:row.data.model||null,serial_number:row.data.serial_number||null,year_built:row.data.year_built||null,capacity_volume:row.data.capacity_volume||null,swl:row.data.swl||null,working_pressure:row.data.working_pressure||null,design_pressure:row.data.design_pressure||null,test_pressure:row.data.test_pressure||null,pressure_unit:row.data.pressure_unit||null,material:row.data.material||null,standard_code:row.data.standard_code||null,location:row.data.location||null,inspector_name:row.data.inspector_name||null,inspection_body:row.data.inspection_body||null,defects_found:row.manualDefects||row.data.defects_found||null,recommendations:row.data.recommendations||null,comments:row.data.comments||null,nameplate_data:row.data.nameplate_data||null,raw_text_summary:row.data.raw_text_summary||null,asset_tag:row.data.asset_tag||null};
+
       const res=await fetch("/api/certificates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
       const json=await res.json();
       if(!res.ok)throw new Error(json?.error||`Save failed: ${res.status}`);
-      setResults(prev=>prev.map((it,i)=>i===idx?{...it,saving:false,saved:true,certNumber,savedId:json?.id||json?.data?.id||null,saveError:null}:it));
+
+      const certId=json?.id||json?.data?.id||null;
+
+      // ── Upload PDF to Supabase Storage ──────────────────────
+      let pdfUrl=null;
+      const fileEntry=files.find(f=>f.file.name===row.fileName);
+      if(fileEntry?.file&&fileEntry.file.type==="application/pdf"){
+        pdfUrl=await uploadPdfToStorage(fileEntry.file,certId,certNumber);
+        if(pdfUrl&&certId){
+          await supabase.from("certificates").update({pdf_url:pdfUrl}).eq("id",certId);
+        }
+      }
+
+      setResults(prev=>prev.map((it,i)=>i===idx?{...it,saving:false,saved:true,certNumber,savedId:certId,saveError:null,pdfUrl}:it));
     }catch(e){setResults(prev=>prev.map((it,i)=>i===idx?{...it,saving:false,saved:false,saveError:e.message||"Save failed."}:it));}
   }
 
@@ -515,6 +532,7 @@ function DocumentMode() {
                       {item.ok&&d.equipment_type&&<span className="pill p-neutral">{d.equipment_type}</span>}
                       {item.ok&&<span className={`pill ${pillClass(r)}`}>{r}</span>}
                       {item.saved&&item.certNumber&&<span className="cert-num">{item.certNumber}</span>}
+                      {item.saved&&item.pdfUrl&&<span className="pill p-pass">📎 PDF</span>}
                       <span className={`pill ${item.ok?"p-ok":"p-err"}`}>{item.ok?"OK":"Error"}</span>
                     </div>
                     {!item.ok?(
@@ -563,8 +581,164 @@ function DocumentMode() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// LIST MODE — photo of handwritten list → many certificates
-// AI identifies each item's equipment type individually
+// BACKFILL MODE — upload PDFs for existing certificates
+// ══════════════════════════════════════════════════════════════
+function BackfillMode() {
+  const [files, setFiles] = useState([]);
+  const [rows, setRows] = useState([]); // {file, certId, certNumber, status, pdfUrl, error}
+  const [loading, setLoading] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgressState] = useState({visible:false,pct:0,done:0,total:0});
+  const fileInputRef = useRef(null);
+
+  function addFiles(list) {
+    const pdfs = Array.from(list).filter(f=>f.type==="application/pdf"&&f.size<=MAX_FILE_SIZE);
+    setFiles(prev=>{
+      const next=[...prev];
+      pdfs.forEach(f=>{if(!next.find(x=>x.name===f.name&&x.size===f.size))next.push(f);});
+      return next;
+    });
+    if(fileInputRef.current)fileInputRef.current.value="";
+  }
+
+  async function matchFiles() {
+    if(!files.length)return;
+    setLoading(true);
+    // Load all certs without a pdf_url
+    const {data:certs}=await supabase.from("certificates")
+      .select("id,certificate_number,equipment_description,client_name")
+      .is("pdf_url",null)
+      .order("created_at",{ascending:false})
+      .limit(2000);
+
+    const matched = files.map(file => {
+      const fname = file.name.replace(/\.pdf$/i,"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+      // Try to match filename against certificate_number
+      const cert = (certs||[]).find(c=>{
+        const cnum = (c.certificate_number||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+        return fname.includes(cnum) || cnum.includes(fname);
+      });
+      return {
+        file,
+        certId: cert?.id||null,
+        certNumber: cert?.certificate_number||null,
+        clientName: cert?.client_name||null,
+        status: cert?"ready":"unmatched",
+        pdfUrl: null,
+        error: null,
+      };
+    });
+    setRows(matched);
+    setLoading(false);
+  }
+
+  function setRowCert(idx, certNumber, allCerts) {
+    // allow manual override of matched cert
+    const cert = allCerts?.find(c=>c.certificate_number===certNumber);
+    setRows(prev=>prev.map((r,i)=>i===idx?{...r,certId:cert?.id||null,certNumber:cert?.certificate_number||null,status:cert?"ready":"unmatched"}:r));
+  }
+
+  async function uploadOne(idx) {
+    const row = rows[idx];
+    if(!row.certId||row.status==="done"||row.status==="uploading")return;
+    setRows(prev=>prev.map((r,i)=>i===idx?{...r,status:"uploading",error:null}:r));
+    const pdfUrl = await uploadPdfToStorage(row.file, row.certId, row.certNumber);
+    if(!pdfUrl){
+      setRows(prev=>prev.map((r,i)=>i===idx?{...r,status:"error",error:"Upload failed"}:r));
+      return;
+    }
+    const {error:patchErr}=await supabase.from("certificates").update({pdf_url:pdfUrl}).eq("id",row.certId);
+    if(patchErr){
+      setRows(prev=>prev.map((r,i)=>i===idx?{...r,status:"error",error:patchErr.message}:r));
+      return;
+    }
+    setRows(prev=>prev.map((r,i)=>i===idx?{...r,status:"done",pdfUrl}:r));
+  }
+
+  async function uploadAll() {
+    setRunning(true);
+    const ready = rows.map((_,i)=>i).filter(i=>rows[i].status==="ready");
+    setProgressState({visible:true,pct:0,done:0,total:ready.length});
+    for(let i=0;i<ready.length;i++){
+      await uploadOne(ready[i]);
+      setProgressState({visible:true,pct:Math.round(((i+1)/ready.length)*100),done:i+1,total:ready.length});
+    }
+    setRunning(false);
+  }
+
+  const readyCount = rows.filter(r=>r.status==="ready").length;
+  const doneCount  = rows.filter(r=>r.status==="done").length;
+  const errCount   = rows.filter(r=>r.status==="error").length;
+
+  return(
+    <div style={{display:"grid",gap:14}}>
+      <div className="card">
+        <div className="card-header">
+          <div>
+            <div className="card-title">🗂 Backfill PDFs for existing certificates</div>
+            <div className="card-sub">Upload the original PDFs — they'll be matched to certificates by filename and stored.</div>
+          </div>
+        </div>
+        <div className="card-body">
+          <div style={{background:"rgba(0,212,255,0.06)",border:"1px solid rgba(0,212,255,0.2)",borderRadius:10,padding:"12px 16px",marginBottom:14,fontSize:12,color:"var(--sub)",lineHeight:1.7}}>
+            <strong style={{color:"var(--accent)"}}>How it works:</strong> Name your PDF files after the certificate number (e.g. <code style={{background:"var(--s3)",padding:"1px 6px",borderRadius:4}}>CERT-CR00040.pdf</code>). Upload them here — the tool matches each file to the right certificate and uploads it to storage automatically.
+          </div>
+          <div className={`drop-area`} onDragOver={e=>{e.preventDefault();}} onDrop={e=>{e.preventDefault();addFiles(e.dataTransfer.files);}}>
+            <input ref={fileInputRef} type="file" multiple accept=".pdf" onChange={e=>addFiles(e.target.files)}/>
+            <div className="drop-icon-ring"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 3v13M6 9l6-6 6 6" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/><path d="M3 20h18" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round"/></svg></div>
+            <div className="drop-h">Drop PDF files here</div>
+            <div className="drop-p">Named after certificate numbers — e.g. CERT-CR00040.pdf</div>
+          </div>
+          <div style={{display:"flex",gap:8,marginBottom:files.length?12:0}}>
+            {files.length>0&&<>
+              <span style={{fontSize:12,color:"var(--sub)",alignSelf:"center"}}>{files.length} PDF{files.length===1?"":"s"} selected</span>
+              <button className="btn btn-primary" type="button" onClick={matchFiles} disabled={loading} style={{flex:"none",padding:"8px 18px"}}>
+                {loading?"Matching…":"🔍 Match to certificates"}
+              </button>
+              <button className="btn btn-ghost" type="button" onClick={()=>{setFiles([]);setRows([]);}} style={{flex:"none"}}>Clear</button>
+            </>}
+          </div>
+        </div>
+      </div>
+
+      {rows.length>0&&(
+        <div className="card">
+          <div className="card-header">
+            <div>
+              <div className="list-banner-text">
+                {readyCount} ready · {doneCount} uploaded · {errCount} errors · {rows.filter(r=>r.status==="unmatched").length} unmatched
+              </div>
+              <div className="list-banner-sub">Unmatched files could not be linked to a certificate — rename to match the cert number.</div>
+            </div>
+            <button className="btn-saveall" type="button" onClick={uploadAll} disabled={readyCount===0||running}>
+              {running?<><span className="spinner"/>Uploading…</>:`⬆ Upload all (${readyCount})`}
+            </button>
+          </div>
+          {progress.visible&&<div style={{padding:"8px 18px",borderBottom:"1px solid var(--b1)"}}><div className="prog-meta"><span>{progress.done}/{progress.total} uploaded</span><span className="prog-pct">{progress.pct}%</span></div><div className="prog-track"><div className="prog-fill" style={{width:`${progress.pct}%`}}/></div></div>}
+          <div>
+            {rows.map((row,idx)=>(
+              <div key={idx} className="bf-row">
+                <div className="q-icon" style={{background:row.status==="done"?"var(--green-bg)":row.status==="error"?"var(--red-bg)":row.status==="unmatched"?"var(--amber-bg)":"var(--blue-dim)",color:row.status==="done"?"var(--green-t)":row.status==="error"?"var(--red-t)":row.status==="unmatched"?"var(--amber-t)":"var(--blue-t)"}}>PDF</div>
+                <div className="bf-cert">{row.certNumber||<span style={{color:"var(--hint)"}}>—</span>}</div>
+                <div className="bf-name" title={row.file.name}>{row.file.name}</div>
+                {row.clientName&&<div style={{fontSize:11,color:"var(--hint)",minWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.clientName}</div>}
+                <div className="bf-status" style={{color:row.status==="done"?"var(--green-t)":row.status==="error"?"var(--red-t)":row.status==="unmatched"?"var(--amber-t)":row.status==="uploading"?"var(--blue-t)":"var(--sub)"}}>
+                  {row.status==="done"?"✓ Uploaded":row.status==="error"?`⚠ ${row.error}`:row.status==="unmatched"?"No match":row.status==="uploading"?<><span className="spinner"/>Uploading…</>:"Ready"}
+                </div>
+                {row.status==="ready"&&(
+                  <button className="btn-save" type="button" style={{fontSize:11,padding:"4px 10px"}} onClick={()=>uploadOne(idx)}>Upload</button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// LIST MODE
 // ══════════════════════════════════════════════════════════════
 function ListMode() {
   const [files, setFiles] = useState([]);
@@ -582,10 +756,7 @@ function ListMode() {
   const pendingCount = useMemo(()=>items.filter(x=>!x.saved&&!x.saving).length,[items]);
 
   function setProgress(pct,label){setProgressState({visible:true,pct:Math.round(pct),label});}
-  function addFiles(list){
-    setFiles(prev=>{const next=[...prev];list.filter(isAllowedFile).forEach(f=>{if(!next.find(x=>x.file.name===f.name&&x.file.size===f.size)&&next.length<5)next.push({id:uid(),file:f});});return next;});
-    if(fileInputRef.current)fileInputRef.current.value="";
-  }
+  function addFiles(list){setFiles(prev=>{const next=[...prev];Array.from(list).filter(isAllowedFile).forEach(f=>{if(!next.find(x=>x.file.name===f.name&&x.file.size===f.size)&&next.length<5)next.push({id:uid(),file:f});});return next;});if(fileInputRef.current)fileInputRef.current.value="";}
   function clearAll(){setFiles([]);setItems([]);setError("");setProgressState({visible:false,pct:0,label:""});}
 
   async function handleExtract(){
@@ -593,47 +764,17 @@ function ListMode() {
     setExtracting(true);setError("");setItems([]);setProgress(10,"Reading list photos...");
     try{
       const payloads=[];
-      for(let i=0;i<files.length;i++){
-        setProgress(10+(i/files.length)*35,`Reading page ${i+1}/${files.length}...`);
-        payloads.push({fileName:files[i].file.name,mimeType:files[i].file.type||"image/jpeg",base64Data:await toBase64(files[i].file)});
-      }
-      setProgress(50,"AI reading list — this may take a moment...");
-      const res=await fetch("/api/ai/extract",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-        files:payloads,
-        systemPrompt:buildListPrompt(overrides.client_name,overrides.inspection_date,overrides.expiry_date),
-        listMode:true,
-      })});
+      for(let i=0;i<files.length;i++){setProgress(10+(i/files.length)*35,`Reading page ${i+1}/${files.length}...`);payloads.push({fileName:files[i].file.name,mimeType:files[i].file.type||"image/jpeg",base64Data:await toBase64(files[i].file)});}
+      setProgress(50,"AI reading list...");
+      const res=await fetch("/api/ai/extract",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({files:payloads,systemPrompt:buildListPrompt(overrides.client_name,overrides.inspection_date,overrides.expiry_date),listMode:true})});
       setProgress(80,"Parsing items...");
       const json=await res.json();
       if(!res.ok)throw new Error(json?.error||`Server error ${res.status}`);
-
       let allItems=[];
-      for(const result of(json.results||[])){
-        if(!result.ok)continue;
-        let parsed=result.data;
-        if(typeof parsed==="string"){try{parsed=JSON.parse(parsed);}catch(e){}}
-        const arr=parsed?.items||[];
-        allItems=[...allItems,...arr];
-      }
-
-      if(!allItems.length){
-        setError("AI could not extract individual items. Make sure the photo is clear and well-lit, then try again.");
-        setProgress(100,"Extraction failed");
-        setExtracting(false);
-        return;
-      }
-
+      for(const result of(json.results||[])){if(!result.ok)continue;let parsed=result.data;if(typeof parsed==="string"){try{parsed=JSON.parse(parsed);}catch(e){}}allItems=[...allItems,...(parsed?.items||[])];}
+      if(!allItems.length){setError("AI could not extract items. Make sure the photo is clear.");setProgress(100,"Failed");setExtracting(false);return;}
       setProgress(100,`Found ${allItems.length} items`);
-      setItems(allItems.map((item,i)=>({
-        id:uid(),
-        serial_number:String(item.serial_number||"").trim(),
-        swl:String(item.swl||"").trim(),
-        equipment_type:String(item.equipment_type||"Other").trim(),
-        equipment_description:item.equipment_description||`${item.equipment_type||"Equipment"} SN ${item.serial_number||i+1} SWL ${item.swl||""}`.trim(),
-        result:String(item.result||"PASS").trim().toUpperCase()||"PASS",
-        defects_found:String(item.defects_found||"").trim(),
-        saved:false,saving:false,savedId:null,certNumber:null,saveError:null,
-      })));
+      setItems(allItems.map((item,i)=>({id:uid(),serial_number:String(item.serial_number||"").trim(),swl:String(item.swl||"").trim(),equipment_type:String(item.equipment_type||"Other").trim(),equipment_description:item.equipment_description||`${item.equipment_type||"Equipment"} SN ${item.serial_number||i+1} SWL ${item.swl||""}`.trim(),result:String(item.result||"PASS").trim().toUpperCase()||"PASS",defects_found:String(item.defects_found||"").trim(),saved:false,saving:false,savedId:null,certNumber:null,saveError:null})));
     }catch(e){setError(e.message||"Extraction failed.");setProgress(100,"Failed");}
     finally{setExtracting(false);}
   }
@@ -641,73 +782,19 @@ function ListMode() {
   function updateItem(id,key,value){setItems(prev=>prev.map(it=>it.id===id?{...it,[key]:value}:it));}
   function removeItem(id){setItems(prev=>prev.filter(it=>it.id!==id));}
   function addBlankItem(){setItems(prev=>[...prev,{id:uid(),serial_number:"",swl:"",equipment_type:"Other",equipment_description:"",result:"PASS",defects_found:"",saved:false,saving:false,savedId:null,certNumber:null,saveError:null}]);}
-
-  function generateCompanyCode(name) {
-    const initials = name.trim().split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
-    return `${initials}-${String(Math.floor(Math.random()*900)+100)}`;
-  }
-
-  function generateSerialNumber(clientName, equipmentType) {
-    const clientCode = (clientName||"UNK").trim()
-      .split(/\s+/).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
-    const equipCode = (equipmentType||"EQP").trim()
-      .split(/[\s/—-]+/).filter(Boolean).map(w => w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");
-    const ts = String(Date.now()).slice(-6);
-    return `${clientCode}-${equipCode}-${ts}`;
-  }
-
-  async function ensureClient(clientName, city) {
-    if (!clientName || !clientName.trim()) return { skip: true };
-    const name = clientName.trim();
-    try {
-      const { data: existing, error: lookupErr } = await supabase.from("clients")
-        .select("id")
-        .ilike("company_name", name)
-        .maybeSingle();
-      if (lookupErr) return { error: lookupErr.message };
-      if (existing)  return { exists: true };
-      const { error: insertErr } = await supabase.from("clients").insert({
-        company_name: name,
-        company_code: generateCompanyCode(name),
-        city:         city || "",
-        country:      "Botswana",
-        status:       "active",
-      });
-      if (insertErr) return { error: insertErr.message };
-      return { created: true };
-    } catch(e) {
-      return { error: e.message };
-    }
-  }
+  function generateCompanyCode(name){const initials=name.trim().split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");return`${initials}-${String(Math.floor(Math.random()*900)+100)}`;}
+  function generateSerialNumber(clientName,equipmentType){const clientCode=(clientName||"UNK").trim().split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");const equipCode=(equipmentType||"EQP").trim().split(/[\s/—-]+/).filter(Boolean).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");const ts=String(Date.now()).slice(-6);return`${clientCode}-${equipCode}-${ts}`;}
+  async function ensureClient(clientName,city){if(!clientName||!clientName.trim())return{skip:true};const name=clientName.trim();try{const{data:existing,error:lookupErr}=await supabase.from("clients").select("id").ilike("company_name",name).maybeSingle();if(lookupErr)return{error:lookupErr.message};if(existing)return{exists:true};const{error:insertErr}=await supabase.from("clients").insert({company_name:name,company_code:generateCompanyCode(name),city:city||"",country:"Botswana",status:"active"});if(insertErr)return{error:insertErr.message};return{created:true};}catch(e){return{error:e.message};}}
 
   async function saveOne(id){
     const row=items.find(x=>x.id===id);
     if(!row||row.saved||row.saving)return;
     setItems(prev=>prev.map(it=>it.id===id?{...it,saving:true,saveError:null}:it));
     try{
-      if(overrides.client_name){
-        const cr = await ensureClient(overrides.client_name, overrides.location||"");
-        if(cr?.error) console.warn("Client auto-register failed:", cr.error);
-      }
-      let rowSerial = row.serial_number?.trim() || generateSerialNumber(overrides.client_name||"", row.equipment_type||"");
+      if(overrides.client_name){const cr=await ensureClient(overrides.client_name,overrides.location||"");if(cr?.error)console.warn("Client auto-register failed:",cr.error);}
+      let rowSerial=row.serial_number?.trim()||generateSerialNumber(overrides.client_name||"",row.equipment_type||"");
       const certNumber=`CERT-${slugify(rowSerial||String(certSeqRef.current))}-${String(certSeqRef.current++).padStart(2,"0")}`;
-      const payload={
-        certificate_number:certNumber,
-        result:row.result||"PASS",
-        equipment_type:row.equipment_type||null,
-        equipment_description:row.equipment_description||null,
-        asset_name:row.equipment_description||null,
-        asset_type:row.equipment_type||null,
-        serial_number:rowSerial||null,
-        swl:row.swl||null,
-        client_name:overrides.client_name||null,
-        location:overrides.location||null,
-        issue_date:normalizeDate(overrides.inspection_date)||null,
-        inspection_date:normalizeDate(overrides.inspection_date)||null,
-        expiry_date:normalizeDate(overrides.expiry_date)||null,
-        defects_found:row.defects_found||null,
-        status:"active",
-      };
+      const payload={certificate_number:certNumber,result:row.result||"PASS",equipment_type:row.equipment_type||null,equipment_description:row.equipment_description||null,asset_name:row.equipment_description||null,asset_type:row.equipment_type||null,serial_number:rowSerial||null,swl:row.swl||null,client_name:overrides.client_name||null,location:overrides.location||null,issue_date:normalizeDate(overrides.inspection_date)||null,inspection_date:normalizeDate(overrides.inspection_date)||null,expiry_date:normalizeDate(overrides.expiry_date)||null,defects_found:row.defects_found||null,status:"active"};
       const res=await fetch("/api/certificates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
       const json=await res.json();
       if(!res.ok)throw new Error(json?.error||`Save failed: ${res.status}`);
@@ -715,132 +802,32 @@ function ListMode() {
     }catch(e){setItems(prev=>prev.map(it=>it.id===id?{...it,saving:false,saved:false,saveError:e.message}:it));}
   }
 
-  async function saveAll(){
-    setSavingAll(true);
-    const unsaved=items.filter(x=>!x.saved&&!x.saving).map(x=>x.id);
-    for(const id of unsaved)await saveOne(id);
-    setSavingAll(false);
-  }
+  async function saveAll(){setSavingAll(true);const unsaved=items.filter(x=>!x.saved&&!x.saving).map(x=>x.id);for(const id of unsaved)await saveOne(id);setSavingAll(false);}
 
   return(
     <div style={{display:"grid",gap:14}}>
-
-      {/* MANUAL OVERRIDE — 4 fields, no equipment type dropdown */}
       <div className="card">
-        <div className="card-header">
-          <div>
-            <div className="card-title">Manual override</div>
-            <div className="card-sub">Always overwrites extracted values when set.</div>
-          </div>
-          {Object.values(overrides).some(v=>String(v||"").trim())&&
-            <button className="btn btn-ghost" type="button" style={{fontSize:11,padding:"5px 10px"}} onClick={()=>setOverrides({client_name:"",location:"",inspection_date:"",expiry_date:""})}>Clear</button>
-          }
-        </div>
-        <div className="card-body">
-          <div className="override-grid">
-            <div className="ov-f"><label className="ov-lbl">Client name</label><input className="ov-input" type="text" placeholder="e.g. Unitrans" value={overrides.client_name} onChange={e=>setOverrides(p=>({...p,client_name:e.target.value}))}/></div>
-            <div className="ov-f"><label className="ov-lbl">Location / Site</label><input className="ov-input" type="text" placeholder="e.g. Processing Plant" value={overrides.location} onChange={e=>setOverrides(p=>({...p,location:e.target.value}))}/></div>
-            <div className="ov-f"><label className="ov-lbl">Inspection date</label><input className="ov-input" type="date" value={overrides.inspection_date} onChange={e=>setOverrides(p=>({...p,inspection_date:e.target.value}))}/></div>
-            <div className="ov-f"><label className="ov-lbl">Expiry date</label><input className="ov-input" type="date" value={overrides.expiry_date} onChange={e=>setOverrides(p=>({...p,expiry_date:e.target.value}))}/></div>
-          </div>
-        </div>
+        <div className="card-header"><div><div className="card-title">Manual override</div><div className="card-sub">Always overwrites extracted values when set.</div></div>{Object.values(overrides).some(v=>String(v||"").trim())&&<button className="btn btn-ghost" type="button" style={{fontSize:11,padding:"5px 10px"}} onClick={()=>setOverrides({client_name:"",location:"",inspection_date:"",expiry_date:""})}>Clear</button>}</div>
+        <div className="card-body"><div className="override-grid"><div className="ov-f"><label className="ov-lbl">Client name</label><input className="ov-input" type="text" placeholder="e.g. Unitrans" value={overrides.client_name} onChange={e=>setOverrides(p=>({...p,client_name:e.target.value}))}/></div><div className="ov-f"><label className="ov-lbl">Location / Site</label><input className="ov-input" type="text" placeholder="e.g. Processing Plant" value={overrides.location} onChange={e=>setOverrides(p=>({...p,location:e.target.value}))}/></div><div className="ov-f"><label className="ov-lbl">Inspection date</label><input className="ov-input" type="date" value={overrides.inspection_date} onChange={e=>setOverrides(p=>({...p,inspection_date:e.target.value}))}/></div><div className="ov-f"><label className="ov-lbl">Expiry date</label><input className="ov-input" type="date" value={overrides.expiry_date} onChange={e=>setOverrides(p=>({...p,expiry_date:e.target.value}))}/></div></div></div>
       </div>
-
-      {/* UPLOAD */}
       <div className="card">
-        <div className="card-header">
-          <div><div className="card-title">📸 Upload list photos</div><div className="card-sub">Up to 5 pages — AI reads every line and identifies each equipment type</div></div>
-          <label className="browse-label">Browse<input ref={fileInputRef} type="file" multiple accept="image/*" style={{display:"none"}} onChange={e=>addFiles(Array.from(e.target.files||[]))}/></label>
-        </div>
+        <div className="card-header"><div><div className="card-title">📸 Upload list photos</div><div className="card-sub">Up to 5 pages — AI reads every line</div></div><label className="browse-label">Browse<input ref={fileInputRef} type="file" multiple accept="image/*" style={{display:"none"}} onChange={e=>addFiles(e.target.files)}/></label></div>
         <div className="card-body">
-          <div className={`drop-area${dragActive?" drag":""}`} style={{padding:"20px 16px"}} onDragOver={e=>{e.preventDefault();setDragActive(true);}} onDragLeave={()=>setDragActive(false)} onDrop={e=>{e.preventDefault();setDragActive(false);addFiles(Array.from(e.dataTransfer.files||[]));}}>
-            <input type="file" multiple accept="image/*" onChange={e=>addFiles(Array.from(e.target.files||[]))}/>
+          <div className={`drop-area${dragActive?" drag":""}`} style={{padding:"20px 16px"}} onDragOver={e=>{e.preventDefault();setDragActive(true);}} onDragLeave={()=>setDragActive(false)} onDrop={e=>{e.preventDefault();setDragActive(false);addFiles(e.dataTransfer.files);}}>
+            <input type="file" multiple accept="image/*" onChange={e=>addFiles(e.target.files)}/>
             <div className="drop-icon-ring"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 3v13M6 9l6-6 6 6" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/><path d="M3 20h18" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round"/></svg></div>
-            <div className="drop-h">Drop list photos here</div>
-            <div className="drop-p">Multiple pages OK — max 5 images, 10 MB each</div>
+            <div className="drop-h">Drop list photos here</div><div className="drop-p">Multiple pages OK — max 5 images</div>
           </div>
-          {files.length>0&&<div style={{display:"grid",gap:6,marginBottom:12}}>{files.map(item=>(
-            <div className="q-item" key={item.id}><div className="q-icon">IMG</div><div style={{flex:1,minWidth:0}}><div className="q-name" title={item.file.name}>{item.file.name}</div><div className="q-size">{fileSizeLabel(item.file)}</div></div><button className="btn-remove" type="button" onClick={()=>setFiles(p=>p.filter(x=>x.id!==item.id))}>✕</button></div>
-          ))}</div>}
-          <div className="action-row">
-            <button className="btn btn-ghost" type="button" onClick={clearAll}>Clear</button>
-            <button className="btn btn-primary" type="button" onClick={handleExtract} disabled={!files.length||extracting}>{extracting?"Reading list...":"⚡ Read List with AI"}</button>
-          </div>
+          {files.length>0&&<div style={{display:"grid",gap:6,marginBottom:12}}>{files.map(item=>(<div className="q-item" key={item.id}><div className="q-icon">IMG</div><div style={{flex:1,minWidth:0}}><div className="q-name" title={item.file.name}>{item.file.name}</div><div className="q-size">{fileSizeLabel(item.file)}</div></div><button className="btn-remove" type="button" onClick={()=>setFiles(p=>p.filter(x=>x.id!==item.id))}>✕</button></div>))}</div>}
+          <div className="action-row"><button className="btn btn-ghost" type="button" onClick={clearAll}>Clear</button><button className="btn btn-primary" type="button" onClick={handleExtract} disabled={!files.length||extracting}>{extracting?"Reading list...":"⚡ Read List with AI"}</button></div>
           {progress.visible&&<div className="prog-wrap"><div className="prog-meta"><span>{progress.label}</span><span className="prog-pct">{progress.pct}%</span></div><div className="prog-track"><div className="prog-fill" style={{width:`${progress.pct}%`}}/></div></div>}
-          {error&&<div className="err-box" style={{marginTop:12}}><div className="err-title">{error}</div><div className="err-detail">Tips: Use good lighting, hold camera steady, ensure all text is visible.</div></div>}
+          {error&&<div className="err-box" style={{marginTop:12}}><div className="err-title">{error}</div><div className="err-detail">Tips: Use good lighting, hold camera steady.</div></div>}
         </div>
       </div>
-
-      {/* RESULTS TABLE */}
       {items.length>0&&(
         <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="list-banner-text">📋 {items.length} items extracted · {savedCount} saved · {pendingCount} pending</div>
-              <div className="list-banner-sub">Client: {overrides.client_name||"not set"} · Inspection: {overrides.inspection_date||"not set"} · Expiry: {overrides.expiry_date||"not set"}</div>
-            </div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              <button className="btn" type="button" style={{fontSize:11,padding:"6px 12px"}} onClick={addBlankItem}>+ Add row</button>
-              <button className="btn-saveall" type="button" onClick={saveAll} disabled={pendingCount===0||savingAll}>
-                {savingAll?<><span className="spinner"/>Saving...</>:`Save all (${pendingCount})`}
-              </button>
-            </div>
-          </div>
-          <div style={{padding:0}}>
-            <div className="list-table-wrap">
-              <table className="list-table">
-                <thead>
-                  <tr>
-                    <th style={{width:36}}>#</th>
-                    <th style={{minWidth:160}}>Equipment Type</th>
-                    <th style={{width:140}}>Serial Number</th>
-                    <th style={{width:80}}>SWL</th>
-                    <th>Description</th>
-                    <th style={{width:110}}>Result</th>
-                    <th style={{width:80}}>Status</th>
-                    <th style={{width:110}}>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item,idx)=>(
-                    <tr key={item.id} className={item.saved?"row-saved":item.saveError?"row-err":""}>
-                      <td style={{color:"var(--hint)",fontWeight:700,fontSize:11}}>{idx+1}</td>
-                      <td>
-                        <select className="list-input" value={item.equipment_type} disabled={item.saved} onChange={e=>updateItem(item.id,"equipment_type",e.target.value)}>
-                          {EQUIPMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
-                        </select>
-                      </td>
-                      <td><input className="list-input" style={{fontFamily:"'IBM Plex Mono',monospace"}} value={item.serial_number} disabled={item.saved} onChange={e=>updateItem(item.id,"serial_number",e.target.value)}/></td>
-                      <td><input className="list-input" value={item.swl} disabled={item.saved} onChange={e=>updateItem(item.id,"swl",e.target.value)}/></td>
-                      <td><input className="list-input" value={item.equipment_description} disabled={item.saved} onChange={e=>updateItem(item.id,"equipment_description",e.target.value)}/></td>
-                      <td>
-                        <select className="list-input" value={item.result} disabled={item.saved} onChange={e=>updateItem(item.id,"result",e.target.value)}>
-                          <option value="PASS">PASS</option>
-                          <option value="FAIL">FAIL</option>
-                          <option value="CONDITIONAL">CONDITIONAL</option>
-                        </select>
-                      </td>
-                      <td>
-                        {item.saved?<span className="pill p-pass">✓ Saved</span>
-                        :item.saving?<span className="pill p-neutral"><span className="spinner"/>Saving</span>
-                        :item.saveError?<span className="pill p-err" title={item.saveError}>⚠ Error</span>
-                        :<span className="pill p-neutral">Pending</span>}
-                      </td>
-                      <td>
-                        <div style={{display:"flex",gap:5,alignItems:"center"}}>
-                          {item.saved&&item.savedId
-                            ?<Link href={`/certificates/${item.savedId}`} className="view-btn" style={{fontSize:11,padding:"4px 9px"}}>View →</Link>
-                            :<button className="btn-save" type="button" disabled={item.saved||item.saving} onClick={()=>saveOne(item.id)} style={{fontSize:11,padding:"4px 10px"}}>Save</button>
-                          }
-                          {!item.saved&&<button type="button" onClick={()=>removeItem(item.id)} style={{background:"none",border:"none",color:"var(--hint)",cursor:"pointer",fontSize:14,padding:"2px 4px",lineHeight:1}}>✕</button>}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <div className="card-header"><div><div className="list-banner-text">📋 {items.length} items · {savedCount} saved · {pendingCount} pending</div><div className="list-banner-sub">Client: {overrides.client_name||"not set"} · Inspection: {overrides.inspection_date||"not set"} · Expiry: {overrides.expiry_date||"not set"}</div></div><div style={{display:"flex",gap:8,flexWrap:"wrap"}}><button className="btn" type="button" style={{fontSize:11,padding:"6px 12px"}} onClick={addBlankItem}>+ Add row</button><button className="btn-saveall" type="button" onClick={saveAll} disabled={pendingCount===0||savingAll}>{savingAll?<><span className="spinner"/>Saving...</>:`Save all (${pendingCount})`}</button></div></div>
+          <div style={{padding:0}}><div className="list-table-wrap"><table className="list-table"><thead><tr><th style={{width:36}}>#</th><th style={{minWidth:160}}>Equipment Type</th><th style={{width:140}}>Serial Number</th><th style={{width:80}}>SWL</th><th>Description</th><th style={{width:110}}>Result</th><th style={{width:80}}>Status</th><th style={{width:110}}>Action</th></tr></thead><tbody>{items.map((item,idx)=>(<tr key={item.id} className={item.saved?"row-saved":item.saveError?"row-err":""}><td style={{color:"var(--hint)",fontWeight:700,fontSize:11}}>{idx+1}</td><td><select className="list-input" value={item.equipment_type} disabled={item.saved} onChange={e=>updateItem(item.id,"equipment_type",e.target.value)}>{EQUIPMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></td><td><input className="list-input" style={{fontFamily:"'IBM Plex Mono',monospace"}} value={item.serial_number} disabled={item.saved} onChange={e=>updateItem(item.id,"serial_number",e.target.value)}/></td><td><input className="list-input" value={item.swl} disabled={item.saved} onChange={e=>updateItem(item.id,"swl",e.target.value)}/></td><td><input className="list-input" value={item.equipment_description} disabled={item.saved} onChange={e=>updateItem(item.id,"equipment_description",e.target.value)}/></td><td><select className="list-input" value={item.result} disabled={item.saved} onChange={e=>updateItem(item.id,"result",e.target.value)}><option value="PASS">PASS</option><option value="FAIL">FAIL</option><option value="CONDITIONAL">CONDITIONAL</option></select></td><td>{item.saved?<span className="pill p-pass">✓ Saved</span>:item.saving?<span className="pill p-neutral"><span className="spinner"/>Saving</span>:item.saveError?<span className="pill p-err" title={item.saveError}>⚠ Error</span>:<span className="pill p-neutral">Pending</span>}</td><td><div style={{display:"flex",gap:5,alignItems:"center"}}>{item.saved&&item.savedId?<Link href={`/certificates/${item.savedId}`} className="view-btn" style={{fontSize:11,padding:"4px 9px"}}>View →</Link>:<button className="btn-save" type="button" disabled={item.saved||item.saving} onClick={()=>saveOne(item.id)} style={{fontSize:11,padding:"4px 10px"}}>Save</button>}{!item.saved&&<button type="button" onClick={()=>removeItem(item.id)} style={{background:"none",border:"none",color:"var(--hint)",cursor:"pointer",fontSize:14,padding:"2px 4px",lineHeight:1}}>✕</button>}</div></td></tr>))}</tbody></table></div></div>
         </div>
       )}
     </div>
