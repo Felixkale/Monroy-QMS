@@ -36,7 +36,6 @@ const CSS = `
 
 function formatDate(v){
   if(!v) return "—";
-  // date columns come back as "YYYY-MM-DD" strings — parse as UTC to avoid timezone shift
   const d = new Date(v + "T00:00:00Z");
   if(isNaN(d)) return String(v);
   return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric",timeZone:"UTC"});
@@ -87,14 +86,14 @@ export default function BulkExportClient(){
         "id,certificate_number,client_name,equipment_type,equipment_description," +
         "inspection_date,issue_date,expiry_date,status,result"
       )
-      .order("issue_date", { ascending: false, nullsFirst: false })
+      .order("inspection_date", { ascending: false, nullsFirst: false })
       .limit(2000);
 
     if(clientName) query = query.eq("client_name", clientName);
 
-    // Both are proper `date` columns — Supabase filters these correctly
-    if(dateFrom) query = query.gte("issue_date", dateFrom);
-    if(dateTo)   query = query.lte("issue_date", dateTo);
+    // Filter on inspection_date — the date the physical inspection took place
+    if(dateFrom) query = query.gte("inspection_date", dateFrom);
+    if(dateTo)   query = query.lte("inspection_date", dateTo);
 
     const { data, error: qErr } = await query;
     setLoadingPreview(false);
@@ -153,7 +152,7 @@ export default function BulkExportClient(){
               <span style={{fontSize:10, fontWeight:800, letterSpacing:"0.14em", textTransform:"uppercase", color:T.green}}>ISO 9001 · Document Export</span>
             </div>
             <h1 style={{margin:0, fontSize:"clamp(18px,3vw,26px)", fontWeight:900, letterSpacing:"-0.02em"}}>Bulk Export Certificates</h1>
-            <p style={{margin:"5px 0 0", color:T.textDim, fontSize:12}}>Filter by client and issue date · preview matches · download as ZIP</p>
+            <p style={{margin:"5px 0 0", color:T.textDim, fontSize:12}}>Filter by client and inspection date · preview matches · download as ZIP</p>
           </div>
 
           {/* FILTERS */}
@@ -168,11 +167,11 @@ export default function BulkExportClient(){
                 </select>
               </div>
               <div>
-                <label style={labelStyle}>Issue Date From</label>
+                <label style={labelStyle}>Inspection Date From</label>
                 <input type="date" value={dateFrom} onChange={e=>{setDateFrom(e.target.value);setPreviewLoaded(false);}} style={inputStyle}/>
               </div>
               <div>
-                <label style={labelStyle}>Issue Date To</label>
+                <label style={labelStyle}>Inspection Date To</label>
                 <input type="date" value={dateTo} onChange={e=>{setDateTo(e.target.value);setPreviewLoaded(false);}} style={inputStyle}/>
               </div>
             </div>
