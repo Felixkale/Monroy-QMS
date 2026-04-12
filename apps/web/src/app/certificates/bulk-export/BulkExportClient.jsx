@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
-import CertificateSheet from "@/components/certificates/CertificateSheet";
 import JSZip from "jszip";
 
 const T = {
@@ -33,21 +32,24 @@ const CSS = `
   }
   @keyframes spin{to{transform:rotate(360deg)}}
 
-  #cert-render-portal {
+  /* iframe sits in viewport so html2canvas inside it works */
+  #bulk-iframe-wrap {
     position: fixed;
-    top: 0;
-    left: 0;
+    top: 0; left: 0;
     width: 794px;
-    min-height: 1123px;
+    height: 100vh;
     z-index: 9999;
+    overflow: hidden;
+    display: none;
+  }
+  #bulk-iframe-wrap.active { display: block; }
+  #bulk-iframe {
+    width: 794px;
+    height: 1200px;
+    border: none;
     background: #fff;
-    pointer-events: none;
-    opacity: 0;
   }
-  #cert-render-portal.active {
-    opacity: 1;
-  }
-  #cert-render-overlay {
+  #bulk-overlay {
     position: fixed;
     inset: 0;
     z-index: 9998;
@@ -58,9 +60,7 @@ const CSS = `
     flex-direction: column;
     gap: 16px;
   }
-  #cert-render-overlay.active {
-    display: flex;
-  }
+  #bulk-overlay.active { display: flex; }
 `;
 
 function formatDate(v) {
@@ -97,22 +97,9 @@ export default function BulkExportClient() {
   const [exportDone,     setExportDone]     = useState(0);
   const [exportTotal,    setExportTotal]    = useState(0);
   const [doneMsg,        setDoneMsg]        = useState("");
-  const [html2pdfReady,  setHtml2pdfReady]  = useState(false);
-  const [renderCert,     setRenderCert]     = useState(null);
   const [overlayMsg,     setOverlayMsg]     = useState("");
-  const renderRef  = useRef(null);
-  const resolveRef = useRef(null);
-
-  // Load html2pdf from CDN
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.html2pdf) { setHtml2pdfReady(true); return; }
-    const s = document.createElement("script");
-    s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
-    s.onload  = () => setHtml2pdfReady(true);
-    s.onerror = () => setError("Failed to load PDF engine.");
-    document.head.appendChild(s);
-  }, []);
+  const [iframeActive,   setIframeActive]   = useState(false);
+  const iframeRef = useRef(null);
 
   // Load client options
   useEffect(() => {
@@ -146,77 +133,102 @@ export default function BulkExportClient() {
     setPreviewLoaded(true);
   }
 
-  // ── Capture one cert ──────────────────────────────────────────────────────
-  async function captureOneCert(cert, stepMsg) {
-    setOverlayMsg(stepMsg);
-    setRenderCert(cert);
+  // ── Load one cert's print page into iframe and capture PDF ───────────────
+  function captureViaIframe(certId, certNumber) {
+    return new Promise((resolve, reject) => {
+      const iframe = iframeRef.current;
+      if (!iframe) { reject(new Error("iframe not found")); return; }
 
-    // Wait for React to commit the render
-    await sleep(100);
+      // Point iframe at the existing print page
+      const printUrl = `/certificates/print/${encodeURIComponent(String(certId))}`;
+      iframe.src = printUrl;
 
-    const el = renderRef.current;
-    if (!el) throw new Error("Render container not found");
+      iframe.onload = async () => {
+        try {
+          const iDoc = iframe.contentDocument || iframe.contentWindow?.document;
+          if (!iDoc) throw new Error("Cannot access iframe document");
 
-    // Wait for fonts to be ready
-    try { await document.fonts.ready; } catch {}
+          const iWin = iframe.contentWindow;
 
-    // Wait for all images inside the cert to load
-    const imgs = Array.from(el.querySelectorAll("img"));
-    await Promise.all(imgs.map(img =>
-      img.complete ? Promise.resolve() :
-      new Promise(r => { img.onload = r; img.onerror = r; })
-    ));
+          // Wait for fonts inside the iframe
+          try { await iDoc.fonts.ready; } catch {}
 
-    // Extra buffer for any CSS animations / repaints
-    await sleep(1500);
+          // Wait for all images in the iframe to load
+          const imgs = Array.from(iDoc.querySelectorAll("img"));
+          await Promise.all(imgs.map(img =>
+            img.complete ? Promise.resolve() :
+            new Promise(r => { img.onload = r; img.onerror = r; })
+          ));
 
-    // Confirm content rendered
-    if (el.scrollHeight < 200) throw new Error("Certificate did not render properly");
+          // Extra wait for CSS paint
+          await sleep(2000);
 
-    const opt = {
-      margin:      0,
-      filename:    `${cert.certificate_number || cert.id}.pdf`,
-      image:       { type: "jpeg", quality: 0.95 },
-      html2canvas: {
-        scale:           2,
-        useCORS:         true,
-        allowTaint:      true,
-        logging:         false,
-        letterRendering: true,
-        windowWidth:     794,
-        backgroundColor: "#ffffff",
-        scrollX:         0,
-        scrollY:         0,
-        x:               0,
-        y:               0,
-      },
-      jsPDF: {
-        unit:        "mm",
-        format:      "a4",
-        orientation: "portrait",
-        compress:    true,
-      },
-    };
+          // Check html2pdf is loaded inside iframe, inject if not
+          if (!iWin.html2pdf) {
+            await new Promise((res, rej) => {
+              const s = iDoc.createElement("script");
+              s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+              s.onload = res;
+              s.onerror = rej;
+              iDoc.head.appendChild(s);
+            });
+            await sleep(500);
+          }
 
-    const blob = await window.html2pdf()
-      .set(opt)
-      .from(el)
-      .outputPdf("blob");
+          // Target the certificate content element (same as print page uses)
+          const certEl = iDoc.querySelector(".pt-content") || iDoc.body;
 
-    setRenderCert(null);
-    setOverlayMsg("");
+          // Hide the toolbar
+          const toolbar = iDoc.querySelector(".pt-toolbar");
+          if (toolbar) toolbar.style.display = "none";
 
-    const ab = await blob.arrayBuffer();
-    if (!ab || ab.byteLength < 1000) throw new Error("PDF output was empty");
-    return ab;
+          const opt = {
+            margin:      0,
+            filename:    `${certNumber || certId}.pdf`,
+            image:       { type: "jpeg", quality: 0.97 },
+            html2canvas: {
+              scale:           2,
+              useCORS:         true,
+              allowTaint:      true,
+              logging:         false,
+              letterRendering: true,
+              windowWidth:     794,
+              backgroundColor: "#ffffff",
+              scrollX:         0,
+              scrollY:         0,
+            },
+            jsPDF: {
+              unit:        "mm",
+              format:      "a4",
+              orientation: "portrait",
+              compress:    true,
+            },
+          };
+
+          const blob = await iWin.html2pdf()
+            .set(opt)
+            .from(certEl)
+            .outputPdf("blob");
+
+          const ab = await blob.arrayBuffer();
+          if (!ab || ab.byteLength < 1000) throw new Error("PDF was empty");
+          resolve(ab);
+
+        } catch (e) {
+          reject(e);
+        }
+      };
+
+      iframe.onerror = () => reject(new Error("iframe failed to load"));
+    });
   }
 
   // ── Main export ───────────────────────────────────────────────────────────
   async function handleExport() {
     if (!preview.length) return;
-    if (!html2pdfReady) { setError("PDF engine not ready. Please wait."); return; }
 
     setExporting(true);
+    setIframeActive(true);
     setError("");
     setDoneMsg("");
     setExportDone(0);
@@ -232,7 +244,7 @@ export default function BulkExportClient() {
         const batch = ids.slice(i, i + 50);
         const { data, error: e } = await supabase
           .from("certificates")
-          .select("*")
+          .select("id, certificate_number, client_name, inspection_date, issue_date")
           .in("id", batch)
           .order("certificate_number", { ascending: true });
         if (e) throw new Error(e.message);
@@ -243,19 +255,20 @@ export default function BulkExportClient() {
       let done = 0;
 
       for (const cert of allCerts) {
-        const stepMsg = `Generating ${done + 1} / ${allCerts.length}: ${cert.certificate_number || cert.id}`;
+        const stepMsg = `Rendering ${done + 1} / ${allCerts.length}: ${cert.certificate_number || cert.id}`;
         setExportStep(stepMsg);
+        setOverlayMsg(stepMsg);
 
         try {
-          const ab = await captureOneCert(cert, stepMsg);
+          const ab = await captureViaIframe(cert.id, cert.certificate_number);
+
           const clientFolder = (cert.client_name || "Unknown").trim().replace(/[^a-zA-Z0-9_\- ]/g, "_");
           const safeDate     = (cert.inspection_date || cert.issue_date || "NoDate").replace(/-/g, "");
           const safeCertNum  = (cert.certificate_number || cert.id).toString().replace(/[^a-zA-Z0-9_-]/g, "_");
+
           zip.file(`${clientFolder}/${safeDate}_${safeCertNum}.pdf`, ab);
         } catch (e) {
           console.error(`Skipped ${cert.certificate_number}:`, e.message);
-          setRenderCert(null);
-          setOverlayMsg("");
         }
 
         done++;
@@ -264,6 +277,8 @@ export default function BulkExportClient() {
       }
 
       setExportStep("Compressing ZIP…");
+      setOverlayMsg("Compressing ZIP…");
+
       const zipBlob = await zip.generateAsync({
         type: "blob",
         compression: "DEFLATE",
@@ -289,9 +304,11 @@ export default function BulkExportClient() {
       setError(err.message || "Export failed.");
     } finally {
       setExporting(false);
+      setIframeActive(false);
       setExportStep("");
-      setRenderCert(null);
       setOverlayMsg("");
+      // Clear iframe
+      if (iframeRef.current) iframeRef.current.src = "about:blank";
     }
   }
 
@@ -299,29 +316,30 @@ export default function BulkExportClient() {
     <AppLayout title="Bulk Export">
       <style>{CSS}</style>
 
-      {/* Overlay shown during render */}
-      <div id="cert-render-overlay" className={renderCert ? "active" : ""}>
+      {/* Overlay shown during export */}
+      <div id="bulk-overlay" className={exporting ? "active" : ""}>
         <div style={{ display:"flex", alignItems:"center", gap:12 }}>
           <span style={{ display:"inline-block", width:18, height:18, border:"3px solid rgba(34,211,238,0.3)", borderTopColor:"#22d3ee", borderRadius:"50%", animation:"spin 0.7s linear infinite" }}/>
           <span style={{ color:"#f0f6ff", fontFamily:"'IBM Plex Sans',sans-serif", fontSize:14, fontWeight:700 }}>
-            {overlayMsg || "Rendering certificate…"}
+            {overlayMsg || "Exporting…"}
           </span>
         </div>
         <div style={{ color:"rgba(240,246,255,0.4)", fontFamily:"'IBM Plex Sans',sans-serif", fontSize:12 }}>
           Please wait — do not close this tab
         </div>
+        {exportTotal > 0 && (
+          <div style={{ width:300 }}>
+            <div style={{ background:"rgba(34,211,238,0.1)", borderRadius:99, height:6, overflow:"hidden" }}>
+              <div style={{ height:"100%", borderRadius:99, background:"linear-gradient(90deg,#22d3ee,#34d399)", width:`${exportProgress}%`, transition:"width 0.3s ease" }}/>
+            </div>
+            <div style={{ marginTop:6, fontSize:11, color:"rgba(240,246,255,0.4)", textAlign:"center" }}>{exportDone} of {exportTotal}</div>
+          </div>
+        )}
       </div>
 
-      {/* Render portal — must be visible for html2canvas to work */}
-      <div id="cert-render-portal" className={renderCert ? "active" : ""} ref={renderRef}>
-        {renderCert && (
-          <CertificateSheet
-            certificate={renderCert}
-            index={0}
-            total={1}
-            printMode={true}
-          />
-        )}
+      {/* Hidden iframe — loads actual print pages */}
+      <div id="bulk-iframe-wrap" className={iframeActive ? "active" : ""}>
+        <iframe id="bulk-iframe" ref={iframeRef} src="about:blank" title="cert-render"/>
       </div>
 
       <div style={{
@@ -380,22 +398,14 @@ export default function BulkExportClient() {
               </button>
 
               {previewLoaded && preview.length > 0 && !exporting && (
-                <button onClick={handleExport} disabled={!html2pdfReady} style={{
+                <button onClick={handleExport} style={{
                   padding:"9px 20px", borderRadius:10, border:`1px solid ${T.greenBrd}`,
                   background:T.greenDim, color:T.green, fontWeight:900, fontSize:13,
                   cursor:"pointer", fontFamily:"'IBM Plex Sans',sans-serif",
                   display:"flex", alignItems:"center", gap:8,
-                  opacity:html2pdfReady ? 1 : 0.5,
                 }}>
                   ⬇ Export {preview.length} Certificate{preview.length !== 1 ? "s" : ""} as ZIP
                 </button>
-              )}
-
-              {!html2pdfReady && !exporting && (
-                <span style={{ fontSize:11, color:T.textDim, display:"flex", alignItems:"center", gap:6 }}>
-                  <span style={{ display:"inline-block", width:10, height:10, border:`2px solid ${T.textDim}`, borderTopColor:"transparent", borderRadius:"50%", animation:"spin 0.7s linear infinite" }}/>
-                  Loading PDF engine…
-                </span>
               )}
             </div>
 
