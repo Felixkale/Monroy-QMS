@@ -12,15 +12,13 @@
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.38.4",
     "next": "^14.2.35",
-    "openai": "^4.104.0",
+    "@google/generative-ai": "^0.21.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "jszip": "^3.10.1",
     "recharts": "^2.12.7",
     "react-pdf": "^9.1.1",
-    "pdfjs-dist": "^4.8.69",
-    "puppeteer-core": "^22.0.0",
-    "@sparticuz/chromium": "^123.0.0"
+    "pdfjs-dist": "^4.8.69"
   },
   "devDependencies": {
     "@types/eslint": "^8.56.2",
