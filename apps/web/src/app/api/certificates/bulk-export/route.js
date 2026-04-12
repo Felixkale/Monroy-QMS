@@ -2,7 +2,12 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import JSZip from "jszip";
-import PDFDocument from "pdfkit";
+import {
+  PDFDocument,
+  rgb,
+  StandardFonts,
+  PageSizes,
+} from "pdf-lib";
 
 export const dynamic = "force-dynamic";
 
@@ -36,258 +41,252 @@ function detectFail(defects, ...kws) {
   const d = defects.toLowerCase();
   return kws.some(k => d.includes(k.toLowerCase())) ? "FAIL" : "PASS";
 }
+function hexRgb(hex) {
+  const h = hex.replace("#", "");
+  return rgb(parseInt(h.slice(0,2),16)/255, parseInt(h.slice(2,4),16)/255, parseInt(h.slice(4,6),16)/255);
+}
+function resultColors(r) {
+  if (r === "PASS")            return { fg: hexRgb("#15803d"), bg: hexRgb("#dcfce7"), label: "PASS" };
+  if (r === "FAIL")            return { fg: hexRgb("#b91c1c"), bg: hexRgb("#fee2e2"), label: "FAIL" };
+  if (r === "REPAIR_REQUIRED") return { fg: hexRgb("#b45309"), bg: hexRgb("#fef3c7"), label: "Repair Required" };
+  if (r === "CONDITIONAL")     return { fg: hexRgb("#b45309"), bg: hexRgb("#fef3c7"), label: "Conditional" };
+  return { fg: hexRgb("#374151"), bg: hexRgb("#f3f4f6"), label: r || "Unknown" };
+}
 
-// ── colours ───────────────────────────────────────────────────────────────────
-const C = {
-  navy:    "#0b1d3a",
-  cyan:    "#22d3ee",
-  blue:    "#3b82f6",
-  teal:    "#0e7490",
-  lightBg: "#f4f8ff",
-  altBg:   "#eef4ff",
-  border:  "#1e3a5f",
-  cellBrd: "#c3d4e8",
-  text:    "#0b1d3a",
-  mid:     "#334155",
-  dim:     "#64748b",
-  green:   "#15803d",
-  greenBg: "#dcfce7",
-  red:     "#b91c1c",
-  redBg:   "#fff5f5",
-  amber:   "#b45309",
-  crimson: "#c41e3a",
-  white:   "#ffffff",
-  rowAlt:  "#f8faff",
+// ── colour constants ──────────────────────────────────────────────────────────
+const COL = {
+  navy:    hexRgb("#0b1d3a"),
+  cyan:    hexRgb("#22d3ee"),
+  teal:    hexRgb("#0e7490"),
+  light:   hexRgb("#f4f8ff"),
+  alt:     hexRgb("#eef4ff"),
+  border:  hexRgb("#1e3a5f"),
+  cellBrd: hexRgb("#c3d4e8"),
+  text:    hexRgb("#0b1d3a"),
+  mid:     hexRgb("#334155"),
+  dim:     hexRgb("#64748b"),
+  green:   hexRgb("#15803d"),
+  greenBg: hexRgb("#dcfce7"),
+  red:     hexRgb("#b91c1c"),
+  redBg:   hexRgb("#fff5f5"),
+  crimson: hexRgb("#c41e3a"),
+  white:   hexRgb("#ffffff"),
+  rowAlt:  hexRgb("#f8faff"),
+  amber:   hexRgb("#b45309"),
 };
 
-function resultColors(r) {
-  if (r === "PASS")            return { fg: C.green,  bg: C.greenBg, label: "PASS" };
-  if (r === "FAIL")            return { fg: C.red,    bg: "#fee2e2", label: "FAIL" };
-  if (r === "REPAIR_REQUIRED") return { fg: C.amber,  bg: "#fef3c7", label: "Repair Required" };
-  if (r === "CONDITIONAL")     return { fg: C.amber,  bg: "#fef3c7", label: "Conditional" };
-  if (r === "OUT_OF_SERVICE")  return { fg: "#7f1d1d",bg: "#fee2e2", label: "Out of Service" };
-  return { fg: "#374151", bg: "#f3f4f6", label: r || "Unknown" };
+// ── PDF drawing primitives ────────────────────────────────────────────────────
+const PW = PageSizes.A4[0]; // 595.28
+const PH = PageSizes.A4[1]; // 841.89
+const ML = 20;
+const MR = 20;
+const CW = PW - ML - MR;
+
+function drawRect(page, x, y, w, h, { fill, stroke, lineWidth = 0.5 } = {}) {
+  if (fill)   page.drawRectangle({ x, y: PH - y - h, width: w, height: h, color: fill, borderColor: stroke, borderWidth: stroke ? lineWidth : 0 });
+  else if (stroke) page.drawRectangle({ x, y: PH - y - h, width: w, height: h, borderColor: stroke, borderWidth: lineWidth });
 }
 
-// ── PDF helpers ───────────────────────────────────────────────────────────────
-const A4W = 595.28;
-const A4H = 841.89;
-const ML  = 20;  // margin left
-const MR  = 20;  // margin right
-const CW  = A4W - ML - MR; // content width
-
-function hex2rgb(hex) {
-  const h = hex.replace("#","");
-  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
-}
-function setFill(doc, hex)   { const [r,g,b] = hex2rgb(hex); doc.fillColor([r,g,b]); }
-function setStroke(doc, hex) { const [r,g,b] = hex2rgb(hex); doc.strokeColor([r,g,b]); }
-
-function rect(doc, x, y, w, h, fillHex, strokeHex) {
-  doc.save();
-  if (fillHex)   setFill(doc, fillHex);
-  if (strokeHex) { setStroke(doc, strokeHex); doc.lineWidth(0.5); }
-  if (fillHex && strokeHex) doc.rect(x,y,w,h).fillAndStroke();
-  else if (fillHex)         doc.rect(x,y,w,h).fill();
-  else if (strokeHex)       doc.rect(x,y,w,h).stroke();
-  doc.restore();
-}
-
-function text(doc, str, x, y, opts = {}) {
-  doc.save();
-  if (opts.color) setFill(doc, opts.color);
-  doc.fontSize(opts.size || 8)
-     .font(opts.bold ? "Helvetica-Bold" : opts.italic ? "Helvetica-Oblique" : "Helvetica")
-     .text(String(str || ""), x, y, {
-       width: opts.width,
-       align: opts.align || "left",
-       lineBreak: opts.wrap !== false,
-       ellipsis: opts.ellipsis || false,
-     });
-  doc.restore();
-}
-
-// ── Header ────────────────────────────────────────────────────────────────────
-function drawHeader(doc, certTitle, certNumber, resultLabel, resultFg, resultBg, y = 0) {
-  const HDR_H = 72;
-  // navy background
-  rect(doc, 0, y, A4W, HDR_H, C.navy);
-  // white logo box
-  rect(doc, 0, y, 100, HDR_H, C.white);
-  // logo text
-  text(doc, "MONROY", 8, y + 20, { bold: true, size: 11, color: C.navy, width: 84, align: "center" });
-  text(doc, "(PTY) LTD", 8, y + 33, { bold: true, size: 7, color: C.teal, width: 84, align: "center" });
-  text(doc, "Process Control\n& Cranes", 8, y + 44, { size: 6, color: C.navy, width: 84, align: "center" });
-  // brand + title
-  text(doc, "Monroy (Pty) Ltd · Process Control & Cranes", 110, y + 10, { size: 6.5, color: C.cyan, width: 320 });
-  text(doc, certTitle, 110, y + 22, { bold: true, size: 14, color: C.white, width: 300 });
-  // contact right
-  const cx = A4W - 165;
-  text(doc, "(+267) 71 450 610 / 77 906 461", cx, y + 12, { size: 6.5, color: C.white, width: 155 });
-  text(doc, "monroybw@gmail.com", cx, y + 23, { size: 6.5, color: C.white, width: 155 });
-  text(doc, "Phase 2, Letlhakane, Botswana", cx, y + 34, { size: 6.5, color: C.white, width: 155 });
-  // result badge
-  if (resultLabel) {
-    const bw = 70, bh = 16, bx = cx, by = y + 48;
-    rect(doc, bx, by, bw, bh, resultBg, resultFg);
-    text(doc, resultLabel, bx, by + 4, { bold: true, size: 8, color: resultFg, width: bw, align: "center" });
-  }
-  // cert number
-  if (certNumber) {
-    text(doc, certNumber, 110, y + 52, { size: 7.5, color: "rgba(255,255,255,0.6)", width: 280 });
-  }
-  // gradient accent bar
-  rect(doc, 0, y + HDR_H, A4W, 3, C.cyan);
-  return y + HDR_H + 3;
-}
-
-// ── Info table (2-col key/value) ───────────────────────────────────────────
-function drawInfoTable(doc, rows, y, colW = [120, CW / 2 - 120, 100, CW / 2 - 100]) {
-  const ROW_H = 14;
-  rows.forEach((pair, i) => {
-    const rowY = y + i * ROW_H;
-    const bg   = i % 2 === 0 ? C.lightBg : C.altBg;
-    rect(doc, ML, rowY, CW, ROW_H, bg, C.cellBrd);
-    // col 1 label
-    rect(doc, ML, rowY, colW[0], ROW_H, C.navy, C.border);
-    text(doc, pair[0] || "", ML + 4, rowY + 4, { bold: true, size: 6.5, color: C.cyan, width: colW[0] - 6, wrap: false, ellipsis: true });
-    // col 1 value
-    rect(doc, ML + colW[0], rowY, colW[1], ROW_H, bg, C.cellBrd);
-    text(doc, pair[1] || "—", ML + colW[0] + 4, rowY + 4, { size: 7.5, color: C.text, width: colW[1] - 6, wrap: false, ellipsis: true });
-    if (pair.length > 2) {
-      // col 2 label
-      const x2 = ML + colW[0] + colW[1];
-      rect(doc, x2, rowY, colW[2], ROW_H, C.navy, C.border);
-      text(doc, pair[2] || "", x2 + 4, rowY + 4, { bold: true, size: 6.5, color: C.cyan, width: colW[2] - 6, wrap: false, ellipsis: true });
-      // col 2 value
-      rect(doc, x2 + colW[2], rowY, colW[3], ROW_H, bg, C.cellBrd);
-      text(doc, pair[3] || "—", x2 + colW[2] + 4, rowY + 4, { size: 7.5, color: C.text, width: colW[3] - 6, wrap: false, ellipsis: true });
+function drawText(page, str, x, y, { font, size = 8, color = COL.text, maxWidth, align = "left" } = {}) {
+  if (!str || !font) return;
+  const s = String(str);
+  // truncate to fit maxWidth
+  let display = s;
+  if (maxWidth) {
+    while (display.length > 1 && font.widthOfTextAtSize(display, size) > maxWidth) {
+      display = display.slice(0, -1);
     }
-  });
-  return y + rows.length * ROW_H;
+    if (display !== s) display = display.slice(0, -1) + "…";
+  }
+  let tx = x;
+  if (align === "center" && maxWidth) {
+    const tw = font.widthOfTextAtSize(display, size);
+    tx = x + (maxWidth - tw) / 2;
+  } else if (align === "right" && maxWidth) {
+    const tw = font.widthOfTextAtSize(display, size);
+    tx = x + maxWidth - tw;
+  }
+  page.drawText(display, { x: tx, y: PH - y - size, font, size, color });
 }
 
-// ── Section label ──────────────────────────────────────────────────────────
-function drawSectionLabel(doc, title, y) {
-  doc.save();
-  setFill(doc, C.cyan);
-  doc.rect(ML, y + 2, 3, 9).fill();
-  doc.restore();
-  text(doc, title.toUpperCase(), ML + 7, y + 3, { bold: true, size: 6.5, color: C.text });
+function drawLine(page, x1, y1, x2, y2, color = COL.border, thickness = 0.5) {
+  page.drawLine({ start: { x: x1, y: PH - y1 }, end: { x: x2, y: PH - y2 }, color, thickness });
+}
+
+// ── Shared drawing blocks ─────────────────────────────────────────────────────
+
+function drawHeader(page, fonts, title, certNumber, resultLabel, resultFg, resultBg) {
+  const H = 72;
+  const { bold, regular } = fonts;
+
+  // Navy background
+  drawRect(page, 0, 0, PW, H, { fill: COL.navy });
+  // White logo box
+  drawRect(page, 0, 0, 95, H, { fill: COL.white });
+  drawText(page, "MONROY", 5, 18, { font: bold, size: 11, color: COL.navy, maxWidth: 85, align: "center" });
+  drawText(page, "(PTY) LTD", 5, 32, { font: bold, size: 7, color: COL.teal, maxWidth: 85, align: "center" });
+  drawText(page, "PROCESS CONTROL", 5, 42, { font: regular, size: 5.5, color: COL.navy, maxWidth: 85, align: "center" });
+  drawText(page, "& CRANES", 5, 50, { font: regular, size: 5.5, color: COL.navy, maxWidth: 85, align: "center" });
+
+  // Title area
+  drawText(page, "Monroy (Pty) Ltd  ·  Process Control & Cranes", 105, 10, { font: regular, size: 6.5, color: COL.cyan, maxWidth: 310 });
+  drawText(page, title, 105, 22, { font: bold, size: 13, color: COL.white, maxWidth: 295 });
+
+  // Contact right
+  const cx = PW - 175;
+  drawText(page, "(+267) 71 450 610 / 77 906 461", cx, 12, { font: regular, size: 6.5, color: COL.white, maxWidth: 165 });
+  drawText(page, "monroybw@gmail.com", cx, 22, { font: regular, size: 6.5, color: COL.white, maxWidth: 165 });
+  drawText(page, "Phase 2, Letlhakane, Botswana", cx, 32, { font: regular, size: 6.5, color: COL.white, maxWidth: 165 });
+
+  // Result badge
+  if (resultLabel) {
+    const bw = 75, bh = 16, bx = cx, by = 48;
+    drawRect(page, bx, by, bw, bh, { fill: resultBg, stroke: resultFg });
+    drawText(page, resultLabel, bx, by + 4, { font: bold, size: 8, color: resultFg, maxWidth: bw, align: "center" });
+  }
+
+  if (certNumber) {
+    drawText(page, certNumber, 105, 52, { font: regular, size: 7.5, color: COL.dim, maxWidth: 260 });
+  }
+
+  // Gradient accent bar (simulated with cyan)
+  drawRect(page, 0, H, PW, 3, { fill: COL.cyan });
+
+  return H + 3; // return next Y
+}
+
+function drawSectionLabel(page, fonts, title, y) {
+  drawRect(page, ML, y + 2, 3, 9, { fill: COL.cyan });
+  drawText(page, title.toUpperCase(), ML + 8, y + 3, { font: fonts.bold, size: 6.5, color: COL.text });
   return y + 14;
 }
 
-// ── Checklist column ──────────────────────────────────────────────────────
-function drawChecklist(doc, items, x, y, colW) {
-  const ROW_H = 11;
+function drawInfoTable(page, fonts, rows, y, colWidths) {
+  const RH = 14;
+  const [lw1, lw2, lw3, lw4] = colWidths || [110, CW / 2 - 110, 110, CW / 2 - 110];
+  rows.forEach((row, i) => {
+    const ry = y + i * RH;
+    const bg = i % 2 === 0 ? COL.light : COL.alt;
+    // left label
+    drawRect(page, ML, ry, lw1, RH, { fill: COL.navy, stroke: COL.border });
+    drawText(page, row[0] || "", ML + 3, ry + 4, { font: fonts.bold, size: 6.5, color: COL.cyan, maxWidth: lw1 - 5 });
+    // left value
+    drawRect(page, ML + lw1, ry, lw2, RH, { fill: bg, stroke: COL.cellBrd });
+    drawText(page, row[1] || "—", ML + lw1 + 3, ry + 4, { font: fonts.regular, size: 7.5, color: COL.text, maxWidth: lw2 - 5 });
+    if (row.length > 2) {
+      const x2 = ML + lw1 + lw2;
+      // right label
+      drawRect(page, x2, ry, lw3, RH, { fill: COL.navy, stroke: COL.border });
+      drawText(page, row[2] || "", x2 + 3, ry + 4, { font: fonts.bold, size: 6.5, color: COL.cyan, maxWidth: lw3 - 5 });
+      // right value
+      drawRect(page, x2 + lw3, ry, lw4, RH, { fill: bg, stroke: COL.cellBrd });
+      drawText(page, row[3] || "—", x2 + lw3 + 3, ry + 4, { font: fonts.regular, size: 7.5, color: COL.text, maxWidth: lw4 - 5 });
+    }
+  });
+  return y + rows.length * RH;
+}
+
+function drawChecklist(page, fonts, items, x, y, colW) {
+  const RH = 11;
   items.forEach((item, i) => {
-    const rowY = y + i * ROW_H;
-    const bg = i % 2 === 0 ? C.white : C.rowAlt;
-    const isHeader = item.header;
-    if (isHeader) {
-      rect(doc, x, rowY, colW, ROW_H, C.navy, C.border);
-      text(doc, item.label.toUpperCase(), x + 4, rowY + 3, { bold: true, size: 6, color: C.cyan, width: colW - 6 });
+    const ry = y + i * RH;
+    if (item.header) {
+      drawRect(page, x, ry, colW, RH, { fill: COL.navy, stroke: COL.border });
+      drawText(page, item.label.toUpperCase(), x + 4, ry + 3, { font: fonts.bold, size: 6, color: COL.cyan, maxWidth: colW - 6 });
     } else {
-      rect(doc, x, rowY, colW - 28, ROW_H, bg, C.cellBrd);
-      text(doc, item.label, x + 3, rowY + 3, { size: 7, color: C.text, width: colW - 34, wrap: false, ellipsis: true });
+      const bg = i % 2 === 0 ? COL.white : COL.rowAlt;
+      drawRect(page, x, ry, colW - 28, RH, { fill: bg, stroke: COL.cellBrd });
+      drawText(page, item.label, x + 3, ry + 3, { font: fonts.regular, size: 7, color: COL.text, maxWidth: colW - 34 });
       if (item.na) {
-        rect(doc, x + colW - 28, rowY, 28, ROW_H, bg, C.cellBrd);
-        text(doc, "N/A", x + colW - 22, rowY + 3, { size: 6, color: C.dim, width: 20, align: "center" });
+        drawRect(page, x + colW - 28, ry, 28, RH, { fill: bg, stroke: COL.cellBrd });
+        drawText(page, "N/A", x + colW - 26, ry + 3, { font: fonts.regular, size: 6, color: COL.dim, maxWidth: 24, align: "center" });
       } else {
         const pass = item.result === "PASS";
         const fail = item.result === "FAIL" || item.result === "REPAIR_REQUIRED";
-        rect(doc, x + colW - 28, rowY, 14, ROW_H, bg, C.cellBrd);
-        rect(doc, x + colW - 14, rowY, 14, ROW_H, bg, C.cellBrd);
-        text(doc, pass ? "✓" : "", x + colW - 28, rowY + 2, { bold: true, size: 8, color: C.green, width: 14, align: "center" });
-        text(doc, fail ? "✗" : "", x + colW - 14, rowY + 2, { bold: true, size: 8, color: C.red, width: 14, align: "center" });
+        drawRect(page, x + colW - 28, ry, 14, RH, { fill: bg, stroke: COL.cellBrd });
+        drawRect(page, x + colW - 14, ry, 14, RH, { fill: bg, stroke: COL.cellBrd });
+        if (pass) drawText(page, "P", x + colW - 28, ry + 2, { font: fonts.bold, size: 8, color: COL.green, maxWidth: 14, align: "center" });
+        if (fail) drawText(page, "F", x + colW - 14, ry + 2, { font: fonts.bold, size: 8, color: COL.red, maxWidth: 14, align: "center" });
       }
     }
   });
-  return y + items.length * ROW_H;
+  return y + items.length * RH;
 }
 
-// ── Signature block ───────────────────────────────────────────────────────
-function drawSignatures(doc, inspName, inspId, y) {
-  const half = CW / 2 - 8;
-  // Inspector
-  rect(doc, ML, y, half, 36, C.lightBg, C.border);
-  text(doc, "COMPETENT PERSON / INSPECTOR", ML + 4, y + 4, { bold: true, size: 6, color: C.teal });
-  doc.save(); setStroke(doc, C.border); doc.lineWidth(0.5).moveTo(ML + 4, y + 28).lineTo(ML + half - 4, y + 28).stroke(); doc.restore();
-  text(doc, inspName || "Moemedi Masupe", ML + 4, y + 30, { bold: true, size: 7.5, color: C.text, width: half - 8 });
-  // Client
-  rect(doc, ML + half + 8, y, half, 36, C.lightBg, C.border);
-  text(doc, "CLIENT / USER / OWNER", ML + half + 12, y + 4, { bold: true, size: 6, color: C.teal });
-  doc.save(); setStroke(doc, C.border); doc.lineWidth(0.5).moveTo(ML + half + 12, y + 28).lineTo(ML + CW - 4, y + 28).stroke(); doc.restore();
-  text(doc, "Name & Signature", ML + half + 12, y + 30, { size: 7, color: C.dim, width: half - 8 });
-  text(doc, `Inspector ID: ${inspId || "700117910"}`, ML + 4, y + 40, { size: 6.5, color: C.dim });
-  return y + 46;
+function drawPFBadge(page, fonts, result, x, y) {
+  const isPass = result === "PASS";
+  const BW = 80, BH = 22, half = BW / 2;
+  drawRect(page, x, y, half, BH, { fill: isPass ? COL.greenBg : COL.light, stroke: COL.border });
+  drawRect(page, x + half, y, half, BH, { fill: isPass ? COL.light : hexRgb("#fee2e2"), stroke: COL.border });
+  drawText(page, "PASS", x, y + 7, { font: isPass ? fonts.bold : fonts.regular, size: 9, color: isPass ? COL.green : COL.dim, maxWidth: half, align: "center" });
+  drawText(page, "FAIL", x + half, y + 7, { font: isPass ? fonts.regular : fonts.bold, size: 9, color: isPass ? COL.dim : COL.red, maxWidth: half, align: "center" });
 }
 
-// ── Red alert box ─────────────────────────────────────────────────────────
-function drawAlertBox(doc, label, value, y, color = C.red, bg = "#fff5f5") {
+function drawAlertBox(page, fonts, label, value, y, fgCol = COL.red, bgCol = COL.redBg) {
   if (!value) return y;
-  const H = 24;
-  rect(doc, ML, y, CW, H, bg, color);
-  text(doc, label.toUpperCase(), ML + 6, y + 4, { bold: true, size: 6, color });
-  text(doc, value, ML + 6, y + 13, { size: 7.5, color, width: CW - 12, wrap: false, ellipsis: true });
+  const H = 26;
+  drawRect(page, ML, y, CW, H, { fill: bgCol, stroke: fgCol });
+  drawText(page, label.toUpperCase(), ML + 5, y + 4, { font: fonts.bold, size: 6, color: fgCol });
+  drawText(page, value, ML + 5, y + 13, { font: fonts.regular, size: 7.5, color: fgCol, maxWidth: CW - 10 });
   return y + H + 3;
 }
 
-// ── Footer ────────────────────────────────────────────────────────────────
-function drawFooter(doc) {
-  const y = A4H - 28;
-  rect(doc, 0, y, A4W, 14, C.crimson);
-  text(doc, "Mobile Crane Hire  |  Rigging  |  NDT Test  |  Scaffolding  |  Painting  |  Inspection of Lifting Equipment & Machinery  |  Steel Fabricating & Structural  |  Mechanical Engineering  |  Fencing  |  Maintenance", 0, y + 4, { size: 5.5, color: C.white, width: A4W, align: "center" });
-  rect(doc, 0, y + 14, A4W, 14, C.navy);
-  text(doc, "Monroy (Pty) Ltd · Mophane Avenue, Maun, Botswana", ML, y + 18, { size: 6, color: "rgba(255,255,255,0.4)" });
-  text(doc, "Quality · Safety · Excellence", 0, y + 18, { size: 6, color: "rgba(255,255,255,0.4)", width: A4W - ML, align: "right" });
-}
-
-// ── Legal note ────────────────────────────────────────────────────────────
-function drawLegalNote(doc, text2, y) {
-  rect(doc, ML, y, CW, 18, C.lightBg, C.border);
-  text(doc, text2, ML + 6, y + 5, { size: 6, color: C.mid, width: CW - 12, align: "center", bold: true });
+function drawLegalNote(page, fonts, noteText, y) {
+  drawRect(page, ML, y, CW, 18, { fill: COL.light, stroke: COL.border });
+  drawText(page, noteText, ML + 5, y + 5, { font: fonts.bold, size: 5.5, color: COL.mid, maxWidth: CW - 10, align: "center" });
   return y + 22;
 }
 
-// ── Pass/Fail badge (large) ───────────────────────────────────────────────
-function drawPFBadge(doc, result, x, y) {
-  const isPass = result === "PASS";
-  const BW = 80, BH = 22;
-  rect(doc, x, y, BW / 2, BH, isPass ? C.greenBg : C.lightBg, C.border);
-  rect(doc, x + BW / 2, y, BW / 2, BH, isPass ? C.lightBg : "#fee2e2", C.border);
-  text(doc, "PASS", x, y + 7, { bold: isPass, size: 9, color: isPass ? C.green : C.dim, width: BW / 2, align: "center" });
-  text(doc, "FAIL", x + BW / 2, y + 7, { bold: !isPass, size: 9, color: isPass ? C.dim : C.red, width: BW / 2, align: "center" });
-  return y + BH;
+function drawSignatures(page, fonts, inspName, inspId, y) {
+  const half = CW / 2 - 6;
+  drawRect(page, ML, y, half, 38, { fill: COL.light, stroke: COL.border });
+  drawText(page, "COMPETENT PERSON / INSPECTOR", ML + 4, y + 4, { font: fonts.bold, size: 6, color: COL.teal });
+  drawLine(page, ML + 4, y + 28, ML + half - 4, y + 28);
+  drawText(page, inspName || "Moemedi Masupe", ML + 4, y + 30, { font: fonts.bold, size: 7.5, color: COL.text, maxWidth: half - 8 });
+  drawText(page, "Inspector ID: " + (inspId || "700117910"), ML + 4, y + 40, { font: fonts.regular, size: 6.5, color: COL.dim });
+
+  const x2 = ML + half + 8;
+  drawRect(page, x2, y, half, 38, { fill: COL.light, stroke: COL.border });
+  drawText(page, "CLIENT / USER / OWNER", x2 + 4, y + 4, { font: fonts.bold, size: 6, color: COL.teal });
+  drawLine(page, x2 + 4, y + 28, x2 + half - 4, y + 28);
+  drawText(page, "Name & Signature", x2 + 4, y + 30, { font: fonts.regular, size: 7, color: COL.dim });
+
+  return y + 46;
+}
+
+function drawFooter(page, fonts) {
+  const fy = PH - 28;
+  drawRect(page, 0, fy - PH + PH, PW, 14, { fill: COL.crimson });
+  page.drawRectangle({ x: 0, y: 28, width: PW, height: 14, color: COL.crimson });
+  page.drawText("Mobile Crane Hire  |  Rigging  |  NDT Test  |  Scaffolding  |  Painting  |  Inspection of Lifting Equipment  |  Steel Fabricating  |  Mechanical Engineering  |  Fencing  |  Maintenance", {
+    x: ML, y: 35, font: fonts.regular, size: 5.5, color: COL.white, maxWidth: CW,
+  });
+  page.drawRectangle({ x: 0, y: 0, width: PW, height: 14, color: COL.navy });
+  page.drawText("Monroy (Pty) Ltd  ·  Mophane Avenue, Maun, Botswana", { x: ML, y: 5, font: fonts.regular, size: 6, color: hexRgb("#94a3b8") });
+  page.drawText("Quality  ·  Safety  ·  Excellence", { x: PW - 160, y: 5, font: fonts.regular, size: 6, color: hexRgb("#94a3b8") });
+}
+
+// ── Font loader (called once per PDF) ────────────────────────────────────────
+async function loadFonts(pdfDoc) {
+  const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const bold    = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  return { regular, bold };
+}
+
+function newPage(pdfDoc) {
+  return pdfDoc.addPage(PageSizes.A4);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CERTIFICATE GENERATORS
 // ═══════════════════════════════════════════════════════════════════════════
 
-function buildBuffer(doc) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    doc.on("data", chunk => chunks.push(chunk));
-    doc.on("end",  ()    => resolve(Buffer.concat(chunks)));
-    doc.on("error", err  => reject(err));
-    doc.end();
-  });
-}
-
-function newDoc() {
-  return new PDFDocument({
-    size: "A4",
-    margins: { top: 0, bottom: 0, left: 0, right: 0 },
-    autoFirstPage: true,
-    bufferPages: true,
-  });
-}
-
-// ── Generic certificate ───────────────────────────────────────────────────
 async function genGeneric(c) {
-  const doc = newDoc();
-  const ex  = c.extracted_data || {};
+  const pdfDoc = await PDFDocument.create();
+  const fonts  = await loadFonts(pdfDoc);
+  const page   = newPage(pdfDoc);
+  const ex     = c.extracted_data || {};
+
   const certNumber = val(c.certificate_number);
   const equipType  = val(c.equipment_type || c.asset_type || ex.equipment_type) || "";
   const rawType    = equipType.toLowerCase();
@@ -308,38 +307,36 @@ async function genGeneric(c) {
   const inspId     = val(c.inspector_id || ex.inspector_id) || "700117910";
   const tone       = resultColors(pickResult(c));
 
-  let y = drawHeader(doc, certType, certNumber, tone.label, tone.fg, tone.bg);
-  y += 6;
-
-  y = drawSectionLabel(doc, "Certificate Details", y);
-  y = drawInfoTable(doc, [
-    ["Certificate No.", certNumber || "—", "Issue Date",    fmtDate(c.issue_date || c.issued_at)],
-    ["Client",          company,           "Expiry Date",   fmtDate(c.expiry_date)],
-    ["Location",        location,          "Equipment Type", equipType || "—"],
-    ["Serial Number",   serialNo,          "Fleet No.",     fleetNo],
-    ["Manufacturer",    mfg,               "Model",         model],
-    ["Safe Working Load (SWL)", swl,       "Result",        tone.label],
-  ], y);
+  let y = drawHeader(page, fonts, certType, certNumber, tone.label, tone.fg, tone.bg);
   y += 8;
+  y = drawSectionLabel(page, fonts, "Certificate Details", y);
+  y = drawInfoTable(page, fonts, [
+    ["Certificate No.", certNumber || "—", "Issue Date",     fmtDate(c.issue_date || c.issued_at)],
+    ["Client",          company,           "Expiry Date",    fmtDate(c.expiry_date)],
+    ["Location",        location,          "Equipment Type", equipType || "—"],
+    ["Serial Number",   serialNo,          "Fleet No.",      fleetNo],
+    ["Manufacturer",    mfg,               "Model",          model],
+    ["Safe Working Load (SWL)", swl,       "Result",         tone.label],
+  ], y);
+  y += 10;
+  y = drawSectionLabel(page, fonts, "Legal Compliance", y);
+  drawRect(page, ML, y, CW, 20, { fill: COL.light, stroke: COL.border });
+  drawText(page, "This inspection has been performed by a competent person as defined under the Mines, Quarries, Works and Machinery Act Cap 44:02 of the Laws of Botswana.", ML + 5, y + 5, { font: fonts.regular, size: 7, color: COL.mid, maxWidth: CW - 10 });
+  y += 26;
+  y = drawAlertBox(page, fonts, "Defects Found", defects, y);
+  y = drawAlertBox(page, fonts, "Recommendations", recommendations, y);
+  y = drawAlertBox(page, fonts, "Comments", comments, y, COL.teal, COL.light);
+  y += 8;
+  drawSignatures(page, fonts, inspName, inspId, y);
+  drawFooter(page, fonts);
 
-  y = drawSectionLabel(doc, "Legal Compliance", y);
-  rect(doc, ML, y, CW, 20, C.lightBg, C.border);
-  text(doc, "This inspection has been performed by a competent person as defined under the Mines, Quarries, Works and Machinery Act Cap 44:02 of the Laws of Botswana.", ML + 6, y + 6, { size: 7, color: C.mid, width: CW - 12 });
-  y += 24;
-
-  y = drawAlertBox(doc, "Defects Found", defects, y);
-  y = drawAlertBox(doc, "Recommendations", recommendations, y);
-  y = drawAlertBox(doc, "Comments", comments, y, C.teal, C.lightBg);
-  y += 6;
-
-  y = drawSignatures(doc, inspName, inspId, y);
-  drawFooter(doc);
-  return buildBuffer(doc);
+  return Buffer.from(await pdfDoc.save());
 }
 
-// ── Crane (Load Test + Checklist) ─────────────────────────────────────────
 async function genCrane(c, pn) {
-  const doc        = newDoc();
+  const pdfDoc = await PDFDocument.create();
+  const fonts  = await loadFonts(pdfDoc);
+
   const certNumber = val(c.certificate_number);
   const company    = val(c.client_name || c.company) || "—";
   const location   = val(c.location) || "—";
@@ -357,113 +354,106 @@ async function genCrane(c, pn) {
   const inspId     = val(c.inspector_id) || "700117910";
   const tone       = resultColors(pickResult(c));
 
-  const C1 = { boom:pn["C1 boom"]||"—", angle:pn["C1 angle"]||"—", radius:pn["C1 radius"]||"—", rated:pn["C1 rated"]||"—", test:pn["C1 test"]||"—" };
-  const C2 = { boom:pn["C2 boom"]||"—", angle:pn["C2 angle"]||"—", radius:pn["C2 radius"]||"—", rated:pn["C2 rated"]||"—", test:pn["C2 test"]||pn["Crane test load"]||"—" };
-  const C3 = { boom:pn["C3 boom"]||"—", angle:pn["C3 angle"]||"—", radius:pn["C3 radius"]||"—", rated:pn["C3 rated"]||"—", test:pn["C3 test"]||"—" };
-  const sliRes   = pn["Computer"] || pn["SLI"] || "PASS";
-  const sliModel = pn["SLI model"] || "";
-  const opCode   = pn["Operating code"] || "MAIN/AUX-FULL OUTRIGGER-360DEG";
-  const ctrWts   = pn["Counterweights"] || "STD FITTED";
-  const jib      = pn["Jib"] || "";
+  const C1 = { boom:pn["C1 boom"]||"—",angle:pn["C1 angle"]||"—",radius:pn["C1 radius"]||"—",rated:pn["C1 rated"]||"—",test:pn["C1 test"]||"—" };
+  const C2 = { boom:pn["C2 boom"]||"—",angle:pn["C2 angle"]||"—",radius:pn["C2 radius"]||"—",rated:pn["C2 rated"]||"—",test:pn["C2 test"]||pn["Crane test load"]||"—" };
+  const C3 = { boom:pn["C3 boom"]||"—",angle:pn["C3 angle"]||"—",radius:pn["C3 radius"]||"—",rated:pn["C3 rated"]||"—",test:pn["C3 test"]||"—" };
+  const sliRes    = pn["Computer"] || pn["SLI"] || "PASS";
+  const opCode    = pn["Operating code"] || "MAIN/AUX-FULL OUTRIGGER-360DEG";
+  const ctrWts    = pn["Counterweights"] || "STD FITTED";
+  const jib       = pn["Jib"] || "";
+  const sliModel  = pn["SLI model"] || "";
   const sliCertNo = pn["SLI cert"] || (certNumber ? certNumber.replace("CERT-CR","SLI ") : "");
 
   // ── PAGE 1: Load Test ──
-  let y = drawHeader(doc, "Load Test Certificate — Mobile Crane", certNumber, tone.label, tone.fg, tone.bg);
+  const p1 = newPage(pdfDoc);
+  let y = drawHeader(p1, fonts, "Load Test Certificate — Mobile Crane", certNumber, tone.label, tone.fg, tone.bg);
   y += 6;
-
-  // Info table
-  y = drawInfoTable(doc, [
-    ["Customer",    company,    "Make / Type",   equipMake],
-    ["Site",        location,   "Serial No.",    serialNo],
-    ["Date",        issueDate,  "Fleet No.",     fleetNo],
-    ["Expiry Date", expiryDate, "SWL",           swl],
+  y = drawInfoTable(p1, fonts, [
+    ["Customer",    company,    "Make / Type",  equipMake],
+    ["Site",        location,   "Serial No.",   serialNo],
+    ["Date",        issueDate,  "Fleet No.",    fleetNo],
+    ["Expiry Date", expiryDate, "SWL",          swl],
     ...(mh ? [["Machine Hours", mh, "", ""]] : []),
   ], y);
-  y += 8;
+  y += 6;
 
-  // SLI / Load cert rows
-  y = drawSectionLabel(doc, "Certificates Issued", y);
-  const rowH = 14;
-  rect(doc, ML, y, CW - 82, rowH, C.navy, C.border);
-  text(doc, "SLI Certificate", ML + 4, y + 4, { bold: true, size: 7.5, color: C.cyan, width: 200 });
-  rect(doc, ML + CW - 82, y, 30, rowH, C.altBg, C.border);
-  text(doc, "YES", ML + CW - 82, y + 4, { bold: true, size: 7.5, color: C.text, width: 30, align: "center" });
-  rect(doc, ML + CW - 52, y, 52, rowH, C.lightBg, C.border);
-  text(doc, sliCertNo || "—", ML + CW - 50, y + 4, { size: 7, color: C.teal, width: 48 });
-  y += rowH;
+  // Certificate rows
+  const RH = 14;
+  drawRect(p1, ML, y, CW - 82, RH, { fill: COL.navy, stroke: COL.border });
+  drawText(p1, "SLI Certificate", ML + 4, y + 4, { font: fonts.bold, size: 7.5, color: COL.cyan, maxWidth: 180 });
+  drawRect(p1, ML + CW - 82, y, 30, RH, { fill: COL.alt, stroke: COL.border });
+  drawText(p1, "YES", ML + CW - 82, y + 4, { font: fonts.bold, size: 7.5, color: COL.text, maxWidth: 30, align: "center" });
+  drawRect(p1, ML + CW - 52, y, 52, RH, { fill: COL.light, stroke: COL.cellBrd });
+  drawText(p1, sliCertNo || "—", ML + CW - 50, y + 4, { font: fonts.regular, size: 7, color: COL.teal, maxWidth: 48 });
+  y += RH;
 
-  rect(doc, ML, y, CW - 82, rowH, C.navy, C.border);
-  text(doc, "Load Test Certificate", ML + 4, y + 4, { bold: true, size: 7.5, color: C.cyan, width: 200 });
-  rect(doc, ML + CW - 82, y, 30, rowH, C.altBg, C.border);
-  text(doc, "YES", ML + CW - 82, y + 4, { bold: true, size: 7.5, color: C.text, width: 30, align: "center" });
-  rect(doc, ML + CW - 52, y, 52, rowH, C.lightBg, C.border);
-  text(doc, certNumber || "—", ML + CW - 50, y + 4, { size: 7, color: C.teal, width: 48 });
-  y += rowH + 4;
+  drawRect(p1, ML, y, CW - 82, RH, { fill: COL.navy, stroke: COL.border });
+  drawText(p1, "Load Test Certificate", ML + 4, y + 4, { font: fonts.bold, size: 7.5, color: COL.cyan, maxWidth: 180 });
+  drawRect(p1, ML + CW - 82, y, 30, RH, { fill: COL.alt, stroke: COL.border });
+  drawText(p1, "YES", ML + CW - 82, y + 4, { font: fonts.bold, size: 7.5, color: COL.text, maxWidth: 30, align: "center" });
+  drawRect(p1, ML + CW - 52, y, 52, RH, { fill: COL.light, stroke: COL.cellBrd });
+  drawText(p1, certNumber || "—", ML + CW - 50, y + 4, { font: fonts.regular, size: 7, color: COL.teal, maxWidth: 48 });
+  y += RH + 4;
 
-  // Pass/Fail badge
-  drawPFBadge(doc, tone.label, A4W - ML - 82, y - rowH * 2 - 4);
+  drawPFBadge(p1, fonts, tone.label, PW - ML - 82, y - RH * 2 - 4);
 
   // Applied load table
-  y = drawSectionLabel(doc, "Details of Applied Load", y);
-  const cols = [130, 44, 44, 44, 44, 44, 44 + (CW - 414)];
+  y = drawSectionLabel(p1, fonts, "Details of Applied Load", y);
+  const cols = [128, 43, 43, 43, 43, 43, CW - 343];
   const hdrs = ["Details", "C1 Actual", "C1 SLI", "C2 Actual", "C2 SLI", "C3 Actual", "C3 SLI"];
-  const TH = 12;
+  const TH = 13;
 
-  // header row 1
-  let cx2 = ML;
+  let cx = ML;
   hdrs.forEach((h, i) => {
-    rect(doc, cx2, y, cols[i], TH, C.navy, C.border);
-    text(doc, h, cx2 + 2, y + 3, { bold: true, size: 6, color: C.cyan, width: cols[i] - 4, align: "center" });
-    cx2 += cols[i];
+    drawRect(p1, cx, y, cols[i], TH, { fill: COL.navy, stroke: COL.border });
+    drawText(p1, h, cx + 2, y + 3, { font: fonts.bold, size: 6, color: COL.cyan, maxWidth: cols[i] - 4, align: "center" });
+    cx += cols[i];
   });
   y += TH;
 
   const loadRows = [
-    ["Boom Length Reading", C1.boom, C1.boom, C2.boom, C2.boom, C3.boom, C3.boom],
-    ["Boom Angle Reading",  C1.angle,C1.angle,C2.angle,C2.angle,C3.angle,C3.angle],
+    ["Boom Length Reading", C1.boom,  C1.boom,  C2.boom,  C2.boom,  C3.boom,  C3.boom],
+    ["Boom Angle Reading",  C1.angle, C1.angle, C2.angle, C2.angle, C3.angle, C3.angle],
     ["Radius Reading",      C1.radius,C1.radius,C2.radius,C2.radius,C3.radius,C3.radius],
-    ["Rated Load",          C1.rated,C1.rated,C2.rated,C2.rated,C3.rated,C3.rated],
-    ["TEST LOAD",           C1.test, C1.test, C2.test, C2.test, C3.test, C3.test],
+    ["Rated Load",          C1.rated, C1.rated, C2.rated, C2.rated, C3.rated, C3.rated],
+    ["TEST LOAD",           C1.test,  C1.test,  C2.test,  C2.test,  C3.test,  C3.test],
   ];
   loadRows.forEach((row, ri) => {
     const isBold = ri === loadRows.length - 1;
-    cx2 = ML;
+    cx = ML;
     row.forEach((cell, ci) => {
-      const bg = isBold ? C.navy : (ri % 2 === 0 ? C.white : C.rowAlt);
-      const fg = isBold ? C.white : (ci === 0 ? C.text : C.teal);
-      if (ci === 0 && isBold) rect(doc, cx2, y, cols[ci], TH, "#1e3a5f", C.border);
-      else rect(doc, cx2, y, cols[ci], TH, bg, C.cellBrd);
-      text(doc, cell, cx2 + 2, y + 3, { bold: isBold, size: ci === 0 ? 6.5 : 7, color: isBold ? (ci===0?C.cyan:C.white) : fg, width: cols[ci] - 4, align: ci === 0 ? "left" : "center", wrap: false });
-      cx2 += cols[ci];
+      const bg = isBold ? (ci === 0 ? hexRgb("#1e3a5f") : COL.navy) : (ri % 2 === 0 ? COL.white : COL.rowAlt);
+      drawRect(p1, cx, y, cols[ci], TH, { fill: bg, stroke: isBold ? COL.border : COL.cellBrd });
+      const color = isBold ? (ci === 0 ? COL.cyan : COL.white) : (ci === 0 ? COL.text : COL.teal);
+      drawText(p1, cell, cx + 2, y + 3, { font: isBold ? fonts.bold : fonts.regular, size: ci === 0 ? 6.5 : 7, color, maxWidth: cols[ci] - 4, align: ci === 0 ? "left" : "center" });
+      cx += cols[ci];
     });
     y += TH;
   });
   y += 6;
 
-  // SLI details
-  y = drawSectionLabel(doc, "SLI Details", y);
+  y = drawSectionLabel(p1, fonts, "SLI Details", y);
   const sliRows = [
     ...(sliModel ? [["SLI Make & Model", sliModel]] : []),
-    ["Operating Code used for testing", opCode],
+    ["Operating Code for testing", opCode],
     ...(jib ? [["Jib Configuration", jib]] : []),
     ["Counter weights during test", ctrWts],
-    ["SLI cut off system — Hoist up",    sliRes === "FAIL" ? "Defective" : "Yes"],
-    ["SLI cut off system — Tele out",    sliRes === "FAIL" ? "Defective" : "Yes"],
-    ["SLI cut out system — Boom down",   sliRes === "FAIL" ? "Defective" : "Yes"],
+    ["SLI cut off — Hoist up",   sliRes === "FAIL" ? "Defective" : "Yes"],
+    ["SLI cut off — Tele out",   sliRes === "FAIL" ? "Defective" : "Yes"],
+    ["SLI cut out — Boom down",  sliRes === "FAIL" ? "Defective" : "Yes"],
   ];
-  y = drawInfoTable(doc, sliRows.map(([l,v]) => [l, v]), y, [180, CW - 180]);
+  y = drawInfoTable(p1, fonts, sliRows.map(([l, v]) => [l, v]), y, [200, CW - 200]);
   y += 6;
-
-  y = drawAlertBox(doc, "Defects Found", defects, y);
-  y = drawAlertBox(doc, "Recommendations", recommendations, y);
-  y = drawAlertBox(doc, "Comments", comments, y, C.teal, C.lightBg);
+  y = drawAlertBox(p1, fonts, "Defects Found", defects, y);
+  y = drawAlertBox(p1, fonts, "Recommendations", recommendations, y);
+  y = drawAlertBox(p1, fonts, "Comments", comments, y, COL.teal, COL.light);
   y += 4;
-  y = drawLegalNote(doc, "THE SAFE LOAD INDICATOR HAS BEEN COMPARED TO THE CRANE'S LOAD CHART AND TESTED CORRECTLY TO ORIGINAL MANUFACTURERS SPECIFICATIONS.", y);
-  y = drawSignatures(doc, inspName, inspId, y);
-  drawFooter(doc);
+  y = drawLegalNote(p1, fonts, "THE SAFE LOAD INDICATOR HAS BEEN COMPARED TO THE CRANE LOAD CHART AND TESTED CORRECTLY TO ORIGINAL MANUFACTURERS SPECIFICATIONS.", y);
+  drawSignatures(p1, fonts, inspName, inspId, y);
+  drawFooter(p1, fonts);
 
   // ── PAGE 2: Checklist ──
-  doc.addPage();
+  const p2 = newPage(pdfDoc);
   const structural = pn["Structural"] || "PASS";
   const boom2      = pn["Boom"] || "PASS";
   const outriggers = pn["Outriggers"] || "PASS";
@@ -476,87 +466,88 @@ async function genCrane(c, pn) {
   const boomCyl    = detectFail(defects || "", "boom cylinder", "lift cylinder");
   const mcirNo     = "MCIR " + (c.inspection_number || (certNumber || "").replace("CERT-CR","") || "");
 
-  y = drawHeader(doc, "Mobile Crane Inspection Report — " + mcirNo, certNumber, tone.label, tone.fg, tone.bg, 0);
-  y += 6;
-  y = drawInfoTable(doc, [
-    ["Customer",    company,    "Make / Type",   equipMake],
-    ["Site",        location,   "Serial No.",    serialNo],
-    ["Date",        issueDate,  "Fleet No.",     fleetNo],
-    ["Validity",    expiryDate, "SWL",           swl],
-  ], y);
-  y += 6;
+  let y2 = drawHeader(p2, fonts, "Crane Inspection Checklist — " + mcirNo, certNumber, tone.label, tone.fg, tone.bg);
+  y2 += 6;
+  y2 = drawInfoTable(p2, fonts, [
+    ["Customer",    company,    "Make / Type",  equipMake],
+    ["Site",        location,   "Serial No.",   serialNo],
+    ["Date",        issueDate,  "Fleet No.",    fleetNo],
+    ["Validity",    expiryDate, "SWL",          swl],
+  ], y2);
+  y2 += 6;
 
-  const colHalfW = CW / 2;
+  const halfW = CW / 2 - 4;
   const leftItems = [
     { header: true, label: "Cab Condition" },
-    { label: "Windows",                        result: "PASS" },
-    { label: "Control Levers Marked",          result: "PASS" },
-    { label: "Control Lever return to neutral",result: "PASS" },
-    { label: "Level Gauges Correct",           result: "PASS" },
-    { label: "Reverse Warning",                result: "PASS" },
-    { label: "Load Charts Available",          result: "PASS" },
-    { label: "Horn Warning",                   result: "PASS" },
-    { label: "Lights, Rotating Lights",        result: "PASS" },
-    { label: "Tires",                          result: tires  },
-    { label: "Crane Brakes",                   result: brakes },
-    { label: "Fire Extinguisher",              result: "PASS" },
-    { label: "Beacon Lights",                  result: "PASS" },
-    { label: "SWL Correctly Indicated",        result: "PASS" },
-    { label: "Oil Leaks",                      result: oilLeaks },
-    { label: "Operator Seat Condition",        result: "PASS" },
+    { label: "Windows",                         result: "PASS"   },
+    { label: "Control Levers Marked",           result: "PASS"   },
+    { label: "Control Lever return to neutral", result: "PASS"   },
+    { label: "Level Gauges Correct",            result: "PASS"   },
+    { label: "Reverse Warning",                 result: "PASS"   },
+    { label: "Load Charts Available",           result: "PASS"   },
+    { label: "Horn Warning",                    result: "PASS"   },
+    { label: "Lights, Rotating Lights",         result: "PASS"   },
+    { label: "Tires",                           result: tires    },
+    { label: "Crane Brakes",                    result: brakes   },
+    { label: "Fire Extinguisher",               result: "PASS"   },
+    { label: "Beacon Lights",                   result: "PASS"   },
+    { label: "SWL Correctly Indicated",         result: "PASS"   },
+    { label: "Oil Leaks",                       result: oilLeaks },
+    { label: "Operator Seat Condition",         result: "PASS"   },
     { header: true, label: "Safe Load Indicator" },
-    { label: "Override Key Safe",              result: computer },
-    { label: "Load Reading",                   result: computer },
-    { label: "A2B System Working",             result: computer },
-    { label: "Cut Off System Working",         result: computer },
-    { label: "Radius Reading",                 result: computer },
-    { label: "Boom Length Reading",            result: computer },
-    { label: "Boom Angle Reading",             result: computer },
+    { label: "Override Key Safe",               result: computer },
+    { label: "Load Reading",                    result: computer },
+    { label: "A2B System Working",              result: computer },
+    { label: "Cut Off System Working",          result: computer },
+    { label: "Radius Reading",                  result: computer },
+    { label: "Boom Length Reading",             result: computer },
+    { label: "Boom Angle Reading",              result: computer },
   ];
   const rightItems = [
     { header: true, label: "Crane Superstructure" },
-    { label: "Outrigger Beams (Visual)",       result: outriggers },
-    { label: "Outrigger Jacks (Visual)",       result: outriggers },
-    { label: "Fly-Jib Condition (Visual)",     na: true           },
-    { label: "Outrigger Pads Condition",       result: outriggers },
-    { label: "Outrigger Boxes (Cracks)",       result: outriggers },
-    { label: "Hoist Drum Condition",           result: hoist      },
-    { label: "Hoist Brake Condition",          result: hoist      },
-    { label: "Hoist Drum Mounting",            result: "PASS"     },
-    { label: "Leaks on Hoist Drum",            result: oilLeaks   },
-    { label: "Top Head Sheaves",               result: "PASS"     },
-    { label: "Bottom Head Sheaves",            result: "PASS"     },
-    { label: "Boom Retract Ropes Visible",     na: true           },
-    { label: "Boom Retract Sheaves",           na: true           },
-    { label: "Slew Bearing Checked",           result: "PASS"     },
-    { label: "Slew Brake Checked",             result: "PASS"     },
-    { label: "Boom Lock Pins Checked",         result: boom2      },
-    { label: "Boom Pivot Point Checked",       result: boom2      },
-    { label: "Control Valve Checked",          result: "PASS"     },
-    { label: "Tele Cylinders — leaks",         result: teleCyl    },
-    { label: "Tele Cylinders — load hold",     result: teleCyl    },
-    { label: "Tele Sections — damage",         result: structural },
-    { label: "Tele's — bending",               na: true           },
-    { label: "Boom Lift Cylinder — leaks",     result: boomCyl    },
-    { label: "Boom Cylinder Mounting Points",  result: boom2      },
-    { label: "Boom Cylinder load hold",        result: boom2      },
-    { label: "Counterweights",                 result: "PASS"     },
+    { label: "Outrigger Beams (Visual)",        result: outriggers },
+    { label: "Outrigger Jacks (Visual)",        result: outriggers },
+    { label: "Fly-Jib Condition (Visual)",      na: true           },
+    { label: "Outrigger Pads Condition",        result: outriggers },
+    { label: "Outrigger Boxes (Cracks)",        result: outriggers },
+    { label: "Hoist Drum Condition",            result: hoist      },
+    { label: "Hoist Brake Condition",           result: hoist      },
+    { label: "Hoist Drum Mounting",             result: "PASS"     },
+    { label: "Leaks on Hoist Drum",             result: oilLeaks   },
+    { label: "Top Head Sheaves",                result: "PASS"     },
+    { label: "Bottom Head Sheaves",             result: "PASS"     },
+    { label: "Boom Retract Ropes Visible",      na: true           },
+    { label: "Boom Retract Sheaves",            na: true           },
+    { label: "Slew Bearing Checked",            result: "PASS"     },
+    { label: "Slew Brake Checked",              result: "PASS"     },
+    { label: "Boom Lock Pins Checked",          result: boom2      },
+    { label: "Boom Pivot Point Checked",        result: boom2      },
+    { label: "Control Valve Checked",           result: "PASS"     },
+    { label: "Tele Cylinders — leaks",          result: teleCyl    },
+    { label: "Tele Cylinders — load hold",      result: teleCyl    },
+    { label: "Tele Sections — damage",          result: structural },
+    { label: "Tele's — bending",                na: true           },
+    { label: "Boom Lift Cylinder — leaks",      result: boomCyl    },
+    { label: "Boom Cylinder Mounting Points",   result: boom2      },
+    { label: "Boom Cylinder load hold",         result: boom2      },
+    { label: "Counterweights",                  result: "PASS"     },
   ];
 
-  drawChecklist(doc, leftItems,  ML,                  y, colHalfW - 4);
-  drawChecklist(doc, rightItems, ML + colHalfW + 4,   y, colHalfW - 4);
-  y += Math.max(leftItems.length, rightItems.length) * 11 + 8;
+  drawChecklist(p2, fonts, leftItems,  ML,                y2, halfW);
+  drawChecklist(p2, fonts, rightItems, ML + halfW + 8,    y2, halfW);
+  y2 += Math.max(leftItems.length, rightItems.length) * 11 + 8;
+  y2 = drawAlertBox(p2, fonts, "Comments", comments, y2, COL.teal, COL.light);
+  drawSignatures(p2, fonts, inspName, inspId, y2);
+  drawFooter(p2, fonts);
 
-  y = drawAlertBox(doc, "Comments", comments, y, C.teal, C.lightBg);
-  y = drawSignatures(doc, inspName, inspId, y);
-  drawFooter(doc);
-
-  return buildBuffer(doc);
+  return Buffer.from(await pdfDoc.save());
 }
 
-// ── Pressure Vessel ───────────────────────────────────────────────────────
 async function genPressureVessel(c, pn) {
-  const doc        = newDoc();
+  const pdfDoc = await PDFDocument.create();
+  const fonts  = await loadFonts(pdfDoc);
+  const page   = newPage(pdfDoc);
+
   const certNumber = val(c.certificate_number);
   const company    = val(c.client_name || c.company) || "—";
   const location   = val(c.location) || "—";
@@ -578,49 +569,47 @@ async function genPressureVessel(c, pn) {
   const pu         = val(c.pressure_unit || pn.pressure_unit) || "bar";
   const tone       = resultColors(pickResult(c));
 
-  let y = drawHeader(doc, "Pressure Vessel Inspection Certificate", certNumber, tone.label, tone.fg, tone.bg);
+  let y = drawHeader(page, fonts, "Pressure Vessel Inspection Certificate", certNumber, tone.label, tone.fg, tone.bg);
   y += 6;
-
-  y = drawInfoTable(doc, [
-    ["Customer",         company,    "Make / Type",       equipMake],
-    ["Site",             location,   "Serial No.",        serialNo],
-    ["Date",             issueDate,  "Fleet No.",         fleetNo],
-    ["Expiry Date",      expiryDate, "Vessel Type",       pvType],
-    [`MAWP (${pu})`,     mawp,       `Test Pressure (${pu})`, testP],
-    [`Design P (${pu})`, designP,    "Capacity",          pvCap],
+  y = drawInfoTable(page, fonts, [
+    ["Customer",           company,    "Make / Type",         equipMake],
+    ["Site",               location,   "Serial No.",          serialNo],
+    ["Date",               issueDate,  "Fleet No.",           fleetNo],
+    ["Expiry Date",        expiryDate, "Vessel Type",         pvType],
+    [`MAWP (${pu})`,       mawp,       `Test Pressure (${pu})`, testP],
+    [`Design P. (${pu})`,  designP,    "Capacity",            pvCap],
   ], y);
-  y += 8;
-
-  // Big result badge
-  drawPFBadge(doc, tone.label, A4W - ML - 82, y - 8);
-
-  y = drawSectionLabel(doc, "Inspection Results", y);
-  y = drawInfoTable(doc, [
-    ["Vessel condition — external visual",           "Satisfactory"],
-    ["Vessel condition — internal (if applicable)",  "Satisfactory"],
-    ["Safety valve fitted and operating correctly",  "Yes"],
-    ["Pressure gauge fitted and reading correctly",  "Yes"],
-    ["Drain valve fitted and operating correctly",   "Yes"],
-    ["Signs of corrosion, cracking or deformation",  "None"],
-    ["Nameplate legible and data correct",           "Yes"],
-    ["Hydrostatic test performed",                   testP !== "—" ? `Yes — ${testP} ${pu}` : "N/A"],
-    ["Overall assessment",                           tone.label],
-  ], y, [220, CW - 220]);
-  y += 8;
-
-  y = drawLegalNote(doc, "THIS PRESSURE VESSEL HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.", y);
-  y = drawAlertBox(doc, "Defects Found", defects, y);
-  y = drawAlertBox(doc, "Recommendations", recommendations, y);
-  y = drawAlertBox(doc, "Comments", comments, y, C.teal, C.lightBg);
   y += 6;
-  y = drawSignatures(doc, inspName, inspId, y);
-  drawFooter(doc);
-  return buildBuffer(doc);
+  drawPFBadge(page, fonts, tone.label, PW - ML - 82, y - 6);
+  y = drawSectionLabel(page, fonts, "Inspection Results", y);
+  y = drawInfoTable(page, fonts, [
+    ["Vessel condition — external visual",          "Satisfactory"],
+    ["Vessel condition — internal (if applicable)", "Satisfactory"],
+    ["Safety valve fitted and operating correctly", "Yes"],
+    ["Pressure gauge fitted and reading correctly", "Yes"],
+    ["Drain valve fitted and operating correctly",  "Yes"],
+    ["Signs of corrosion, cracking or deformation", "None"],
+    ["Nameplate legible and data correct",          "Yes"],
+    ["Hydrostatic test performed",                  testP !== "—" ? `Yes — ${testP} ${pu}` : "N/A"],
+    ["Overall assessment",                          tone.label],
+  ], y, [230, CW - 230]);
+  y += 8;
+  y = drawLegalNote(page, fonts, "THIS PRESSURE VESSEL HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.", y);
+  y = drawAlertBox(page, fonts, "Defects Found", defects, y);
+  y = drawAlertBox(page, fonts, "Recommendations", recommendations, y);
+  y = drawAlertBox(page, fonts, "Comments", comments, y, COL.teal, COL.light);
+  y += 6;
+  drawSignatures(page, fonts, inspName, inspId, y);
+  drawFooter(page, fonts);
+
+  return Buffer.from(await pdfDoc.save());
 }
 
-// ── Machine (Forklift / Telehandler / etc.) ───────────────────────────────
 async function genMachine(c) {
-  const doc        = newDoc();
+  const pdfDoc = await PDFDocument.create();
+  const fonts  = await loadFonts(pdfDoc);
+  const page   = newPage(pdfDoc);
+
   const certNumber = val(c.certificate_number);
   const company    = val(c.client_name || c.company) || "—";
   const location   = val(c.location) || "—";
@@ -641,69 +630,67 @@ async function genMachine(c) {
   const brakes     = detectFail(defects, "brake");
   const isForklift = /forklift|fork.lift/i.test(equipType);
 
-  let y = drawHeader(doc, `${equipType} Inspection Certificate`, certNumber, tone.label, tone.fg, tone.bg);
+  let y = drawHeader(page, fonts, `${equipType} Inspection Certificate`, certNumber, tone.label, tone.fg, tone.bg);
   y += 6;
-
-  y = drawInfoTable(doc, [
+  y = drawInfoTable(page, fonts, [
     ["Customer",    company,    "Make / Type",  equipMake],
     ["Site",        location,   "Serial No.",   serialNo],
     ["Date",        issueDate,  "Fleet No.",    fleetNo],
     ["Expiry Date", expiryDate, "SWL",          swl],
   ], y);
-  y += 8;
+  y += 6;
+  drawPFBadge(page, fonts, tone.label, PW - ML - 82, y - 6);
 
-  drawPFBadge(doc, tone.label, A4W - ML - 82, y - 8);
-
-  const colHalfW = CW / 2;
+  const halfW = CW / 2 - 4;
   const leftItems = [
     { header: true, label: "General Condition" },
-    { label: "Structural Integrity",      result: "PASS"     },
-    { label: "Hydraulic System",          result: "PASS"     },
-    { label: "Brake System",              result: brakes||"PASS" },
-    { label: "Tyres / Wheels",            result: tires||"PASS" },
-    { label: "Oil Leaks",                 result: oilLeaks   },
-    { label: "Lights & Horn",             result: "PASS"     },
-    { label: "Fire Extinguisher",         result: "PASS"     },
-    { label: "Seat Belt",                 result: "PASS"     },
-    { label: "Controls Marked Correctly", result: "PASS"     },
-    { label: "Load Chart Available",      result: "PASS"     },
+    { label: "Structural Integrity",       result: "PASS"       },
+    { label: "Hydraulic System",           result: "PASS"       },
+    { label: "Brake System",               result: brakes||"PASS" },
+    { label: "Tyres / Wheels",             result: tires||"PASS" },
+    { label: "Oil Leaks",                  result: oilLeaks     },
+    { label: "Lights & Horn",              result: "PASS"       },
+    { label: "Fire Extinguisher",          result: "PASS"       },
+    { label: "Seat Belt",                  result: "PASS"       },
+    { label: "Controls Marked Correctly",  result: "PASS"       },
+    { label: "Load Chart Available",       result: "PASS"       },
     ...(isForklift ? [
       { header: true, label: "Forks & Mast" },
-      { label: "Mast / Structural Integrity", result: "PASS" },
-      { label: "Fork Condition",              result: detectFail(defects,"fork","tine") },
-      { label: "Fork Retention Pins",         result: "PASS" },
-      { label: "Mast Chain Lubrication",      result: "PASS" },
-      { label: "Tilt Cylinders — No Leaks",   result: oilLeaks },
+      { label: "Mast / Structural Integrity",  result: "PASS"   },
+      { label: "Fork Condition",               result: detectFail(defects,"fork","tine") },
+      { label: "Fork Retention Pins",          result: "PASS"   },
+      { label: "Mast Chain Lubrication",       result: "PASS"   },
+      { label: "Tilt Cylinders — No Leaks",    result: oilLeaks },
     ] : []),
   ];
   const rightItems = [
     { header: true, label: "Safety Systems" },
-    { label: "Load Indicator / SWL Plate", result: "PASS" },
-    { label: "Emergency Stop",             result: "PASS" },
-    { label: "Overload Protection",        result: "PASS" },
+    { label: "Load Indicator / SWL Plate",  result: "PASS"    },
+    { label: "Emergency Stop",              result: "PASS"    },
+    { label: "Overload Protection",         result: "PASS"    },
     { header: true, label: "Hydraulics & Drive" },
-    { label: "Hydraulic Oil Level",        result: "PASS"     },
-    { label: "Hydraulic Hoses & Fittings", result: oilLeaks   },
-    { label: "Drive Transmission",         result: "PASS"     },
-    { label: "Steering System",            result: "PASS"     },
-    { label: "Engine / Motor Condition",   result: "PASS"     },
+    { label: "Hydraulic Oil Level",         result: "PASS"    },
+    { label: "Hydraulic Hoses & Fittings",  result: oilLeaks  },
+    { label: "Drive Transmission",          result: "PASS"    },
+    { label: "Steering System",             result: "PASS"    },
+    { label: "Engine / Motor Condition",    result: "PASS"    },
     { header: true, label: "Load Test" },
-    { label: "Test Load at Rated Capacity",result: "PASS"     },
-    { label: "Lifting / Lowering Smooth",  result: "PASS"     },
-    { label: "No Deformation Under Load",  result: "PASS"     },
-    { label: "All Functions Under Load",   result: "PASS"     },
+    { label: "Test Load at Rated Capacity", result: "PASS"    },
+    { label: "Lifting / Lowering Smooth",   result: "PASS"    },
+    { label: "No Deformation Under Load",   result: "PASS"    },
+    { label: "All Functions Under Load",    result: "PASS"    },
   ];
 
-  drawChecklist(doc, leftItems,  ML,                y, colHalfW - 4);
-  drawChecklist(doc, rightItems, ML + colHalfW + 4, y, colHalfW - 4);
+  drawChecklist(page, fonts, leftItems,  ML,              y, halfW);
+  drawChecklist(page, fonts, rightItems, ML + halfW + 8,  y, halfW);
   y += Math.max(leftItems.length, rightItems.length) * 11 + 8;
-
-  y = drawAlertBox(doc, "Defects Found", defects || null, y);
-  y = drawAlertBox(doc, "Recommendations", recommendations, y);
+  y = drawAlertBox(page, fonts, "Defects Found", defects || null, y);
+  y = drawAlertBox(page, fonts, "Recommendations", recommendations, y);
   y += 4;
-  y = drawSignatures(doc, inspName, inspId, y);
-  drawFooter(doc);
-  return buildBuffer(doc);
+  drawSignatures(page, fonts, inspName, inspId, y);
+  drawFooter(page, fonts);
+
+  return Buffer.from(await pdfDoc.save());
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -751,12 +738,8 @@ export async function POST(req) {
 
         const clientFolder = (cert.client_name || "Unknown")
           .replace(/[^a-zA-Z0-9_\- ]/g, "_").trim();
-
-        const safeDate = (cert.inspection_date || cert.issue_date || "NoDate")
-          .replace(/-/g, "");
-
-        const safeCertNum = (cert.certificate_number || cert.id)
-          .toString().replace(/[^a-zA-Z0-9_-]/g, "_");
+        const safeDate = (cert.inspection_date || cert.issue_date || "NoDate").replace(/-/g, "");
+        const safeCertNum = (cert.certificate_number || cert.id).toString().replace(/[^a-zA-Z0-9_-]/g, "_");
 
         zip.file(`${clientFolder}/${safeDate}_${safeCertNum}.pdf`, pdfBuffer);
         exported++;
@@ -768,22 +751,16 @@ export async function POST(req) {
     if (exported === 0)
       return NextResponse.json({ error: "Failed to generate any PDFs. Check server logs." }, { status: 500 });
 
-    const zipBuffer = await zip.generateAsync({
-      type: "nodebuffer",
-      compression: "DEFLATE",
-      compressionOptions: { level: 6 },
-    });
-
+    const zipBuffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
     const clientLabel = clientName ? clientName.replace(/\s+/g, "_") : "AllClients";
     const dateLabel   = inspectionDate ? `_${inspectionDate}` : "";
-    const zipName     = `Certificates_${clientLabel}${dateLabel}.zip`;
 
     return new NextResponse(zipBuffer, {
       status: 200,
       headers: {
-        "Content-Type":        "application/zip",
-        "Content-Disposition": `attachment; filename="${zipName}"`,
-        "Content-Length":      zipBuffer.length.toString(),
+        "Content-Type":            "application/zip",
+        "Content-Disposition":     `attachment; filename="Certificates_${clientLabel}${dateLabel}.zip"`,
+        "Content-Length":          zipBuffer.length.toString(),
         "X-Certificates-Exported": exported.toString(),
       },
     });
