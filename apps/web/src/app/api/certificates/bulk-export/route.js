@@ -2,7 +2,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import JSZip from "jszip";
-import puppeteer from "puppeteer";
+import puppeteer from "puppeteer-core";
+import chromium from "@sparticuz/chromium";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -12,7 +13,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Your deployed app URL — set this in Render environment variables
 const APP_URL = (
   process.env.NEXT_PUBLIC_APP_URL ||
   process.env.NEXTAUTH_URL ||
@@ -43,19 +43,12 @@ export async function POST(req) {
     if (!certs || certs.length === 0)
       return NextResponse.json({ error: "No certificates match the selected filters." }, { status: 404 });
 
-    // ── 2. Launch Puppeteer ────────────────────────────────────────────────
+    // ── 2. Launch Chromium ─────────────────────────────────────────────────
     browser = await puppeteer.launch({
-      headless: "new",
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--disable-web-security",
-        "--no-first-run",
-        "--no-zygote",
-        "--single-process",
-      ],
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
     });
 
     const zip = new JSZip();
@@ -66,10 +59,8 @@ export async function POST(req) {
       try {
         const page = await browser.newPage();
 
-        // Set A4 viewport
         await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
 
-        // Open the print page — same page your "Save PDF" button opens
         const printUrl = `${APP_URL}/certificates/print/${encodeURIComponent(String(cert.id))}`;
 
         await page.goto(printUrl, {
@@ -77,24 +68,21 @@ export async function POST(req) {
           timeout: 30000,
         });
 
-        // Wait for CertificateSheet to finish rendering
-        // The print page has .pt-content which contains the cert
+        // Wait for certificate content to render
         await page.waitForSelector(".pt-content", { timeout: 15000 }).catch(() => {});
 
-        // Extra wait for fonts & images
+        // Extra wait for fonts and images
         await new Promise(r => setTimeout(r, 2000));
 
-        // Hide the toolbar (only show the certificate)
+        // Hide toolbar, show only the certificate
         await page.evaluate(() => {
           const toolbar = document.querySelector(".pt-toolbar");
           if (toolbar) toolbar.style.display = "none";
-          // Also hide the print hint text at bottom
           document.querySelectorAll("p").forEach(p => {
-            if (p.textContent.includes("Ctrl+P")) p.style.display = "none";
+            if (p.textContent && p.textContent.includes("Ctrl+P")) p.style.display = "none";
           });
         });
 
-        // Generate PDF — A4, no margins, with backgrounds
         const pdfBuffer = await page.pdf({
           format: "A4",
           printBackground: true,
@@ -104,7 +92,6 @@ export async function POST(req) {
 
         await page.close();
 
-        // ── Build filename ─────────────────────────────────────────────────
         const clientFolder = (cert.client_name || "Unknown")
           .replace(/[^a-zA-Z0-9_\- ]/g, "_").trim();
 
@@ -124,7 +111,7 @@ export async function POST(req) {
 
     if (exported === 0)
       return NextResponse.json(
-        { error: "Failed to generate any PDFs. Make sure NEXT_PUBLIC_APP_URL is set correctly in Render environment variables." },
+        { error: "Failed to generate any PDFs. Make sure NEXT_PUBLIC_APP_URL is set in Render environment variables." },
         { status: 500 }
       );
 
