@@ -31,6 +31,7 @@ const CSS = `
     .be-mob{display:grid!important;gap:0}
   }
   @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
   #bulk-iframe{
     position:fixed;top:0;left:0;width:794px;height:100vh;
     border:none;background:#fff;z-index:9999;display:none;
@@ -40,17 +41,25 @@ const CSS = `
     position:fixed;inset:0;z-index:9998;
     background:rgba(7,14,24,0.97);
     display:none;align-items:center;justify-content:center;
-    flex-direction:column;gap:16px;
+    flex-direction:column;gap:14px;
   }
   #bulk-overlay.active{display:flex;}
 `;
 
 function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+
 function formatDate(v){
   if(!v)return"—";
   const d=new Date(v+"T00:00:00Z");
   if(isNaN(d))return String(v);
   return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric",timeZone:"UTC"});
+}
+
+function formatTime(seconds){
+  if(!seconds||seconds<=0)return"—";
+  if(seconds<60)return`${Math.round(seconds)}s`;
+  const m=Math.floor(seconds/60),s=Math.round(seconds%60);
+  return s>0?`${m}m ${s}s`:`${m}m`;
 }
 
 const inputStyle={width:"100%",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(148,163,184,0.2)",borderRadius:9,padding:"9px 12px",color:"#f0f6ff",fontSize:13,fontFamily:"'IBM Plex Sans',sans-serif",outline:"none"};
@@ -68,9 +77,14 @@ export default function BulkExportClient() {
   const [exportStep,setExportStep]=useState("");
   const [exportDone,setExportDone]=useState(0);
   const [exportTotal,setExportTotal]=useState(0);
+  const [exportSkipped,setExportSkipped]=useState(0);
+  const [timeRemaining,setTimeRemaining]=useState(null);
+  const [avgSpeed,setAvgSpeed]=useState(null);
   const [doneMsg,setDoneMsg]=useState("");
   const [iframeActive,setIframeActive]=useState(false);
   const iframeRef=useRef(null);
+  const startTimeRef=useRef(null);
+  const timingsRef=useRef([]);
 
   useEffect(()=>{
     supabase.from("certificates").select("client_name").then(({data})=>{
@@ -113,9 +127,7 @@ export default function BulkExportClient() {
           const iDoc=iframe.contentDocument||iframe.contentWindow?.document;
           const iWin=iframe.contentWindow;
           if(!iDoc||!iWin)throw new Error("Cannot access iframe");
-          // Wait for fonts
           try{await iDoc.fonts.ready;}catch{}
-          // Poll until content stable
           let lastH=0,stable=0;
           for(let i=0;i<40;i++){
             await sleep(200);
@@ -124,11 +136,9 @@ export default function BulkExportClient() {
             else stable=0;
             lastH=h;
           }
-          // Wait for images
           const imgs=Array.from(iDoc.querySelectorAll("img"));
           await Promise.all(imgs.map(img=>img.complete?Promise.resolve():new Promise(r=>{img.onload=r;img.onerror=r;})));
           await sleep(300);
-          // Inject html2pdf if needed
           if(!iWin.html2pdf){
             await new Promise((res,rej)=>{
               const s=iDoc.createElement("script");
@@ -148,9 +158,9 @@ export default function BulkExportClient() {
             html2canvas:{scale:2,useCORS:true,allowTaint:true,logging:false,letterRendering:true,windowWidth:794,backgroundColor:"#ffffff",scrollX:0,scrollY:0},
             jsPDF:{unit:"mm",format:"a4",orientation:"portrait",compress:true},
           }).from(certEl).outputPdf("blob");
+          if(!blob||blob.size<1000)throw new Error("PDF empty");
           const ab=await blob.arrayBuffer();
-          if(!ab||ab.byteLength<1000)throw new Error("PDF empty");
-          resolve(ab);
+          resolve(new Uint8Array(ab));
         }catch(e){reject(e);}
         finally{iframe.src="about:blank";}
       };
@@ -161,7 +171,10 @@ export default function BulkExportClient() {
   async function handleExport(){
     if(!preview.length)return;
     setExporting(true);setIframeActive(true);setError("");setDoneMsg("");
-    setExportDone(0);setExportTotal(preview.length);
+    setExportDone(0);setExportTotal(preview.length);setExportSkipped(0);
+    setTimeRemaining(null);setAvgSpeed(null);
+    startTimeRef.current=Date.now();
+    timingsRef.current=[];
 
     try{
       const ids=preview.map(c=>c.id);
@@ -176,22 +189,38 @@ export default function BulkExportClient() {
       }
 
       const zip=new JSZip();
-      let done=0;
+      let done=0,skipped=0;
 
       for(const cert of allCerts){
-        setExportStep(`${done+1} / ${allCerts.length}: ${cert.certificate_number||cert.id}`);
+        setExportStep(`${cert.certificate_number||cert.id}`);
+        const certStart=Date.now();
         try{
           const ab=await captureViaIframe(cert);
           const folder=(cert.client_name||"Unknown").trim().replace(/[^a-zA-Z0-9_\- ]/g,"_");
           const date=(cert.inspection_date||cert.issue_date||"NoDate").replace(/-/g,"");
           const num=(cert.certificate_number||cert.id).toString().replace(/[^a-zA-Z0-9_-]/g,"_");
           zip.file(`${folder}/${date}_${num}.pdf`,ab);
-        }catch(e){console.error(`Skipped ${cert.certificate_number}:`,e.message);}
+
+          // Track timing
+          const elapsed=(Date.now()-certStart)/1000;
+          timingsRef.current.push(elapsed);
+          // Use last 5 certs for rolling average
+          const recent=timingsRef.current.slice(-5);
+          const avg=recent.reduce((a,b)=>a+b,0)/recent.length;
+          const remaining=allCerts.length-(done+1);
+          setAvgSpeed(avg);
+          setTimeRemaining(avg*remaining);
+        }catch(e){
+          console.error(`Skipped ${cert.certificate_number}:`,e.message);
+          skipped++;
+          setExportSkipped(skipped);
+        }
         done++;
         setExportDone(done);
       }
 
       setExportStep("Compressing ZIP…");
+      setTimeRemaining(null);
       const zipBlob=await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:6}});
       if(zipBlob.size<100)throw new Error("ZIP is empty — all PDFs failed to generate.");
 
@@ -202,7 +231,10 @@ export default function BulkExportClient() {
       a.href=url;a.download=`Certificates_${clientLabel}${dateLabel}.zip`;
       document.body.appendChild(a);a.click();document.body.removeChild(a);
       setTimeout(()=>URL.revokeObjectURL(url),5000);
-      setDoneMsg(`✓ ${done} certificate${done!==1?"s":""} exported`);
+
+      const totalTime=formatTime((Date.now()-startTimeRef.current)/1000);
+      const successCount=done-skipped;
+      setDoneMsg(`✓ ${successCount} exported${skipped>0?`, ${skipped} skipped`:""} · Total time: ${totalTime}`);
     }catch(err){
       setError(err.message||"Export failed.");
     }finally{
@@ -212,27 +244,60 @@ export default function BulkExportClient() {
   }
 
   const pct=exportTotal>0?Math.round((exportDone/exportTotal)*100):0;
+  const elapsed=startTimeRef.current?Math.round((Date.now()-startTimeRef.current)/1000):0;
 
   return(
     <AppLayout title="Bulk Export">
       <style>{CSS}</style>
 
+      {/* Full-screen overlay */}
       <div id="bulk-overlay" className={exporting?"active":""}>
+        {/* Spinner + current cert */}
         <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <span style={{display:"inline-block",width:18,height:18,border:"3px solid rgba(34,211,238,0.3)",borderTopColor:"#22d3ee",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>
-          <span style={{color:"#f0f6ff",fontFamily:"'IBM Plex Sans',sans-serif",fontSize:14,fontWeight:700}}>
-            {exportStep||"Exporting…"}
-          </span>
-        </div>
-        {exportTotal>0&&(
-          <div style={{width:320}}>
-            <div style={{background:"rgba(34,211,238,0.1)",borderRadius:99,height:6,overflow:"hidden"}}>
-              <div style={{height:"100%",borderRadius:99,background:"linear-gradient(90deg,#22d3ee,#34d399)",width:`${pct}%`,transition:"width 0.3s ease"}}/>
+          <span style={{display:"inline-block",width:20,height:20,border:"3px solid rgba(34,211,238,0.2)",borderTopColor:"#22d3ee",borderRadius:"50%",animation:"spin 0.7s linear infinite",flexShrink:0}}/>
+          <div>
+            <div style={{color:"#f0f6ff",fontFamily:"'IBM Plex Sans',sans-serif",fontSize:13,fontWeight:700}}>
+              Rendering {exportStep||"…"}
             </div>
-            <div style={{marginTop:6,fontSize:12,color:"rgba(240,246,255,0.5)",textAlign:"center"}}>{exportDone} of {exportTotal}</div>
+            <div style={{color:"rgba(240,246,255,0.4)",fontFamily:"'IBM Plex Sans',sans-serif",fontSize:11,marginTop:2}}>
+              {exportDone} of {exportTotal} certificates
+              {exportSkipped>0&&<span style={{color:"#f87171",marginLeft:8}}>{exportSkipped} skipped</span>}
+            </div>
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        {exportTotal>0&&(
+          <div style={{width:360}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6,fontFamily:"'IBM Plex Sans',sans-serif"}}>
+              <span style={{fontSize:11,color:"rgba(240,246,255,0.5)"}}>{pct}%</span>
+              <span style={{fontSize:11,color:"rgba(240,246,255,0.5)",fontWeight:700,color:"#22d3ee"}}>{pct}% complete</span>
+            </div>
+            <div style={{background:"rgba(34,211,238,0.08)",borderRadius:99,height:8,overflow:"hidden",border:"1px solid rgba(34,211,238,0.15)"}}>
+              <div style={{height:"100%",borderRadius:99,background:"linear-gradient(90deg,#22d3ee,#34d399)",width:`${pct}%`,transition:"width 0.4s ease",boxShadow:"0 0 8px rgba(34,211,238,0.4)"}}/>
+            </div>
           </div>
         )}
-        <div style={{fontSize:11,color:"rgba(240,246,255,0.3)",fontFamily:"'IBM Plex Sans',sans-serif"}}>Do not close this tab</div>
+
+        {/* Time stats */}
+        <div style={{display:"flex",gap:24,fontFamily:"'IBM Plex Sans',sans-serif"}}>
+          {timeRemaining!=null&&(
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:22,fontWeight:900,color:"#22d3ee",letterSpacing:"-0.02em"}}>{formatTime(timeRemaining)}</div>
+              <div style={{fontSize:10,color:"rgba(240,246,255,0.35)",textTransform:"uppercase",letterSpacing:"0.08em",marginTop:2}}>Remaining</div>
+            </div>
+          )}
+          {avgSpeed!=null&&(
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:22,fontWeight:900,color:"#34d399",letterSpacing:"-0.02em"}}>{avgSpeed.toFixed(1)}s</div>
+              <div style={{fontSize:10,color:"rgba(240,246,255,0.35)",textTransform:"uppercase",letterSpacing:"0.08em",marginTop:2}}>Per cert</div>
+            </div>
+          )}
+        </div>
+
+        <div style={{fontSize:11,color:"rgba(240,246,255,0.25)",fontFamily:"'IBM Plex Sans',sans-serif",animation:"pulse 2s infinite"}}>
+          Do not close this tab
+        </div>
       </div>
 
       <iframe id="bulk-iframe" className={iframeActive?"active":""} ref={iframeRef} src="about:blank" title="cert-render"/>
@@ -240,6 +305,7 @@ export default function BulkExportClient() {
       <div style={{background:`radial-gradient(ellipse 70% 50% at 0% 0%,rgba(34,211,238,0.06),transparent),radial-gradient(ellipse 60% 50% at 100% 100%,rgba(167,139,250,0.05),transparent),${T.bg}`,color:T.text,fontFamily:"'IBM Plex Sans',sans-serif",padding:20,paddingBottom:60,minHeight:"100vh"}}>
         <div style={{maxWidth:1400,margin:"0 auto",display:"grid",gap:16}}>
 
+          {/* HEADER */}
           <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:20,padding:"18px 20px",backdropFilter:"blur(20px)"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
               <div style={{width:4,height:20,borderRadius:2,background:`linear-gradient(to bottom,${T.green},rgba(52,211,153,0.3))`,flexShrink:0}}/>
@@ -249,6 +315,7 @@ export default function BulkExportClient() {
             <p style={{margin:"5px 0 0",color:T.textDim,fontSize:12}}>Filter · preview · download exact CertificateSheet output as ZIP</p>
           </div>
 
+          {/* FILTERS */}
           <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:16,padding:"16px 18px",backdropFilter:"blur(20px)"}}>
             <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",color:T.textDim,marginBottom:14}}>Filters</div>
             <div className="be-grid">
@@ -288,6 +355,7 @@ export default function BulkExportClient() {
             {error&&<div style={{marginTop:12,padding:"10px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,background:T.redDim,color:T.red,fontSize:13,fontWeight:600}}>⚠ {error}</div>}
           </div>
 
+          {/* PREVIEW TABLE */}
           {previewLoaded&&(
             <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:16,overflow:"hidden"}}>
               <div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
