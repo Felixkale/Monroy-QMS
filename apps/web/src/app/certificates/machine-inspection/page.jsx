@@ -157,7 +157,7 @@ const STEP_META = {
   5: { label:"Platform",      icon:"🪣" },
   6: { label:"Vessels",       icon:"⚙️" },
   7: { label:"Horse/Trailer", icon:"🚛" },
-  8: { label:"Service Truck", icon:"🔧" },
+  8: { label:"Truck", icon:"🔧" },
   9: { label:"Review",        icon:"📜" },
 };
 
@@ -937,7 +937,7 @@ export default function MachineInspectionPage() {
                       <ResultBadge result={pv.result}/>
                     </div>
                   ))}
-                  {svcTools.filter(t=>t.include).map((tool,i)=>{
+                  {machineType.isServiceTruck && svcTools.filter(t=>t.include).map((tool,i)=>{
                     const meta = SVC_TOOL_TYPES.find(m=>m.id===tool.type);
                     return (
                       <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
