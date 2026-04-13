@@ -138,7 +138,7 @@ export default function BulkExportClient() {
           }
           const imgs=Array.from(iDoc.querySelectorAll("img"));
           await Promise.all(imgs.map(img=>img.complete?Promise.resolve():new Promise(r=>{img.onload=r;img.onerror=r;})));
-          await sleep(300);
+          await sleep(800);
           if(!iWin.html2pdf){
             await new Promise((res,rej)=>{
               const s=iDoc.createElement("script");
@@ -158,7 +158,7 @@ export default function BulkExportClient() {
             html2canvas:{scale:2,useCORS:true,allowTaint:true,logging:false,letterRendering:true,windowWidth:794,backgroundColor:"#ffffff",scrollX:0,scrollY:0},
             jsPDF:{unit:"mm",format:"a4",orientation:"portrait",compress:true},
           }).from(certEl).outputPdf("blob");
-          if(!blob||blob.size<1000)throw new Error("PDF empty");
+          if(!blob||blob.size<5000)throw new Error("PDF empty");
           const ab=await blob.arrayBuffer();
           resolve(new Uint8Array(ab));
         }catch(e){reject(e);}
@@ -221,7 +221,7 @@ export default function BulkExportClient() {
 
       setExportStep("Compressing ZIP…");
       setTimeRemaining(null);
-      const zipBlob=await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:6}});
+      const zipBlob=await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:1}});
       if(zipBlob.size<100)throw new Error("ZIP is empty — all PDFs failed to generate.");
 
       const clientLabel=clientName?clientName.trim().replace(/\s+/g,"_"):"AllClients";
