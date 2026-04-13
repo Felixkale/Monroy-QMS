@@ -158,13 +158,14 @@ export default function CertificatesPageClient() {
     await loadCerts();
   }
 
-  async function unlinkCert(id){
-    const cert = certs.find(c => String(c.id) === String(id));
+  // ── FIXED: use raw certId (UUID), not URL-encoded id ──────────────────────
+  async function unlinkCert(certId) {
+    const cert = certs.find(c => String(c.id) === String(certId));
     const folderId = cert?.folder_id;
 
     const { error: e } = await supabase.from("certificates")
       .update({ folder_id: null, folder_name: null, folder_position: null })
-      .eq("id", id);
+      .eq("id", certId);
 
     if (e) { console.error("Unlink failed:", e.message); return; }
 
@@ -181,9 +182,9 @@ export default function CertificatesPageClient() {
     await loadCerts();
   }
 
-  async function deleteCert(id, folderId, certNo) {
+  async function deleteCert(certId, folderId, certNo) {
     if (!window.confirm(`Delete ${certNo||"this certificate"}? This cannot be undone.`)) return;
-    await supabase.from("certificates").delete().eq("id", id);
+    await supabase.from("certificates").delete().eq("id", certId);
     if (folderId) {
       const { data: remaining } = await supabase.from("certificates").select("id").eq("folder_id", folderId);
       if (remaining && remaining.length === 1) {
@@ -198,7 +199,7 @@ export default function CertificatesPageClient() {
   async function loadCerts(){
     setLoading(true);setErrTxt("");
     const{data,error}=await supabase.from("certificates").select(`
-      id,certificate_number,result,issue_date,issued_at,expiry_date,valid_to,created_at,
+      id,certificate_number,result,issue_date,issued_at,inspection_date,expiry_date,valid_to,created_at,
       inspection_number,inspection_no,asset_tag,asset_name,equipment_description,equipment_type,
       asset_type,client_name,company,status,folder_id,folder_name,folder_position,extracted_data,
       assets(id,asset_tag,asset_name,asset_type,location,clients(id,company_name)),
@@ -276,7 +277,7 @@ export default function CertificatesPageClient() {
                 <p style={{margin:"5px 0 0",color:T.textDim,fontSize:12}}>{filtered.length} of {certs.length} records · grouped by client, equipment type, asset</p>
               </div>
               <div className="cert-top-btns" style={{display:"flex",gap:8,flexShrink:0}}>
-                <Link href="/certificates/bulk-export" style={S.export}>⬇ Bulk Export</Link>
+                <Link href="/bulk-export" style={S.export}>⬇ Bulk Export</Link>
                 <Link href="/certificates/import" style={S.ghost}>↑ AI Import</Link>
                 <Link href="/certificates/create" style={S.accent}>+ New</Link>
               </div>
@@ -336,7 +337,7 @@ export default function CertificatesPageClient() {
               </div>
             </div>
             <div className="cert-filters">
-              {FILTER_CELLS.map((cell,i)=>(
+              {FILTER_CELLS.map((cell)=>(
                 <div key={cell.label} style={{padding:"10px 12px",borderRight:cell.last?0:`1px solid ${T.border}`,borderBottom:"0"}}>
                   <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:cell.val&&cell.val!=="ALL"?T.accent:T.textDim,marginBottom:6}}>{cell.label}</div>
                   {cell.type==="input"?(
@@ -417,20 +418,20 @@ function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allC
                                 <table style={{width:"100%",borderCollapse:"collapse",minWidth:640}}>
                                   <thead>
                                     <tr style={{background:"rgba(255,255,255,0.02)"}}>
-                                      {["Certificate No","Result","Issue","Expiry","Status","Actions"].map(h=>(
+                                      {["Certificate No","Result","Inspection Date","Expiry","Status","Actions"].map(h=>(
                                         <td key={h} style={{padding:"8px 12px",fontSize:9,color:T.textDim,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{h}</td>
                                       ))}
                                     </tr>
                                   </thead>
                                   <tbody>{item.certs.map(cert=>{
-                                if(cert._folderCerts&&cert._folderCerts.length>1){
-                                  return cert._folderCerts.map((fc,fi)=>(
-                                    <CertRow key={fc.id} cert={fc} compact allCerts={allCerts} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}
-                                      folderRow={true} folderFirst={fi===0} folderLast={fi===cert._folderCerts.length-1} folderSize={cert._folderCerts.length}/>
-                                  ));
-                                }
-                                return <CertRow key={cert.id} cert={cert} compact allCerts={allCerts} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}/>;
-                              })}</tbody>
+                                    if(cert._folderCerts&&cert._folderCerts.length>1){
+                                      return cert._folderCerts.map((fc,fi)=>(
+                                        <CertRow key={fc.id} cert={fc} compact allCerts={allCerts} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}
+                                          folderRow={true} folderFirst={fi===0} folderLast={fi===cert._folderCerts.length-1} folderSize={cert._folderCerts.length}/>
+                                      ));
+                                    }
+                                    return <CertRow key={cert.id} cert={cert} compact allCerts={allCerts} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}/>;
+                                  })}</tbody>
                                 </table>
                               </div>
                               <div className="cert-mob">
@@ -459,7 +460,7 @@ function FlatView({certs,onUnlink,onDelete,onSelect,selected,selectMode}){
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:900}}>
           <thead>
             <tr style={{background:"rgba(255,255,255,0.02)"}}>
-              {["Certificate No","Client","Equipment","Type","Result","Issue","Expiry","Days","Status","Actions"].map(h=>(
+              {["Certificate No","Client","Equipment","Type","Result","Inspection Date","Expiry","Days","Status","Actions"].map(h=>(
                 <td key={h} style={{padding:"10px 12px",fontSize:9,color:T.textDim,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{h}</td>
               ))}
             </tr>
@@ -477,7 +478,9 @@ function FlatView({certs,onUnlink,onDelete,onSelect,selected,selectMode}){
 function CertRow({cert,compact=false,allCerts=[],onUnlink,onDelete,onSelect,selected,selectMode,folderRow=false,folderFirst=false,folderLast=false,folderSize=0}){
   const r=rc(cert.result);const e=ec(cert.expiry_bucket);
   const days=daysDiff(cert.expiry_date);
-  const id=encodeURIComponent(String(cert.id??""));
+  const encodedId=encodeURIComponent(String(cert.id??""));
+  const isSelected=selected?.has(cert.id);
+
   if(compact){
     return(
       <tr className="cr" style={{borderBottom:`1px solid ${T.border}`}}>
@@ -488,10 +491,24 @@ function CertRow({cert,compact=false,allCerts=[],onUnlink,onDelete,onSelect,sele
           </div>
         </td>
         <td style={TD}><Badge label={r.label} color={r.color} bg={r.bg} brd={r.brd}/></td>
-        <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.issue_date)}</td>
+        <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.inspection_date||cert.issue_date)}</td>
         <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.expiry_date)}</td>
         <td style={{...TD,fontSize:12,color:T.textMid,textTransform:"capitalize"}}>{nz(cert.status,"active")}</td>
-        <td style={TD}><ActBtns id={id} certNo={cert.certificate_number} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={allCerts} certId={cert.id} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected?.has(id)} selectMode={selectMode}/></td>
+        <td style={TD}>
+          <ActBtns
+            encodedId={encodedId}
+            certId={cert.id}
+            certNo={cert.certificate_number}
+            folderId={cert.folder_id}
+            folderName={cert.folder_name}
+            allCerts={allCerts}
+            onUnlink={onUnlink}
+            onDelete={onDelete}
+            onSelect={onSelect}
+            isSelected={isSelected}
+            selectMode={selectMode}
+          />
+        </td>
       </tr>
     );
   }
@@ -502,13 +519,27 @@ function CertRow({cert,compact=false,allCerts=[],onUnlink,onDelete,onSelect,sele
       <td style={{...TD,fontSize:12,color:T.textMid,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cert.equipment_description}</td>
       <td style={{...TD,fontSize:12,color:T.textMid}}>{cert.equipment_type}</td>
       <td style={TD}><Badge label={r.label} color={r.color} bg={r.bg} brd={r.brd}/></td>
-      <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.issue_date)}</td>
+      <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.inspection_date||cert.issue_date)}</td>
       <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.expiry_date)}</td>
       <td style={TD}>
         {days!==null?<span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:5,background:e.bg,color:e.color}}>{days<0?`${Math.abs(days)}d ago`:`${days}d`}</span>:<span style={{color:T.textDim,fontSize:12}}>—</span>}
       </td>
       <td style={{...TD,fontSize:12,color:T.textMid,textTransform:"capitalize"}}>{nz(cert.status,"active")}</td>
-      <td style={TD}><ActBtns id={id} certNo={cert.certificate_number} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={allCerts} certId={cert.id} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected?.has(id)} selectMode={selectMode}/></td>
+      <td style={TD}>
+        <ActBtns
+          encodedId={encodedId}
+          certId={cert.id}
+          certNo={cert.certificate_number}
+          folderId={cert.folder_id}
+          folderName={cert.folder_name}
+          allCerts={allCerts}
+          onUnlink={onUnlink}
+          onDelete={onDelete}
+          onSelect={onSelect}
+          isSelected={isSelected}
+          selectMode={selectMode}
+        />
+      </td>
     </tr>
   );
 }
@@ -516,7 +547,8 @@ function CertRow({cert,compact=false,allCerts=[],onUnlink,onDelete,onSelect,sele
 function CertMobCard({cert,onUnlink,onDelete,onSelect,selected,selectMode}){
   const r=rc(cert.result);const e=ec(cert.expiry_bucket);
   const days=daysDiff(cert.expiry_date);
-  const id=encodeURIComponent(String(cert.id??""));
+  const encodedId=encodeURIComponent(String(cert.id??""));
+  const isSelected=selected?.has(cert.id);
   return(
     <div style={{padding:"13px 14px",borderBottom:`1px solid ${T.border}`,display:"grid",gap:9}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,flexWrap:"wrap"}}>
@@ -529,15 +561,27 @@ function CertMobCard({cert,onUnlink,onDelete,onSelect,selected,selectMode}){
       <div style={{fontSize:12,color:T.textMid}}>{cert.equipment_description} · {cert.equipment_type}</div>
       <div style={{fontSize:11,color:T.textDim,display:"flex",gap:12,flexWrap:"wrap"}}>
         {cert.client_name!=="UNASSIGNED"&&<span>{cert.client_name}</span>}
-        <span>Issue: {formatDate(cert.issue_date)}</span>
+        <span>Inspected: {formatDate(cert.inspection_date||cert.issue_date)}</span>
         <span>Expiry: {formatDate(cert.expiry_date)}</span>
       </div>
-      <ActBtns id={id} certNo={cert.certificate_number} folderId={cert.folder_id} folderName={cert.folder_name} allCerts={[]} certId={cert.id} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected?.has(id)} selectMode={selectMode}/>
+      <ActBtns
+        encodedId={encodedId}
+        certId={cert.id}
+        certNo={cert.certificate_number}
+        folderId={cert.folder_id}
+        folderName={cert.folder_name}
+        allCerts={[]}
+        onUnlink={onUnlink}
+        onDelete={onDelete}
+        onSelect={onSelect}
+        isSelected={isSelected}
+        selectMode={selectMode}
+      />
     </div>
   );
 }
 
-function ActBtns({id,certNo,folderId,folderName,allCerts,certId,onUnlink,onDelete,onSelect,selected,selectMode}){
+function ActBtns({encodedId,certId,certNo,folderId,folderName,allCerts,onUnlink,onDelete,onSelect,isSelected,selectMode}){
   function handlePrint(e){
     e.preventDefault();
     if(folderId&&allCerts){
@@ -549,29 +593,29 @@ function ActBtns({id,certNo,folderId,folderName,allCerts,certId,onUnlink,onDelet
         return;
       }
     }
-    window.open(`/certificates/print/${id}`,"_blank");
+    window.open(`/certificates/print/${encodedId}`,"_blank");
   }
   const btnBase={display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"6px 11px",borderRadius:8,fontSize:11,fontWeight:800,textDecoration:"none",whiteSpace:"nowrap",cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent",minHeight:32,border:"1px solid"};
   return(
     <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-      <Link href={`/certificates/${id}`}      prefetch={false} style={{...btnBase,background:T.accentDim,color:T.accent,borderColor:T.accentBrd}}>View</Link>
-      <Link href={`/certificates/${id}/edit`} prefetch={false} style={{...btnBase,background:T.amberDim,color:T.amber,borderColor:T.amberBrd}}>Edit</Link>
+      <Link href={`/certificates/${encodedId}`}      prefetch={false} style={{...btnBase,background:T.accentDim,color:T.accent,borderColor:T.accentBrd}}>View</Link>
+      <Link href={`/certificates/${encodedId}/edit`} prefetch={false} style={{...btnBase,background:T.amberDim,color:T.amber,borderColor:T.amberBrd}}>Edit</Link>
       {folderId?(
-        <button type="button" onClick={()=>onUnlink&&onUnlink(id)}
+        <button type="button" onClick={()=>onUnlink&&onUnlink(certId)}
           style={{...btnBase,background:T.redDim,color:T.red,borderColor:T.redBrd}}>
           Unlink
         </button>
       ):(
-        <button type="button" onClick={()=>onSelect&&onSelect(id)}
-          style={{...btnBase,background:selected?T.purpleDim:T.card,color:selected?T.purple:T.textDim,borderColor:selected?T.purpleBrd:T.border}}>
-          {selected?"✓ Selected":"Select"}
+        <button type="button" onClick={()=>onSelect&&onSelect(certId)}
+          style={{...btnBase,background:isSelected?T.purpleDim:T.card,color:isSelected?T.purple:T.textDim,borderColor:isSelected?T.purpleBrd:T.border}}>
+          {isSelected?"✓ Selected":"Select"}
         </button>
       )}
       <button type="button" onClick={handlePrint}
         style={{...btnBase,background:T.greenDim,color:T.green,borderColor:T.greenBrd}}>
         {folderId?"Print All":"Print"}
       </button>
-      <button type="button" onClick={()=>onDelete&&onDelete(id,folderId,certNo)}
+      <button type="button" onClick={()=>onDelete&&onDelete(certId,folderId,certNo)}
         style={{...btnBase,background:"rgba(127,29,29,0.25)",color:T.red,borderColor:T.redBrd}}>
         🗑
       </button>
