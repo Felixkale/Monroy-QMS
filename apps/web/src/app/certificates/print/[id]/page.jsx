@@ -20,7 +20,6 @@ const CSS = `
   *,*::before,*::after{box-sizing:border-box}
   ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.2);border-radius:99px}
 
-  /* Toolbar — hidden on print */
   .pt-toolbar{
     position:sticky;top:0;z-index:100;
     display:flex;align-items:center;justify-content:space-between;
@@ -43,49 +42,33 @@ const CSS = `
   .pt-btn:hover{filter:brightness(1.12);transform:translateY(-1px)}
   .pt-btn:active{transform:scale(0.97)}
   .pt-btn:disabled{opacity:0.5;cursor:not-allowed;transform:none}
-
   .pt-btn-save{background:linear-gradient(135deg,#22d3ee,#60a5fa);color:#001018}
   .pt-btn-print{background:linear-gradient(135deg,#34d399,#14b8a6);color:#052e16}
   .pt-btn-back{background:rgba(255,255,255,0.06);border:1px solid rgba(148,163,184,0.18)!important;color:#f0f6ff}
-
   .pt-title{font-size:13px;font-weight:700;color:rgba(240,246,255,0.70);font-family:'IBM Plex Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
-
   .pt-progress{
     position:fixed;top:0;left:0;right:0;z-index:200;
     background:rgba(7,14,24,0.97);
     display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:16px;padding:40px;
-    min-height:100vh;
-    font-family:'IBM Plex Sans',sans-serif;
-    color:#f0f6ff;
+    gap:16px;padding:40px;min-height:100vh;
+    font-family:'IBM Plex Sans',sans-serif;color:#f0f6ff;
   }
   .pt-spinner{
     width:48px;height:48px;border-radius:50%;
-    border:3px solid rgba(34,211,238,0.15);
-    border-top-color:#22d3ee;
+    border:3px solid rgba(34,211,238,0.15);border-top-color:#22d3ee;
     animation:spin 0.8s linear infinite;
   }
   @keyframes spin{to{transform:rotate(360deg)}}
-
-  /* Page content area */
   .pt-content{
-    min-height:100vh;
-    background:#e8ecf0;
-    padding:24px;
-    display:flex;
-    flex-direction:column;
-    align-items:center;
-    gap:20px;
+    min-height:100vh;background:#e8ecf0;padding:24px;
+    display:flex;flex-direction:column;align-items:center;gap:20px;
   }
-
-  /* Print — only show certificate, hide everything else */
   @media print{
     .pt-toolbar{display:none!important}
     .pt-content{background:white!important;padding:0!important}
     body{background:white!important}
     @page{size:A4;margin:0}
   }
-
   @media(max-width:768px){
     .pt-toolbar{padding:10px 14px}
     .pt-btn{padding:10px 14px;font-size:12px}
@@ -98,17 +81,7 @@ const CSS = `
   }
 `;
 
-function pickResult(c) {
-  if (!c) return "UNKNOWN";
-  const ex = c.extracted_data || {};
-  for (const raw of [c.result, c.equipment_status, ex.result, ex.equipment_status]) {
-    if (!raw) continue;
-    const n = String(raw).trim().toUpperCase().replace(/\s+/g, "_");
-    if (n === "UNKNOWN") continue;
-    if (["PASS","FAIL","REPAIR_REQUIRED","OUT_OF_SERVICE"].includes(n)) return n;
-  }
-  return "UNKNOWN";
-}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 export default function CertificatePrintPage() {
   const params = useParams();
@@ -116,41 +89,36 @@ export default function CertificatePrintPage() {
   const id = params?.id;
   const certRef = useRef(null);
 
-  const [certs,setCerts]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [error,setError]=useState("");
-  const [saving,setSaving]=useState(false);
-  const [saveMsg,setSaveMsg]=useState("");
-  const [html2pdfLoaded,setHtml2pdfLoaded]=useState(false);
+  const [certs,       setCerts]       = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState("");
+  const [saving,      setSaving]      = useState(false);
+  const [saveMsg,     setSaveMsg]     = useState("");
+  const [html2pdfReady, setHtml2pdfReady] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState(""); // silent background status
 
-  // Load html2pdf.js from CDN
-  useEffect(()=>{
+  // Load html2pdf from CDN
+  useEffect(() => {
     if (typeof window === "undefined") return;
-    if (window.html2pdf) { setHtml2pdfLoaded(true); return; }
-    const script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
-    script.onload = () => setHtml2pdfLoaded(true);
-    script.onerror = () => console.warn("html2pdf failed to load — browser print fallback available");
-    document.head.appendChild(script);
-  },[]);
+    if (window.html2pdf) { setHtml2pdfReady(true); return; }
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+    s.onload  = () => setHtml2pdfReady(true);
+    s.onerror = () => console.warn("html2pdf CDN failed");
+    document.head.appendChild(s);
+  }, []);
 
-  useEffect(()=>{
+  // Load cert data
+  useEffect(() => {
     if (!id) return;
-    async function load(){
-      setLoading(true);setError("");
+    async function load() {
+      setLoading(true); setError("");
       const { data, error: e } = await supabase
-        .from("certificates")
-        .select("*")
-        .eq("id", id)
-        .maybeSingle();
-
+        .from("certificates").select("*").eq("id", id).maybeSingle();
       if (e || !data) { setError(e?.message || "Certificate not found."); setLoading(false); return; }
-
-      // If part of a folder, load all certs in folder
       if (data.folder_id) {
         const { data: folder } = await supabase
-          .from("certificates")
-          .select("*")
+          .from("certificates").select("*")
           .eq("folder_id", data.folder_id)
           .order("folder_position", { ascending: true });
         setCerts(folder?.length ? folder : [data]);
@@ -160,43 +128,104 @@ export default function CertificatePrintPage() {
       setLoading(false);
     }
     load();
-  },[id]);
+  }, [id]);
 
-  const certNumber  = certs[0]?.certificate_number || "Certificate";
-  const folderName  = certs[0]?.folder_name || "";
-  const clientName  = certs[0]?.client_name || "";
-  const siteLocation= certs[0]?.location    || "";
-  const isFolder    = certs.length > 1;
-  const fileName   = `${certNumber.replace(/[^a-zA-Z0-9-]/g,"_")}.pdf`;
+  // Auto-upload to storage after render — for each cert missing a pdf_url
+  useEffect(() => {
+    if (!certs.length || loading) return;
+
+    // Only run after html2pdf is ready and content has rendered
+    const timer = setTimeout(async () => {
+      if (!window.html2pdf || !certRef.current) return;
+
+      // Check which certs need PDF generation
+      const missing = certs.filter(c => !c.pdf_url);
+      if (missing.length === 0) return; // all already stored
+
+      try {
+        // Wait for fonts + images
+        await document.fonts.ready;
+        const imgs = Array.from(certRef.current.querySelectorAll("img"));
+        await Promise.all(imgs.map(img =>
+          img.complete ? Promise.resolve() :
+          new Promise(r => { img.onload = r; img.onerror = r; })
+        ));
+        await sleep(1000);
+
+        const el = certRef.current;
+        if (!el || el.scrollHeight < 200) return;
+
+        setUploadStatus("uploading");
+
+        const opt = {
+          margin: 0,
+          filename: "cert.pdf",
+          image: { type: "jpeg", quality: 0.95 },
+          html2canvas: {
+            scale: 2, useCORS: true, allowTaint: true,
+            logging: false, letterRendering: true,
+            windowWidth: 794, backgroundColor: "#ffffff",
+            scrollX: 0, scrollY: 0,
+          },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait", compress: true },
+        };
+
+        const blob = await window.html2pdf().set(opt).from(el).outputPdf("blob");
+        if (!blob || blob.size < 5000) return;
+
+        // Upload each cert's PDF to storage
+        // For folders, all certs share one PDF (the full folder)
+        // For single certs, upload individually
+        const uploadPromises = certs.map(async cert => {
+          if (cert.pdf_url) return; // already stored
+          const safeName = (cert.certificate_number || cert.id).toString().replace(/[^a-zA-Z0-9_-]/g, "_");
+          const path = `generated/${safeName}.pdf`;
+
+          const { data: storageData, error: storageErr } = await supabase.storage
+            .from("certificates")
+            .upload(path, blob, { contentType: "application/pdf", upsert: true });
+
+          if (storageErr) { console.warn("Storage upload failed:", storageErr.message); return; }
+
+          const { data: urlData } = supabase.storage.from("certificates").getPublicUrl(storageData.path);
+          const pdfUrl = urlData?.publicUrl;
+          if (!pdfUrl) return;
+
+          await supabase.from("certificates").update({ pdf_url: pdfUrl }).eq("id", cert.id);
+        });
+
+        await Promise.all(uploadPromises);
+        setUploadStatus("done");
+        console.log("✓ PDFs auto-uploaded to storage");
+
+      } catch (err) {
+        console.warn("Auto-upload failed:", err.message);
+        setUploadStatus("");
+      }
+    }, 3000); // wait 3s after certs load for full render
+
+    return () => clearTimeout(timer);
+  }, [certs, loading, html2pdfReady]);
+
+  const certNumber   = certs[0]?.certificate_number || "Certificate";
+  const clientName   = certs[0]?.client_name || "";
+  const siteLocation = certs[0]?.location || "";
+  const isFolder     = certs.length > 1;
+  const fileName     = `${certNumber.replace(/[^a-zA-Z0-9-]/g, "_")}.pdf`;
 
   async function handleSavePDF() {
     if (!certRef.current) return;
-    setSaving(true);
-    setSaveMsg("Generating PDF…");
-
+    setSaving(true); setSaveMsg("Generating PDF…");
     try {
       if (!window.html2pdf) throw new Error("html2pdf not loaded");
-
       const el = certRef.current;
       const opt = {
-        margin:       0,
-        filename:     fileName,
-        image:        { type: "jpeg", quality: 0.98 },
-        html2canvas:  {
-          scale:       2,
-          useCORS:     true,
-          logging:     false,
-          letterRendering: true,
-        },
-        jsPDF: {
-          unit:        "mm",
-          format:      "a4",
-          orientation: "portrait",
-          compress:    true,
-        },
+        margin: 0, filename: fileName,
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false, letterRendering: true },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait", compress: true },
         pagebreak: { mode: ["avoid-all", "css", "legacy"] },
       };
-
       await window.html2pdf().set(opt).from(el).save();
       setSaveMsg("Saved!");
       setTimeout(() => setSaveMsg(""), 3000);
@@ -209,112 +238,94 @@ export default function CertificatePrintPage() {
     }
   }
 
-  function handlePrint() {
-    window.print();
-  }
+  if (loading) return (
+    <>
+      <style>{CSS}</style>
+      <div className="pt-progress">
+        <div className="pt-spinner"/>
+        <div style={{ fontSize:14, fontWeight:600, color:"rgba(240,246,255,0.6)" }}>Loading certificate…</div>
+      </div>
+    </>
+  );
 
-  if (loading) {
-    return (
-      <>
-        <style>{CSS}</style>
-        <div className="pt-progress">
-          <div className="pt-spinner" />
-          <div style={{ fontSize:14, fontWeight:600, color:"rgba(240,246,255,0.6)" }}>Loading certificate…</div>
+  if (error) return (
+    <>
+      <style>{CSS}</style>
+      <div style={{ minHeight:"100vh", background:T.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:24, fontFamily:"'IBM Plex Sans',sans-serif" }}>
+        <div style={{ background:T.redDim, border:`1px solid ${T.redBrd}`, borderRadius:14, padding:"20px 24px", color:T.red, fontSize:14, fontWeight:700, maxWidth:400, textAlign:"center" }}>
+          <div style={{ fontSize:24, marginBottom:10 }}>⚠</div>
+          {error}
+          <br/>
+          <button onClick={() => router.push("/certificates")}
+            style={{ marginTop:14, padding:"9px 18px", borderRadius:10, border:"none", background:T.redDim, color:T.red, cursor:"pointer", fontWeight:700, fontFamily:"'IBM Plex Sans',sans-serif" }}>
+            ← Back to Certificates
+          </button>
         </div>
-      </>
-    );
-  }
-
-  if (error) {
-    return (
-      <>
-        <style>{CSS}</style>
-        <div style={{ minHeight:"100vh", background:T.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:24, fontFamily:"'IBM Plex Sans',sans-serif" }}>
-          <div style={{ background:T.redDim, border:`1px solid ${T.redBrd}`, borderRadius:14, padding:"20px 24px", color:T.red, fontSize:14, fontWeight:700, maxWidth:400, textAlign:"center" }}>
-            <div style={{ fontSize:24, marginBottom:10 }}>⚠</div>
-            {error}
-            <br/>
-            <button onClick={() => router.push("/certificates")}
-              style={{ marginTop:14, padding:"9px 18px", borderRadius:10, border:"none", background:T.redDim, color:T.red, cursor:"pointer", fontWeight:700, fontFamily:"'IBM Plex Sans',sans-serif" }}>
-              ← Back to Certificates
-            </button>
-          </div>
-        </div>
-      </>
-    );
-  }
+      </div>
+    </>
+  );
 
   return (
     <>
       <style>{CSS}</style>
 
-      {/* Saving overlay */}
       {saving && (
         <div className="pt-progress" style={{ position:"fixed", zIndex:300 }}>
-          <div className="pt-spinner" />
+          <div className="pt-spinner"/>
           <div style={{ fontSize:15, fontWeight:700 }}>{saveMsg || "Generating PDF…"}</div>
-          <div style={{ fontSize:12, color:"rgba(240,246,255,0.45)" }}>Please wait, this may take a moment</div>
+          <div style={{ fontSize:12, color:"rgba(240,246,255,0.45)" }}>Please wait…</div>
         </div>
       )}
 
       {/* TOOLBAR */}
       <div className="pt-toolbar">
-        <div className="pt-title">
-          {isFolder ? `${clientName} — ${certs.length} Certificates` : certNumber}
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <div className="pt-title">
+            {isFolder ? `${clientName} — ${certs.length} Certificates` : certNumber}
+          </div>
+          {/* Silent upload indicator */}
+          {uploadStatus === "uploading" && (
+            <span style={{ fontSize:10, color:T.textDim, display:"flex", alignItems:"center", gap:5 }}>
+              <span style={{ width:8, height:8, borderRadius:"50%", border:"1.5px solid rgba(34,211,238,0.4)", borderTopColor:T.accent, animation:"spin 0.7s linear infinite", display:"inline-block" }}/>
+              Storing…
+            </span>
+          )}
+          {uploadStatus === "done" && (
+            <span style={{ fontSize:10, color:T.green }}>✓ Stored</span>
+          )}
         </div>
         <div className="pt-btn-row">
-          <button
-            type="button"
-            className="pt-btn pt-btn-back"
+          <button type="button" className="pt-btn pt-btn-back"
             onClick={() => router.push(`/certificates/${id}`)}
-            style={{ border:"1px solid rgba(148,163,184,0.18)" }}
-          >
+            style={{ border:"1px solid rgba(148,163,184,0.18)" }}>
             ← Back
           </button>
-
-          <button
-            type="button"
-            className="pt-btn pt-btn-print"
-            onClick={handlePrint}
-          >
+          <button type="button" className="pt-btn pt-btn-print" onClick={() => window.print()}>
             🖨 Print
           </button>
-
           {isFolder && (
-            <button
-              type="button"
-              className="pt-btn"
+            <button type="button" className="pt-btn"
               onClick={() => {
-                const params = new URLSearchParams({
-                  client: clientName,
-                  title:  "Statutory Inspection",
-                  year:   new Date().getFullYear().toString(),
+                const p = new URLSearchParams({
+                  client: clientName, title: "Statutory Inspection",
+                  year: new Date().getFullYear().toString(),
                   location: siteLocation,
                   period: new Date().toLocaleString("en-GB",{month:"long",year:"numeric"}),
-                  certs:  String(certs.length),
+                  certs: String(certs.length),
                 });
-                window.open(`/certificates/cover-print?${params.toString()}`, `_blank`);
+                window.open(`/certificates/cover-print?${p.toString()}`, "_blank");
               }}
-              style={{ background:"linear-gradient(135deg,#a78bfa,#7c3aed)", color:"#fff", border:"none" }}
-            >
+              style={{ background:"linear-gradient(135deg,#a78bfa,#7c3aed)", color:"#fff", border:"none" }}>
               📄 Print Cover
             </button>
           )}
-
-          <button
-            type="button"
-            className="pt-btn pt-btn-save"
+          <button type="button" className="pt-btn pt-btn-save"
             onClick={handleSavePDF}
-            disabled={saving || !html2pdfLoaded}
-            title={!html2pdfLoaded ? "Loading PDF engine…" : "Save as PDF"}
-          >
+            disabled={saving || !html2pdfReady}
+            title={!html2pdfReady ? "Loading PDF engine…" : "Save as PDF"}>
             {saving ? (
-              <><span style={{ width:14, height:14, borderRadius:"50%", border:"2px solid rgba(0,16,24,0.3)", borderTopColor:"#001018", animation:"spin 0.8s linear infinite", display:"inline-block" }} /> Saving…</>
-            ) : saveMsg ? (
-              <>{saveMsg}</>
-            ) : (
-              <>⬇ Save as PDF</>
-            )}
+              <><span style={{ width:14, height:14, borderRadius:"50%", border:"2px solid rgba(0,16,24,0.3)", borderTopColor:"#001018", animation:"spin 0.8s linear infinite", display:"inline-block" }}/> Saving…</>
+            ) : saveMsg || "⬇ Save as PDF"}
           </button>
         </div>
       </div>
@@ -323,19 +334,11 @@ export default function CertificatePrintPage() {
       <div className="pt-content">
         <div ref={certRef}>
           {certs.map((cert, i) => (
-            <div
-              key={cert.id}
-              style={{
-                marginBottom: i < certs.length - 1 ? 24 : 0,
-                pageBreakAfter: i < certs.length - 1 ? "always" : "auto",
-              }}
-            >
-              <CertificateSheet
-                certificate={cert}
-                index={i}
-                total={certs.length}
-                printMode
-              />
+            <div key={cert.id} style={{
+              marginBottom: i < certs.length - 1 ? 24 : 0,
+              pageBreakAfter: i < certs.length - 1 ? "always" : "auto",
+            }}>
+              <CertificateSheet certificate={cert} index={i} total={certs.length} printMode/>
             </div>
           ))}
         </div>
