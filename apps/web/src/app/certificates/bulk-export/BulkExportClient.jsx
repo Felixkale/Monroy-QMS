@@ -100,59 +100,63 @@ export default function BulkExportClient() {
     setExporting(true); setError(""); setDoneMsg(""); setExportProgress(0);
 
     try {
-      const withPDF    = preview.filter(c => c.pdf_url);
       const withoutPDF = preview.filter(c => !c.pdf_url);
 
-      // If some certs are missing PDFs, generate them first
+      // Generate PDFs for any certs that don't have one yet
       if (withoutPDF.length > 0) {
-        setExportStep(`Generating ${withoutPDF.length} missing PDFs…`);
+        setExportStep(`Generating ${withoutPDF.length} PDF${withoutPDF.length !== 1 ? "s" : ""}…`);
         const res = await fetch("/api/certificates/generate-pdf", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ids: withoutPDF.map(c => c.id) }),
         });
         if (!res.ok) {
-          const json = await res.json();
+          const json = await res.json().catch(() => ({}));
           throw new Error(json.error || "PDF generation failed.");
         }
-
-        // Re-fetch all certs to get updated pdf_url values
-        setExportStep("Refreshing certificate data…");
-        const ids = preview.map(c => c.id);
-        const allRefreshed = [];
-        for (let i = 0; i < ids.length; i += 50) {
-          const { data } = await supabase
-            .from("certificates")
-            .select("id,certificate_number,client_name,inspection_date,issue_date,pdf_url")
-            .in("id", ids.slice(i, i + 50));
-          allRefreshed.push(...(data || []));
-        }
-
-        // Rebuild preview with updated pdf_url
-        preview.forEach((cert, idx) => {
-          const refreshed = allRefreshed.find(r => r.id === cert.id);
-          if (refreshed) preview[idx] = { ...cert, ...refreshed };
-        });
       }
 
-      // Now download all PDFs and ZIP them
-      setExportStep("Downloading PDFs…");
+      // Always re-fetch ALL certs fresh from DB to get current pdf_url values
+      setExportStep("Fetching PDF links…");
+      const ids = preview.map(c => c.id);
+      const freshCerts = [];
+      for (let i = 0; i < ids.length; i += 50) {
+        const { data } = await supabase
+          .from("certificates")
+          .select("id,certificate_number,client_name,inspection_date,issue_date,pdf_url")
+          .in("id", ids.slice(i, i + 50));
+        freshCerts.push(...(data || []));
+      }
+
+      // Build a map for quick lookup
+      const urlMap = {};
+      freshCerts.forEach(c => { if (c.pdf_url) urlMap[c.id] = c.pdf_url; });
+
+      const certsWithURL = preview.map(c => ({ ...c, pdf_url: urlMap[c.id] || c.pdf_url || null }));
+      const available = certsWithURL.filter(c => c.pdf_url);
+
+      if (available.length === 0) throw new Error("No PDFs available — generation may have failed. Check Supabase Storage bucket.");
+
+      // Download all PDFs and ZIP them
+      setExportStep(`Downloading ${available.length} PDFs…`);
       const zip = new JSZip();
       let done = 0;
 
-      await Promise.all(preview.map(async cert => {
+      await Promise.all(available.map(async cert => {
         try {
-          if (!cert.pdf_url) return;
           const res = await fetch(cert.pdf_url);
           if (!res.ok) return;
           const ab = await res.arrayBuffer();
+          if (!ab || ab.byteLength < 100) return;
           const clientFolder = (cert.client_name || "Unknown").trim().replace(/[^a-zA-Z0-9_\- ]/g, "_");
           const safeDate     = (cert.inspection_date || cert.issue_date || "NoDate").replace(/-/g, "");
           const safeCertNum  = (cert.certificate_number || cert.id).toString().replace(/[^a-zA-Z0-9_-]/g, "_");
           zip.file(`${clientFolder}/${safeDate}_${safeCertNum}.pdf`, ab);
-        } catch {}
+        } catch (e) {
+          console.error("Failed to fetch PDF:", cert.certificate_number, e.message);
+        }
         done++;
-        setExportProgress(Math.round((done / preview.length) * 80));
+        setExportProgress(Math.round((done / available.length) * 80));
       }));
 
       setExportStep("Compressing ZIP…");
@@ -162,7 +166,7 @@ export default function BulkExportClient() {
         compressionOptions: { level: 6 },
       });
 
-      if (zipBlob.size < 100) throw new Error("ZIP is empty — no PDFs were available.");
+      if (zipBlob.size < 100) throw new Error("ZIP is empty — PDFs could not be downloaded. Check Supabase Storage CORS settings.");
 
       const clientLabel = clientName ? clientName.trim().replace(/\s+/g, "_") : "AllClients";
       const dateLabel   = inspectionDate ? `_${inspectionDate}` : "";
@@ -176,7 +180,7 @@ export default function BulkExportClient() {
       setTimeout(() => URL.revokeObjectURL(url), 5000);
 
       setExportProgress(100);
-      setDoneMsg(`✓ ${preview.length} certificate${preview.length !== 1 ? "s" : ""} exported successfully`);
+      setDoneMsg(`✓ ${available.length} certificate${available.length !== 1 ? "s" : ""} exported successfully`);
 
     } catch (err) {
       setError(err.message || "Export failed.");
