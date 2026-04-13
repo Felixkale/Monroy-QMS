@@ -384,9 +384,10 @@ export default function MachineInspectionPage() {
     // ── SERVICE TRUCK ──────────────────────────────────────────────────────
     if (machineType.isServiceTruck || machineType.isMixerTruck) {
       // 1. Vehicle registration cert
-      const truckDesc = `Service Truck ${svcTruck.make} ${svcTruck.model} Reg ${svcTruck.reg}`.trim();
+      const truckLabel = machineType.isMixerTruck ? "Mixer Truck" : "Service Truck";
+      const truckDesc = `${truckLabel} ${svcTruck.make} ${svcTruck.model} Reg ${svcTruck.reg}`.trim();
       certs.push({
-        certificate_number:nextNo(), equipment_type:"Service Truck", equipment_description:truckDesc,
+        certificate_number:nextNo(), equipment_type:truckLabel, equipment_description:truckDesc,
         serial_number:svcTruck.vin||equipRef.serial_number, fleet_number:svcTruck.fleet,
         registration_number:svcTruck.reg, model:svcTruck.model, manufacturer:svcTruck.make,
         swl:svcTruck.gvm?`GVM ${svcTruck.gvm}`:"", client_name:equip.client_name, client_id:equip.client_id,
@@ -410,12 +411,12 @@ export default function MachineInspectionPage() {
           issue_date:iDate, inspection_date:iDate, expiry_date:addMonths(iDate,12), next_inspection_due:addMonths(iDate,12),
           result:pv.result, defects_found:pv.notes||"", inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID,
           certificate_type:"Pressure Test Certificate", folder_id:folderId, folder_name:folderName, folder_position:10+i,
-          notes: JSON.stringify({ parent_reg:svcTruck.reg||equip.serial_number, parent_fleet:svcTruck.fleet||equip.fleet_number, parent_make:svcTruck.make, parent_model:svcTruck.model, parent_asset:`${machineType.label} ${svcTruck.reg||equip.serial_number}` }),
+          notes: JSON.stringify({ parent_reg:svcTruck.reg||equip.serial_number, parent_fleet:svcTruck.fleet||equip.fleet_number, parent_make:svcTruck.make, parent_model:svcTruck.model, parent_asset:`${truckLabel} ${svcTruck.reg||equip.serial_number}` }),
         });
       });
 
-      // 3. Tools / lifting equipment
-      svcTools.forEach((tool,i) => {
+      // 3. Tools / lifting equipment — service truck only
+      if (machineType.isServiceTruck) svcTools.forEach((tool,i) => {
         if (!tool.include) return;
         const toolMeta = SVC_TOOL_TYPES.find(t=>t.id===tool.type);
         const toolLabel = toolMeta?.label || tool.type;
@@ -427,7 +428,7 @@ export default function MachineInspectionPage() {
           issue_date:iDate, inspection_date:iDate, expiry_date:expiryDate, next_inspection_due:expiryDate,
           result:tool.result, defects_found:tool.defects||"", inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID,
           certificate_type:"Load Test Certificate", folder_id:folderId, folder_name:folderName, folder_position:20+i,
-          notes: JSON.stringify({ parent_reg:svcTruck.reg||equip.serial_number, parent_fleet:svcTruck.fleet||equip.fleet_number, parent_make:svcTruck.make, parent_model:svcTruck.model, parent_asset:`${machineType.label} ${svcTruck.reg||equip.serial_number}` }),
+          notes: JSON.stringify({ parent_reg:svcTruck.reg||equip.serial_number, parent_fleet:svcTruck.fleet||equip.fleet_number, parent_make:svcTruck.make, parent_model:svcTruck.model, parent_asset:`${truckLabel} ${svcTruck.reg||equip.serial_number}` }),
         });
       });
 
