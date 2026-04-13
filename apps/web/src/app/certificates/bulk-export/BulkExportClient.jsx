@@ -345,19 +345,9 @@ export default function BulkExportClient() {
                 {loadingPreview?"Loading…":"Preview Matches"}
               </button>
               {previewLoaded&&preview.length>0&&!exporting&&(
-                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                  <button onClick={()=>{
-                    const p=new URLSearchParams();
-                    if(clientName)p.set("client",clientName.trim());
-                    if(inspectionDate)p.set("date",inspectionDate);
-                    window.open(`/certificates/bulk-print?${p.toString()}`,"_blank");
-                  }} style={{padding:"9px 20px",borderRadius:10,border:`1px solid ${T.greenBrd}`,background:T.greenDim,color:T.green,fontWeight:900,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",display:"flex",alignItems:"center",gap:8}}>
-                    🖨 Print All {preview.length} Certificates
-                  </button>
-                  <button onClick={handleExport} style={{padding:"9px 20px",borderRadius:10,border:`1px solid ${T.accentBrd}`,background:T.accentDim,color:T.accent,fontWeight:900,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",display:"flex",alignItems:"center",gap:8}}>
-                    ⬇ ZIP
-                  </button>
-                </div>
+                <button onClick={handleExport} style={{padding:"9px 20px",borderRadius:10,border:`1px solid ${T.greenBrd}`,background:T.greenDim,color:T.green,fontWeight:900,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",display:"flex",alignItems:"center",gap:8}}>
+                  ⬇ Export {preview.length} Certificate{preview.length!==1?"s":""} as ZIP
+                </button>
               )}
             </div>
 
