@@ -24,14 +24,14 @@ const LS = { fontSize:10, fontWeight:700, letterSpacing:"0.08em", textTransform:
 const INSPECTOR_NAME = "Moemedi Masupe";
 const INSPECTOR_ID   = "700117910";
 
-// Step IDs:
-// 1=Equipment  2=Checklist  3=Boom  4=Forks  5=Platform  6=Vessels  7=Horse&Trailer  8=Review
+// Step IDs
+// 1=Equipment  2=Checklist  3=Boom  4=Forks  5=Platform  6=Vessels  7=Horse&Trailer  8=ServiceTruck  9=Review(was 8)
 
 const MACHINE_TYPES = [
   {
     id:"telehandler", label:"Telehandler", icon:"🏗",
     certType:"Load Test Certificate", expiry:12,
-    baseSteps:[1,2,3,4,8], hasPV:true,
+    baseSteps:[1,2,3,4,9], hasPV:true,
     fields:[
       { key:"structural_result", label:"Structural Integrity",             type:"result" },
       { key:"hydraulics_result", label:"Hydraulic System",                 type:"result" },
@@ -45,7 +45,7 @@ const MACHINE_TYPES = [
   {
     id:"cherry_picker", label:"Cherry Picker / AWP", icon:"🚒",
     certType:"Load Test Certificate", expiry:12,
-    baseSteps:[1,2,3,5,8], hasPV:true,
+    baseSteps:[1,2,3,5,9], hasPV:true,
     fields:[
       { key:"structural_result",  label:"Structural Integrity",            type:"result" },
       { key:"hydraulics_result",  label:"Hydraulic System",                type:"result" },
@@ -58,7 +58,7 @@ const MACHINE_TYPES = [
   {
     id:"forklift", label:"Forklift", icon:"🏭",
     certType:"Load Test Certificate", expiry:12,
-    baseSteps:[1,2,4,8], hasPV:false,
+    baseSteps:[1,2,4,9], hasPV:false,
     fields:[
       { key:"structural_result", label:"Mast / Structural Integrity",     type:"result" },
       { key:"hydraulics_result", label:"Hydraulic System",                type:"result" },
@@ -72,7 +72,7 @@ const MACHINE_TYPES = [
   {
     id:"tlb", label:"TLB (Tractor Loader Backhoe)", icon:"🚜",
     certType:"Certificate of Inspection", expiry:12,
-    baseSteps:[1,2,8], hasPV:false,
+    baseSteps:[1,2,9], hasPV:false,
     fields:[
       { key:"structural_result", label:"Structural Integrity",            type:"result" },
       { key:"loader_result",     label:"Front Loader / Bucket",          type:"result" },
@@ -85,7 +85,7 @@ const MACHINE_TYPES = [
   {
     id:"frontloader", label:"Front Loader / Wheel Loader", icon:"🏗",
     certType:"Certificate of Inspection", expiry:12,
-    baseSteps:[1,2,8], hasPV:false,
+    baseSteps:[1,2,9], hasPV:false,
     fields:[
       { key:"structural_result", label:"Structural Integrity",            type:"result" },
       { key:"bucket_result",     label:"Bucket / Attachment",            type:"result" },
@@ -95,39 +95,51 @@ const MACHINE_TYPES = [
     ],
   },
   {
+    id:"service_truck", label:"Service Truck", icon:"🔧",
+    certType:"Vehicle Inspection Certificate", expiry:12,
+    baseSteps:[1,8,9], hasPV:true,
+    fields:[],
+    isServiceTruck: true,
+  },
+  {
     id:"horse_trailer", label:"Horse & Trailer", icon:"🚛",
     certType:"Vehicle Registration Certificate", expiry:12,
-    baseSteps:[1,7,8], hasPV:true, fields:[],
+    baseSteps:[1,7,9], hasPV:true, fields:[],
   },
   {
     id:"crane_truck",  label:"Crane Truck / Hiab",    icon:"🚛",
     certType:"Pressure Test Certificate", expiry:12,
-    baseSteps:[1,8], hasPV:true, pvOnly:true, fields:[],
+    baseSteps:[1,9], hasPV:true, pvOnly:true, fields:[],
   },
   {
     id:"water_bowser", label:"Water Bowser",            icon:"🚰",
     certType:"Pressure Test Certificate", expiry:12,
-    baseSteps:[1,8], hasPV:true, pvOnly:true, fields:[],
+    baseSteps:[1,9], hasPV:true, pvOnly:true, fields:[],
   },
   {
     id:"tipper_truck", label:"Tipper Truck",            icon:"🚚",
     certType:"Pressure Test Certificate", expiry:12,
-    baseSteps:[1,8], hasPV:true, pvOnly:true, fields:[],
+    baseSteps:[1,9], hasPV:true, pvOnly:true, fields:[],
   },
   {
     id:"bus",          label:"Bus / Personnel Carrier", icon:"🚌",
     certType:"Pressure Test Certificate", expiry:12,
-    baseSteps:[1,8], hasPV:true, pvOnly:true, fields:[],
+    baseSteps:[1,9], hasPV:true, pvOnly:true, fields:[],
   },
   {
     id:"compressor",   label:"Air Compressor",          icon:"⚙️",
     certType:"Pressure Test Certificate", expiry:12,
-    baseSteps:[1,8], hasPV:true, pvOnly:true, fields:[],
+    baseSteps:[1,9], hasPV:true, pvOnly:true, fields:[],
   },
   {
-    id:"other", label:"Other Machine / Equipment", icon:"🔧",
+    id:"mixer_truck", label:"Mixer Truck", icon:"🚛",
+    certType:"Vehicle Inspection Certificate", expiry:12,
+    baseSteps:[1,8,9], hasPV:true, isMixerTruck:true, fields:[],
+  },
+  {
+    id:"other", label:"Other Machine / Equipment", icon:"🔩",
     certType:"Certificate of Inspection", expiry:12,
-    baseSteps:[1,2,8], hasPV:true,
+    baseSteps:[1,2,9], hasPV:true,
     fields:[
       { key:"structural_result",  label:"Structural Integrity",           type:"result" },
       { key:"operational_result", label:"Operational Check",             type:"result" },
@@ -138,15 +150,29 @@ const MACHINE_TYPES = [
 ];
 
 const STEP_META = {
-  1: { label:"Equipment",    icon:"🔧" },
-  2: { label:"Checklist",    icon:"🔍" },
-  3: { label:"Boom",         icon:"📐" },
-  4: { label:"Forks",        icon:"🍴" },
-  5: { label:"Platform",     icon:"🪣" },
-  6: { label:"Vessels",      icon:"⚙️" },
-  7: { label:"Horse/Trailer",icon:"🚛" },
-  8: { label:"Generate",     icon:"📜" },
+  1: { label:"Equipment",     icon:"🔧" },
+  2: { label:"Checklist",     icon:"🔍" },
+  3: { label:"Boom",          icon:"📐" },
+  4: { label:"Forks",         icon:"🍴" },
+  5: { label:"Platform",      icon:"🪣" },
+  6: { label:"Vessels",       icon:"⚙️" },
+  7: { label:"Horse/Trailer", icon:"🚛" },
+  8: { label:"Service Truck", icon:"🔧" },
+  9: { label:"Review",        icon:"📜" },
 };
+
+// ── Service truck attachments ────────────────────────────────────────────
+const emptySvcTruck  = () => ({ reg:"", make:"", model:"", vin:"", year:"", fleet:"", gvm:"", result:"PASS", notes:"" });
+const emptySvcPV     = () => ({ sn:"", description:"Air Receiver", manufacturer:"", capacity:"", working_pressure:"", test_pressure:"", pressure_unit:"bar", result:"PASS", notes:"" });
+const emptySvcTool   = (type) => ({ type, sn:"", description:"", manufacturer:"", swl:"", result:"PASS", defects:"", include:true });
+
+const SVC_TOOL_TYPES = [
+  { id:"drum_clamp",   label:"Drum Clamp",   icon:"🥁" },
+  { id:"crawl_beam",   label:"Crawl Beam",   icon:"📏" },
+  { id:"lift_beam",    label:"Lift Beam",    icon:"⬆️" },
+  { id:"chain_block",  label:"Chain Block",  icon:"⛓" },
+  { id:"air_comp",     label:"Air Compressor",icon:"💨" },
+];
 
 function addMonths(dateStr, m) {
   if (!dateStr) return "";
@@ -240,10 +266,10 @@ function StepBar({ steps, currentStep }) {
 
 export default function MachineInspectionPage() {
   const router = useRouter();
-  const [clients,     setClients]     = useState([]);
-  const [saving,      setSaving]      = useState(false);
-  const [saved,       setSaved]       = useState(null);
-  const [error,       setError]       = useState("");
+  const [clients,       setClients]       = useState([]);
+  const [saving,        setSaving]        = useState(false);
+  const [saved,         setSaved]         = useState(null);
+  const [error,         setError]         = useState("");
   const [machineTypeId, setMachineTypeId] = useState("");
   const [currentStep,   setCurrentStep]   = useState(1);
   const [hasPVs,        setHasPVs]        = useState(false);
@@ -255,14 +281,20 @@ export default function MachineInspectionPage() {
   const [pvs,    setPvs]    = useState([emptyPV()]);
   const [ht,     setHt]     = useState(emptyHT());
 
+  // ── Service Truck state ─────────────────────────────────────────────────
+  const [svcTruck, setSvcTruck] = useState(emptySvcTruck());
+  const [svcPVs,   setSvcPVs]   = useState([emptySvcPV()]);
+  const [svcTools, setSvcTools] = useState(SVC_TOOL_TYPES.map(t => emptySvcTool(t.id)));
+
   const machineType = useMemo(() => MACHINE_TYPES.find(m=>m.id===machineTypeId)||null, [machineTypeId]);
 
   const effectiveSteps = useMemo(() => {
     if (!machineType) return [1];
     const base = [...machineType.baseSteps];
-    if (hasPVs && machineType.hasPV && !base.includes(6)) {
-      const idx8 = base.indexOf(8);
-      if (idx8 >= 0) base.splice(idx8, 0, 6);
+    // Add vessels step for non-service-truck machines
+    if (hasPVs && machineType.hasPV && !base.includes(6) && !machineType.isServiceTruck && !machineType.isMixerTruck) {
+      const idx9 = base.indexOf(9);
+      if (idx9 >= 0) base.splice(idx9, 0, 6);
     }
     return base;
   }, [machineType, hasPVs]);
@@ -279,6 +311,7 @@ export default function MachineInspectionPage() {
     setHasPVs(!!mt.pvOnly);
     setCurrentStep(1);
     setBoom(emptyBoom()); setForks([emptyFork(),emptyFork()]); setBucket(emptyBucket()); setPvs([emptyPV()]); setHt(emptyHT());
+    setSvcTruck(emptySvcTruck()); setSvcPVs([emptySvcPV()]); setSvcTools(SVC_TOOL_TYPES.map(t=>emptySvcTool(t.id)));
   }, [machineTypeId]);
 
   const ue  = (k,v) => setEquip(p=>({...p,[k]:v}));
@@ -288,6 +321,9 @@ export default function MachineInspectionPage() {
   const uht = (k,v) => setHt(p=>({...p,[k]:v}));
   const upv = (i,k,v) => setPvs(p=>p.map((x,j)=>j===i?{...x,[k]:v}:x));
   const ufk = (i,k,v) => setForks(p=>p.map((x,j)=>j===i?{...x,[k]:v}:x));
+  const ust = (k,v) => setSvcTruck(p=>({...p,[k]:v}));
+  const uspv = (i,k,v) => setSvcPVs(p=>p.map((x,j)=>j===i?{...x,[k]:v}:x));
+  const utool = (i,k,v) => setSvcTools(p=>p.map((x,j)=>j===i?{...x,[k]:v}:x));
 
   function clientSelected(id) {
     const c = clients.find(x=>x.id===id);
@@ -307,23 +343,17 @@ export default function MachineInspectionPage() {
 
   function buildNotes() {
     if (!machineType) return "";
-    // Store rich structured JSON so CertificateSheet can render full detail tables
     const data = {};
-    // Checklist results
     if ((machineType.fields||[]).length) {
       data.checklist = {};
       (machineType.fields||[]).forEach(f => { data.checklist[f.key] = insp[f.key]||""; });
-      data.overall_result    = insp.overall_result||"PASS";
-      data.defects           = insp.defects||"";
-      data.recommendations   = insp.recommendations||"";
+      data.overall_result = insp.overall_result||"PASS";
+      data.defects = insp.defects||"";
+      data.recommendations = insp.recommendations||"";
     }
-    // Boom data
     if (machineType.baseSteps.includes(3)) data.boom = { ...boom };
-    // Fork data
     if (machineType.baseSteps.includes(4)) data.forks = forks;
-    // Bucket/platform data
     if (machineType.baseSteps.includes(5)) data.bucket = { ...bucket };
-    // Horse & trailer data stored in the horse/trailer cert notes separately
     return JSON.stringify(data);
   }
 
@@ -351,17 +381,64 @@ export default function MachineInspectionPage() {
     const pad=n=>String(n).padStart(5,"0"), prefix=machineType.id.slice(0,2).toUpperCase(), nextNo=()=>`CERT-${prefix}${pad(seq++)}`;
     const swl=insp.swl||"";
 
-    if (machineType.id !== "horse_trailer") {
+    // ── SERVICE TRUCK ──────────────────────────────────────────────────────
+    if (machineType.isServiceTruck || machineType.isMixerTruck) {
+      // 1. Vehicle registration cert
+      const truckDesc = `Service Truck ${svcTruck.make} ${svcTruck.model} Reg ${svcTruck.reg}`.trim();
+      certs.push({
+        certificate_number:nextNo(), equipment_type:"Service Truck", equipment_description:truckDesc,
+        serial_number:svcTruck.vin||equipRef.serial_number, fleet_number:svcTruck.fleet,
+        registration_number:svcTruck.reg, model:svcTruck.model, manufacturer:svcTruck.make,
+        swl:svcTruck.gvm?`GVM ${svcTruck.gvm}`:"", client_name:equip.client_name, client_id:equip.client_id,
+        location:equip.client_location, issue_date:iDate, inspection_date:iDate, expiry_date:expiryDate,
+        next_inspection_due:expiryDate, result:svcTruck.result, defects_found:svcTruck.notes||"",
+        inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID,
+        certificate_type:"Vehicle Inspection Certificate", folder_id:folderId, folder_name:folderName, folder_position:1,
+        notes: JSON.stringify({ truck: svcTruck }),
+      });
+
+      // 2. Pressure vessels (air receivers etc)
+      svcPVs.forEach((pv,i) => {
+        if (!pv.sn && !pv.description) return;
+        certs.push({
+          certificate_number:nextNo(), equipment_type:"Pressure Vessel",
+          equipment_description:pv.description||`Air Receiver ${i+1}`,
+          serial_number:pv.sn, manufacturer:pv.manufacturer,
+          capacity_volume:pv.capacity, working_pressure:pv.working_pressure,
+          test_pressure:pv.test_pressure, pressure_unit:pv.pressure_unit,
+          client_name:equip.client_name, client_id:equip.client_id, location:equip.client_location,
+          issue_date:iDate, inspection_date:iDate, expiry_date:addMonths(iDate,12), next_inspection_due:addMonths(iDate,12),
+          result:pv.result, defects_found:pv.notes||"", inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID,
+          certificate_type:"Pressure Test Certificate", folder_id:folderId, folder_name:folderName, folder_position:10+i,
+        });
+      });
+
+      // 3. Tools / lifting equipment
+      svcTools.forEach((tool,i) => {
+        if (!tool.include) return;
+        const toolMeta = SVC_TOOL_TYPES.find(t=>t.id===tool.type);
+        const toolLabel = toolMeta?.label || tool.type;
+        certs.push({
+          certificate_number:nextNo(), equipment_type:toolLabel,
+          equipment_description:tool.description||`${toolLabel} — SN ${tool.sn||"—"}`,
+          serial_number:tool.sn, manufacturer:tool.manufacturer, swl:tool.swl,
+          client_name:equip.client_name, client_id:equip.client_id, location:equip.client_location,
+          issue_date:iDate, inspection_date:iDate, expiry_date:expiryDate, next_inspection_due:expiryDate,
+          result:tool.result, defects_found:tool.defects||"", inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID,
+          certificate_type:"Load Test Certificate", folder_id:folderId, folder_name:folderName, folder_position:20+i,
+        });
+      });
+
+    } else if (machineType.id === "horse_trailer") {
+      const htNotes = JSON.stringify({ horse: { reg:ht.horse_reg, make:ht.horse_make, model:ht.horse_model, vin:ht.horse_vin, year:ht.horse_year, fleet:ht.horse_fleet, gvm:ht.horse_gvm, result:ht.horse_result, notes:ht.horse_notes }, trailer: ht.has_trailer ? { reg:ht.trailer_reg, make:ht.trailer_make, model:ht.trailer_model, vin:ht.trailer_vin, year:ht.trailer_year, fleet:ht.trailer_fleet, gvm:ht.trailer_gvm, result:ht.trailer_result, notes:ht.trailer_notes } : null });
+      certs.push({ certificate_number:nextNo(), equipment_type:"Horse / Prime Mover", equipment_description:`Horse ${ht.horse_make} ${ht.horse_model} Reg ${ht.horse_reg}`.trim(), serial_number:ht.horse_vin, fleet_number:ht.horse_fleet, registration_number:ht.horse_reg, model:ht.horse_model, manufacturer:ht.horse_make, swl:ht.horse_gvm?`GVM ${ht.horse_gvm}`:"", client_name:equip.client_name, client_id:equip.client_id, location:equip.client_location, issue_date:iDate, inspection_date:iDate, expiry_date:expiryDate, next_inspection_due:expiryDate, result:ht.horse_result, defects_found:ht.horse_notes, inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID, certificate_type:"Vehicle Registration Certificate", folder_id:folderId, folder_name:folderName, folder_position:1, notes:htNotes });
+      if (ht.has_trailer) certs.push({ certificate_number:nextNo(), equipment_type:"Trailer", equipment_description:`Trailer ${ht.trailer_make} ${ht.trailer_model} Reg ${ht.trailer_reg}`.trim(), serial_number:ht.trailer_vin, fleet_number:ht.trailer_fleet, registration_number:ht.trailer_reg, model:ht.trailer_model, manufacturer:ht.trailer_make, swl:ht.trailer_gvm?`GVM ${ht.trailer_gvm}`:"", client_name:equip.client_name, client_id:equip.client_id, location:equip.client_location, issue_date:iDate, inspection_date:iDate, expiry_date:expiryDate, next_inspection_due:expiryDate, result:ht.trailer_result, defects_found:ht.trailer_notes, inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID, certificate_type:"Trailer Registration Certificate", folder_id:folderId, folder_name:folderName, folder_position:2, notes:htNotes });
+    } else {
       const desc=[machineType.label,equip.model?`(${equip.model})`:"",swl?`SWL ${swl}`:"",equip.fleet_number?`Fleet ${equip.fleet_number}`:"",equip.registration_number?`Reg ${equip.registration_number}`:""].filter(Boolean).join(" ");
       certs.push({ certificate_number:nextNo(), equipment_type:machineType.label, equipment_description:desc, serial_number:equipRef.serial_number, fleet_number:equipRef.fleet_number, registration_number:equip.registration_number, model:equip.model, manufacturer:equip.manufacturer, swl, client_name:equip.client_name, client_id:equip.client_id, location:equip.client_location, issue_date:iDate, inspection_date:iDate, expiry_date:expiryDate, next_inspection_due:expiryDate, result:insp.overall_result||"PASS", defects_found:insp.defects||"", recommendations:insp.recommendations||"", inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID, certificate_type:machineType.certType, folder_id:folderId, folder_name:folderName, folder_position:1, notes:buildNotes() });
     }
 
-    if (machineType.id === "horse_trailer") {
-      const htNotes = JSON.stringify({ horse: { reg:ht.horse_reg, make:ht.horse_make, model:ht.horse_model, vin:ht.horse_vin, year:ht.horse_year, fleet:ht.horse_fleet, gvm:ht.horse_gvm, result:ht.horse_result, notes:ht.horse_notes }, trailer: ht.has_trailer ? { reg:ht.trailer_reg, make:ht.trailer_make, model:ht.trailer_model, vin:ht.trailer_vin, year:ht.trailer_year, fleet:ht.trailer_fleet, gvm:ht.trailer_gvm, result:ht.trailer_result, notes:ht.trailer_notes } : null });
-      certs.push({ certificate_number:nextNo(), equipment_type:"Horse / Prime Mover", equipment_description:`Horse ${ht.horse_make} ${ht.horse_model} Reg ${ht.horse_reg}`.trim(), serial_number:ht.horse_vin, fleet_number:ht.horse_fleet, registration_number:ht.horse_reg, model:ht.horse_model, manufacturer:ht.horse_make, swl:ht.horse_gvm?`GVM ${ht.horse_gvm}`:"", client_name:equip.client_name, client_id:equip.client_id, location:equip.client_location, issue_date:iDate, inspection_date:iDate, expiry_date:expiryDate, next_inspection_due:expiryDate, result:ht.horse_result, defects_found:ht.horse_notes, inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID, certificate_type:"Vehicle Registration Certificate", folder_id:folderId, folder_name:folderName, folder_position:1, notes:htNotes });
-      if (ht.has_trailer) certs.push({ certificate_number:nextNo(), equipment_type:"Trailer", equipment_description:`Trailer ${ht.trailer_make} ${ht.trailer_model} Reg ${ht.trailer_reg}`.trim(), serial_number:ht.trailer_vin, fleet_number:ht.trailer_fleet, registration_number:ht.trailer_reg, model:ht.trailer_model, manufacturer:ht.trailer_make, swl:ht.trailer_gvm?`GVM ${ht.trailer_gvm}`:"", client_name:equip.client_name, client_id:equip.client_id, location:equip.client_location, issue_date:iDate, inspection_date:iDate, expiry_date:expiryDate, next_inspection_due:expiryDate, result:ht.trailer_result, defects_found:ht.trailer_notes, inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID, certificate_type:"Trailer Registration Certificate", folder_id:folderId, folder_name:folderName, folder_position:2, notes:htNotes });
-    }
-
+    // Forks
     if (machineType.baseSteps.includes(4)) {
       forks.forEach((fk,i)=>{
         if (!fk.length&&!fk.swl) return;
@@ -369,7 +446,8 @@ export default function MachineInspectionPage() {
       });
     }
 
-    if (hasPVs) {
+    // General PVs (non service truck)
+    if (hasPVs && !machineType.isServiceTruck && !machineType.isMixerTruck) {
       pvs.forEach((pv,i)=>{
         if (!pv.sn&&!pv.description) return;
         certs.push({ certificate_number:nextNo(), equipment_type:"Pressure Vessel", equipment_description:pv.description||`Pressure Vessel ${i+1} — SN ${equip.serial_number}`, serial_number:pv.sn, manufacturer:pv.manufacturer, year_built:pv.year_manufacture, country_of_origin:pv.country_origin, capacity_volume:pv.capacity, working_pressure:pv.working_pressure, test_pressure:pv.test_pressure, pressure_unit:pv.pressure_unit, client_name:equip.client_name, client_id:equip.client_id, location:equip.client_location, issue_date:iDate, inspection_date:iDate, expiry_date:addMonths(iDate,12), next_inspection_due:addMonths(iDate,12), result:pv.result, defects_found:pv.notes||"", inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID, certificate_type:"Pressure Test Certificate", folder_id:folderId, folder_name:folderName, folder_position:20+i });
@@ -382,7 +460,7 @@ export default function MachineInspectionPage() {
     setSaving(false);
   }
 
-  // ── SAVED ────────────────────────────────────────────────────────────────
+  // ── SAVED ─────────────────────────────────────────────────────────────
   if (saved) return (
     <AppLayout title="Inspection Complete">
       <div style={{ fontFamily:"'IBM Plex Sans',sans-serif", color:T.text, padding:20, maxWidth:800, margin:"0 auto" }}>
@@ -409,6 +487,14 @@ export default function MachineInspectionPage() {
         </div>
         <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
           <button type="button" onClick={()=>{setSaved(null);setCurrentStep(1);setMachineTypeId("");setEquip(p=>({...p,serial_number:"",fleet_number:"",registration_number:"",model:"",manufacturer:""}));}} style={{ padding:"11px 20px", borderRadius:10, border:`1px solid ${T.border}`, background:T.card, color:T.text, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>New Inspection</button>
+          <button type="button"
+            onClick={()=>{
+              const ids=saved.certs.map(c=>c.id).join(",");
+              window.open(`/certificates/bulk-print?ids=${ids}`,"_blank");
+            }}
+            style={{ padding:"11px 20px", borderRadius:10, border:`1px solid ${T.greenBrd}`, background:T.greenDim, color:T.green, fontWeight:900, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
+            🖨 Generate &amp; Store PDFs
+          </button>
           <button type="button" onClick={()=>router.push("/certificates")} style={{ padding:"11px 20px", borderRadius:10, border:"none", background:"linear-gradient(135deg,#22d3ee,#0891b2)", color:"#052e16", fontWeight:900, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>View All Certificates →</button>
         </div>
       </div>
@@ -437,7 +523,7 @@ export default function MachineInspectionPage() {
         <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:18, padding:"14px 20px", marginBottom:20, backdropFilter:"blur(20px)" }}>
           <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", textTransform:"uppercase", color:T.accent, marginBottom:4 }}>Certificates · Inspection Wizard</div>
           <h1 style={{ margin:"0 0 2px", fontSize:22, fontWeight:900, letterSpacing:"-0.02em" }}>Machine Inspection</h1>
-          <p style={{ margin:0, fontSize:12, color:T.textDim }}>Telehandlers · Cherry Pickers · Forklifts · TLBs · Crane Trucks · Bowsers · Tippers · Horse & Trailer</p>
+          <p style={{ margin:0, fontSize:12, color:T.textDim }}>Telehandlers · Cherry Pickers · Forklifts · TLBs · Service Trucks · Horse & Trailer</p>
           <div style={{ display:"flex", gap:12, marginTop:10, flexWrap:"wrap" }}>
             <a href="/certificates/crane-inspection" style={{ fontSize:11, color:T.accent, textDecoration:"none", fontWeight:700 }}>🏗 Crane Inspection →</a>
             <a href="/certificates" style={{ fontSize:11, color:T.accent, textDecoration:"none", fontWeight:700 }}>📜 All Certificates →</a>
@@ -475,19 +561,27 @@ export default function MachineInspectionPage() {
                   </Field>
                   <Field label="Inspection Date"><input style={IS} type="date" value={equip.inspection_date} onChange={e=>ue("inspection_date",e.target.value)}/></Field>
                 </div>
-                <div className="g3" style={{ marginBottom:14 }}>
-                  <Field label="Serial Number *"><input style={IS} placeholder="e.g. TH-2024-001" value={equip.serial_number} onChange={e=>ue("serial_number",e.target.value)}/></Field>
-                  <Field label="Fleet Number"><input style={IS} placeholder="e.g. FL-012" value={equip.fleet_number} onChange={e=>ue("fleet_number",e.target.value)}/></Field>
-                  <Field label="Registration Number"><input style={IS} placeholder="e.g. B 456 DEF" value={equip.registration_number} onChange={e=>ue("registration_number",e.target.value)}/></Field>
-                </div>
+                {!machineType?.isServiceTruck && !machineType?.isMixerTruck && (
+                  <div className="g3" style={{ marginBottom:14 }}>
+                    <Field label="Serial Number *"><input style={IS} placeholder="e.g. TH-2024-001" value={equip.serial_number} onChange={e=>ue("serial_number",e.target.value)}/></Field>
+                    <Field label="Fleet Number"><input style={IS} placeholder="e.g. FL-012" value={equip.fleet_number} onChange={e=>ue("fleet_number",e.target.value)}/></Field>
+                    <Field label="Registration Number"><input style={IS} placeholder="e.g. B 456 DEF" value={equip.registration_number} onChange={e=>ue("registration_number",e.target.value)}/></Field>
+                  </div>
+                )}
+                {(machineType?.isServiceTruck || machineType?.isMixerTruck) && (
+                  <div className="g2" style={{ marginBottom:14 }}>
+                    <Field label="Service Truck Reg / ID *"><input style={IS} placeholder="e.g. B 123 STK" value={equip.serial_number} onChange={e=>ue("serial_number",e.target.value)}/></Field>
+                    <Field label="Fleet Number"><input style={IS} placeholder="e.g. FL-099" value={equip.fleet_number} onChange={e=>ue("fleet_number",e.target.value)}/></Field>
+                  </div>
+                )}
                 <div className="g2">
-                  <Field label="Make / Manufacturer"><input style={IS} placeholder="e.g. JCB, Manitou" value={equip.manufacturer} onChange={e=>ue("manufacturer",e.target.value)}/></Field>
-                  <Field label="Model"><input style={IS} placeholder="e.g. 535-125" value={equip.model} onChange={e=>ue("model",e.target.value)}/></Field>
+                  <Field label="Make / Manufacturer"><input style={IS} placeholder="e.g. Mercedes, Toyota" value={equip.manufacturer} onChange={e=>ue("manufacturer",e.target.value)}/></Field>
+                  <Field label="Model"><input style={IS} placeholder="e.g. Hilux, Actros" value={equip.model} onChange={e=>ue("model",e.target.value)}/></Field>
                 </div>
                 {equip.inspection_date && (
                   <div style={{ marginTop:14, padding:"10px 14px", borderRadius:10, background:T.accentDim, border:`1px solid ${T.accentBrd}`, fontSize:12, color:T.textMid }}>
                     📅 <strong style={{ color:T.text }}>{machineType.label}</strong> expires: <strong style={{ color:T.accent }}>{fmt(addMonths(equip.inspection_date,machineType.expiry))}</strong>
-                    {machineType.hasPV && <span style={{ marginLeft:16 }}>· PV expires: <strong style={{ color:T.accent }}>{fmt(addMonths(equip.inspection_date,12))}</strong></span>}
+                    {machineType.hasPV && !machineType.isServiceTruck && !machineType.isMixerTruck && <span style={{ marginLeft:16 }}>· PV expires: <strong style={{ color:T.accent }}>{fmt(addMonths(equip.inspection_date,12))}</strong></span>}
                   </div>
                 )}
               </Card>
@@ -583,12 +677,10 @@ export default function MachineInspectionPage() {
                 <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:10 }}>
                   {forks.length > 1 && <button type="button" onClick={()=>setForks(p=>p.filter((_,j)=>j!==i))} style={{ padding:"4px 10px", borderRadius:7, border:`1px solid ${T.redBrd}`, background:T.redDim, color:T.red, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Remove</button>}
                 </div>
-                <SH label="Fork Identification"/>
                 <div className="g2" style={{ marginBottom:14 }}>
                   <Field label="Fork Serial / ID"><input style={IS} placeholder="e.g. FK-001-A" value={fk.fork_number} onChange={e=>ufk(i,"fork_number",e.target.value)}/></Field>
                   <Field label="Safe Working Load"><input style={IS} placeholder="e.g. 3T" value={fk.swl} onChange={e=>ufk(i,"swl",e.target.value)}/></Field>
                 </div>
-                <SH label="Fork Dimensions"/>
                 <div className="g4" style={{ marginBottom:14 }}>
                   <Field label="Length (mm)"><input style={IS} placeholder="e.g. 1200" value={fk.length} onChange={e=>ufk(i,"length",e.target.value)}/></Field>
                   <Field label="Heel Thickness (mm)"><input style={IS} placeholder="e.g. 50" value={fk.thickness_heel} onChange={e=>ufk(i,"thickness_heel",e.target.value)}/></Field>
@@ -599,7 +691,6 @@ export default function MachineInspectionPage() {
                   <Field label="Wear % vs Original"><input style={IS} placeholder="e.g. 8" value={fk.wear_pct} onChange={e=>ufk(i,"wear_pct",e.target.value)}/></Field>
                   <Field label="Overall Result"><ResultSelect value={fk.result} onChange={v=>ufk(i,"result",v)}/></Field>
                 </div>
-                <SH label="Defect Assessment"/>
                 <div className="g2" style={{ marginBottom:14 }}>
                   <Field label="Cracks / Fractures?"><select style={IS} value={fk.cracks} onChange={e=>ufk(i,"cracks",e.target.value)}><option value="no">No</option><option value="yes">Yes — FAIL</option></select></Field>
                   <Field label="Bending / Deformation?"><select style={IS} value={fk.bending} onChange={e=>ufk(i,"bending",e.target.value)}><option value="no">No</option><option value="yes">Yes — FAIL</option></select></Field>
@@ -640,7 +731,7 @@ export default function MachineInspectionPage() {
           </Card>
         )}
 
-        {/* STEP 6: Pressure Vessels */}
+        {/* STEP 6: Pressure Vessels (non service truck) */}
         {currentStep === 6 && (
           <>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
@@ -657,7 +748,7 @@ export default function MachineInspectionPage() {
                   <Field label="Description"><input style={IS} placeholder="e.g. Hydraulic Oil Tank" value={pv.description} onChange={e=>upv(i,"description",e.target.value)}/></Field>
                 </div>
                 <div className="g3" style={{ marginBottom:14 }}>
-                  <Field label="Manufacturer"><input style={IS} placeholder="e.g. ASME" value={pv.manufacturer} onChange={e=>upv(i,"manufacturer",e.target.value)}/></Field>
+                  <Field label="Manufacturer"><input style={IS} value={pv.manufacturer} onChange={e=>upv(i,"manufacturer",e.target.value)}/></Field>
                   <Field label="Year of Manufacture"><input style={IS} placeholder="e.g. 2018" value={pv.year_manufacture} onChange={e=>upv(i,"year_manufacture",e.target.value)}/></Field>
                   <Field label="Country of Origin"><input style={IS} placeholder="e.g. South Africa" value={pv.country_origin} onChange={e=>upv(i,"country_origin",e.target.value)}/></Field>
                 </div>
@@ -686,7 +777,7 @@ export default function MachineInspectionPage() {
                 <Field label="Model"><input style={IS} placeholder="e.g. Actros 2648" value={ht.horse_model} onChange={e=>uht("horse_model",e.target.value)}/></Field>
               </div>
               <div className="g3" style={{ marginBottom:14 }}>
-                <Field label="VIN / Chassis"><input style={IS} placeholder="e.g. WDB9340031L123456" value={ht.horse_vin} onChange={e=>uht("horse_vin",e.target.value)}/></Field>
+                <Field label="VIN / Chassis"><input style={IS} value={ht.horse_vin} onChange={e=>uht("horse_vin",e.target.value)}/></Field>
                 <Field label="Year"><input style={IS} placeholder="e.g. 2019" value={ht.horse_year} onChange={e=>uht("horse_year",e.target.value)}/></Field>
                 <Field label="Fleet Number"><input style={IS} placeholder="e.g. TRK-005" value={ht.horse_fleet} onChange={e=>uht("horse_fleet",e.target.value)}/></Field>
               </div>
@@ -694,44 +785,176 @@ export default function MachineInspectionPage() {
                 <Field label="GVM"><input style={IS} placeholder="e.g. 26000kg" value={ht.horse_gvm} onChange={e=>uht("horse_gvm",e.target.value)}/></Field>
                 <Field label="Result"><ResultSelect value={ht.horse_result} onChange={v=>uht("horse_result",v)}/></Field>
               </div>
-              <Field label="Notes"><textarea style={{ ...IS, minHeight:60 }} placeholder="Horse defects / observations..." value={ht.horse_notes} onChange={e=>uht("horse_notes",e.target.value)}/></Field>
+              <Field label="Notes"><textarea style={{ ...IS, minHeight:60 }} value={ht.horse_notes} onChange={e=>uht("horse_notes",e.target.value)}/></Field>
             </Card>
-
             <div style={{ background:T.panel, border:`1px solid ${T.border}`, borderRadius:14, padding:16, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap", marginBottom:14 }}>
-              <div><div style={{ fontSize:13, fontWeight:800 }}>Trailer Attached?</div><div style={{ fontSize:11, color:T.textDim, marginTop:2 }}>Register the trailer as a separate certificate</div></div>
+              <div><div style={{ fontSize:13, fontWeight:800 }}>Trailer Attached?</div></div>
               <YesNo value={ht.has_trailer} onChange={v=>uht("has_trailer",v)}/>
             </div>
-
             {ht.has_trailer && (
               <Card title="Trailer Registration" icon="🚚" color={T.purple} brd={T.purpleBrd}>
                 <div className="g3" style={{ marginBottom:14 }}>
                   <Field label="Registration Number *"><input style={IS} placeholder="e.g. B 456 DEF" value={ht.trailer_reg} onChange={e=>uht("trailer_reg",e.target.value)}/></Field>
-                  <Field label="Make / Manufacturer"><input style={IS} placeholder="e.g. Afrit" value={ht.trailer_make} onChange={e=>uht("trailer_make",e.target.value)}/></Field>
-                  <Field label="Model / Type"><input style={IS} placeholder="e.g. Side Tipper" value={ht.trailer_model} onChange={e=>uht("trailer_model",e.target.value)}/></Field>
+                  <Field label="Make / Manufacturer"><input style={IS} value={ht.trailer_make} onChange={e=>uht("trailer_make",e.target.value)}/></Field>
+                  <Field label="Model / Type"><input style={IS} value={ht.trailer_model} onChange={e=>uht("trailer_model",e.target.value)}/></Field>
                 </div>
                 <div className="g3" style={{ marginBottom:14 }}>
-                  <Field label="VIN / Chassis"><input style={IS} placeholder="e.g. AF1234567890" value={ht.trailer_vin} onChange={e=>uht("trailer_vin",e.target.value)}/></Field>
-                  <Field label="Year"><input style={IS} placeholder="e.g. 2020" value={ht.trailer_year} onChange={e=>uht("trailer_year",e.target.value)}/></Field>
-                  <Field label="Fleet Number"><input style={IS} placeholder="e.g. TRL-005" value={ht.trailer_fleet} onChange={e=>uht("trailer_fleet",e.target.value)}/></Field>
+                  <Field label="VIN / Chassis"><input style={IS} value={ht.trailer_vin} onChange={e=>uht("trailer_vin",e.target.value)}/></Field>
+                  <Field label="Year"><input style={IS} value={ht.trailer_year} onChange={e=>uht("trailer_year",e.target.value)}/></Field>
+                  <Field label="Fleet Number"><input style={IS} value={ht.trailer_fleet} onChange={e=>uht("trailer_fleet",e.target.value)}/></Field>
                 </div>
                 <div className="g2" style={{ marginBottom:14 }}>
-                  <Field label="GVM"><input style={IS} placeholder="e.g. 34000kg" value={ht.trailer_gvm} onChange={e=>uht("trailer_gvm",e.target.value)}/></Field>
+                  <Field label="GVM"><input style={IS} value={ht.trailer_gvm} onChange={e=>uht("trailer_gvm",e.target.value)}/></Field>
                   <Field label="Result"><ResultSelect value={ht.trailer_result} onChange={v=>uht("trailer_result",v)}/></Field>
                 </div>
-                <Field label="Notes"><textarea style={{ ...IS, minHeight:60 }} placeholder="Trailer defects / observations..." value={ht.trailer_notes} onChange={e=>uht("trailer_notes",e.target.value)}/></Field>
+                <Field label="Notes"><textarea style={{ ...IS, minHeight:60 }} value={ht.trailer_notes} onChange={e=>uht("trailer_notes",e.target.value)}/></Field>
               </Card>
             )}
-
             <div style={{ background:T.panel, border:`1px solid ${T.border}`, borderRadius:14, padding:16, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap" }}>
-              <div><div style={{ fontSize:13, fontWeight:800 }}>Pressure Vessels</div><div style={{ fontSize:11, color:T.textDim, marginTop:2 }}>Does this horse/trailer have pressure vessels?</div></div>
+              <div><div style={{ fontSize:13, fontWeight:800 }}>Pressure Vessels</div></div>
               <YesNo value={hasPVs} onChange={setHasPVs}/>
             </div>
           </>
         )}
 
-        {/* STEP 8: Review */}
-        {currentStep === 8 && machineType && (()=>{
+        {/* STEP 8: Service Truck ─────────────────────────────────────────── */}
+        {currentStep === 8 && (machineType?.isServiceTruck || machineType?.isMixerTruck) && (
+          <>
+            {/* Vehicle Registration */}
+            <Card title={`${machineType.isMixerTruck ? "Mixer Truck" : "Service Truck"} — Vehicle Registration`} icon="🚛" color={T.accent} brd={T.accentBrd}>
+              <div className="g3" style={{ marginBottom:14 }}>
+                <Field label="Registration Number *"><input style={IS} placeholder="e.g. B 123 STK" value={svcTruck.reg} onChange={e=>ust("reg",e.target.value)}/></Field>
+                <Field label="Make / Manufacturer"><input style={IS} placeholder="e.g. Toyota, Isuzu" value={svcTruck.make} onChange={e=>ust("make",e.target.value)}/></Field>
+                <Field label="Model"><input style={IS} placeholder="e.g. Hilux, D-Max" value={svcTruck.model} onChange={e=>ust("model",e.target.value)}/></Field>
+              </div>
+              <div className="g3" style={{ marginBottom:14 }}>
+                <Field label="VIN / Chassis"><input style={IS} placeholder="e.g. JTMHE3FJ..." value={svcTruck.vin} onChange={e=>ust("vin",e.target.value)}/></Field>
+                <Field label="Year"><input style={IS} placeholder="e.g. 2020" value={svcTruck.year} onChange={e=>ust("year",e.target.value)}/></Field>
+                <Field label="Fleet Number"><input style={IS} placeholder="e.g. SVC-003" value={svcTruck.fleet} onChange={e=>ust("fleet",e.target.value)}/></Field>
+              </div>
+              <div className="g2" style={{ marginBottom:14 }}>
+                <Field label="GVM"><input style={IS} placeholder="e.g. 3500kg" value={svcTruck.gvm} onChange={e=>ust("gvm",e.target.value)}/></Field>
+                <Field label="Vehicle Result"><ResultSelect value={svcTruck.result} onChange={v=>ust("result",v)}/></Field>
+              </div>
+              <Field label="Defects / Notes"><textarea style={{ ...IS, minHeight:70 }} placeholder="Vehicle defects or observations..." value={svcTruck.notes} onChange={e=>ust("notes",e.target.value)}/></Field>
+            </Card>
+
+            {/* Pressure Vessels / Air Receivers */}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+              <div>
+                <div style={{ fontSize:15, fontWeight:800 }}>Pressure Vessels / Air Receivers</div>
+                <div style={{ fontSize:12, color:T.textDim, marginTop:2 }}>Each vessel gets its own certificate · expires 1 year</div>
+              </div>
+              {svcPVs.length < 8 && <button type="button" onClick={()=>setSvcPVs(p=>[...p,emptySvcPV()])} style={{ padding:"8px 16px", borderRadius:9, border:`1px solid ${T.greenBrd}`, background:T.greenDim, color:T.green, fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>+ Add Vessel</button>}
+            </div>
+            {svcPVs.map((pv,i)=>(
+              <Card key={i} title={`Vessel ${i+1} — ${pv.description||"Air Receiver"}`} icon="⚙️" color={T.green} brd={T.greenBrd}>
+                <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:10 }}>
+                  {svcPVs.length > 1 && <button type="button" onClick={()=>setSvcPVs(p=>p.filter((_,j)=>j!==i))} style={{ padding:"4px 10px", borderRadius:7, border:`1px solid ${T.redBrd}`, background:T.redDim, color:T.red, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Remove</button>}
+                </div>
+                <div className="g2" style={{ marginBottom:14 }}>
+                  <Field label="Serial Number"><input style={IS} placeholder="e.g. AR-001" value={pv.sn} onChange={e=>uspv(i,"sn",e.target.value)}/></Field>
+                  <Field label="Description"><input style={IS} placeholder="e.g. Air Receiver" value={pv.description} onChange={e=>uspv(i,"description",e.target.value)}/></Field>
+                </div>
+                <div className="g3" style={{ marginBottom:14 }}>
+                  <Field label="Capacity / Volume"><input style={IS} placeholder="e.g. 50L" value={pv.capacity} onChange={e=>uspv(i,"capacity",e.target.value)}/></Field>
+                  <Field label="Working Pressure"><input style={IS} placeholder="e.g. 8" value={pv.working_pressure} onChange={e=>uspv(i,"working_pressure",e.target.value)}/></Field>
+                  <Field label="Test Pressure"><input style={IS} placeholder="e.g. 12" value={pv.test_pressure} onChange={e=>uspv(i,"test_pressure",e.target.value)}/></Field>
+                </div>
+                <div className="g2" style={{ marginBottom:14 }}>
+                  <Field label="Pressure Unit"><select style={IS} value={pv.pressure_unit} onChange={e=>uspv(i,"pressure_unit",e.target.value)}><option value="bar">bar</option><option value="psi">psi</option><option value="MPa">MPa</option><option value="kPa">kPa</option></select></Field>
+                  <Field label="Result"><ResultSelect value={pv.result} onChange={v=>uspv(i,"result",v)}/></Field>
+                </div>
+                <Field label="Manufacturer"><input style={{ ...IS, marginBottom:8 }} placeholder="e.g. ABAC" value={pv.manufacturer} onChange={e=>uspv(i,"manufacturer",e.target.value)}/></Field>
+                <Field label="Notes"><input style={IS} placeholder="Any defects..." value={pv.notes} onChange={e=>uspv(i,"notes",e.target.value)}/></Field>
+              </Card>
+            ))}
+
+            {/* Lifting Tools — service truck only */}
+            {machineType?.isServiceTruck && <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:15, fontWeight:800, marginBottom:4 }}>Lifting & Service Tools</div>
+              <div style={{ fontSize:12, color:T.textDim, marginBottom:14 }}>Toggle tools present on this service truck — each gets its own certificate</div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:10, marginBottom:20 }}>
+                {SVC_TOOL_TYPES.map((toolMeta,i)=>(
+                  <div key={toolMeta.id} style={{ background:svcTools[i].include?T.accentDim:T.card, border:`1px solid ${svcTools[i].include?T.accentBrd:T.border}`, borderRadius:12, padding:14, cursor:"pointer" }} onClick={()=>utool(i,"include",!svcTools[i].include)}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:svcTools[i].include?12:0 }}>
+                      <span style={{ fontSize:20 }}>{toolMeta.icon}</span>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:13, fontWeight:800, color:svcTools[i].include?T.accent:T.text }}>{toolMeta.label}</div>
+                        <div style={{ fontSize:11, color:T.textDim }}>Load Test Certificate</div>
+                      </div>
+                      <div style={{ width:20, height:20, borderRadius:"50%", border:`2px solid ${svcTools[i].include?T.accent:T.border}`, background:svcTools[i].include?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, color:"#052e16", fontWeight:900 }}>{svcTools[i].include?"✓":""}</div>
+                    </div>
+                    {svcTools[i].include && (
+                      <div style={{ display:"grid", gap:8 }} onClick={e=>e.stopPropagation()}>
+                        <div className="g2">
+                          <Field label="Serial Number"><input style={{ ...IS, fontSize:12, padding:"7px 10px", minHeight:34 }} placeholder="e.g. CB-001" value={svcTools[i].sn} onChange={e=>utool(i,"sn",e.target.value)}/></Field>
+                          <Field label="SWL / Capacity"><input style={{ ...IS, fontSize:12, padding:"7px 10px", minHeight:34 }} placeholder="e.g. 3T" value={svcTools[i].swl} onChange={e=>utool(i,"swl",e.target.value)}/></Field>
+                        </div>
+                        <div className="g2">
+                          <Field label="Manufacturer"><input style={{ ...IS, fontSize:12, padding:"7px 10px", minHeight:34 }} placeholder="e.g. Yale" value={svcTools[i].manufacturer} onChange={e=>utool(i,"manufacturer",e.target.value)}/></Field>
+                          <Field label="Result"><ResultSelect value={svcTools[i].result} onChange={v=>utool(i,"result",v)}/></Field>
+                        </div>
+                        <Field label="Description / Notes"><input style={{ ...IS, fontSize:12, padding:"7px 10px", minHeight:34 }} placeholder={`${toolMeta.label} description or defects`} value={svcTools[i].description} onChange={e=>utool(i,"description",e.target.value)}/></Field>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>}
+          </>
+        )}
+
+        {/* STEP 9: Review */}
+        {currentStep === 9 && machineType && (()=>{
           const reviewExpiry = addMonths(equip.inspection_date, machineType.expiry);
+
+          if (machineType.isServiceTruck || machineType.isMixerTruck) {
+            const toolCount = machineType.isServiceTruck ? svcTools.filter(t=>t.include).length : 0;
+            const pvCount   = svcPVs.filter(p=>p.sn||p.description).length;
+            const total     = 1 + pvCount + toolCount;
+            return (
+              <Card title={`Review & Confirm — ${machineType.isMixerTruck ? "Mixer Truck" : "Service Truck"}`} icon="🔧" color={T.accent}>
+                <div style={{ display:"grid", gap:10, marginBottom:16 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
+                    <span style={{ fontSize:20 }}>🚛</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:800 }}>{machineType.isMixerTruck ? "Mixer Truck" : "Service Truck"} — {svcTruck.make} {svcTruck.model}</div>
+                      <div style={{ fontSize:11, color:T.textDim }}>Reg {svcTruck.reg||"—"} · VIN {svcTruck.vin||"—"} · {machineType.isMixerTruck ? "Vehicle Inspection Certificate" : "Vehicle Inspection Certificate"} · Expires {fmt(reviewExpiry)}</div>
+                    </div>
+                    <ResultBadge result={svcTruck.result}/>
+                  </div>
+                  {svcPVs.filter(p=>p.sn||p.description).map((pv,i)=>(
+                    <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
+                      <span style={{ fontSize:18 }}>⚙️</span>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:13, fontWeight:700 }}>{pv.description||"Air Receiver"} — SN {pv.sn||"—"}</div>
+                        <div style={{ fontSize:11, color:T.textDim }}>{pv.capacity} · {pv.working_pressure}/{pv.test_pressure} {pv.pressure_unit} · Pressure Test Certificate · Expires {fmt(addMonths(equip.inspection_date,12))}</div>
+                      </div>
+                      <ResultBadge result={pv.result}/>
+                    </div>
+                  ))}
+                  {svcTools.filter(t=>t.include).map((tool,i)=>{
+                    const meta = SVC_TOOL_TYPES.find(m=>m.id===tool.type);
+                    return (
+                      <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
+                        <span style={{ fontSize:18 }}>{meta?.icon||"🔧"}</span>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:13, fontWeight:700 }}>{meta?.label} — SN {tool.sn||"—"}</div>
+                          <div style={{ fontSize:11, color:T.textDim }}>SWL {tool.swl||"—"} · {tool.manufacturer||"—"} · Load Test Certificate · Expires {fmt(reviewExpiry)}</div>
+                        </div>
+                        <ResultBadge result={tool.result}/>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ padding:"12px 14px", borderRadius:10, background:T.accentDim, border:`1px solid ${T.accentBrd}`, fontSize:12, color:T.textMid }}>
+                  📋 Client: <strong style={{ color:T.text }}>{equip.client_name}</strong> &nbsp;·&nbsp; Inspector: <strong style={{ color:T.text }}>{INSPECTOR_NAME}</strong> &nbsp;·&nbsp; Date: <strong style={{ color:T.text }}>{fmt(equip.inspection_date)}</strong> &nbsp;·&nbsp; Total: <strong style={{ color:T.accent }}>{total} certificate{total!==1?"s":""}</strong>
+                </div>
+              </Card>
+            );
+          }
+
           const forkCount = machineType.baseSteps.includes(4) ? forks.filter(f=>f.length||f.swl).length : 0;
           const pvCount   = hasPVs ? pvs.filter(p=>p.sn||p.description).length : 0;
           const htCount   = machineType.id==="horse_trailer" ? (1+(ht.has_trailer?1:0)) : 0;
@@ -766,14 +989,14 @@ export default function MachineInspectionPage() {
                 {machineType.baseSteps.includes(4) && forks.filter(f=>f.length||f.swl).map((fk,i)=>(
                   <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
                     <span style={{ fontSize:18 }}>🍴</span>
-                    <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700 }}>Fork Arm {i+1} {fk.fork_number?`— ${fk.fork_number}`:""}</div><div style={{ fontSize:11, color:T.textDim }}>SWL {fk.swl||"—"} · L:{fk.length||"—"}mm · Wear:{fk.wear_pct||"—"}% · Fork Arm Inspection Certificate</div></div>
+                    <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700 }}>Fork Arm {i+1} {fk.fork_number?`— ${fk.fork_number}`:""}</div><div style={{ fontSize:11, color:T.textDim }}>SWL {fk.swl||"—"} · L:{fk.length||"—"}mm · Fork Arm Inspection Certificate</div></div>
                     <ResultBadge result={fk.result}/>
                   </div>
                 ))}
                 {hasPVs && pvs.filter(p=>p.sn||p.description).map((pv,i)=>(
                   <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
                     <span style={{ fontSize:18 }}>⚙️</span>
-                    <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700 }}>PV {i+1} — {pv.description||"—"}</div><div style={{ fontSize:11, color:T.textDim }}>SN {pv.sn||"—"} · {pv.capacity||"—"} · {pv.working_pressure||"—"}/{pv.test_pressure||"—"} {pv.pressure_unit} · Expires {fmt(addMonths(equip.inspection_date,12))}</div></div>
+                    <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700 }}>PV {i+1} — {pv.description||"—"}</div><div style={{ fontSize:11, color:T.textDim }}>SN {pv.sn||"—"} · {pv.capacity||"—"} · Expires {fmt(addMonths(equip.inspection_date,12))}</div></div>
                     <ResultBadge result={pv.result}/>
                   </div>
                 ))}
@@ -791,7 +1014,7 @@ export default function MachineInspectionPage() {
             style={{ padding:"11px 20px", borderRadius:10, border:`1px solid ${T.border}`, background:T.card, color:T.textMid, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
             {currentStep===1 ? "← Cancel" : "← Back"}
           </button>
-          {currentStep < 8
+          {currentStep < 9
             ? <button type="button" onClick={nextStep} style={{ padding:"11px 24px", borderRadius:10, border:"none", background:"linear-gradient(135deg,#22d3ee,#0891b2)", color:"#052e16", fontWeight:900, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>Next →</button>
             : <button type="button" onClick={handleGenerate} disabled={saving} style={{ padding:"11px 28px", borderRadius:10, border:"none", background:saving?"rgba(255,255,255,0.06)":"linear-gradient(135deg,#34d399,#14b8a6)", color:saving?"rgba(240,246,255,0.4)":"#052e16", fontWeight:900, fontSize:14, cursor:saving?"not-allowed":"pointer", fontFamily:"inherit" }}>{saving?"Generating…":"⚙️ Generate Certificates"}</button>
           }
