@@ -119,7 +119,7 @@ export default function CertificatesPageClient() {
   const [errTxt,setErrTxt]=useState("");
   const [search,setSearch]=useState("");
   const [fResult,setFResult]=useState("ALL");
-  const [fExpiry,setFExpiry]=useState("ALL");
+  const [fInspDate,setFInspDate]=useState("");
   const [fClient,setFClient]=useState("ALL");
   const [fType,setFType]=useState("ALL");
   const [fStatus,setFStatus]=useState("ALL");
@@ -242,18 +242,18 @@ export default function CertificatesPageClient() {
     const q=search.toLowerCase();
     return certs.filter(r=>{
       const hay=[r.certificate_number,r.client_name,r.asset_tag,r.asset_name,r.equipment_description,r.equipment_type,r.inspection_number,r.inspection_no,r.folder_name].filter(Boolean).join(" ").toLowerCase();
-      return(!q||hay.includes(q))&&(fResult==="ALL"||r.result===fResult)&&(fExpiry==="ALL"||r.expiry_bucket===fExpiry)&&(fClient==="ALL"||r.client_name===fClient)&&(fType==="ALL"||r.equipment_type===fType)&&(fStatus==="ALL"||r.status===fStatus);
+      return(!q||hay.includes(q))&&(fResult==="ALL"||r.result===fResult)&&(!fInspDate||r.inspection_date===fInspDate)&&(fClient==="ALL"||r.client_name===fClient)&&(fType==="ALL"||r.equipment_type===fType)&&(fStatus==="ALL"||r.status===fStatus);
     });
-  },[certs,search,fResult,fExpiry,fClient,fType,fStatus]);
+  },[certs,search,fResult,fInspDate,fClient,fType,fStatus]);
 
   const grouped=useMemo(()=>groupCerts(filtered),[filtered]);
-  const hasFilters=search||fResult!=="ALL"||fExpiry!=="ALL"||fClient!=="ALL"||fType!=="ALL"||fStatus!=="ALL";
-  function clearFilters(){setSearch("");setFResult("ALL");setFExpiry("ALL");setFClient("ALL");setFType("ALL");setFStatus("ALL");}
+  const hasFilters=search||fResult!=="ALL"||fInspDate||fClient!=="ALL"||fType!=="ALL"||fStatus!=="ALL";
+  function clearFilters(){setSearch("");setFResult("ALL");setFInspDate("");setFClient("ALL");setFType("ALL");setFStatus("ALL");}
 
   const FILTER_CELLS=[
     {label:"Search",type:"input"},
     {label:"Result",val:fResult,set:setFResult,opts:[{v:"ALL",l:"All results"},{v:"PASS",l:"Pass"},{v:"FAIL",l:"Fail"},{v:"REPAIR_REQUIRED",l:"Repair req."},{v:"OUT_OF_SERVICE",l:"Out of svc"},{v:"UNKNOWN",l:"Unknown"}]},
-    {label:"Expiry",val:fExpiry,set:setFExpiry,opts:[{v:"ALL",l:"All expiry"},{v:"EXPIRED",l:"Expired"},{v:"EXPIRING_SOON",l:"≤30d"},{v:"EXPIRING_90",l:"≤90d"},{v:"VALID",l:"Valid"},{v:"NO_EXPIRY",l:"No expiry"}]},
+    {label:"Inspection Date",type:"date",val:fInspDate,set:setFInspDate},
     {label:"Client",val:fClient,set:setFClient,opts:[{v:"ALL",l:"All clients"},...clientOpts.map(c=>({v:c,l:c}))]},
     {label:"Type",val:fType,set:setFType,opts:[{v:"ALL",l:"All types"},...typeOpts.map(t=>({v:t,l:t}))]},
     {label:"Status",val:fStatus,set:setFStatus,opts:[{v:"ALL",l:"All status"},...statusOpts.map(s=>({v:s,l:s}))],last:true},
@@ -343,6 +343,9 @@ export default function CertificatesPageClient() {
                   {cell.type==="input"?(
                     <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cert no, client, equipment…"
                       style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.textMid,fontSize:12,padding:0,fontFamily:"'IBM Plex Sans',sans-serif"}}/>
+                  ):cell.type==="date"?(
+                    <input type="date" value={cell.val} onChange={e=>{cell.set(e.target.value);}}
+                      style={{width:"100%",background:"transparent",border:"none",outline:"none",color:cell.val?T.accent:T.textMid,fontSize:12,padding:0,fontFamily:"'IBM Plex Sans',sans-serif",colorScheme:"dark"}}/>
                   ):(
                     <select value={cell.val} onChange={e=>cell.set(e.target.value)}
                       style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.textMid,fontSize:12,cursor:"pointer",padding:0,fontFamily:"'IBM Plex Sans',sans-serif"}}>
