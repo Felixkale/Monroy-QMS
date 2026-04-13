@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 import JSZip from "jszip";
@@ -31,30 +31,6 @@ const CSS = `
     .be-mob{display:grid!important;gap:0}
   }
   @keyframes spin{to{transform:rotate(360deg)}}
-
-  #bulk-iframe {
-    position: fixed;
-    top: 0; left: 0;
-    width: 794px;
-    height: 100vh;
-    border: none;
-    background: #fff;
-    z-index: 9999;
-    display: none;
-  }
-  #bulk-iframe.active { display: block; }
-  #bulk-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 9998;
-    background: rgba(7,14,24,0.97);
-    display: none;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    gap: 16px;
-  }
-  #bulk-overlay.active { display: flex; }
 `;
 
 function formatDate(v) {
@@ -75,27 +51,6 @@ const labelStyle = {
   color:"rgba(240,246,255,0.40)", marginBottom:6, display:"block",
 };
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-// Wait until the iframe content has fully rendered
-// Polls scrollHeight until stable for 2 consecutive checks
-async function waitForRender(iDoc, maxMs = 8000) {
-  const start = Date.now();
-  let lastH = 0;
-  let stableCount = 0;
-  while (Date.now() - start < maxMs) {
-    await sleep(200);
-    const h = iDoc.body?.scrollHeight || 0;
-    if (h > 200 && h === lastH) {
-      stableCount++;
-      if (stableCount >= 2) return; // stable for 400ms = ready
-    } else {
-      stableCount = 0;
-    }
-    lastH = h;
-  }
-}
-
 export default function BulkExportClient() {
   const [clientOpts,     setClientOpts]     = useState([]);
   const [clientName,     setClientName]     = useState("");
@@ -103,15 +58,11 @@ export default function BulkExportClient() {
   const [preview,        setPreview]        = useState([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [previewLoaded,  setPreviewLoaded]  = useState(false);
-  const [error,          setError]          = useState("");
   const [exporting,      setExporting]      = useState(false);
   const [exportStep,     setExportStep]     = useState("");
   const [exportProgress, setExportProgress] = useState(0);
-  const [exportDone,     setExportDone]     = useState(0);
-  const [exportTotal,    setExportTotal]    = useState(0);
+  const [error,          setError]          = useState("");
   const [doneMsg,        setDoneMsg]        = useState("");
-  const [iframeActive,   setIframeActive]   = useState(false);
-  const iframeRef = useRef(null);
 
   useEffect(() => {
     supabase.from("certificates").select("client_name").then(({ data }) => {
@@ -132,7 +83,7 @@ export default function BulkExportClient() {
     setError(""); setLoadingPreview(true); setPreviewLoaded(false); setDoneMsg("");
     let query = supabase
       .from("certificates")
-      .select("id,certificate_number,client_name,equipment_type,equipment_description,inspection_date,issue_date,expiry_date,status,result")
+      .select("id,certificate_number,client_name,equipment_type,equipment_description,inspection_date,issue_date,expiry_date,status,result,pdf_url")
       .order("certificate_number", { ascending: true })
       .limit(1000);
     if (clientName)     query = query.ilike("client_name", clientName.trim());
@@ -144,132 +95,65 @@ export default function BulkExportClient() {
     setPreviewLoaded(true);
   }
 
-  // ── Capture one cert via iframe ───────────────────────────────────────────
-  function captureViaIframe(cert) {
-    return new Promise((resolve, reject) => {
-      const iframe = iframeRef.current;
-      if (!iframe) { reject(new Error("iframe not found")); return; }
-
-      const printUrl = `/certificates/print/${encodeURIComponent(String(cert.id))}`;
-      iframe.src = printUrl;
-
-      const timeout = setTimeout(() => reject(new Error(`Timeout: ${cert.certificate_number}`)), 30000);
-
-      iframe.onload = async () => {
-        clearTimeout(timeout);
-        try {
-          const iDoc = iframe.contentDocument || iframe.contentWindow?.document;
-          const iWin = iframe.contentWindow;
-          if (!iDoc || !iWin) throw new Error("Cannot access iframe");
-
-          // Wait for fonts
-          try { await iDoc.fonts.ready; } catch {}
-
-          // Smart wait — poll until content is stable
-          await waitForRender(iDoc);
-
-          // Wait for images
-          const imgs = Array.from(iDoc.querySelectorAll("img"));
-          await Promise.all(imgs.map(img =>
-            img.complete ? Promise.resolve() :
-            new Promise(r => { img.onload = r; img.onerror = r; })
-          ));
-
-          // Small buffer for final paint
-          await sleep(300);
-
-          // Inject html2pdf if needed
-          if (!iWin.html2pdf) {
-            await new Promise((res, rej) => {
-              const s = iDoc.createElement("script");
-              s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
-              s.onload = res; s.onerror = rej;
-              iDoc.head.appendChild(s);
-            });
-            await sleep(200);
-          }
-
-          // Hide toolbar
-          const toolbar = iDoc.querySelector(".pt-toolbar");
-          if (toolbar) toolbar.style.display = "none";
-
-          const certEl = iDoc.querySelector(".pt-content") || iDoc.body;
-
-          const opt = {
-            margin: 0,
-            filename: `${cert.certificate_number || cert.id}.pdf`,
-            image: { type: "jpeg", quality: 0.97 },
-            html2canvas: {
-              scale: 2, useCORS: true, allowTaint: true,
-              logging: false, letterRendering: true,
-              windowWidth: 794, backgroundColor: "#ffffff",
-              scrollX: 0, scrollY: 0,
-            },
-            jsPDF: { unit: "mm", format: "a4", orientation: "portrait", compress: true },
-          };
-
-          const blob = await iWin.html2pdf().set(opt).from(certEl).outputPdf("blob");
-          const ab = await blob.arrayBuffer();
-          if (!ab || ab.byteLength < 1000) throw new Error("PDF empty");
-          resolve(ab);
-
-        } catch (e) {
-          reject(e);
-        } finally {
-          iframe.src = "about:blank";
-        }
-      };
-
-      iframe.onerror = () => { clearTimeout(timeout); reject(new Error("iframe load error")); };
-    });
-  }
-
-  // ── Main export ───────────────────────────────────────────────────────────
   async function handleExport() {
     if (!preview.length) return;
-    setExporting(true);
-    setIframeActive(true);
-    setError("");
-    setDoneMsg("");
-    setExportDone(0);
-    setExportProgress(0);
-    setExportTotal(preview.length);
+    setExporting(true); setError(""); setDoneMsg(""); setExportProgress(0);
 
     try {
-      setExportStep("Fetching certificate data…");
-      const ids = preview.map(c => c.id);
-      const allCerts = [];
-      for (let i = 0; i < ids.length; i += 50) {
-        const batch = ids.slice(i, i + 50);
-        const { data, error: e } = await supabase
-          .from("certificates")
-          .select("id, certificate_number, client_name, inspection_date, issue_date")
-          .in("id", batch)
-          .order("certificate_number", { ascending: true });
-        if (e) throw new Error(e.message);
-        allCerts.push(...(data || []));
+      const withPDF    = preview.filter(c => c.pdf_url);
+      const withoutPDF = preview.filter(c => !c.pdf_url);
+
+      // If some certs are missing PDFs, generate them first
+      if (withoutPDF.length > 0) {
+        setExportStep(`Generating ${withoutPDF.length} missing PDFs…`);
+        const res = await fetch("/api/certificates/generate-pdf", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: withoutPDF.map(c => c.id) }),
+        });
+        if (!res.ok) {
+          const json = await res.json();
+          throw new Error(json.error || "PDF generation failed.");
+        }
+
+        // Re-fetch all certs to get updated pdf_url values
+        setExportStep("Refreshing certificate data…");
+        const ids = preview.map(c => c.id);
+        const allRefreshed = [];
+        for (let i = 0; i < ids.length; i += 50) {
+          const { data } = await supabase
+            .from("certificates")
+            .select("id,certificate_number,client_name,inspection_date,issue_date,pdf_url")
+            .in("id", ids.slice(i, i + 50));
+          allRefreshed.push(...(data || []));
+        }
+
+        // Rebuild preview with updated pdf_url
+        preview.forEach((cert, idx) => {
+          const refreshed = allRefreshed.find(r => r.id === cert.id);
+          if (refreshed) preview[idx] = { ...cert, ...refreshed };
+        });
       }
 
+      // Now download all PDFs and ZIP them
+      setExportStep("Downloading PDFs…");
       const zip = new JSZip();
       let done = 0;
 
-      for (const cert of allCerts) {
-        setExportStep(`Rendering ${done + 1} / ${allCerts.length}: ${cert.certificate_number || cert.id}`);
-
+      await Promise.all(preview.map(async cert => {
         try {
-          const ab = await captureViaIframe(cert);
+          if (!cert.pdf_url) return;
+          const res = await fetch(cert.pdf_url);
+          if (!res.ok) return;
+          const ab = await res.arrayBuffer();
           const clientFolder = (cert.client_name || "Unknown").trim().replace(/[^a-zA-Z0-9_\- ]/g, "_");
           const safeDate     = (cert.inspection_date || cert.issue_date || "NoDate").replace(/-/g, "");
           const safeCertNum  = (cert.certificate_number || cert.id).toString().replace(/[^a-zA-Z0-9_-]/g, "_");
           zip.file(`${clientFolder}/${safeDate}_${safeCertNum}.pdf`, ab);
-        } catch (e) {
-          console.error(`Skipped ${cert.certificate_number}:`, e.message);
-        }
-
+        } catch {}
         done++;
-        setExportDone(done);
-        setExportProgress(Math.round((done / allCerts.length) * 100));
-      }
+        setExportProgress(Math.round((done / preview.length) * 80));
+      }));
 
       setExportStep("Compressing ZIP…");
       const zipBlob = await zip.generateAsync({
@@ -278,7 +162,7 @@ export default function BulkExportClient() {
         compressionOptions: { level: 6 },
       });
 
-      if (zipBlob.size < 100) throw new Error("ZIP is empty — no PDFs were generated.");
+      if (zipBlob.size < 100) throw new Error("ZIP is empty — no PDFs were available.");
 
       const clientLabel = clientName ? clientName.trim().replace(/\s+/g, "_") : "AllClients";
       const dateLabel   = inspectionDate ? `_${inspectionDate}` : "";
@@ -291,54 +175,22 @@ export default function BulkExportClient() {
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 5000);
 
-      setDoneMsg(`✓ ${done} certificate${done !== 1 ? "s" : ""} exported successfully`);
+      setExportProgress(100);
+      setDoneMsg(`✓ ${preview.length} certificate${preview.length !== 1 ? "s" : ""} exported successfully`);
 
     } catch (err) {
       setError(err.message || "Export failed.");
     } finally {
       setExporting(false);
-      setIframeActive(false);
       setExportStep("");
-      if (iframeRef.current) iframeRef.current.src = "about:blank";
     }
   }
+
+  const missingPDFCount = preview.filter(c => !c.pdf_url).length;
 
   return (
     <AppLayout title="Bulk Export">
       <style>{CSS}</style>
-
-      {/* Overlay during export */}
-      <div id="bulk-overlay" className={exporting ? "active" : ""}>
-        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-          <span style={{ display:"inline-block", width:18, height:18, border:"3px solid rgba(34,211,238,0.3)", borderTopColor:"#22d3ee", borderRadius:"50%", animation:"spin 0.7s linear infinite" }}/>
-          <span style={{ color:"#f0f6ff", fontFamily:"'IBM Plex Sans',sans-serif", fontSize:14, fontWeight:700 }}>
-            {exportStep || "Exporting…"}
-          </span>
-        </div>
-        {exportTotal > 0 && (
-          <div style={{ width:320 }}>
-            <div style={{ background:"rgba(34,211,238,0.1)", borderRadius:99, height:6, overflow:"hidden" }}>
-              <div style={{ height:"100%", borderRadius:99, background:"linear-gradient(90deg,#22d3ee,#34d399)", width:`${exportProgress}%`, transition:"width 0.3s ease" }}/>
-            </div>
-            <div style={{ marginTop:6, fontSize:12, color:"rgba(240,246,255,0.5)", textAlign:"center" }}>
-              {exportDone} of {exportTotal} certificates
-            </div>
-          </div>
-        )}
-        <div style={{ fontSize:11, color:"rgba(240,246,255,0.3)", fontFamily:"'IBM Plex Sans',sans-serif" }}>
-          Do not close this tab
-        </div>
-      </div>
-
-      {/* Single iframe */}
-      <iframe
-        id="bulk-iframe"
-        className={iframeActive ? "active" : ""}
-        ref={iframeRef}
-        src="about:blank"
-        title="cert-render"
-      />
-
       <div style={{
         background:`radial-gradient(ellipse 70% 50% at 0% 0%,rgba(34,211,238,0.06),transparent),radial-gradient(ellipse 60% 50% at 100% 100%,rgba(167,139,250,0.05),transparent),${T.bg}`,
         color:T.text, fontFamily:"'IBM Plex Sans',sans-serif", padding:20, paddingBottom:60, minHeight:"100vh",
@@ -394,28 +246,35 @@ export default function BulkExportClient() {
                 {loadingPreview ? "Loading…" : "Preview Matches"}
               </button>
 
-              {previewLoaded && preview.length > 0 && !exporting && (
-                <button onClick={handleExport} style={{
+              {previewLoaded && preview.length > 0 && (
+                <button onClick={handleExport} disabled={exporting} style={{
                   padding:"9px 20px", borderRadius:10, border:`1px solid ${T.greenBrd}`,
                   background:T.greenDim, color:T.green, fontWeight:900, fontSize:13,
                   cursor:"pointer", fontFamily:"'IBM Plex Sans',sans-serif",
-                  display:"flex", alignItems:"center", gap:8,
+                  display:"flex", alignItems:"center", gap:8, opacity:exporting ? 0.6 : 1,
                 }}>
-                  ⬇ Export {preview.length} Certificate{preview.length !== 1 ? "s" : ""} as ZIP
+                  {exporting ? (
+                    <><span style={{ display:"inline-block", width:13, height:13, border:`2px solid ${T.green}`, borderTopColor:"transparent", borderRadius:"50%", animation:"spin 0.7s linear infinite" }}/> {exportStep||"Exporting…"}</>
+                  ) : (
+                    <>⬇ Export {preview.length} Certificate{preview.length !== 1 ? "s" : ""} as ZIP</>
+                  )}
                 </button>
               )}
             </div>
 
-            {exporting && (
-              <div style={{ marginTop:16, padding:"14px 16px", borderRadius:12, border:`1px solid ${T.accentBrd}`, background:T.accentDim }}>
-                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
-                  <span style={{ display:"inline-block", width:14, height:14, border:`2px solid ${T.accent}`, borderTopColor:"transparent", borderRadius:"50%", animation:"spin 0.7s linear infinite", flexShrink:0 }}/>
-                  <span style={{ fontSize:12, fontWeight:700, color:T.accent }}>{exportStep}</span>
+            {/* Progress bar */}
+            {exporting && exportProgress > 0 && (
+              <div style={{ marginTop:14 }}>
+                <div style={{ background:"rgba(34,211,238,0.1)", borderRadius:99, height:5, overflow:"hidden" }}>
+                  <div style={{ height:"100%", borderRadius:99, background:`linear-gradient(90deg,${T.accent},${T.green})`, width:`${exportProgress}%`, transition:"width 0.3s ease" }}/>
                 </div>
-                <div style={{ background:"rgba(34,211,238,0.1)", borderRadius:99, height:6, overflow:"hidden" }}>
-                  <div style={{ height:"100%", borderRadius:99, background:`linear-gradient(90deg,${T.accent},${T.green})`, width:`${exportProgress}%`, transition:"width 0.4s ease" }}/>
-                </div>
-                <div style={{ marginTop:6, fontSize:11, color:T.textDim }}>{exportDone} of {exportTotal} certificates</div>
+              </div>
+            )}
+
+            {/* Missing PDF notice */}
+            {previewLoaded && missingPDFCount > 0 && !exporting && (
+              <div style={{ marginTop:12, padding:"10px 14px", borderRadius:10, border:`1px solid ${T.amberBrd}`, background:T.amberDim, color:T.amber, fontSize:12, fontWeight:600 }}>
+                ⚡ {missingPDFCount} certificate{missingPDFCount !== 1 ? "s" : ""} will be generated on first export — subsequent exports will be instant.
               </div>
             )}
 
@@ -438,6 +297,11 @@ export default function BulkExportClient() {
                 <span style={{ fontSize:13, fontWeight:800 }}>
                   Preview — <span style={{ color:T.accent }}>{preview.length} certificate{preview.length !== 1 ? "s" : ""}</span>
                 </span>
+                {preview.filter(c=>c.pdf_url).length > 0 && (
+                  <span style={{ fontSize:11, color:T.green, fontWeight:700 }}>
+                    {preview.filter(c=>c.pdf_url).length} ready · {missingPDFCount} pending generation
+                  </span>
+                )}
                 {preview.length === 0 && <span style={{ fontSize:12, color:T.textDim }}>No results.</span>}
               </div>
               {preview.length > 0 && (
@@ -446,7 +310,7 @@ export default function BulkExportClient() {
                     <table style={{ width:"100%", borderCollapse:"collapse", minWidth:700 }}>
                       <thead>
                         <tr style={{ background:"rgba(255,255,255,0.02)" }}>
-                          {["Certificate No","Client","Equipment","Inspection Date","Issue Date","Expiry Date","Status"].map(h => (
+                          {["Certificate No","Client","Equipment","Inspection Date","Expiry Date","Status","PDF"].map(h => (
                             <td key={h} style={{ padding:"9px 14px", fontSize:9, color:T.textDim, fontWeight:800, letterSpacing:"0.1em", textTransform:"uppercase", borderBottom:`1px solid ${T.border}`, whiteSpace:"nowrap" }}>{h}</td>
                           ))}
                         </tr>
@@ -460,12 +324,17 @@ export default function BulkExportClient() {
                               <td style={{ padding:"10px 14px", fontSize:12, color:T.textMid }}>{cert.client_name?.trim() || "—"}</td>
                               <td style={{ padding:"10px 14px", fontSize:12, color:T.textMid, maxWidth:220, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{cert.equipment_description || cert.equipment_type || "—"}</td>
                               <td style={{ padding:"10px 14px", fontSize:12, color:T.textMid, whiteSpace:"nowrap" }}>{formatDate(cert.inspection_date)}</td>
-                              <td style={{ padding:"10px 14px", fontSize:12, color:T.textMid, whiteSpace:"nowrap" }}>{formatDate(cert.issue_date)}</td>
                               <td style={{ padding:"10px 14px", fontSize:12, color:T.textMid, whiteSpace:"nowrap" }}>{formatDate(cert.expiry_date)}</td>
                               <td style={{ padding:"10px 14px" }}>
                                 <span style={{ display:"inline-flex", alignItems:"center", padding:"3px 9px", borderRadius:99, background:sc.bg, color:sc.color, border:`1px solid ${sc.brd}`, fontSize:10, fontWeight:800, textTransform:"capitalize", whiteSpace:"nowrap" }}>
                                   {cert.status || "active"}
                                 </span>
+                              </td>
+                              <td style={{ padding:"10px 14px" }}>
+                                {cert.pdf_url
+                                  ? <span style={{ fontSize:10, fontWeight:800, color:T.green }}>✓ Ready</span>
+                                  : <span style={{ fontSize:10, color:T.textDim }}>Pending</span>
+                                }
                               </td>
                             </tr>
                           );
@@ -486,7 +355,7 @@ export default function BulkExportClient() {
                           <div style={{ fontSize:11, color:T.textDim, display:"flex", gap:12, flexWrap:"wrap" }}>
                             <span>{cert.client_name?.trim() || "—"}</span>
                             <span>Inspected: {formatDate(cert.inspection_date)}</span>
-                            <span>Expiry: {formatDate(cert.expiry_date)}</span>
+                            <span style={{ color: cert.pdf_url ? T.green : T.textDim }}>{cert.pdf_url ? "✓ PDF Ready" : "PDF Pending"}</span>
                           </div>
                         </div>
                       );
