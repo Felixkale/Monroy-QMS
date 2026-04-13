@@ -410,6 +410,7 @@ export default function MachineInspectionPage() {
           issue_date:iDate, inspection_date:iDate, expiry_date:addMonths(iDate,12), next_inspection_due:addMonths(iDate,12),
           result:pv.result, defects_found:pv.notes||"", inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID,
           certificate_type:"Pressure Test Certificate", folder_id:folderId, folder_name:folderName, folder_position:10+i,
+          notes: JSON.stringify({ parent_reg:svcTruck.reg||equip.serial_number, parent_fleet:svcTruck.fleet||equip.fleet_number, parent_make:svcTruck.make, parent_model:svcTruck.model, parent_asset:`${machineType.label} ${svcTruck.reg||equip.serial_number}` }),
         });
       });
 
@@ -426,6 +427,7 @@ export default function MachineInspectionPage() {
           issue_date:iDate, inspection_date:iDate, expiry_date:expiryDate, next_inspection_due:expiryDate,
           result:tool.result, defects_found:tool.defects||"", inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID,
           certificate_type:"Load Test Certificate", folder_id:folderId, folder_name:folderName, folder_position:20+i,
+          notes: JSON.stringify({ parent_reg:svcTruck.reg||equip.serial_number, parent_fleet:svcTruck.fleet||equip.fleet_number, parent_make:svcTruck.make, parent_model:svcTruck.model, parent_asset:`${machineType.label} ${svcTruck.reg||equip.serial_number}` }),
         });
       });
 
