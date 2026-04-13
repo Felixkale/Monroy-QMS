@@ -34,11 +34,11 @@ const CSS = `
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
   #bulk-iframe{
     position:fixed;top:0;left:0;width:794px;height:100vh;
-    border:none;background:#fff;z-index:9999;display:none;
+    border:none;background:#fff;z-index:9000;display:none;
   }
   #bulk-iframe.active{display:block;}
   #bulk-overlay{
-    position:fixed;inset:0;z-index:9998;
+    position:fixed;inset:0;z-index:9500;
     background:rgba(7,14,24,0.97);
     display:none;align-items:center;justify-content:center;
     flex-direction:column;gap:14px;
