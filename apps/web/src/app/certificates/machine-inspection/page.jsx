@@ -324,7 +324,15 @@ export default function MachineInspectionPage() {
   const ui  = (k,v) => setInsp(p=>({...p,[k]:v}));
   const ubu = (k,v) => setBucket(p=>({...p,[k]:v}));
   const uht = (k,v) => setHt(p=>({...p,[k]:v}));
-  const upv = (i,k,v) => setPvs(p=>p.map((x,j)=>j===i?{...x,[k]:v}:x));
+  const upv = (i,k,v) => setPvs(p=>p.map((x,j)=>{
+    if(j!==i) return x;
+    const updated = {...x,[k]:v};
+    if(k==="working_pressure"){
+      const mawp=parseFloat(v)||0;
+      updated.test_pressure = mawp ? String((mawp*1.5).toFixed(2)).replace(/\.?0+$/,"") : "";
+    }
+    return updated;
+  }));
   const ufk = (i,k,v) => setForks(p=>p.map((x,j)=>j===i?{...x,[k]:v}:x));
   const ust = (k,v) => {
     setSvcTruck(p=>({...p,[k]:v}));
@@ -476,7 +484,13 @@ export default function MachineInspectionPage() {
     if (hasPVs && !machineType.isServiceTruck && !machineType.isMixerTruck) {
       pvs.forEach((pv,i)=>{
         if (!pv.sn&&!pv.description) return;
-        certs.push({ certificate_number:nextNo(), equipment_type:"Pressure Vessel", equipment_description:pv.description||`Pressure Vessel ${i+1} — SN ${equip.serial_number}`, serial_number:pv.sn, manufacturer:pv.manufacturer, year_built:pv.year_manufacture, country_of_origin:pv.country_origin, capacity_volume:pv.capacity, working_pressure:pv.working_pressure, test_pressure:pv.test_pressure, pressure_unit:pv.pressure_unit, client_name:equip.client_name, client_id:equip.client_id, location:equip.client_location, issue_date:iDate, inspection_date:iDate, expiry_date:addMonths(iDate,12), next_inspection_due:addMonths(iDate,12), result:pv.result, defects_found:pv.notes||"", inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID, certificate_type:"Pressure Test Certificate", folder_id:folderId, folder_name:folderName, folder_position:20+i });
+        certs.push({ certificate_number:nextNo(), equipment_type:"Pressure Vessel", equipment_description:pv.description||`Pressure Vessel ${i+1} — SN ${equip.serial_number}`, serial_number:pv.sn, manufacturer:pv.manufacturer, year_built:pv.year_manufacture, country_of_origin:pv.country_origin, capacity_volume:pv.capacity, working_pressure:pv.working_pressure,
+          test_pressure:pv.test_pressure||String(((parseFloat(pv.working_pressure)||0)*1.5).toFixed(2)).replace(/\.?0+$/,""),
+          design_pressure:pv.working_pressure,
+          pressure_unit:pv.pressure_unit,
+          fleet_number:equipRef.fleet_number||"",
+          registration_number:equip.registration_number||"",
+          client_name:equip.client_name, client_id:equip.client_id, location:equip.client_location, issue_date:iDate, inspection_date:iDate, expiry_date:addMonths(iDate,12), next_inspection_due:addMonths(iDate,12), result:pv.result, defects_found:pv.notes||"", inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID, certificate_type:"Pressure Test Certificate", folder_id:folderId, folder_name:folderName, folder_position:20+i });
       });
     }
 
@@ -778,10 +792,15 @@ export default function MachineInspectionPage() {
                   <Field label="Year of Manufacture"><input style={IS} placeholder="e.g. 2018" value={pv.year_manufacture} onChange={e=>upv(i,"year_manufacture",e.target.value)}/></Field>
                   <Field label="Country of Origin"><input style={IS} placeholder="e.g. South Africa" value={pv.country_origin} onChange={e=>upv(i,"country_origin",e.target.value)}/></Field>
                 </div>
-                <div className="g3" style={{ marginBottom:14 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:14, marginBottom:14 }}>
                   <Field label="Capacity / Volume"><input style={IS} placeholder="e.g. 200L" value={pv.capacity} onChange={e=>upv(i,"capacity",e.target.value)}/></Field>
-                  <Field label="Working Pressure"><input style={IS} placeholder="e.g. 200" value={pv.working_pressure} onChange={e=>upv(i,"working_pressure",e.target.value)}/></Field>
-                  <Field label="Test Pressure"><input style={IS} placeholder="e.g. 300" value={pv.test_pressure} onChange={e=>upv(i,"test_pressure",e.target.value)}/></Field>
+                  <Field label="MAWP / Working Pressure"><input style={IS} placeholder="e.g. 800" value={pv.working_pressure} onChange={e=>{const v=e.target.value;const mawp=parseFloat(v)||0;upv(i,"working_pressure",v);if(mawp){upv(i,"test_pressure",String((mawp*1.5).toFixed(2)).replace(/\.?0+$/,""));}}}/></Field>
+                  <Field label="Design Pressure (= MAWP)">
+                    <input style={{...IS, background:"rgba(34,211,238,0.06)", color:T.accent, fontWeight:700}} value={pv.working_pressure||""} readOnly placeholder="Auto-fills from MAWP"/>
+                  </Field>
+                  <Field label="Test Pressure (1.5 × MAWP)">
+                    <input style={{...IS, background:"rgba(52,211,153,0.06)", color:T.green, fontWeight:700}} value={pv.test_pressure||""} readOnly placeholder="Auto-fills"/>
+                  </Field>
                 </div>
                 <div className="g2" style={{ marginBottom:14 }}>
                   <Field label="Pressure Unit"><select style={IS} value={pv.pressure_unit} onChange={e=>upv(i,"pressure_unit",e.target.value)}><option value="bar">bar</option><option value="psi">psi</option><option value="MPa">MPa</option><option value="kPa">kPa</option></select></Field>
