@@ -168,7 +168,7 @@ const STEP_META = {
 
 // ── Service truck attachments ────────────────────────────────────────────
 const emptySvcTruck  = () => ({ reg:"", make:"", model:"", vin:"", year:"", fleet:"", gvm:"", result:"PASS", notes:"" });
-const emptySvcPV     = () => ({ sn:"", description:"Air Receiver", manufacturer:"", capacity:"", working_pressure:"", test_pressure:"", pressure_unit:"bar", result:"PASS", notes:"" });
+const emptySvcPV     = () => ({ sn:"", description:"Air Receiver", manufacturer:"", capacity:"", working_pressure:"", test_pressure:"", pressure_unit:"bar", result:"PASS", notes:"", parent_fleet:"", parent_reg:"", parent_make:"", parent_model:"" });
 const emptySvcTool   = (type) => ({ type, sn:"", description:"", manufacturer:"", swl:"", result:"PASS", defects:"", include:true });
 
 const SVC_TOOL_TYPES = [
@@ -326,8 +326,23 @@ export default function MachineInspectionPage() {
   const uht = (k,v) => setHt(p=>({...p,[k]:v}));
   const upv = (i,k,v) => setPvs(p=>p.map((x,j)=>j===i?{...x,[k]:v}:x));
   const ufk = (i,k,v) => setForks(p=>p.map((x,j)=>j===i?{...x,[k]:v}:x));
-  const ust = (k,v) => setSvcTruck(p=>({...p,[k]:v}));
-  const uspv = (i,k,v) => setSvcPVs(p=>p.map((x,j)=>j===i?{...x,[k]:v}:x));
+  const ust = (k,v) => {
+    setSvcTruck(p=>({...p,[k]:v}));
+    // Auto-propagate truck identity to all PVs and tools
+    if(["reg","fleet","make","model"].includes(k)){
+      setSvcPVs(p=>p.map(pv=>({...pv,[`parent_${k}`]:v})));
+    }
+  };
+  const uspv = (i,k,v) => setSvcPVs(p=>p.map((x,j)=>{
+    if(j!==i) return x;
+    const updated = {...x,[k]:v};
+    // Design pressure = MAWP; Test pressure = 1.5 x MAWP
+    if(k==="working_pressure"){
+      const mawp = parseFloat(v)||0;
+      updated.test_pressure = mawp ? String((mawp*1.5).toFixed(2)).replace(/\.?0+$/,"") : "";
+    }
+    return updated;
+  }));
   const utool = (i,k,v) => setSvcTools(p=>p.map((x,j)=>j===i?{...x,[k]:v}:x));
 
   function clientSelected(id) {
@@ -411,7 +426,10 @@ export default function MachineInspectionPage() {
           equipment_description:pv.description||`Air Receiver ${i+1}`,
           serial_number:pv.sn, manufacturer:pv.manufacturer,
           capacity_volume:pv.capacity, working_pressure:pv.working_pressure,
-          test_pressure:pv.test_pressure, pressure_unit:pv.pressure_unit,
+          test_pressure:pv.test_pressure||String(((parseFloat(pv.working_pressure)||0)*1.5).toFixed(2)).replace(/\.?0+$/,""), // 1.5 x MAWP
+          design_pressure:pv.working_pressure,
+          pressure_unit:pv.pressure_unit,
+          fleet_number:svcTruck.fleet, registration_number:svcTruck.reg,
           client_name:equip.client_name, client_id:equip.client_id, location:equip.client_location,
           issue_date:iDate, inspection_date:iDate, expiry_date:addMonths(iDate,12), next_inspection_due:addMonths(iDate,12),
           result:pv.result, defects_found:pv.notes||"", inspector_name:INSPECTOR_NAME, inspector_id:INSPECTOR_ID,
@@ -864,10 +882,23 @@ export default function MachineInspectionPage() {
                   <Field label="Serial Number"><input style={IS} placeholder="e.g. AR-001" value={pv.sn} onChange={e=>uspv(i,"sn",e.target.value)}/></Field>
                   <Field label="Description"><input style={IS} placeholder="e.g. Air Receiver" value={pv.description} onChange={e=>uspv(i,"description",e.target.value)}/></Field>
                 </div>
-                <div className="g3" style={{ marginBottom:14 }}>
+                {/* Auto-filled parent truck info */}
+                {(svcTruck.reg||svcTruck.fleet) && (
+                  <div style={{ padding:"8px 12px", borderRadius:8, background:"rgba(52,211,153,0.08)", border:"1px solid rgba(52,211,153,0.2)", fontSize:11, color:T.green, marginBottom:12, display:"flex", gap:16, flexWrap:"wrap" }}>
+                    <span>🚛 {svcTruck.make} {svcTruck.model}</span>
+                    {svcTruck.reg && <span>Reg: <strong>{svcTruck.reg}</strong></span>}
+                    {svcTruck.fleet && <span>Fleet: <strong>{svcTruck.fleet}</strong></span>}
+                  </div>
+                )}
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:14, marginBottom:14 }}>
                   <Field label="Capacity / Volume"><input style={IS} placeholder="e.g. 50L" value={pv.capacity} onChange={e=>uspv(i,"capacity",e.target.value)}/></Field>
-                  <Field label="Working Pressure"><input style={IS} placeholder="e.g. 8" value={pv.working_pressure} onChange={e=>uspv(i,"working_pressure",e.target.value)}/></Field>
-                  <Field label="Test Pressure"><input style={IS} placeholder="e.g. 12" value={pv.test_pressure} onChange={e=>uspv(i,"test_pressure",e.target.value)}/></Field>
+                  <Field label="MAWP / Working Pressure"><input style={IS} placeholder="e.g. 8" value={pv.working_pressure} onChange={e=>uspv(i,"working_pressure",e.target.value)}/></Field>
+                  <Field label="Design Pressure (= MAWP)">
+                    <input style={{...IS, background:"rgba(34,211,238,0.06)", color:T.accent, fontWeight:700}} value={pv.working_pressure||""} readOnly placeholder="Auto-fills from MAWP"/>
+                  </Field>
+                  <Field label="Test Pressure (= 1.5 × MAWP)">
+                    <input style={{...IS, background:"rgba(52,211,153,0.06)", color:T.green, fontWeight:700}} value={pv.test_pressure||""} readOnly placeholder="Auto-fills (1.5 × MAWP)"/>
+                  </Field>
                 </div>
                 <div className="g2" style={{ marginBottom:14 }}>
                   <Field label="Pressure Unit"><select style={IS} value={pv.pressure_unit} onChange={e=>uspv(i,"pressure_unit",e.target.value)}><option value="bar">bar</option><option value="psi">psi</option><option value="MPa">MPa</option><option value="kPa">kPa</option></select></Field>
