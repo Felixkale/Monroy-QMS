@@ -2,12 +2,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Auto-generates NCR + CAPA whenever a certificate has a non-PASS result.
 //
-// Key improvements:
-//   - resolveAssetId uses serial + client + equipment_type (triple match, zero collisions)
-//   - Parses defects_found, recommendations, comments, notes for rich NCR/CAPA content
-//   - autoRaiseNcr() is idempotent — safe to call on every certificate save
-//   - autoRaiseNcrForAllExisting() backfills NCRs for all non-pass certs in DB
-//   - Triggered from certificate wizard save AND certificate edit save
+// Exports:
+//   autoRaiseNcr(cert, options)            — single cert, idempotent
+//   triggerAutoNcr(cert)                   — lightweight wrapper for wizard saves
+//   autoRaiseNcrForAllExisting(onProgress) — batch backfill for existing certs
+//   autoRaiseNcrBatch(certs, options)      — legacy batch alias (kept for compat)
 // ─────────────────────────────────────────────────────────────────────────────
 import { supabase } from "@/lib/supabaseClient";
 
@@ -79,8 +78,6 @@ function generateCapaNumber(ncrNumber) {
 }
 
 // ── Defect / remarks parser ───────────────────────────────────────────────────
-// Pulls meaningful text from all possible comment/defect fields on a certificate.
-// Returns { defectText, remarkText, allFindings } for use in NCR/CAPA content.
 function parseFindings(cert) {
   const rawFields = [
     cert.defects_found,
@@ -92,12 +89,11 @@ function parseFindings(cert) {
     cert.observation,
   ].filter(Boolean).map(s => String(s).trim()).filter(s => s.length > 2);
 
-  // Also try to parse JSON notes (used in machine/crane inspection wizards)
+  // Also parse JSON notes from inspection wizards
   let jsonNotes = [];
   if (cert.notes && typeof cert.notes === "string" && cert.notes.startsWith("{")) {
     try {
       const parsed = JSON.parse(cert.notes);
-      // Flatten any defect/remark fields from JSON notes
       const jsonFields = [
         parsed.defects, parsed.remarks, parsed.comments,
         parsed.findings, parsed.defects_found, parsed.observation,
@@ -114,8 +110,7 @@ function parseFindings(cert) {
   return { defectText, remarkText, allFindings };
 }
 
-// ── Recommended CAPA action generator ─────────────────────────────────────────
-// Builds a sensible immediate_action string from defect text + result.
+// ── CAPA immediate action builder ─────────────────────────────────────────────
 function buildImmediateAction(result, defectText, equipType) {
   const r = normalizeResult(result);
   const lines = [];
@@ -137,13 +132,13 @@ function buildImmediateAction(result, defectText, equipType) {
   if (equipType) {
     const et = equipType.toLowerCase();
     if (et.includes("crane") || et.includes("hoist") || et.includes("sling")) {
-      lines.push("\nLifting equipment — re-inspection required by competent person before return to service.");
+      lines.push("\nLifting equipment — re-inspection by competent person required before return to service.");
     } else if (et.includes("pressure") || et.includes("vessel") || et.includes("receiver")) {
-      lines.push("\nPressure vessel — ensure safe pressure venting before maintenance.");
+      lines.push("\nPressure vessel — ensure safe pressure venting before any maintenance work.");
     } else if (et.includes("harness") || et.includes("safety")) {
-      lines.push("\nHeight safety equipment — must be replaced, not repaired, if structural damage found.");
+      lines.push("\nHeight safety equipment — must be replaced, not repaired, if structural damage is found.");
     } else if (et.includes("truck") || et.includes("vehicle") || et.includes("bowser") || et.includes("bus")) {
-      lines.push("\nVehicle — park and lock out. Do not operate until roadworthy certificate obtained.");
+      lines.push("\nVehicle — park and lock out. Do not operate until roadworthy certificate is obtained.");
     }
   }
 
@@ -152,12 +147,11 @@ function buildImmediateAction(result, defectText, equipType) {
 
 // ── Smart asset resolver ───────────────────────────────────────────────────────
 // Priority 1: serial + client_id + equipment_type  (zero collisions)
-// Priority 2: serial + client_id                   (if type label differs)
-// Priority 3: serial only (only if single result)
-// Priority 4: fleet/registration number as asset_tag
-// Priority 5: fuzzy equipment_description match
+// Priority 2: serial + client_id
+// Priority 3: serial only (single unambiguous match)
+// Priority 4: fleet_number / registration_number as asset_tag
+// Priority 5: fuzzy equipment_description / asset_name
 async function resolveAssetId(cert) {
-  // Already linked
   if (cert.asset_id) return cert.asset_id;
 
   const sel = "id";
@@ -174,7 +168,7 @@ async function resolveAssetId(cert) {
     clientId = cl?.id || null;
   }
 
-  // ── Priority 1: serial + client + equipment_type ──────────────────────────
+  // Priority 1: serial + client + equipment_type
   if (nz(cert.serial_number) && clientId && nz(cert.equipment_type)) {
     const { data } = await supabase.from("assets").select(sel)
       .eq("serial_number", cert.serial_number)
@@ -184,16 +178,16 @@ async function resolveAssetId(cert) {
     if (data?.[0]?.id) return data[0].id;
   }
 
-  // ── Priority 2: serial + client ───────────────────────────────────────────
+  // Priority 2: serial + client
   if (nz(cert.serial_number) && clientId) {
     const { data } = await supabase.from("assets").select(sel)
       .eq("serial_number", cert.serial_number)
       .eq("client_id",     clientId)
       .limit(2);
-    if (data?.length === 1) return data[0].id; // only if unambiguous
+    if (data?.length === 1) return data[0].id;
   }
 
-  // ── Priority 3: serial only (unambiguous single match) ────────────────────
+  // Priority 3: serial only (unambiguous)
   if (nz(cert.serial_number)) {
     const { data } = await supabase.from("assets").select(sel)
       .eq("serial_number", cert.serial_number)
@@ -201,14 +195,14 @@ async function resolveAssetId(cert) {
     if (data?.length === 1) return data[0].id;
   }
 
-  // ── Priority 4: fleet_number or registration_number as asset_tag ──────────
+  // Priority 4: fleet or registration number as asset_tag
   for (const tag of [cert.fleet_number, cert.registration_number].filter(Boolean)) {
     const { data } = await supabase.from("assets").select(sel)
       .eq("asset_tag", tag).limit(1);
     if (data?.[0]?.id) return data[0].id;
   }
 
-  // ── Priority 5: fuzzy equipment_description / asset_name ──────────────────
+  // Priority 5: fuzzy equipment_description / asset_name
   const fuzzyTerms = [cert.equipment_description, cert.asset_name].filter(Boolean);
   for (const term of fuzzyTerms) {
     if (term.length < 4) continue;
@@ -223,24 +217,21 @@ async function resolveAssetId(cert) {
 // ── Main entry point ──────────────────────────────────────────────────────────
 /**
  * Auto-raises NCR + CAPA for a single certificate.
- * Safe to call on every certificate save — idempotent by certificate_id.
+ * Idempotent — safe to call on every certificate save.
  *
- * @param {object}  certificate          Full certificate row from Supabase
+ * @param {object}  certificate
  * @param {object}  [options]
- * @param {boolean} [options.createCapa=true]  Also auto-create CAPA
- * @param {boolean} [options.force=false]       Re-raise even if NCR exists
+ * @param {boolean} [options.createCapa=true]
+ * @param {boolean} [options.force=false]
  * @returns {{ ncr, capa, skipped, error }}
  */
 export async function autoRaiseNcr(certificate, { createCapa = true, force = false } = {}) {
   if (!certificate) return { ncr: null, capa: null, skipped: true, error: null };
 
   const result = normalizeResult(certificate.result);
+  if (!isNonPass(result)) return { ncr: null, capa: null, skipped: true, error: null };
 
-  if (!isNonPass(result)) {
-    return { ncr: null, capa: null, skipped: true, error: null };
-  }
-
-  // ── Idempotency: skip if NCR already exists for this certificate ──────────
+  // Idempotency check
   if (!force && certificate.id) {
     const { data: existing } = await supabase
       .from("ncrs")
@@ -260,7 +251,6 @@ export async function autoRaiseNcr(certificate, { createCapa = true, force = fal
     }
   }
 
-  // ── Gather all cert fields ────────────────────────────────────────────────
   const severity   = severityFromResult(result);
   const priority   = priorityFromResult(result);
   const dueDate    = dueDateFromSeverity(severity);
@@ -279,14 +269,12 @@ export async function autoRaiseNcr(certificate, { createCapa = true, force = fal
 
   const { defectText, remarkText, allFindings } = parseFindings(certificate);
 
-  // ── Build NCR description (short — 1-3 sentences) ────────────────────────
   const description = [
     `${resultLabel(result)} detected on certificate ${certNo} for ${equipDesc}${equipType ? ` (${equipType})` : ""}.`,
     clientName !== "—" ? `Client: ${clientName}.` : "",
     defectText ? `Defects: ${defectText.slice(0, 180)}${defectText.length > 180 ? "…" : ""}` : "",
   ].filter(Boolean).join(" ");
 
-  // ── Build NCR details (full structured report) ────────────────────────────
   const details = [
     "══════════════════════════════",
     "  AUTO-GENERATED NCR",
@@ -310,14 +298,14 @@ export async function autoRaiseNcr(certificate, { createCapa = true, force = fal
     "  ACTIONS REQUIRED",
     "══════════════════════════════",
     severity === "critical" ? "⚠ CRITICAL — Equipment must be taken OUT OF SERVICE immediately." : null,
-    severity === "major"    ? "⚠ MAJOR — Equipment must be repaired before next use." : null,
-    severity === "minor"    ? "ℹ MINOR — Monitor equipment. Schedule maintenance." : null,
+    severity === "major"    ? "⚠ MAJOR — Equipment must be repaired before next use."            : null,
+    severity === "minor"    ? "ℹ MINOR — Monitor equipment. Schedule maintenance."               : null,
     "",
     `Inspector: ${INSPECTOR}`,
     `Auto-raised: ${new Date().toISOString()}`,
   ].filter(s => s !== null).join("\n").trim();
 
-  // ── Insert NCR ────────────────────────────────────────────────────────────
+  // Insert NCR
   const ncrPayload = {
     ncr_number:     ncrNumber,
     title:          `${resultLabel(result)} — ${equipDesc.slice(0, 80)}`,
@@ -342,11 +330,9 @@ export async function autoRaiseNcr(certificate, { createCapa = true, force = fal
     return { ncr: null, capa: null, skipped: false, error: ncrErr.message };
   }
 
-  if (!createCapa) {
-    return { ncr: ncrData, capa: null, skipped: false, error: null };
-  }
+  if (!createCapa) return { ncr: ncrData, capa: null, skipped: false, error: null };
 
-  // ── Insert CAPA ───────────────────────────────────────────────────────────
+  // Insert CAPA
   const capaNumber      = generateCapaNumber(ncrNumber);
   const immediateAction = buildImmediateAction(result, defectText, equipType);
 
@@ -385,23 +371,43 @@ export async function autoRaiseNcr(certificate, { createCapa = true, force = fal
   return { ncr: ncrData, capa: capaData, skipped: false, error: null };
 }
 
-// ── Batch backfill — run once to raise NCRs for ALL existing non-pass certs ──
+// ── Lightweight trigger for wizard / edit saves ───────────────────────────────
 /**
- * Scans the entire certificates table for non-pass results that have no NCR yet,
- * and auto-raises NCR + CAPA for each one.
+ * Call this at the end of any certificate save handler.
+ * Fires and forgets — won't block the UI.
  *
- * Usage: call from a one-off admin page, API route, or browser console.
- *   import { autoRaiseNcrForAllExisting } from "@/lib/autoNcr";
- *   const report = await autoRaiseNcrForAllExisting();
- *   console.log(report);
+ * import { triggerAutoNcr } from "@/lib/autoNcr";
+ * await triggerAutoNcr(savedCertificate);
+ */
+export async function triggerAutoNcr(certificate) {
+  if (!certificate) return;
+  const result = normalizeResult(certificate.result || "");
+  if (!isNonPass(result)) return;
+  try {
+    const { ncr, capa, skipped, error } = await autoRaiseNcr(certificate, { createCapa: true });
+    if (!skipped && ncr) {
+      console.log(`[triggerAutoNcr] ✅ NCR ${ncr.ncr_number}${capa ? ` + CAPA ${capa.capa_number}` : ""} raised for ${certificate.certificate_number}`);
+    } else if (skipped) {
+      console.log(`[triggerAutoNcr] ⏭ Skipped — NCR already exists for ${certificate.certificate_number}`);
+    } else if (error) {
+      console.warn(`[triggerAutoNcr] ⚠ ${error}`);
+    }
+  } catch (e) {
+    console.warn("[triggerAutoNcr] Error:", e?.message);
+  }
+}
+
+// ── Batch backfill — process all existing non-pass certs ──────────────────────
+/**
+ * Scans entire certificates table for non-pass results with no NCR yet.
+ * Safe to run multiple times — idempotent.
  *
- * @param {function} [onProgress]  Optional callback(current, total, cert) for UI progress
+ * @param {function} [onProgress]  Optional callback(current, total, cert)
  * @returns {{ created, skipped, failed, errors }}
  */
 export async function autoRaiseNcrForAllExisting(onProgress) {
   const report = { created: 0, skipped: 0, failed: 0, errors: [] };
 
-  // Load all non-pass certs that don't already have an NCR
   const { data: certs, error: fetchErr } = await supabase
     .from("certificates")
     .select("*")
@@ -418,7 +424,6 @@ export async function autoRaiseNcrForAllExisting(onProgress) {
     return report;
   }
 
-  // Filter to only those without an existing NCR
   const certIds = certs.map(c => c.id);
   const { data: existingNcrs } = await supabase
     .from("ncrs")
@@ -428,7 +433,7 @@ export async function autoRaiseNcrForAllExisting(onProgress) {
   const alreadyHasNcr = new Set((existingNcrs || []).map(n => n.certificate_id));
   const toProcess = certs.filter(c => !alreadyHasNcr.has(c.id));
 
-  console.log(`[autoRaiseNcrForAllExisting] ${certs.length} non-pass certs found. ${alreadyHasNcr.size} already have NCRs. Processing ${toProcess.length}…`);
+  console.log(`[autoRaiseNcrForAllExisting] ${certs.length} non-pass certs. ${alreadyHasNcr.size} already have NCRs. Processing ${toProcess.length}…`);
 
   for (let i = 0; i < toProcess.length; i++) {
     const cert = toProcess[i];
@@ -436,23 +441,20 @@ export async function autoRaiseNcrForAllExisting(onProgress) {
 
     try {
       const result = await autoRaiseNcr(cert, { createCapa: true, force: false });
-
       if (result.error && !result.ncr) {
         report.failed++;
         report.errors.push(`${cert.certificate_number}: ${result.error}`);
-        console.error(`[autoRaiseNcrForAllExisting] FAILED ${cert.certificate_number}:`, result.error);
       } else if (result.skipped) {
         report.skipped++;
       } else {
         report.created++;
-        console.log(`[autoRaiseNcrForAllExisting] ✅ Created NCR ${result.ncr?.ncr_number} + CAPA ${result.capa?.capa_number} for ${cert.certificate_number}`);
+        console.log(`[autoRaiseNcrForAllExisting] ✅ ${result.ncr?.ncr_number} + ${result.capa?.capa_number} for ${cert.certificate_number}`);
       }
     } catch (e) {
       report.failed++;
       report.errors.push(`${cert.certificate_number}: ${e?.message || "Unknown error"}`);
     }
 
-    // Small delay to avoid hammering Supabase rate limits
     if (i < toProcess.length - 1) await new Promise(r => setTimeout(r, 120));
   }
 
@@ -460,29 +462,16 @@ export async function autoRaiseNcrForAllExisting(onProgress) {
   return report;
 }
 
+// ── Legacy batch alias — keeps crane-inspection and machine-inspection happy ──
 /**
- * Single-cert version — convenience wrapper for calling from certificate save handlers.
- * Use this in your wizard onSubmit and CertificateEditPage handleSave.
- *
- * Example usage in wizard:
- *   import { triggerAutoNcr } from "@/lib/autoNcr";
- *   await triggerAutoNcr(savedCertificate);
+ * @deprecated Use autoRaiseNcrForAllExisting() or call autoRaiseNcr() per cert.
+ * Kept for backward compatibility with existing wizard imports.
  */
-export async function triggerAutoNcr(certificate) {
-  if (!certificate) return;
-  const result = normalizeResult(certificate.result || "");
-  if (!isNonPass(result)) return;
-
-  try {
-    const { ncr, capa, skipped, error } = await autoRaiseNcr(certificate, { createCapa: true });
-    if (!skipped && ncr) {
-      console.log(`[triggerAutoNcr] ✅ NCR ${ncr.ncr_number}${capa ? ` + CAPA ${capa.capa_number}` : ""} raised for ${certificate.certificate_number}`);
-    } else if (skipped) {
-      console.log(`[triggerAutoNcr] ⏭ Skipped — NCR already exists for ${certificate.certificate_number}`);
-    } else if (error) {
-      console.warn(`[triggerAutoNcr] ⚠ ${error}`);
-    }
-  } catch (e) {
-    console.warn("[triggerAutoNcr] Error:", e?.message);
+export async function autoRaiseNcrBatch(certificates, options = {}) {
+  const results = [];
+  for (const cert of (certificates || [])) {
+    const r = await autoRaiseNcr(cert, options);
+    results.push({ certificate_id: cert.id, ...r });
   }
+  return results;
 }
