@@ -61,8 +61,7 @@ const LS = {
 
 function nz(v, fb = "") {
   if (v === null || v === undefined) return fb;
-  const s = String(v).trim();
-  return s || fb;
+  return String(v).trim() || fb;
 }
 function normalizeResult(v) { return nz(v).toUpperCase().replace(/\s+/g, "_"); }
 function resultLabel(v) {
@@ -112,47 +111,83 @@ function buildDetails(src) {
 }
 
 // ── Smart asset fetcher ───────────────────────────────────────────────────────
+// Priority 1 — serial + client + equipment_type  (exact, zero collisions)
+// Priority 2 — serial + client                   (if type mismatch/missing)
+// Priority 3 — serial only                       (last resort single match)
+// Priority 4 — fuzzy equipment_description       (no serial at all)
+// Fallback   — all recent assets for manual pick
+//
 // Returns { autoMatch, matchedBy, allAssets }
-// autoMatch = best single hit (null if not found)
-// matchedBy = "serial_number" | "asset_tag" | "equipment_name" | null
 async function fetchAssets(src) {
   const sel = "id,asset_tag,asset_name,asset_type,serial_number,client_id,clients(id,company_name)";
 
-  // Priority 1 — exact serial number
+  // Resolve client_id from client_name first
+  let clientId = null;
+  if (nz(src.client_name)) {
+    const { data: cl } = await supabase
+      .from("clients")
+      .select("id")
+      .eq("company_name", src.client_name)
+      .maybeSingle();
+    clientId = cl?.id || null;
+  }
+
+  // Load full asset list for the manual override dropdown
+  const { data: allAssets } = await supabase
+    .from("assets")
+    .select(sel)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  const all = allAssets || [];
+
+  // ── Priority 1: serial + client + equipment_type (tightest match) ──────────
+  if (nz(src.serial_number) && clientId && nz(src.equipment_type)) {
+    const { data } = await supabase
+      .from("assets")
+      .select(sel)
+      .eq("serial_number",  src.serial_number)
+      .eq("client_id",      clientId)
+      .eq("asset_type",     src.equipment_type)
+      .limit(5);
+    if (data?.length) return { autoMatch: data[0], matchedBy: "serial + client + type", allAssets: all };
+  }
+
+  // ── Priority 2: serial + client (type missing or different label) ──────────
+  if (nz(src.serial_number) && clientId) {
+    const { data } = await supabase
+      .from("assets")
+      .select(sel)
+      .eq("serial_number", src.serial_number)
+      .eq("client_id",     clientId)
+      .limit(5);
+    if (data?.length === 1) return { autoMatch: data[0], matchedBy: "serial + client", allAssets: all };
+    // Multiple hits with same serial+client but different types — don't auto-pick
+  }
+
+  // ── Priority 3: serial only (single unambiguous match across all clients) ──
   if (nz(src.serial_number)) {
-    const { data } = await supabase.from("assets").select(sel)
-      .eq("serial_number", src.serial_number).limit(10);
-    if (data?.length) {
-      const { data: all } = await supabase.from("assets").select(sel).order("created_at", { ascending: false }).limit(50);
-      return { autoMatch: data[0], matchedBy: "serial number", allAssets: all || data };
-    }
+    const { data } = await supabase
+      .from("assets")
+      .select(sel)
+      .eq("serial_number", src.serial_number)
+      .limit(5);
+    if (data?.length === 1) return { autoMatch: data[0], matchedBy: "serial number", allAssets: all };
   }
 
-  // Priority 2 — exact asset_tag
-  if (nz(src.asset_tag)) {
-    const { data } = await supabase.from("assets").select(sel)
-      .eq("asset_tag", src.asset_tag).limit(10);
-    if (data?.length) {
-      const { data: all } = await supabase.from("assets").select(sel).order("created_at", { ascending: false }).limit(50);
-      return { autoMatch: data[0], matchedBy: "asset tag", allAssets: all || data };
-    }
-  }
-
-  // Priority 3 — fuzzy asset_name / equipment_description
-  const fuzzyTerms = [src.asset_name, src.equipment_description].filter(Boolean);
+  // ── Priority 4: fuzzy equipment_description match ──────────────────────────
+  const fuzzyTerms = [src.equipment_description, src.asset_name].filter(Boolean);
   for (const term of fuzzyTerms) {
-    const { data } = await supabase.from("assets").select(sel)
-      .ilike("asset_name", `%${term}%`).limit(10);
-    if (data?.length) {
-      const { data: all } = await supabase.from("assets").select(sel).order("created_at", { ascending: false }).limit(50);
-      return { autoMatch: data[0], matchedBy: "equipment name", allAssets: all || data };
-    }
+    if (term.length < 3) continue;
+    const { data } = await supabase
+      .from("assets")
+      .select(sel)
+      .ilike("asset_name", `%${term}%`)
+      .limit(10);
+    if (data?.length === 1) return { autoMatch: data[0], matchedBy: "equipment name", allAssets: all };
   }
 
-  // Fallback — no auto-match, return all recent
-  const { data: all } = await supabase.from("assets").select(sel)
-    .order("created_at", { ascending: false }).limit(50);
-  return { autoMatch: null, matchedBy: null, allAssets: all || [] };
+  // ── Fallback: no auto-match, show full list for manual selection ────────────
+  return { autoMatch: null, matchedBy: null, allAssets: all };
 }
 
 // ── UI helpers ───────────────────────────────────────────────────────────────
@@ -260,9 +295,9 @@ function NCRCreateInner() {
     [assets, assetId]
   );
 
-  const severityColor = severity === "critical" ? T.red   : severity === "major" ? T.amber   : T.green;
-  const severityBg    = severity === "critical" ? T.redDim: severity === "major" ? T.amberDim: T.greenDim;
-  const severityBrd   = severity === "critical" ? T.redBrd: severity === "major" ? T.amberBrd: T.greenBrd;
+  const severityColor = severity === "critical" ? T.red    : severity === "major" ? T.amber    : T.green;
+  const severityBg    = severity === "critical" ? T.redDim : severity === "major" ? T.amberDim : T.greenDim;
+  const severityBrd   = severity === "critical" ? T.redBrd : severity === "major" ? T.amberBrd : T.greenBrd;
 
   async function handleCreate(e) {
     e.preventDefault(); setSaving(true); setError("");
@@ -273,7 +308,7 @@ function NCRCreateInner() {
         ncr_number:  ncrNum.trim() || genNcrNum(),
         title:       desc.trim().slice(0, 120),
         asset_id:    assetId,
-        severity, status,
+        severity,    status,
         description: desc.trim(),
         details:     details.trim(),
         due_date:    dueDate || null,
@@ -286,6 +321,12 @@ function NCRCreateInner() {
       setSaving(false);
     }
   }
+
+  // Equipment link section border color reflects match quality
+  const equipBrd = loadingA ? T.border
+    : autoMatched && !overriding ? T.greenBrd
+    : !autoMatched ? T.amberBrd
+    : T.border;
 
   return (
     <AppLayout title="Create NCR">
@@ -366,9 +407,7 @@ function NCRCreateInner() {
               </Sec>
 
               {/* EQUIPMENT LINK */}
-              <Sec icon="⚙️" title="Equipment Link"
-                brd={autoMatched && !overriding ? T.greenBrd : !autoMatched && !loadingA ? T.amberBrd : T.border}>
-
+              <Sec icon="⚙️" title="Equipment Link" brd={equipBrd}>
                 {loadingA ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 10, color: T.textDim, fontSize: 12, padding: "8px 0" }}>
                     <div style={{ width: 14, height: 14, borderRadius: "50%", border: `2px solid ${T.accentBrd}`, borderTopColor: T.accent, animation: "spin .7s linear infinite", flexShrink: 0 }}/>
@@ -386,7 +425,7 @@ function NCRCreateInner() {
                           <div>
                             <div style={{ fontSize: 12, fontWeight: 800, color: T.green }}>Equipment auto-detected</div>
                             <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>
-                              Matched by <strong style={{ color: T.textMid }}>{matchedBy}</strong> from certificate
+                              Matched by <strong style={{ color: T.textMid }}>{matchedBy}</strong>
                             </div>
                           </div>
                         </div>
@@ -400,11 +439,12 @@ function NCRCreateInner() {
                     {/* ── No auto-match warning ── */}
                     {!autoMatched && (
                       <div style={{ padding: "10px 12px", borderRadius: 9, border: `1px solid ${T.amberBrd}`, background: T.amberDim, color: T.amber, fontSize: 12, fontWeight: 600, marginBottom: 14 }}>
-                        ⚠ Could not auto-detect equipment from certificate data. Please select manually.
+                        ⚠ Could not auto-detect equipment — serial, client or type not found in assets. Please select manually or{" "}
+                        <Link href="/equipment/new" style={{ color: T.amber, fontWeight: 800 }}>add new equipment →</Link>
                       </div>
                     )}
 
-                    {/* ── Manual selector — shown when no auto-match OR user clicks Change ── */}
+                    {/* ── Manual selector — shown when no auto-match OR user overrides ── */}
                     {(!autoMatched || overriding) && (
                       <div style={{ marginBottom: 14 }}>
                         <F label={overriding ? "Override Equipment" : "Select Equipment"}>
@@ -428,11 +468,11 @@ function NCRCreateInner() {
 
                     {/* ── Selected asset info card ── */}
                     {selectedAsset ? (
-                      <div style={{ display: "grid", gap: 0 }}>
-                        <InfoRow label="Asset Tag"   value={selectedAsset.asset_tag}    mono />
+                      <div style={{ display: "grid", gap: 0, padding: "4px 0" }}>
+                        <InfoRow label="Asset Tag"   value={selectedAsset.asset_tag}      mono />
                         <InfoRow label="Asset Name"  value={selectedAsset.asset_name} />
                         <InfoRow label="Asset Type"  value={selectedAsset.asset_type} />
-                        <InfoRow label="Serial No."  value={selectedAsset.serial_number} mono />
+                        <InfoRow label="Serial No."  value={selectedAsset.serial_number}  mono />
                         <InfoRow label="Client"      value={selectedAsset.clients?.company_name} />
                       </div>
                     ) : (
@@ -467,7 +507,7 @@ function NCRCreateInner() {
                   <InfoRow label="Inspection No."  value={src.inspection_number} />
                   <InfoRow label="Result"          value={resultLabel(src.result)} />
                   <InfoRow label="Client"          value={src.client_name} />
-                  <InfoRow label="Asset Tag"       value={src.asset_tag}    mono />
+                  <InfoRow label="Asset Tag"       value={src.asset_tag}     mono />
                   <InfoRow label="Serial No."      value={src.serial_number} mono />
                   <InfoRow label="Asset Name"      value={src.asset_name} />
                   <InfoRow label="Equipment"       value={src.equipment_description} />
