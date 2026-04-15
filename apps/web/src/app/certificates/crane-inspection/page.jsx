@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
+import { autoRaiseNcrBatch } from "@/lib/autoNcr"; // ← ADD THIS IMPORT
 
 const T = {
   bg:"#070e18", surface:"rgba(13,22,38,0.80)", panel:"rgba(10,18,32,0.92)",
@@ -39,6 +40,8 @@ const STEPS = [
   { id:6, label:"Pressure Vessels",  icon:"⚙️" },
   { id:7, label:"Review & Generate", icon:"📜" },
 ];
+
+const NON_PASS = ["FAIL","REPAIR_REQUIRED","OUT_OF_SERVICE","CONDITIONAL"];
 
 function addMonths(dateStr, months) {
   const d = new Date(dateStr);
@@ -125,41 +128,9 @@ function StepBar({ current }) {
 
 const emptyPV = () => ({ sn:"", description:"", capacity:"", working_pressure:"", test_pressure:"", pressure_unit:"bar", result:"PASS", notes:"" });
 
-// ── ATOMIC SEQUENCE VIA POSTGRES BATCH FUNCTION ──────────────────────────────
-// One RPC call returns N guaranteed-unique sequential integers.
-// Zero race conditions — nextval() inside a loop is atomic per call.
-//
-// SETUP (run once in Supabase SQL Editor):
-//
-//   CREATE SEQUENCE IF NOT EXISTS certificate_number_seq START 1;
-//
-//   CREATE OR REPLACE FUNCTION next_cert_seq_batch(batch_size integer)
-//   RETURNS integer[]
-//   LANGUAGE plpgsql AS $$
-//   DECLARE
-//     result integer[];
-//     i integer;
-//   BEGIN
-//     result := ARRAY[]::integer[];
-//     FOR i IN 1..batch_size LOOP
-//       result := array_append(result, nextval('certificate_number_seq')::integer);
-//     END LOOP;
-//     RETURN result;
-//   END;
-//   $$;
-//
-//   -- Sync sequence to current highest cert number (run once):
-//   SELECT setval(
-//     'certificate_number_seq',
-//     GREATEST(1, COALESCE(
-//       (SELECT MAX((regexp_match(certificate_number, '(\d+)$'))[1]::integer)
-//        FROM certificates WHERE certificate_number ~ '\d+$'), 1))
-//   );
-//
 async function fetchNextSeqBatch(count) {
   const { data, error } = await supabase.rpc("next_cert_seq_batch", { batch_size: count });
   if (error) throw new Error("Sequence RPC error: " + error.message);
-  // data is an integer[] from Postgres — already in ascending order
   if (!Array.isArray(data) || data.length !== count) {
     throw new Error(`Sequence returned ${data?.length ?? 0} numbers, expected ${count}`);
   }
@@ -168,6 +139,72 @@ async function fetchNextSeqBatch(count) {
 
 function pad5(n) {
   return String(n).padStart(5, "0");
+}
+
+// ── NCR banner shown on the saved screen ─────────────────────────────────────
+function NcrSummary({ running, results }) {
+  if (!running && !results.length) return null;
+
+  const raised  = results.filter(r => !r.skipped && r.ncr);
+  const skipped = results.filter(r => r.skipped  && r.ncr);
+
+  return (
+    <div style={{
+      marginBottom: 20,
+      background: running ? T.accentDim : T.redDim,
+      border: `1px solid ${running ? T.accentBrd : T.redBrd}`,
+      borderRadius: 14, padding: 16,
+    }}>
+      {running ? (
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <div style={{ width:18, height:18, borderRadius:"50%", border:`2.5px solid rgba(34,211,238,0.2)`, borderTopColor:T.accent, animation:"spin .7s linear infinite", flexShrink:0 }}/>
+          <div>
+            <div style={{ fontSize:13, fontWeight:800, color:T.accent }}>Raising NCR &amp; CAPA reports…</div>
+            <div style={{ fontSize:11, color:T.textDim, marginTop:2 }}>Non-compliant results detected — creating compliance records automatically</div>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom: raised.length ? 12 : 0 }}>
+            <span style={{ fontSize:18 }}>🚨</span>
+            <div style={{ fontSize:14, fontWeight:900, color:T.red }}>
+              {raised.length > 0
+                ? `${raised.length} NCR${raised.length !== 1 ? "s" : ""} & CAPA${raised.length !== 1 ? "s" : ""} auto-raised`
+                : skipped.length > 0
+                  ? "NCRs already existed for non-compliant certs"
+                  : "NCR generation complete"}
+            </div>
+          </div>
+          <div style={{ display:"grid", gap:8 }}>
+            {results.map((r, i) => {
+              if (!r.ncr) return null;
+              return (
+                <div key={i} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, padding:"10px 12px", borderRadius:10, background:"rgba(0,0,0,0.15)", flexWrap:"wrap" }}>
+                  <div>
+                    <div style={{ fontSize:12, fontFamily:"'IBM Plex Mono',monospace", color:T.red, fontWeight:800 }}>{r.ncr.ncr_number}</div>
+                    {r.capa && <div style={{ fontSize:11, fontFamily:"'IBM Plex Mono',monospace", color:T.purple, marginTop:2 }}>{r.capa.capa_number}</div>}
+                    {r.skipped && <div style={{ fontSize:10, color:T.amber, marginTop:2 }}>Already existed</div>}
+                  </div>
+                  <div style={{ display:"flex", gap:6 }}>
+                    <a href={`/ncr/${r.ncr.id}`} target="_blank" rel="noreferrer"
+                      style={{ padding:"5px 10px", borderRadius:7, border:`1px solid ${T.redBrd}`, background:T.redDim, color:T.red, fontWeight:800, fontSize:11, textDecoration:"none" }}>
+                      NCR →
+                    </a>
+                    {r.capa && (
+                      <a href={`/capa/${r.capa.id}`} target="_blank" rel="noreferrer"
+                        style={{ padding:"5px 10px", borderRadius:7, border:`1px solid ${T.purpleBrd}`, background:T.purpleDim, color:T.purple, fontWeight:800, fontSize:11, textDecoration:"none" }}>
+                        CAPA →
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 export default function CraneInspectionPage() {
@@ -179,6 +216,10 @@ export default function CraneInspectionPage() {
   const [error,     setError]     = useState("");
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState("");
+
+  // ── NCR auto-raise state ──────────────────────────────────────────────────
+  const [ncrRunning, setNcrRunning] = useState(false);
+  const [ncrResults, setNcrResults] = useState([]);
 
   const [crane, setCrane] = useState({
     client_id:"", client_name:"", client_location:"",
@@ -374,16 +415,11 @@ export default function CraneInspectionPage() {
       const exp1yr     = addMonths(iDate, 12);
       const exp6mo     = addMonths(iDate, 6);
 
-      // Count how many certs we'll insert (4 fixed + PVs with data)
-      const filledPVs = pvs.filter(p => p.sn || p.description);
+      const filledPVs  = pvs.filter(p => p.sn || p.description);
       const totalCerts = 4 + filledPVs.length;
 
-      // ── ATOMIC: fetch all sequence numbers from Postgres in one go ──────
-      // nextval() is per-call atomic — parallel calls each get a unique value
-      const seqNums = await fetchNextSeqBatch(totalCerts);
-      // seqNums is already sorted ascending; assign in order:
-      // [0]=CR  [1]=BM  [2]=HK  [3]=RP  [4..n]=PV
-      const prefixes = ["CR", "BM", "HK", "RP", ...filledPVs.map(() => "PV")];
+      const seqNums    = await fetchNextSeqBatch(totalCerts);
+      const prefixes   = ["CR", "BM", "HK", "RP", ...filledPVs.map(() => "PV")];
       const certNumbers = seqNums.map((n, i) => `CERT-${prefixes[i]}${pad5(n)}`);
 
       const c1_boom   = boom.c1_boom_length || boom.min_boom_length || "";
@@ -407,48 +443,32 @@ export default function CraneInspectionPage() {
 
       const certs = [];
 
-      // ── 1. CRANE ──────────────────────────────────────────────────────
+      // 1. CRANE
       certs.push({
-        certificate_number: certNumbers[0],
-        equipment_type: craneData.crane_type,
-        equipment_description: [
-          craneData.crane_type, craneData.model,
-          craneData.swl ? `SWL ${craneData.swl}` : "",
-          craneData.fleet_number        ? `Fleet ${craneData.fleet_number}`      : "",
-          craneData.registration_number ? `Reg ${craneData.registration_number}` : "",
-        ].filter(Boolean).join(" "),
-        serial_number:        craneData.serial_number,
-        fleet_number:         craneData.fleet_number,
-        registration_number:  craneData.registration_number,
-        model:                craneData.model,
-        swl:                  craneData.swl,
-        client_name:          craneData.client_name,
-        client_id:            craneData.client_id,
-        location:             craneData.client_location,
-        issue_date:           iDate, inspection_date: iDate,
-        expiry_date:          exp1yr, next_inspection_due: exp1yr,
-        result:               craneInsp.result,
-        defects_found:        craneInsp.defects,
-        recommendations:      craneInsp.recommendations,
-        inspector_name:       INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-        certificate_type:     "Load Test Certificate",
+        certificate_number: certNumbers[0], equipment_type: craneData.crane_type,
+        equipment_description: [craneData.crane_type, craneData.model, craneData.swl ? `SWL ${craneData.swl}` : "", craneData.fleet_number ? `Fleet ${craneData.fleet_number}` : "", craneData.registration_number ? `Reg ${craneData.registration_number}` : ""].filter(Boolean).join(" "),
+        serial_number: craneData.serial_number, fleet_number: craneData.fleet_number, registration_number: craneData.registration_number, model: craneData.model, swl: craneData.swl,
+        client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
+        issue_date: iDate, inspection_date: iDate, expiry_date: exp1yr, next_inspection_due: exp1yr,
+        result: craneInsp.result, defects_found: craneInsp.defects, recommendations: craneInsp.recommendations,
+        inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID, certificate_type: "Load Test Certificate",
         folder_id: folderId, folder_name: folderName, folder_position: 1,
         notes: [
           `Structural: ${craneInsp.structural_result}`, `Boom: ${craneInsp.boom_condition}`,
           `Outriggers: ${craneInsp.outriggers}`, `Computer: ${craneInsp.crane_computer}`,
           craneData.machine_hours ? `Machine Hours: ${craneData.machine_hours}` : "",
-          craneInsp.test_load     ? `Crane test load: ${craneInsp.test_load}`   : "",
-          c1_boom   ? `C1 boom: ${c1_boom}m`     : "", c1_angle  ? `C1 angle: ${c1_angle}`    : "",
-          c1_radius ? `C1 radius: ${c1_radius}m` : "", c1_rated  ? `C1 rated: ${c1_rated}`    : "",
-          c1_test   ? `C1 test: ${c1_test}T`     : "", c1_hw     ? `C1 hook weight: ${c1_hw}` : "",
-          c2_boom   ? `C2 boom: ${c2_boom}m`     : "", c2_angle  ? `C2 angle: ${c2_angle}`    : "",
-          c2_radius ? `C2 radius: ${c2_radius}m` : "", c2_rated  ? `C2 rated: ${c2_rated}`    : "",
-          c2_test   ? `C2 test: ${c2_test}T`     : "", c2_hw     ? `C2 hook weight: ${c2_hw}` : "",
-          c3_boom   ? `C3 boom: ${c3_boom}m`     : "", c3_angle  ? `C3 angle: ${c3_angle}`    : "",
-          c3_radius ? `C3 radius: ${c3_radius}m` : "", c3_rated  ? `C3 rated: ${c3_rated}`    : "",
-          c3_test   ? `C3 test: ${c3_test}T`     : "", c3_hw     ? `C3 hook weight: ${c3_hw}` : "",
+          craneInsp.test_load ? `Crane test load: ${craneInsp.test_load}` : "",
+          c1_boom ? `C1 boom: ${c1_boom}m` : "", c1_angle ? `C1 angle: ${c1_angle}` : "",
+          c1_radius ? `C1 radius: ${c1_radius}m` : "", c1_rated ? `C1 rated: ${c1_rated}` : "",
+          c1_test ? `C1 test: ${c1_test}T` : "", c1_hw ? `C1 hook weight: ${c1_hw}` : "",
+          c2_boom ? `C2 boom: ${c2_boom}m` : "", c2_angle ? `C2 angle: ${c2_angle}` : "",
+          c2_radius ? `C2 radius: ${c2_radius}m` : "", c2_rated ? `C2 rated: ${c2_rated}` : "",
+          c2_test ? `C2 test: ${c2_test}T` : "", c2_hw ? `C2 hook weight: ${c2_hw}` : "",
+          c3_boom ? `C3 boom: ${c3_boom}m` : "", c3_angle ? `C3 angle: ${c3_angle}` : "",
+          c3_radius ? `C3 radius: ${c3_radius}m` : "", c3_rated ? `C3 rated: ${c3_rated}` : "",
+          c3_test ? `C3 test: ${c3_test}T` : "", c3_hw ? `C3 hook weight: ${c3_hw}` : "",
           boom.jib_fitted === "yes" && boom.jib_length ? `Jib: ${boom.jib_length}m @ ${boom.jib_angle}°` : "",
-          boom.sli_make_model     ? `SLI model: ${boom.sli_make_model}`   : "",
+          boom.sli_make_model ? `SLI model: ${boom.sli_make_model}` : "",
           boom.hook_block_reeving ? `Reeving: ${boom.hook_block_reeving}` : "",
           boom.lmi_test !== "PASS" ? `SLI: ${boom.lmi_test}` : "SLI: PASS",
           `Operating code: MAIN/AUX-FULL OUTRIGGER-360DEG`, `Counterweights: STD FITTED`,
@@ -456,27 +476,16 @@ export default function CraneInspectionPage() {
         ].filter(Boolean).join(" | "),
       });
 
-      // ── 2. BOOM ───────────────────────────────────────────────────────
+      // 2. BOOM
       certs.push({
-        certificate_number: certNumbers[1],
-        equipment_type: "Crane Boom",
-        equipment_description: [
-          craneData.crane_type || "Mobile Crane",
-          c2_boom ? `Boom ${c2_boom}m` : boom.actual_boom_length ? `Boom ${boom.actual_boom_length}m` : "",
-          boom.extended_boom_length ? `ext ${boom.extended_boom_length}m` : "",
-          c2_angle ? `@ ${c2_angle}°` : boom.boom_angle ? `@ ${boom.boom_angle}°` : "",
-          c2_rated ? `SWL ${c2_rated}` : craneData.swl ? `SWL ${craneData.swl}` : "",
-          `SN ${craneData.serial_number}`,
-        ].filter(Boolean).join(" — "),
-        serial_number: craneData.serial_number, fleet_number: craneData.fleet_number,
-        model: craneData.model, swl: c2_rated || boom.swl_at_actual_config || craneData.swl,
-        client_name: craneData.client_name, client_id: craneData.client_id,
-        location: craneData.client_location,
-        issue_date: iDate, inspection_date: iDate,
-        expiry_date: exp1yr, next_inspection_due: exp1yr,
+        certificate_number: certNumbers[1], equipment_type: "Crane Boom",
+        equipment_description: [craneData.crane_type || "Mobile Crane", c2_boom ? `Boom ${c2_boom}m` : boom.actual_boom_length ? `Boom ${boom.actual_boom_length}m` : "", boom.extended_boom_length ? `ext ${boom.extended_boom_length}m` : "", c2_angle ? `@ ${c2_angle}°` : boom.boom_angle ? `@ ${boom.boom_angle}°` : "", c2_rated ? `SWL ${c2_rated}` : craneData.swl ? `SWL ${craneData.swl}` : "", `SN ${craneData.serial_number}`].filter(Boolean).join(" — "),
+        serial_number: craneData.serial_number, fleet_number: craneData.fleet_number, model: craneData.model,
+        swl: c2_rated || boom.swl_at_actual_config || craneData.swl,
+        client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
+        issue_date: iDate, inspection_date: iDate, expiry_date: exp1yr, next_inspection_due: exp1yr,
         result: (boom.boom_structure === "FAIL" || boom.lmi_test === "FAIL") ? "FAIL" : craneInsp.result,
-        inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-        certificate_type: "Load Test Certificate",
+        inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID, certificate_type: "Load Test Certificate",
         folder_id: folderId, folder_name: folderName, folder_position: 2,
         notes: [
           c2_boom ? `Actual length: ${c2_boom}m` : boom.actual_boom_length ? `Actual length: ${boom.actual_boom_length}m` : "",
@@ -485,147 +494,118 @@ export default function CraneInspectionPage() {
           c3_boom ? `Max length: ${c3_boom}m` : boom.max_boom_length ? `Max length: ${boom.max_boom_length}m` : "",
           c2_angle ? `Angle: ${c2_angle}°` : boom.boom_angle ? `Angle: ${boom.boom_angle}°` : "",
           boom.jib_fitted === "yes" && boom.jib_length ? `Jib: ${boom.jib_length}m @ ${boom.jib_angle}°` : "",
-          c1_radius ? `Min radius: ${c1_radius}m` : boom.min_radius ? `Min radius: ${boom.min_radius}m` : "",
-          c3_radius ? `Max radius: ${c3_radius}m` : boom.max_radius ? `Max radius: ${boom.max_radius}m` : "",
           c2_radius ? `Test radius: ${c2_radius}m` : boom.load_tested_at_radius ? `Test radius: ${boom.load_tested_at_radius}m` : "",
-          c1_rated ? `SWL@min: ${c1_rated}` : boom.swl_at_min_radius ? `SWL@min: ${boom.swl_at_min_radius}` : "",
-          c3_rated ? `SWL@max: ${c3_rated}` : boom.swl_at_max_radius ? `SWL@max: ${boom.swl_at_max_radius}` : "",
           c2_rated ? `SWL@config: ${c2_rated}` : boom.swl_at_actual_config ? `SWL@config: ${boom.swl_at_actual_config}` : "",
           c2_test ? `Test load: ${c2_test}T` : boom.test_load ? `Test load: ${boom.test_load}T` : "",
-          `Boom structure: ${boom.boom_structure}`, `Boom pins: ${boom.boom_pins}`,
-          `Luffing: ${boom.luffing_system}`, `Slew: ${boom.slew_system}`, `Hoist: ${boom.hoist_system}`,
-          `LMI: ${boom.lmi_test}`, `Anti-two-block: ${boom.anti_two_block}`, `Anemometer: ${boom.anemometer}`,
+          `Boom structure: ${boom.boom_structure}`, `LMI: ${boom.lmi_test}`,
           boom.notes ? `Notes: ${boom.notes}` : "",
         ].filter(Boolean).join(" | "),
       });
 
-      // ── 3. HOOK ───────────────────────────────────────────────────────
+      // 3. HOOK
       certs.push({
-        certificate_number: certNumbers[2],
-        equipment_type: "Crane Hook",
+        certificate_number: certNumbers[2], equipment_type: "Crane Hook",
         equipment_description: `Crane Hook & Wire Rope — SWL ${hook.swl || craneData.swl} — ${craneData.crane_type} SN ${craneData.serial_number}`,
-        serial_number: hook.serial_number || craneData.serial_number,
-        swl: hook.swl || craneData.swl,
-        client_name: craneData.client_name, client_id: craneData.client_id,
-        location: craneData.client_location,
-        issue_date: iDate, inspection_date: iDate,
-        expiry_date: exp6mo, next_inspection_due: exp6mo,
-        result: hook.result,
-        inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
+        serial_number: hook.serial_number || craneData.serial_number, swl: hook.swl || craneData.swl,
+        client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
+        issue_date: iDate, inspection_date: iDate, expiry_date: exp6mo, next_inspection_due: exp6mo,
+        result: hook.result, inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
         certificate_type: "Load Test Certificate",
         folder_id: folderId, folder_name: folderName, folder_position: 3,
         notes: [
           `Latch: ${hook.latch_condition}`, `Structural: ${hook.structural_result}`,
-          hook.wear_percentage ? `Wear: ${hook.wear_percentage}`    : "",
-          hook.swl             ? `Hook 1 SWL: ${hook.swl}`          : "",
-          hook.serial_number   ? `Hook 1 SN: ${hook.serial_number}` : "",
-          boom.hook_ab  ? `Hook AB: ${boom.hook_ab}`   : "", boom.hook_ac  ? `Hook AC: ${boom.hook_ac}`   : "",
-          hook.hook2_swl    ? `Hook 2 SWL: ${hook.hook2_swl}`   : "", hook.hook2_serial ? `Hook 2 SN: ${hook.hook2_serial}`  : "",
-          boom.hook2_ab ? `Hook 2 AB: ${boom.hook2_ab}` : "", boom.hook2_ac ? `Hook 2 AC: ${boom.hook2_ac}` : "",
-          hook.hook3_swl    ? `Hook 3 SWL: ${hook.hook3_swl}`   : "", hook.hook3_serial ? `Hook 3 SN: ${hook.hook3_serial}`  : "",
-          boom.hook3_ab ? `Hook 3 AB: ${boom.hook3_ab}` : "", boom.hook3_ac ? `Hook 3 AC: ${boom.hook3_ac}` : "",
-          rope.diameter        ? `Rope dia: ${rope.diameter}mm`           : "",
+          hook.wear_percentage ? `Wear: ${hook.wear_percentage}` : "",
+          hook.swl ? `Hook 1 SWL: ${hook.swl}` : "", hook.serial_number ? `Hook 1 SN: ${hook.serial_number}` : "",
+          hook.hook2_swl ? `Hook 2 SWL: ${hook.hook2_swl}` : "", hook.hook2_serial ? `Hook 2 SN: ${hook.hook2_serial}` : "",
+          rope.diameter ? `Rope dia: ${rope.diameter}mm` : "",
           `Broken wires: ${rope.broken_wires}`, `Corrosion: ${rope.corrosion}`, `Kinks: ${rope.kinks}`,
-          rope.reduction_dia      ? `Reduction dia: ${rope.reduction_dia}`       : "",
-          rope.core_protrusion    ? `Core protrusion: ${rope.core_protrusion}`   : "",
-          rope.damaged_strands    ? `Damaged strands: ${rope.damaged_strands}`   : "",
-          rope.end_fittings       ? `End fittings: ${rope.end_fittings}`         : "",
-          rope.other_defects      ? `Other defects: ${rope.other_defects}`       : "",
-          rope.serviceability     ? `Serviceability: ${rope.serviceability}`     : "",
-          rope.lower_limit        ? `Lower limit: ${rope.lower_limit}`           : "",
-          rope.length_3x_windings ? `3x windings: ${rope.length_3x_windings}`   : "",
-          rope.drum_condition     ? `Drum condition: ${rope.drum_condition}`     : "",
-          rope.rope_lay           ? `Rope lay: ${rope.rope_lay}`                 : "",
-          rope.aux_diameter       ? `Aux rope dia: ${rope.aux_diameter}mm`       : "",
-          `Aux broken wires: ${rope.aux_broken_wires}`, `Aux corrosion: ${rope.aux_corrosion}`, `Aux kinks: ${rope.aux_kinks}`,
-          rope.aux_reduction_dia      ? `Aux reduction dia: ${rope.aux_reduction_dia}`     : "",
-          rope.aux_core_protrusion    ? `Aux core protrusion: ${rope.aux_core_protrusion}` : "",
-          rope.aux_damaged_strands    ? `Aux damaged strands: ${rope.aux_damaged_strands}` : "",
-          rope.aux_end_fittings       ? `Aux end fittings: ${rope.aux_end_fittings}`       : "",
-          rope.aux_other_defects      ? `Aux other defects: ${rope.aux_other_defects}`     : "",
-          rope.aux_serviceability     ? `Aux serviceability: ${rope.aux_serviceability}`   : "",
-          rope.aux_lower_limit        ? `Aux lower limit: ${rope.aux_lower_limit}`         : "",
-          rope.aux_length_3x_windings ? `Aux 3x windings: ${rope.aux_length_3x_windings}` : "",
-          rope.aux_drum_condition     ? `Aux drum condition: ${rope.aux_drum_condition}`   : "",
-          rope.aux_rope_lay           ? `Aux rope lay: ${rope.aux_rope_lay}`               : "",
-          hook.notes ? `Notes: ${hook.notes}`      : "",
-          rope.notes ? `Rope notes: ${rope.notes}` : "",
+          hook.notes ? `Notes: ${hook.notes}` : "", rope.notes ? `Rope notes: ${rope.notes}` : "",
         ].filter(Boolean).join(" | "),
       });
 
-      // ── 4. ROPE ───────────────────────────────────────────────────────
+      // 4. ROPE
       certs.push({
-        certificate_number: certNumbers[3],
-        equipment_type: "Wire Rope",
+        certificate_number: certNumbers[3], equipment_type: "Wire Rope",
         equipment_description: [rope.rope_type, rope.diameter ? `Ø${rope.diameter}mm` : "", `— ${craneData.crane_type} SN ${craneData.serial_number}`].filter(Boolean).join(" "),
         serial_number: craneData.serial_number, capacity_volume: rope.diameter ? `Ø${rope.diameter}mm` : "",
         swl: craneData.swl, client_name: craneData.client_name, client_id: craneData.client_id,
-        location: craneData.client_location,
-        issue_date: iDate, inspection_date: iDate,
-        expiry_date: exp6mo, next_inspection_due: exp6mo,
-        result: rope.result,
-        inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-        certificate_type: "Load Test Certificate",
+        location: craneData.client_location, issue_date: iDate, inspection_date: iDate,
+        expiry_date: exp6mo, next_inspection_due: exp6mo, result: rope.result,
+        inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID, certificate_type: "Load Test Certificate",
         folder_id: folderId, folder_name: folderName, folder_position: 4,
-        notes: [
-          rope.diameter ? `Rope dia: ${rope.diameter}mm` : "",
-          `Broken wires: ${rope.broken_wires}`, `Corrosion: ${rope.corrosion}`, `Kinks: ${rope.kinks}`,
-          rope.notes ? `Notes: ${rope.notes}` : "",
-        ].filter(Boolean).join(" | "),
+        notes: [rope.diameter ? `Rope dia: ${rope.diameter}mm` : "", `Broken wires: ${rope.broken_wires}`, `Corrosion: ${rope.corrosion}`, `Kinks: ${rope.kinks}`, rope.notes ? `Notes: ${rope.notes}` : ""].filter(Boolean).join(" | "),
       });
 
-      // ── 5. PRESSURE VESSELS ───────────────────────────────────────────
+      // 5. PRESSURE VESSELS
       filledPVs.forEach((pv, i) => {
         certs.push({
-          certificate_number: certNumbers[4 + i],
-          equipment_type: "Pressure Vessel",
+          certificate_number: certNumbers[4 + i], equipment_type: "Pressure Vessel",
           equipment_description: pv.description || `Pressure Vessel ${i + 1} — ${craneData.crane_type} SN ${craneData.serial_number}`,
           serial_number: pv.sn, capacity_volume: pv.capacity,
           working_pressure: pv.working_pressure, mawp: pv.working_pressure,
           test_pressure: pv.test_pressure, pressure_unit: pv.pressure_unit,
-          client_name: craneData.client_name, client_id: craneData.client_id,
-          location: craneData.client_location,
-          issue_date: iDate, inspection_date: iDate,
-          expiry_date: exp1yr, next_inspection_due: exp1yr,
+          client_name: craneData.client_name, client_id: craneData.client_id, location: craneData.client_location,
+          issue_date: iDate, inspection_date: iDate, expiry_date: exp1yr, next_inspection_due: exp1yr,
           result: pv.result, defects_found: pv.notes,
-          inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID,
-          certificate_type: "Pressure Test Certificate",
+          inspector_name: INSPECTOR_NAME, inspector_id: INSPECTOR_ID, certificate_type: "Pressure Test Certificate",
           folder_id: folderId, folder_name: folderName, folder_position: 5 + i,
         });
       });
 
-      // ── INSERT ────────────────────────────────────────────────────────
+      // INSERT
       const { data, error: dbErr } = await supabase
-        .from("certificates")
-        .insert(certs)
-        .select("id,certificate_number,equipment_type,result,expiry_date");
+        .from("certificates").insert(certs)
+        .select("id,certificate_number,equipment_type,result,expiry_date,defects_found,client_name,equipment_description,serial_number,inspection_date");
 
       if (dbErr) {
-        // Should never be a duplicate now, but handle gracefully anyway
         setError("Failed to save: " + dbErr.message);
         setSaving(false);
         return;
       }
 
       setSaved({ folderName, folderId, certs: data });
+      setSaving(false);
+
+      // ── AUTO-RAISE NCR + CAPA for any non-pass certs ─────────────────────
+      const nonPassCerts = (data || []).filter(c =>
+        NON_PASS.includes(String(c.result || "").toUpperCase().replace(/\s+/g, "_"))
+      );
+
+      if (nonPassCerts.length > 0) {
+        setNcrRunning(true);
+        try {
+          const results = await autoRaiseNcrBatch(nonPassCerts, { createCapa: true });
+          setNcrResults(results);
+        } catch (err) {
+          console.warn("Auto NCR batch failed:", err.message);
+        } finally {
+          setNcrRunning(false);
+        }
+      }
+
     } catch (e) {
       console.error(e);
       setError("Failed to generate: " + e.message);
+      setSaving(false);
     }
-
-    setSaving(false);
   }
 
   // ── SAVED STATE ───────────────────────────────────────────────────────────
   if (saved) return (
     <AppLayout title="Crane Inspection — Complete">
-      <div style={{ fontFamily:"'IBM Plex Sans',sans-serif", color:T.text, padding:20, maxWidth:800, margin:"0 auto" }}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <div style={{ fontFamily:"'IBM Plex Sans',sans-serif", color:T.text, padding:20, maxWidth:820, margin:"0 auto" }}>
+
         <div style={{ background:T.greenDim, border:`1px solid ${T.greenBrd}`, borderRadius:18, padding:28, textAlign:"center", marginBottom:20 }}>
           <div style={{ fontSize:40, marginBottom:10 }}>✅</div>
           <div style={{ fontSize:22, fontWeight:900, color:T.green, marginBottom:6 }}>Crane Inspection Complete</div>
           <div style={{ fontSize:14, color:T.textMid, marginBottom:4 }}>{saved.certs.length} certificates generated and saved</div>
           <div style={{ fontSize:12, color:T.textDim }}>Folder: {saved.folderName}</div>
         </div>
+
+        {/* NCR/CAPA auto-raise banner */}
+        <NcrSummary running={ncrRunning} results={ncrResults} />
+
         <div style={{ display:"grid", gap:10, marginBottom:20 }}>
           {saved.certs.map(c => (
             <div key={c.id} style={{ background:T.panel, border:`1px solid ${T.border}`, borderRadius:12, padding:"13px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap" }}>
@@ -643,10 +623,16 @@ export default function CraneInspectionPage() {
             </div>
           ))}
         </div>
+
         <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
-          <button type="button" onClick={() => { setSaved(null); setStep(1); }}
+          <button type="button" onClick={() => { setSaved(null); setStep(1); setNcrResults([]); setNcrRunning(false); }}
             style={{ padding:"11px 20px", borderRadius:10, border:`1px solid ${T.border}`, background:T.card, color:T.text, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
             New Inspection
+          </button>
+          <button type="button"
+            onClick={() => { const ids = saved.certs.map(c => c.id).join(","); window.open(`/bulk-print?ids=${ids}`, "_blank"); }}
+            style={{ padding:"11px 20px", borderRadius:10, border:`1px solid ${T.greenBrd}`, background:T.greenDim, color:T.green, fontWeight:900, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
+            🖨 Generate &amp; Store PDFs
           </button>
           <button type="button" onClick={() => router.push("/certificates")}
             style={{ padding:"11px 20px", borderRadius:10, border:"none", background:"linear-gradient(135deg,#22d3ee,#0891b2)", color:"#052e16", fontWeight:900, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
@@ -713,7 +699,7 @@ export default function CraneInspectionPage() {
                     {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}{c.city ? " — " + c.city : ""}</option>)}
                   </select>
                   {clients.length === 0 && <div style={{fontSize:11,color:T.amber,marginTop:5}}>No clients found. <a href="/clients/register" target="_blank" style={{color:T.accent}}>Register a client first →</a></div>}
-                  {clients.length > 0 && <div style={{fontSize:11,color:T.textDim,marginTop:5}}>Client not listed? <a href="/clients/register" target="_blank" style={{color:T.accent,textDecoration:"none",fontWeight:700}}>+ Register new client</a> <span style={{color:T.textDim}}>(then refresh this page)</span></div>}
+                  {clients.length > 0 && <div style={{fontSize:11,color:T.textDim,marginTop:5}}>Not listed? <a href="/clients/register" target="_blank" style={{color:T.accent,textDecoration:"none",fontWeight:700}}>+ Register new client</a></div>}
                 </Field>
                 <Field label="Inspection Date"><input style={IS} type="date" value={crane.inspection_date} onChange={e => uc("inspection_date", e.target.value)}/></Field>
               </div>
@@ -798,11 +784,9 @@ export default function CraneInspectionPage() {
                 <Field label="SWL at Max Radius"><input style={IS} placeholder="e.g. 1.5T" value={boom.swl_at_max_radius} onChange={e=>ub("swl_at_max_radius",e.target.value)}/></Field>
                 <Field label="SWL at Test Config"><input style={IS} placeholder="e.g. 11.2T" value={boom.swl_at_actual_config} onChange={e=>ub("swl_at_actual_config",e.target.value)}/></Field>
               </div>
-              <div style={{ marginBottom:14 }}>
-                <Field label="Load Test Applied (Tonnes) — 110% of SWL at test config">
-                  <input style={IS} placeholder="e.g. 9.0" value={boom.test_load} onChange={e=>ub("test_load",e.target.value)}/>
-                </Field>
-              </div>
+              <Field label="Load Test Applied (Tonnes) — 110% of SWL at test config">
+                <input style={IS} placeholder="e.g. 9.0" value={boom.test_load} onChange={e=>ub("test_load",e.target.value)}/>
+              </Field>
             </SectionCard>
 
             <SectionCard title="Load Test — 3 Configurations" icon="📊" color={T.amber} brd={T.amberBrd}>
@@ -868,7 +852,6 @@ export default function CraneInspectionPage() {
               <Field label="Structural Integrity"><ResultSelect value={hook.structural_result} onChange={v => uh("structural_result", v)}/></Field>
               <Field label="Wear (%)"><input style={IS} placeholder="e.g. 5" value={hook.wear_percentage} onChange={e => uh("wear_percentage", e.target.value)}/></Field>
             </div>
-            <div style={{ fontSize:11, fontWeight:800, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.07em", margin:"6px 0 10px" }}>Hook 1 Measurements (mm)</div>
             <div className="g2" style={{ marginBottom:14 }}>
               <Field label="Point A to B (mm)"><input style={IS} placeholder="e.g. 240mm" value={boom.hook_ab} onChange={e => ub("hook_ab", e.target.value)}/></Field>
               <Field label="Point A to C (mm)"><input style={IS} placeholder="e.g. 180mm" value={boom.hook_ac} onChange={e => ub("hook_ac", e.target.value)}/></Field>
@@ -877,19 +860,6 @@ export default function CraneInspectionPage() {
             <div className="g2" style={{ marginBottom:14 }}>
               <Field label="Hook 2 Serial Number"><input style={IS} placeholder="Aux hook — leave blank if N/A" value={hook.hook2_serial} onChange={e => uh("hook2_serial", e.target.value)}/></Field>
               <Field label="Hook 2 SWL"><input style={IS} placeholder="e.g. 2.8 ton" value={hook.hook2_swl} onChange={e => uh("hook2_swl", e.target.value)}/></Field>
-            </div>
-            <div className="g2" style={{ marginBottom:14 }}>
-              <Field label="Hook 2 — Point A to B (mm)"><input style={IS} placeholder="Leave blank if N/A" value={boom.hook2_ab} onChange={e => ub("hook2_ab", e.target.value)}/></Field>
-              <Field label="Hook 2 — Point A to C (mm)"><input style={IS} placeholder="Leave blank if N/A" value={boom.hook2_ac} onChange={e => ub("hook2_ac", e.target.value)}/></Field>
-            </div>
-            <div style={{ fontSize:11, fontWeight:800, color:T.amber, textTransform:"uppercase", letterSpacing:"0.07em", margin:"14px 0 10px", paddingTop:14, borderTop:`1px solid ${T.border}` }}>Hook 3 — (if fitted)</div>
-            <div className="g2" style={{ marginBottom:14 }}>
-              <Field label="Hook 3 Serial Number"><input style={IS} placeholder="Leave blank if N/A" value={hook.hook3_serial} onChange={e => uh("hook3_serial", e.target.value)}/></Field>
-              <Field label="Hook 3 SWL"><input style={IS} placeholder="Leave blank if N/A" value={hook.hook3_swl} onChange={e => uh("hook3_swl", e.target.value)}/></Field>
-            </div>
-            <div className="g2" style={{ marginBottom:14 }}>
-              <Field label="Hook 3 — Point A to B (mm)"><input style={IS} placeholder="Leave blank if N/A" value={boom.hook3_ab} onChange={e => ub("hook3_ab", e.target.value)}/></Field>
-              <Field label="Hook 3 — Point A to C (mm)"><input style={IS} placeholder="Leave blank if N/A" value={boom.hook3_ac} onChange={e => ub("hook3_ac", e.target.value)}/></Field>
             </div>
             <div className="g2">
               <Field label="Overall Hook Result"><ResultSelect value={hook.result} onChange={v => uh("result", v)}/></Field>
@@ -928,49 +898,21 @@ export default function CraneInspectionPage() {
             </SectionCard>
 
             <SectionCard title="Wire Rope Inspection — expires 6 months" icon="🪢" color={T.purple} brd={T.purpleBrd}>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:6 }}>
-                <div/>
-                <div style={{ fontSize:10, fontWeight:800, color:T.accent, textAlign:"center", textTransform:"uppercase" }}>Main</div>
-                <div style={{ fontSize:10, fontWeight:800, color:T.purple, textAlign:"center", textTransform:"uppercase" }}>Aux</div>
+              <div className="g2" style={{ marginBottom:14 }}>
+                <Field label="Main Rope Diameter (mm)"><input style={IS} placeholder="e.g. 18" value={rope.diameter} onChange={e=>ur("diameter",e.target.value)}/></Field>
+                <Field label="Aux Rope Diameter (mm)"><input style={IS} placeholder="e.g. 18 or N/A" value={rope.aux_diameter} onChange={e=>ur("aux_diameter",e.target.value)}/></Field>
               </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:10 }}>
-                <label style={{ ...LS, marginBottom:0, alignSelf:"center" }}>Rope Diameter (mm)</label>
-                <input style={{ ...IS, minHeight:36 }} placeholder="e.g. 18" value={rope.diameter} onChange={e=>ur("diameter",e.target.value)}/>
-                <input style={{ ...IS, minHeight:36 }} placeholder="e.g. 18" value={rope.aux_diameter} onChange={e=>ur("aux_diameter",e.target.value)}/>
+              <div className="g3" style={{ marginBottom:14 }}>
+                <Field label="Corrosion"><select style={IS} value={rope.corrosion} onChange={e=>ur("corrosion",e.target.value)}><option value="none">none</option><option value="minor">minor</option><option value="moderate">moderate</option><option value="severe">severe</option></select></Field>
+                <Field label="Broken Wires"><input style={IS} value={rope.broken_wires} onChange={e=>ur("broken_wires",e.target.value)}/></Field>
+                <Field label="Kinks"><select style={IS} value={rope.kinks} onChange={e=>ur("kinks",e.target.value)}><option value="none">none</option><option value="minor">minor</option><option value="moderate">moderate</option><option value="severe">severe</option></select></Field>
               </div>
-              {[
-                { label:"Reduction in Dia (max 10%)", mk:"reduction_dia",      ak:"aux_reduction_dia",      opts:["none","minor","moderate","severe"],          aopts:["none","minor","moderate","N/A"] },
-                { label:"Corrosion",                  mk:"corrosion",           ak:"aux_corrosion",           opts:["none","minor","moderate","severe"],          aopts:["none","minor","moderate","N/A"] },
-                { label:"Rope Kinks / Deforming",     mk:"kinks",              ak:"aux_kinks",              opts:["none","minor","moderate","severe"],          aopts:["none","minor","moderate","N/A"] },
-                { label:"Cond of End Fittings",       mk:"end_fittings",        ak:"aux_end_fittings",        opts:["Good","Fair","Poor"],                        aopts:["Good","Fair","Poor","N/A"] },
-                { label:"Damaged Strands",             mk:"damaged_strands",     ak:"aux_damaged_strands",     opts:["none","minor","moderate","severe"],          aopts:["none","minor","moderate","N/A"] },
-                { label:"Core Protrusion",             mk:"core_protrusion",     ak:"aux_core_protrusion",     opts:["None","Minor","Severe"],                     aopts:["None","Minor","Severe","N/A"] },
-                { label:"Rope Length (3x Windings)",  mk:"length_3x_windings",  ak:"aux_length_3x_windings",  opts:["yes","no"],                                  aopts:["yes","no","N/A"] },
-                { label:"Serviceability",             mk:"serviceability",      ak:"aux_serviceability",      opts:["Good","Fair","Poor","Replace"],              aopts:["Good","Fair","Poor","Replace","N/A"] },
-                { label:"Hoist Lower Limit Cut Off",  mk:"lower_limit",         ak:"aux_lower_limit",         opts:["yes","no","N/A"],                            aopts:["yes","no","N/A"] },
-              ].map(r => (
-                <div key={r.label} style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:10 }}>
-                  <label style={{ ...LS, marginBottom:0, alignSelf:"center" }}>{r.label}</label>
-                  <select style={{ ...IS, minHeight:36 }} value={rope[r.mk]} onChange={e=>ur(r.mk,e.target.value)}>{r.opts.map(o=><option key={o}>{o}</option>)}</select>
-                  <select style={{ ...IS, minHeight:36 }} value={rope[r.ak]} onChange={e=>ur(r.ak,e.target.value)}>{r.aopts.map(o=><option key={o}>{o}</option>)}</select>
-                </div>
-              ))}
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:10 }}>
-                <label style={{ ...LS, marginBottom:0, alignSelf:"center" }}>Broken Wires</label>
-                <input style={{ ...IS, minHeight:36 }} placeholder="e.g. none" value={rope.broken_wires} onChange={e=>ur("broken_wires",e.target.value)}/>
-                <input style={{ ...IS, minHeight:36 }} placeholder="e.g. none" value={rope.aux_broken_wires} onChange={e=>ur("aux_broken_wires",e.target.value)}/>
+              <div className="g3" style={{ marginBottom:14 }}>
+                <Field label="End Fittings"><select style={IS} value={rope.end_fittings} onChange={e=>ur("end_fittings",e.target.value)}><option value="Good">Good</option><option value="Fair">Fair</option><option value="Poor">Poor</option></select></Field>
+                <Field label="Serviceability"><select style={IS} value={rope.serviceability} onChange={e=>ur("serviceability",e.target.value)}><option value="Good">Good</option><option value="Fair">Fair</option><option value="Poor">Poor</option><option value="Replace">Replace</option></select></Field>
+                <Field label="Rope Type"><select style={IS} value={rope.rope_type} onChange={e => ur("rope_type", e.target.value)}><option>Wire Rope</option><option>Fibre Core Wire Rope</option><option>Steel Core Wire Rope</option><option>Compacted Strand Wire Rope</option></select></Field>
               </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:14, marginBottom:14 }}>
-                <label style={{ ...LS, marginBottom:0, alignSelf:"center" }}>Other Defects</label>
-                <input style={{ ...IS, minHeight:36 }} placeholder="none" value={rope.other_defects} onChange={e=>ur("other_defects",e.target.value)}/>
-                <input style={{ ...IS, minHeight:36 }} placeholder="none" value={rope.aux_other_defects} onChange={e=>ur("aux_other_defects",e.target.value)}/>
-              </div>
-              <div className="g3">
-                <Field label="Rope Type">
-                  <select style={IS} value={rope.rope_type} onChange={e => ur("rope_type", e.target.value)}>
-                    <option>Wire Rope</option><option>Fibre Core Wire Rope</option><option>Steel Core Wire Rope</option><option>Compacted Strand Wire Rope</option>
-                  </select>
-                </Field>
+              <div className="g2">
                 <Field label="Overall Rope Result"><ResultSelect value={rope.result} onChange={v => ur("result", v)}/></Field>
                 <Field label="Notes"><input style={IS} placeholder="Any additional notes" value={rope.notes} onChange={e => ur("notes", e.target.value)}/></Field>
               </div>
@@ -1026,10 +968,10 @@ export default function CraneInspectionPage() {
           <SectionCard title="Inspection Summary" icon="📋" color={T.accent}>
             <div style={{ display:"grid", gap:10 }}>
               {[
-                { label:"Crane", type:crane.crane_type, desc:`SN ${crane.serial_number}${crane.fleet_number?" · Fleet "+crane.fleet_number:""}${crane.registration_number?" · Reg "+crane.registration_number:""}`, result:craneInsp.result, exp:"1 year" },
-                { label:"Boom", type:"Crane Boom", desc:`${boom.c2_boom_length||boom.actual_boom_length||"?"}m${boom.extended_boom_length?" ext "+boom.extended_boom_length+"m":""}${(boom.c2_angle||boom.boom_angle)?" · "+(boom.c2_angle||boom.boom_angle)+"°":""}`, result:boom.boom_structure, exp:"1 year" },
-                { label:"Hook", type:"Crane Hook", desc:`SN ${hook.serial_number||"—"} · SWL ${hook.swl||crane.swl}${hook.hook2_swl?" · Hook2 "+hook.hook2_swl:""}`, result:hook.result, exp:"6 months" },
-                { label:"Rope", type:"Wire Rope", desc:`Ø${rope.diameter||"?"}mm ${rope.rope_type}${rope.aux_diameter?" / Aux Ø"+rope.aux_diameter+"mm":""}`, result:rope.result, exp:"6 months" },
+                { label:"Crane", type:crane.crane_type, desc:`SN ${crane.serial_number}${crane.fleet_number?" · Fleet "+crane.fleet_number:""}`, result:craneInsp.result, exp:"1 year" },
+                { label:"Boom",  type:"Crane Boom",     desc:`${boom.c2_boom_length||boom.actual_boom_length||"?"}m${boom.extended_boom_length?" ext "+boom.extended_boom_length+"m":""}`, result:boom.boom_structure, exp:"1 year" },
+                { label:"Hook",  type:"Crane Hook",     desc:`SN ${hook.serial_number||"—"} · SWL ${hook.swl||crane.swl}`, result:hook.result, exp:"6 months" },
+                { label:"Rope",  type:"Wire Rope",      desc:`Ø${rope.diameter||"?"}mm ${rope.rope_type}`, result:rope.result, exp:"6 months" },
                 ...pvs.filter(p=>p.sn||p.description).map((p,i)=>({ label:`PV ${i+1}`, type:"Pressure Vessel", desc:`SN ${p.sn||"—"} ${p.description}`, result:p.result, exp:"1 year" })),
               ].map((row, i) => (
                 <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 14px", borderRadius:10, background:T.card, border:`1px solid ${T.border}`, flexWrap:"wrap" }}>
@@ -1043,6 +985,13 @@ export default function CraneInspectionPage() {
                 </div>
               ))}
             </div>
+            {/* Warn if any non-pass — NCR will be auto-raised */}
+            {[craneInsp.result, hook.result, rope.result, boom.boom_structure, ...pvs.map(p=>p.result)].some(r => NON_PASS.includes(String(r||"").toUpperCase().replace(/\s+/g,"_"))) && (
+              <div style={{ marginTop:14, padding:"12px 14px", borderRadius:10, background:T.redDim, border:`1px solid ${T.redBrd}`, fontSize:12, display:"flex", alignItems:"center", gap:10 }}>
+                <span style={{ fontSize:16 }}>🚨</span>
+                <span style={{ color:T.red, fontWeight:700 }}>Non-compliant result detected — NCR &amp; CAPA will be raised automatically after generating certificates.</span>
+              </div>
+            )}
             <div style={{ marginTop:16, padding:"12px 14px", borderRadius:10, background:T.accentDim, border:`1px solid ${T.accentBrd}`, fontSize:12, color:T.textMid }}>
               📋 Client: <strong style={{ color:T.text }}>{crane.client_name}</strong> &nbsp;·&nbsp;
               Inspector: <strong style={{ color:T.text }}>{INSPECTOR_NAME}</strong> &nbsp;·&nbsp;
