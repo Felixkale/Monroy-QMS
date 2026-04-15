@@ -1,13 +1,14 @@
 // src/app/certificates/[id]/page.jsx
-// Auto-raises NCR + CAPA whenever a non-PASS certificate is opened.
-// Shows a live status banner while it runs, then links to the created NCR/CAPA.
+// Old view template (CertificateSheet + folder/bundle + link/unlink + delete)
+// + NCR/CAPA auto-raise from newer version
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
+import CertificateSheet from "@/components/certificates/CertificateSheet";
 import { autoRaiseNcr } from "@/lib/autoNcr";
 
 const T = {
@@ -26,86 +27,52 @@ const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700;800;900&family=IBM+Plex+Mono:wght@500;700&display=swap');
   *,*::before,*::after{box-sizing:border-box}
   ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.2);border-radius:99px}
-
   @keyframes spin{to{transform:rotate(360deg)}}
-  @keyframes pulse{0%,100%{opacity:.6}50%{opacity:1}}
   @keyframes slideIn{from{transform:translateY(-8px);opacity:0}to{transform:translateY(0);opacity:1}}
-  @keyframes shimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
-
   .cv-spinner{width:16px;height:16px;border-radius:50%;border:2px solid rgba(34,211,238,0.25);border-top-color:#22d3ee;animation:spin .7s linear infinite;flex-shrink:0}
   .cv-ncr-banner{animation:slideIn .25s ease}
-  .cv-row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:9px 0;border-bottom:1px solid rgba(148,163,184,0.08);font-size:13px}
-  .cv-row:last-child{border-bottom:none}
-  .cv-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  .cv-btns{display:flex;gap:8px;flex-wrap:wrap}
-  .cv-hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
-
+  .view-hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
+  .view-btn-row{display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0}
+  .bundle-item{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+  .link-search-result{cursor:pointer;padding:10px 12px;border-radius:10px;border:1px solid rgba(148,163,184,0.12);background:rgba(255,255,255,0.025);transition:background .15s}
+  .link-search-result:hover{background:rgba(34,211,238,0.07);border-color:rgba(34,211,238,0.25)}
   @media(max-width:768px){
-    .cv-page{padding:12px!important}
-    .cv-grid{grid-template-columns:1fr}
-    .cv-hdr{flex-direction:column}
-    .cv-btns{width:100%}
-    .cv-btns a,.cv-btns button{flex:1;text-align:center;justify-content:center}
+    .view-page-pad{padding:12px!important}
+    .view-hdr{flex-direction:column!important;gap:12px!important}
+    .view-btn-row{width:100%}
+    .view-btn-row a,.view-btn-row button{flex:1;text-align:center;justify-content:center}
   }
-  @media(max-width:480px){.cv-btns{flex-direction:column}}
+  @media(max-width:480px){
+    .view-cert-title{font-size:18px!important}
+    .view-btn-row a,.view-btn-row button{font-size:11px!important;padding:8px 10px!important}
+  }
 `;
 
 const NON_PASS = ["FAIL","REPAIR_REQUIRED","OUT_OF_SERVICE","CONDITIONAL"];
 
-function normalizeResult(v) {
-  return String(v || "").toUpperCase().replace(/\s+/g, "_");
+function normalizeId(v){ return Array.isArray(v) ? v[0] : v; }
+
+function pickResult(c) {
+  if (!c) return "UNKNOWN";
+  const ex = c.extracted_data || {};
+  const candidates = [c.result, c.equipment_status, ex.result, ex.equipment_status, ex.inspection_result];
+  for (const raw of candidates) {
+    if (!raw) continue;
+    const n = String(raw).trim().toUpperCase().replace(/\s+/g, "_");
+    if (n === "UNKNOWN") continue;
+    if (n === "CONDITIONAL" || n === "REPAIR REQUIRED") return "REPAIR_REQUIRED";
+    if (n === "OUT OF SERVICE") return "OUT_OF_SERVICE";
+    if (["PASS","FAIL","REPAIR_REQUIRED","OUT_OF_SERVICE"].includes(n)) return n;
+  }
+  return "UNKNOWN";
 }
 
-function resultStyle(r) {
-  const x = normalizeResult(r);
-  if (x === "PASS")            return { color: T.green,  bg: T.greenDim,  brd: T.greenBrd,  label: "Pass" };
-  if (x === "FAIL")            return { color: T.red,    bg: T.redDim,    brd: T.redBrd,    label: "Fail" };
-  if (x === "REPAIR_REQUIRED") return { color: T.amber,  bg: T.amberDim,  brd: T.amberBrd,  label: "Repair Required" };
-  if (x === "OUT_OF_SERVICE")  return { color: T.purple, bg: T.purpleDim, brd: T.purpleBrd, label: "Out of Service" };
-  if (x === "CONDITIONAL")     return { color: T.amber,  bg: T.amberDim,  brd: T.amberBrd,  label: "Conditional" };
-  return { color: T.textDim, bg: T.card, brd: T.border, label: r || "Unknown" };
-}
-
-function formatDate(v) {
-  if (!v) return "—";
-  const d = new Date(v);
-  return isNaN(d) ? String(v) : d.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
-}
-
-function nz(v, fb = "—") {
-  if (!v && v !== 0) return fb;
-  return String(v).trim() || fb;
-}
-
-function Badge({ label, color, bg, brd, size = 11 }) {
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", padding: "4px 12px", borderRadius: 99, background: bg, color, border: `1px solid ${brd}`, fontSize: size, fontWeight: 800, whiteSpace: "nowrap" }}>
-      {label}
-    </span>
-  );
-}
-
-function Row({ label, value, mono = false, accent = false }) {
-  return (
-    <div className="cv-row">
-      <span style={{ color: T.textDim, fontSize: 12, flexShrink: 0, minWidth: 130 }}>{label}</span>
-      <span style={{ color: accent ? T.accent : T.textMid, fontWeight: 600, textAlign: "right", wordBreak: "break-word", ...(mono ? { fontFamily: "'IBM Plex Mono',monospace" } : {}) }}>
-        {nz(value)}
-      </span>
-    </div>
-  );
-}
-
-function Sec({ icon, title, children, brd }) {
-  return (
-    <div style={{ background: T.panel, border: `1px solid ${brd || T.border}`, borderRadius: 16, padding: 18 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 14, paddingBottom: 12, borderBottom: `1px solid ${T.border}` }}>
-        <span style={{ fontSize: 15 }}>{icon}</span>
-        <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{title}</div>
-      </div>
-      {children}
-    </div>
-  );
+function resultTone(v) {
+  if (v === "PASS")            return { color: T.green,  bg: T.greenDim,  brd: T.greenBrd,  label: "Pass" };
+  if (v === "FAIL")            return { color: T.red,    bg: T.redDim,    brd: T.redBrd,    label: "Fail" };
+  if (v === "REPAIR_REQUIRED") return { color: T.amber,  bg: T.amberDim,  brd: T.amberBrd,  label: "Repair Required" };
+  if (v === "OUT_OF_SERVICE")  return { color: T.purple, bg: T.purpleDim, brd: T.purpleBrd, label: "Out of Service" };
+  return { color: T.textMid, bg: T.card, brd: T.border, label: "Unknown" };
 }
 
 // ── NCR/CAPA status banner ────────────────────────────────────────────────────
@@ -132,13 +99,9 @@ function NcrBanner({ status, ncr, capa, error }) {
         </div>
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <Link href={`/ncr/${ncr.id}`} style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid ${T.amberBrd}`, background: T.amberDim, color: T.amber, fontWeight: 800, fontSize: 12, textDecoration: "none" }}>
-          View NCR →
-        </Link>
+        <Link href={`/ncr/${ncr.id}`} style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid ${T.amberBrd}`, background: T.amberDim, color: T.amber, fontWeight: 800, fontSize: 12, textDecoration: "none" }}>View NCR →</Link>
         {capa && (
-          <Link href={`/capa/${capa.id}`} style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid ${T.purpleBrd}`, background: T.purpleDim, color: T.purple, fontWeight: 800, fontSize: 12, textDecoration: "none" }}>
-            View CAPA →
-          </Link>
+          <Link href={`/capa/${capa.id}`} style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid ${T.purpleBrd}`, background: T.purpleDim, color: T.purple, fontWeight: 800, fontSize: 12, textDecoration: "none" }}>View CAPA →</Link>
         )}
       </div>
     </div>
@@ -150,9 +113,7 @@ function NcrBanner({ status, ncr, capa, error }) {
         <span style={{ fontSize: 20 }}>🚨</span>
         <div>
           <div style={{ fontSize: 13, fontWeight: 900, color: T.red }}>NCR &amp; CAPA auto-raised</div>
-          <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>
-            Non-compliance detected — compliance records created automatically
-          </div>
+          <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>Non-compliance detected — compliance records created automatically</div>
           {ncr && (
             <div style={{ marginTop: 5, display: "flex", gap: 10, flexWrap: "wrap" }}>
               <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 11, color: T.red, fontWeight: 700 }}>{ncr.ncr_number}</span>
@@ -163,14 +124,10 @@ function NcrBanner({ status, ncr, capa, error }) {
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {ncr && (
-          <Link href={`/ncr/${ncr.id}`} style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${T.redBrd}`, background: "rgba(248,113,113,0.2)", color: T.red, fontWeight: 900, fontSize: 12, textDecoration: "none", whiteSpace: "nowrap" }}>
-            Open NCR →
-          </Link>
+          <Link href={`/ncr/${ncr.id}`} style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${T.redBrd}`, background: "rgba(248,113,113,0.2)", color: T.red, fontWeight: 900, fontSize: 12, textDecoration: "none", whiteSpace: "nowrap" }}>Open NCR →</Link>
         )}
         {capa && (
-          <Link href={`/capa/${capa.id}`} style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${T.purpleBrd}`, background: T.purpleDim, color: T.purple, fontWeight: 900, fontSize: 12, textDecoration: "none", whiteSpace: "nowrap" }}>
-            Open CAPA →
-          </Link>
+          <Link href={`/capa/${capa.id}`} style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${T.purpleBrd}`, background: T.purpleDim, color: T.purple, fontWeight: 900, fontSize: 12, textDecoration: "none", whiteSpace: "nowrap" }}>Open CAPA →</Link>
         )}
       </div>
     </div>
@@ -179,282 +136,367 @@ function NcrBanner({ status, ncr, capa, error }) {
   if (status === "error") return (
     <div className="cv-ncr-banner" style={{ padding: "11px 14px", borderRadius: 12, background: T.redDim, border: `1px solid ${T.redBrd}`, display: "flex", alignItems: "center", gap: 10 }}>
       <span style={{ fontSize: 14 }}>⚠</span>
-      <div style={{ fontSize: 12, color: T.red, fontWeight: 700 }}>NCR auto-generation failed: {error} — <Link href="/ncr/new" style={{ color: T.red }}>create manually</Link></div>
+      <div style={{ fontSize: 12, color: T.red, fontWeight: 700 }}>
+        NCR auto-generation failed: {error} — <Link href="/ncr/new" style={{ color: T.red }}>create manually</Link>
+      </div>
     </div>
   );
 
   return null;
 }
 
-export default function CertificateViewPage() {
-  const params = useParams();
-  const router = useRouter();
-  const id = params?.id;
+// ── Main inner component ──────────────────────────────────────────────────────
+function CertificateDetailsInner() {
+  const params       = useParams();
+  const router       = useRouter();
+  const searchParams = useSearchParams();
+  const id           = normalizeId(params?.id);
 
-  const [cert,    setCert]    = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState("");
+  const [loading,     setLoading]     = useState(true);
+  const [record,      setRecord]      = useState(null);
+  const [bundle,      setBundle]      = useState([]);
+  const [error,       setError]       = useState("");
+  const [showLink,    setShowLink]    = useState(false);
+  const [linkSearch,  setLinkSearch]  = useState("");
+  const [linkResults, setLinkResults] = useState([]);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [linking,     setLinking]     = useState(false);
+  const [unlinking,   setUnlinking]   = useState(false);
+  const [linkMsg,     setLinkMsg]     = useState("");
+  const [savingPdf,   setSavingPdf]   = useState(false);
+  const [deleting,    setDeleting]    = useState(false);
 
-  // NCR/CAPA auto-generation state
+  // NCR/CAPA auto-raise state
   const [ncrStatus, setNcrStatus] = useState(null); // null|"generating"|"done"|"skipped"|"error"
   const [ncrResult, setNcrResult] = useState({ ncr: null, capa: null });
   const [ncrError,  setNcrError]  = useState("");
   const autoRanRef = useRef(false);
 
-  // Load certificate
+  useEffect(() => { if (id) loadCertificate(); }, [id]);
+
   useEffect(() => {
     if (!id) return;
-    (async () => {
-      setLoading(true); setError("");
-      const { data, error: e } = await supabase
-        .from("certificates")
-        .select("*")
-        .eq("id", id)
-        .maybeSingle();
-      if (e || !data) {
-        setError(e?.message || "Certificate not found.");
-        setLoading(false);
-        return;
-      }
-      setCert(data);
-      setLoading(false);
-    })();
-  }, [id]);
+    if (searchParams.get("download") === "1")
+      window.location.replace(`/certificates/print/${id}`);
+  }, [searchParams, id]);
 
-  // Auto-raise NCR/CAPA once cert is loaded and result is non-pass
+  // Auto-raise NCR/CAPA once record is loaded and result is non-pass
   useEffect(() => {
-    if (!cert || autoRanRef.current) return;
-    const result = normalizeResult(cert.result);
+    if (!record || autoRanRef.current) return;
+    const result = String(record.result || "").toUpperCase().replace(/\s+/g, "_");
     if (!NON_PASS.includes(result)) return;
-
     autoRanRef.current = true;
     setNcrStatus("generating");
-
-    autoRaiseNcr(cert, { createCapa: true })
+    autoRaiseNcr(record, { createCapa: true })
       .then(({ ncr, capa, skipped, error: ncrErr }) => {
-        if (ncrErr && !ncr) {
-          setNcrStatus("error");
-          setNcrError(ncrErr);
-          return;
-        }
+        if (ncrErr && !ncr) { setNcrStatus("error"); setNcrError(ncrErr); return; }
         setNcrResult({ ncr, capa });
         setNcrStatus(skipped ? "skipped" : "done");
       })
-      .catch(err => {
-        setNcrStatus("error");
-        setNcrError(err?.message || "Unknown error");
+      .catch(err => { setNcrStatus("error"); setNcrError(err?.message || "Unknown error"); });
+  }, [record]);
+
+  async function loadCertificate() {
+    setLoading(true); setError("");
+    const { data, error: e } = await supabase.from("certificates").select("*").eq("id", id).maybeSingle();
+    if (e || !data) { setRecord(null); setBundle([]); setError(e?.message || "Certificate not found."); setLoading(false); return; }
+    setRecord(data);
+    if (data.folder_id) {
+      const { data: linked } = await supabase.from("certificates").select("*")
+        .eq("folder_id", data.folder_id)
+        .order("folder_position", { ascending: true })
+        .order("created_at", { ascending: true });
+      setBundle(linked?.length ? linked : [data]);
+    } else {
+      setBundle([data]);
+    }
+    setLoading(false);
+  }
+
+  async function searchCerts(q) {
+    if (!q || q.length < 2) { setLinkResults([]); return; }
+    setLinkLoading(true);
+    const { data } = await supabase.from("certificates")
+      .select("id,certificate_number,equipment_description,equipment_type,client_name,folder_id")
+      .or(`certificate_number.ilike.%${q}%,equipment_description.ilike.%${q}%,client_name.ilike.%${q}%`)
+      .neq("id", id).is("folder_id", null).limit(8);
+    setLinkResults(data || []); setLinkLoading(false);
+  }
+
+  useEffect(() => {
+    const t = setTimeout(() => searchCerts(linkSearch), 300);
+    return () => clearTimeout(t);
+  }, [linkSearch]);
+
+  async function handleLink(targetId) {
+    setLinking(true); setLinkMsg("");
+    const folderId   = record?.folder_id || crypto.randomUUID();
+    const folderName = record?.folder_name || `Folder-${record?.certificate_number || id}`;
+    const [r1, r2] = await Promise.all([
+      supabase.from("certificates").update({ folder_id: folderId, folder_name: folderName, folder_position: 1 }).eq("id", id),
+      supabase.from("certificates").update({ folder_id: folderId, folder_name: folderName, folder_position: 2 }).eq("id", targetId),
+    ]);
+    if (r1.error || r2.error) { setLinkMsg("Link failed: " + (r1.error?.message || r2.error?.message)); }
+    else { setLinkMsg("Linked!"); setShowLink(false); setLinkSearch(""); setLinkResults([]); await loadCertificate(); }
+    setLinking(false);
+  }
+
+  async function handleUnlink() {
+    if (!record?.folder_id) return;
+    setUnlinking(true); setLinkMsg("");
+    const folderId = record.folder_id;
+    const { error: e } = await supabase.from("certificates")
+      .update({ folder_id: null, folder_name: null, folder_position: null }).eq("id", id);
+    if (e) { setLinkMsg("Unlink failed: " + e.message); setUnlinking(false); return; }
+    const { data: remaining } = await supabase.from("certificates").select("id").eq("folder_id", folderId);
+    if (remaining && remaining.length === 1) {
+      await supabase.from("certificates").update({ folder_id: null, folder_name: null, folder_position: null }).eq("id", remaining[0].id);
+    }
+    setLinkMsg("Unlinked successfully.");
+    await loadCertificate();
+    setUnlinking(false);
+  }
+
+  function handlePrint() {
+    if (isLinked && bundle.length > 1) {
+      bundle.forEach((c, i) => {
+        setTimeout(() => window.open(`/certificates/print/${encodeURIComponent(String(c.id))}`, "_blank"), i * 400);
       });
-  }, [cert]);
+    } else {
+      window.open(`/certificates/print/${id}`, "_blank", "noopener,noreferrer");
+    }
+  }
 
-  if (loading) return (
-    <>
-      <style>{CSS}</style>
-      <AppLayout title="Certificate">
-        <div style={{ minHeight: "100vh", background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Sans',sans-serif" }}>
-          <div style={{ textAlign: "center", color: T.textDim }}>
-            <div style={{ width: 40, height: 40, borderRadius: "50%", border: `3px solid ${T.accentBrd}`, borderTopColor: T.accent, animation: "spin .8s linear infinite", margin: "0 auto 14px" }}/>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>Loading certificate…</div>
-          </div>
-        </div>
-      </AppLayout>
-    </>
-  );
+  function handleSavePdf() {
+    setSavingPdf(true);
+    window.open(`/certificates/print/${id}`, "_blank", "noopener,noreferrer");
+    setTimeout(() => setSavingPdf(false), 2000);
+  }
 
-  if (error || !cert) return (
-    <>
-      <style>{CSS}</style>
-      <AppLayout title="Certificate">
-        <div style={{ minHeight: "100vh", background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "'IBM Plex Sans',sans-serif" }}>
-          <div style={{ background: T.redDim, border: `1px solid ${T.redBrd}`, borderRadius: 14, padding: 24, color: T.red, fontWeight: 700, maxWidth: 400, textAlign: "center" }}>
-            <div style={{ fontSize: 28, marginBottom: 10 }}>⚠</div>
-            {error || "Certificate not found."}
-            <br/>
-            <button onClick={() => router.push("/certificates")} style={{ marginTop: 14, padding: "9px 18px", borderRadius: 10, border: "none", background: T.redDim, color: T.red, cursor: "pointer", fontWeight: 700, fontFamily: "'IBM Plex Sans',sans-serif" }}>
-              ← Back to Certificates
-            </button>
-          </div>
-        </div>
-      </AppLayout>
-    </>
-  );
+  async function handleDelete() {
+    const certNo = record?.certificate_number || "this certificate";
+    if (!window.confirm(`Permanently delete ${certNo}? This cannot be undone.`)) return;
+    setDeleting(true);
+    const folderId = record?.folder_id;
+    const { error: e } = await supabase.from("certificates").delete().eq("id", id);
+    if (e) { alert("Delete failed: " + e.message); setDeleting(false); return; }
+    if (folderId) {
+      const { data: remaining } = await supabase.from("certificates").select("id").eq("folder_id", folderId);
+      if (remaining && remaining.length === 1) {
+        await supabase.from("certificates").update({ folder_id: null, folder_name: null, folder_position: null }).eq("id", remaining[0].id);
+      }
+    }
+    router.replace("/certificates");
+  }
 
-  const rs = resultStyle(cert.result);
-  const isNonPass = NON_PASS.includes(normalizeResult(cert.result));
-  const encodedId = encodeURIComponent(String(cert.id));
+  const tone      = useMemo(() => resultTone(pickResult(record)), [record]);
+  const isLinked  = !!record?.folder_id;
+  const isNonPass = NON_PASS.includes(String(record?.result || "").toUpperCase().replace(/\s+/g, "_"));
 
   return (
-    <>
+    <AppLayout title="Certificate View">
       <style>{CSS}</style>
-      <AppLayout title={cert.certificate_number || "Certificate"}>
-        <div className="cv-page" style={{ minHeight: "100vh", background: `radial-gradient(ellipse 70% 50% at 0% 0%,rgba(34,211,238,0.05),transparent),${T.bg}`, color: T.text, fontFamily: "'IBM Plex Sans',sans-serif", padding: 24 }}>
-          <div style={{ maxWidth: 1100, margin: "0 auto", display: "grid", gap: 16 }}>
+      <div className="view-page-pad" style={{
+        background: `radial-gradient(ellipse 70% 50% at 0% 0%,rgba(34,211,238,0.05),transparent),${T.bg}`,
+        color: T.text, fontFamily: "'IBM Plex Sans',sans-serif", padding: 20,
+      }}>
+        <div style={{ maxWidth: 900, margin: "0 auto", display: "grid", gap: 16 }}>
 
-            {/* HEADER */}
-            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 20, padding: "18px 20px", backdropFilter: "blur(20px)" }}>
-              <div className="cv-hdr">
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: T.accent, marginBottom: 7 }}>
-                    ISO 9001 · Certificate
-                  </div>
-                  <h1 style={{ margin: 0, fontSize: "clamp(16px,3vw,22px)", fontWeight: 900, letterSpacing: "-0.02em", fontFamily: "'IBM Plex Mono',monospace", color: T.accent }}>
-                    {cert.certificate_number || "Certificate"}
-                  </h1>
-                  <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
-                    <Badge label={rs.label} color={rs.color} bg={rs.bg} brd={rs.brd}/>
-                    {cert.equipment_type && (
-                      <span style={{ padding: "4px 10px", borderRadius: 99, background: T.card, border: `1px solid ${T.border}`, fontSize: 10, fontWeight: 700, color: T.textDim }}>
-                        {cert.equipment_type}
-                      </span>
-                    )}
-                    {ncrStatus === "generating" && (
-                      <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: T.accent }}>
-                        <div className="cv-spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }}/>
-                        Raising NCR…
-                      </span>
-                    )}
-                  </div>
+          {/* ── HEADER ─────────────────────────────────────────────────────── */}
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 18, padding: "16px 20px", backdropFilter: "blur(20px)" }}>
+            <div className="view-hdr">
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: T.accent, marginBottom: 6 }}>Certificate Viewer</div>
+                <h1 className="view-cert-title" style={{ margin: "0 0 8px", fontSize: 22, fontWeight: 900, letterSpacing: "-0.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {record?.certificate_number || "Certificate"}
+                </h1>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ padding: "4px 10px", borderRadius: 99, background: tone.bg, color: tone.color, border: `1px solid ${tone.brd}`, fontSize: 11, fontWeight: 800 }}>{tone.label}</span>
+                  {isLinked && (
+                    <span style={{ padding: "4px 10px", borderRadius: 99, background: T.accentDim, color: T.accent, border: `1px solid ${T.accentBrd}`, fontSize: 11, fontWeight: 700 }}>
+                      📁 {record.folder_name || "Linked"} · {bundle.length} certs
+                    </span>
+                  )}
+                  {record?.equipment_type && (
+                    <span style={{ padding: "4px 10px", borderRadius: 99, background: T.card, color: T.textMid, border: `1px solid ${T.border}`, fontSize: 11, fontWeight: 600 }}>{record.equipment_type}</span>
+                  )}
+                  {ncrStatus === "generating" && (
+                    <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: T.accent }}>
+                      <div className="cv-spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }}/>
+                      Raising NCR…
+                    </span>
+                  )}
                 </div>
-                <div className="cv-btns">
-                  <button type="button" onClick={() => router.push("/certificates")}
-                    style={{ padding: "9px 14px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.card, color: T.textMid, fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "'IBM Plex Sans',sans-serif" }}>
-                    ← Back
+              </div>
+
+              <div className="view-btn-row">
+                <button type="button" onClick={() => router.back()} style={S.btnGhost}>← Back</button>
+
+                {!isLinked ? (
+                  <button type="button" onClick={() => { setShowLink(p => !p); setLinkMsg(""); }}
+                    style={{ ...S.btnPurple, background: showLink ? "rgba(167,139,250,0.20)" : S.btnPurple.background }}>
+                    🔗 Link
                   </button>
-                  <Link href={`/certificates/${encodedId}/edit`}
-                    style={{ padding: "9px 14px", borderRadius: 10, border: `1px solid ${T.amberBrd}`, background: T.amberDim, color: T.amber, fontWeight: 800, fontSize: 13, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
-                    Edit
-                  </Link>
-                  <Link href={`/certificates/print/${encodedId}`} target="_blank"
-                    style={{ padding: "9px 14px", borderRadius: 10, border: `1px solid ${T.greenBrd}`, background: T.greenDim, color: T.green, fontWeight: 800, fontSize: 13, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
-                    🖨 Print
-                  </Link>
-                </div>
+                ) : (
+                  <button type="button" onClick={handleUnlink} disabled={unlinking}
+                    style={{ ...S.btnPurple, opacity: unlinking ? 0.5 : 1 }}>
+                    {unlinking ? "Unlinking…" : "Unlink"}
+                  </button>
+                )}
+
+                <Link href={`/certificates/${id}/edit`} style={S.btnAmber}>✏️ Edit</Link>
+                <button type="button" onClick={handlePrint} style={S.btnGhostSm2}>🖨 Print</button>
+                <button type="button" onClick={handleSavePdf} disabled={savingPdf} style={S.btnGreen}>
+                  {savingPdf ? "Opening…" : "⬇ Save PDF"}
+                </button>
+                <button type="button" onClick={handleDelete} disabled={deleting}
+                  style={{ padding: "9px 14px", borderRadius: 10, border: `1px solid ${T.redBrd}`, background: T.redDim, color: T.red, fontWeight: 800, fontSize: 12, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Sans',sans-serif", WebkitTapHighlightColor: "transparent", opacity: deleting ? 0.5 : 1 }}>
+                  {deleting ? "Deleting…" : "🗑 Delete"}
+                </button>
               </div>
             </div>
 
-            {/* NCR/CAPA AUTO-RAISE BANNER */}
-            {isNonPass && (
-              <NcrBanner
-                status={ncrStatus}
-                ncr={ncrResult.ncr}
-                capa={ncrResult.capa}
-                error={ncrError}
-              />
-            )}
-
-            {/* MAIN CONTENT GRID */}
-            <div className="cv-grid">
-
-              {/* Certificate Info */}
-              <Sec icon="📋" title="Certificate Details">
-                <Row label="Certificate No."    value={cert.certificate_number} mono accent />
-                <Row label="Certificate Type"   value={cert.certificate_type} />
-                <Row label="Inspection No."     value={cert.inspection_number || cert.inspection_no} />
-                <Row label="Result"             value={rs.label} />
-                <Row label="Issue Date"         value={formatDate(cert.issue_date || cert.issued_at)} />
-                <Row label="Inspection Date"    value={formatDate(cert.inspection_date)} />
-                <Row label="Expiry Date"        value={formatDate(cert.expiry_date)} />
-                <Row label="Status"             value={cert.status} />
-              </Sec>
-
-              {/* Client & Equipment */}
-              <Sec icon="⚙️" title="Equipment & Client">
-                <Row label="Client"             value={cert.client_name || cert.company} />
-                <Row label="Location"           value={cert.location} />
-                <Row label="Equipment"          value={cert.equipment_description || cert.asset_name} />
-                <Row label="Type"               value={cert.equipment_type || cert.asset_type} />
-                <Row label="Serial Number"      value={cert.serial_number} mono />
-                <Row label="Fleet Number"       value={cert.fleet_number} />
-                <Row label="Reg. Number"        value={cert.registration_number} />
-                <Row label="Manufacturer"       value={cert.manufacturer} />
-                <Row label="Model"              value={cert.model} />
-                <Row label="SWL / Capacity"     value={cert.swl} />
-              </Sec>
-            </div>
-
-            {/* Technical Data */}
-            {(cert.mawp || cert.working_pressure || cert.test_pressure || cert.swl || cert.capacity_volume) && (
-              <Sec icon="📐" title="Technical Data">
-                <div className="cv-grid">
-                  <div>
-                    {cert.swl             && <Row label="Safe Working Load"   value={cert.swl} />}
-                    {cert.mawp            && <Row label="MAWP"                value={`${cert.mawp} ${cert.pressure_unit || "bar"}`} />}
-                    {cert.working_pressure&& <Row label="Working Pressure"    value={`${cert.working_pressure} ${cert.pressure_unit || "bar"}`} />}
-                    {cert.test_pressure   && <Row label="Test Pressure"       value={`${cert.test_pressure} ${cert.pressure_unit || "bar"}`} />}
-                    {cert.design_pressure && <Row label="Design Pressure"     value={`${cert.design_pressure} ${cert.pressure_unit || "bar"}`} />}
-                    {cert.capacity_volume && <Row label="Capacity / Volume"   value={cert.capacity_volume} />}
-                  </div>
-                  <div>
-                    {cert.inspector_name  && <Row label="Inspector"           value={cert.inspector_name} />}
-                    {cert.inspector_id    && <Row label="Inspector ID"        value={cert.inspector_id} mono />}
-                    {cert.machine_hours   && <Row label="Machine Hours"       value={cert.machine_hours} />}
-                    {cert.lanyard_serial_no && <Row label="Lanyard Serial"    value={cert.lanyard_serial_no} mono />}
-                  </div>
-                </div>
-              </Sec>
-            )}
-
-            {/* Defects — highlighted red if non-pass */}
-            {cert.defects_found && (
-              <div style={{ background: T.redDim, border: `1px solid ${T.redBrd}`, borderRadius: 14, padding: 18 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                  <span style={{ fontSize: 16 }}>🔴</span>
-                  <div style={{ fontSize: 13, fontWeight: 900, color: T.red }}>Defects Found</div>
-                </div>
-                <p style={{ fontSize: 13, color: "#fca5a5", lineHeight: 1.7, margin: 0, whiteSpace: "pre-wrap" }}>{cert.defects_found}</p>
+            {linkMsg && (
+              <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 9,
+                background: linkMsg.toLowerCase().includes("fail") ? T.redDim : T.greenDim,
+                color: linkMsg.toLowerCase().includes("fail") ? T.red : T.green,
+                fontSize: 12, fontWeight: 700 }}>
+                {linkMsg}
               </div>
             )}
-
-            {/* Recommendations */}
-            {cert.recommendations && (
-              <Sec icon="💡" title="Recommendations" brd={T.amberBrd}>
-                <p style={{ fontSize: 13, color: T.amber, lineHeight: 1.7, margin: 0, whiteSpace: "pre-wrap" }}>{cert.recommendations}</p>
-              </Sec>
-            )}
-
-            {/* Comments */}
-            {cert.comments && (
-              <Sec icon="💬" title="Comments">
-                <p style={{ fontSize: 13, color: T.textMid, lineHeight: 1.7, margin: 0, whiteSpace: "pre-wrap" }}>{cert.comments}</p>
-              </Sec>
-            )}
-
-            {/* Legal compliance */}
-            <Sec icon="⚖️" title="Legal Compliance">
-              <p style={{ fontSize: 12, color: T.textDim, lineHeight: 1.7, margin: 0 }}>
-                This inspection has been performed by a <strong style={{ color: T.textMid }}>competent person</strong> as defined under the{" "}
-                <strong style={{ color: T.textMid }}>Mines, Quarries, Works and Machinery Act Cap 44:02</strong> of the Laws of Botswana.
-              </p>
-            </Sec>
-
-            {/* Action buttons */}
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingBottom: 16 }}>
-              <Link href={`/certificates/${encodedId}/edit`}
-                style={{ padding: "11px 20px", borderRadius: 11, border: `1px solid ${T.amberBrd}`, background: T.amberDim, color: T.amber, fontWeight: 900, fontSize: 13, textDecoration: "none" }}>
-                ✏️ Edit Certificate
-              </Link>
-              <Link href={`/certificates/print/${encodedId}`} target="_blank"
-                style={{ padding: "11px 20px", borderRadius: 11, border: `1px solid ${T.greenBrd}`, background: T.greenDim, color: T.green, fontWeight: 900, fontSize: 13, textDecoration: "none" }}>
-                🖨 Print / Save PDF
-              </Link>
-              {/* Manual NCR override — if auto-raise failed or was skipped with no NCR */}
-              {isNonPass && ncrStatus !== "generating" && !ncrResult.ncr && (
-                <Link
-                  href={`/ncr/new?certificate_id=${cert.id}&certificate_number=${encodeURIComponent(cert.certificate_number||"")}&result=${encodeURIComponent(cert.result||"")}&client_name=${encodeURIComponent(cert.client_name||"")}&equipment_description=${encodeURIComponent(cert.equipment_description||cert.asset_name||"")}&equipment_type=${encodeURIComponent(cert.equipment_type||"")}&inspection_date=${encodeURIComponent(cert.inspection_date||"")}&expiry_date=${encodeURIComponent(cert.expiry_date||"")}`}
-                  style={{ padding: "11px 20px", borderRadius: 11, border: `1px solid ${T.redBrd}`, background: T.redDim, color: T.red, fontWeight: 900, fontSize: 13, textDecoration: "none" }}>
-                  🚨 Raise NCR Manually
-                </Link>
-              )}
-              {isNonPass && ncrResult.ncr && (
-                <Link href={`/ncr/${ncrResult.ncr.id}`}
-                  style={{ padding: "11px 20px", borderRadius: 11, border: `1px solid ${T.redBrd}`, background: T.redDim, color: T.red, fontWeight: 900, fontSize: 13, textDecoration: "none" }}>
-                  🚨 View NCR
-                </Link>
-              )}
-            </div>
-
           </div>
+
+          {/* ── NCR/CAPA AUTO-RAISE BANNER ──────────────────────────────────── */}
+          {isNonPass && (
+            <NcrBanner
+              status={ncrStatus}
+              ncr={ncrResult.ncr}
+              capa={ncrResult.capa}
+              error={ncrError}
+            />
+          )}
+
+          {/* ── LINK PANEL ──────────────────────────────────────────────────── */}
+          {showLink && !isLinked && (
+            <div style={{ background: T.panel, border: `1px solid ${T.purpleBrd}`, borderRadius: 14, padding: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12, paddingBottom: 10, borderBottom: `1px solid ${T.border}` }}>
+                <span style={{ fontSize: 14 }}>🔗</span>
+                <div style={{ fontSize: 13, fontWeight: 800, color: T.purple }}>Link to Another Certificate</div>
+                <div style={{ fontSize: 11, color: T.textDim, marginLeft: "auto" }}>Linked certs print together as a folder</div>
+              </div>
+              <input value={linkSearch} onChange={e => setLinkSearch(e.target.value)}
+                placeholder="Search by certificate number, equipment, or client…"
+                style={{ width: "100%", padding: "10px 13px", borderRadius: 9, border: `1px solid ${T.border}`, background: "rgba(18,30,50,0.70)", color: T.text, fontSize: 13, outline: "none", fontFamily: "'IBM Plex Sans',sans-serif", marginBottom: 10 }}
+              />
+              {linkLoading && <div style={{ fontSize: 12, color: T.textDim, textAlign: "center", padding: "6px 0" }}>Searching…</div>}
+              {!linkLoading && linkSearch.length >= 2 && linkResults.length === 0 && (
+                <div style={{ fontSize: 12, color: T.textDim, textAlign: "center", padding: "6px 0" }}>No unlinked certificates found for "{linkSearch}"</div>
+              )}
+              <div style={{ display: "grid", gap: 7 }}>
+                {linkResults.map(cert => (
+                  <div key={cert.id} className="link-search-result" onClick={() => !linking && handleLink(cert.id)} style={{ WebkitTapHighlightColor: "transparent" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: T.accent, fontFamily: "'IBM Plex Mono',monospace" }}>{cert.certificate_number || "—"}</div>
+                        <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>{cert.equipment_description || "No description"} · {cert.equipment_type || ""}</div>
+                        {cert.client_name && <div style={{ fontSize: 11, color: T.textDim }}>{cert.client_name}</div>}
+                      </div>
+                      <button type="button" disabled={linking} style={{ padding: "6px 13px", borderRadius: 8, border: `1px solid ${T.purpleBrd}`, background: T.purpleDim, color: T.purple, fontWeight: 800, fontSize: 12, cursor: "pointer", fontFamily: "'IBM Plex Sans',sans-serif", WebkitTapHighlightColor: "transparent" }}>
+                        {linking ? "Linking…" : "Link →"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── CERTIFICATE SHEET ───────────────────────────────────────────── */}
+          {loading ? (
+            <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 16, padding: 32, textAlign: "center", color: T.textDim }}>
+              <div style={{ fontSize: 22, marginBottom: 10, opacity: .4 }}>⏳</div>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>Loading certificate…</div>
+            </div>
+          ) : error ? (
+            <div style={{ background: T.redDim, border: `1px solid ${T.redBrd}`, borderRadius: 16, padding: 16, color: T.red, fontSize: 14, fontWeight: 700 }}>⚠ {error}</div>
+          ) : (
+            <>
+              <CertificateSheet certificate={record} index={0} total={bundle.length || 1} />
+
+              {/* ── FOLDER / BUNDLE LIST ──────────────────────────────────── */}
+              {bundle.length > 1 && (
+                <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 16, padding: 18 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+                    <div style={{ width: 4, height: 18, borderRadius: 2, background: `linear-gradient(to bottom,${T.accent},rgba(34,211,238,0.3))` }}/>
+                    <div style={{ fontSize: 14, fontWeight: 900 }}>Linked certificates in this folder</div>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: T.accentDim, color: T.accent, border: `1px solid ${T.accentBrd}` }}>{bundle.length}</span>
+                  </div>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {bundle.map(item => {
+                      const active   = String(item.id) === String(id);
+                      const itemTone = resultTone(pickResult(item));
+                      return (
+                        <div key={item.id} className="bundle-item" style={{ border: `1px solid ${active ? T.accentBrd : T.border}`, background: active ? T.accentDim : T.card, borderRadius: 12, padding: "12px 14px" }}>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                              <div style={{ fontSize: 13, fontWeight: 800, color: T.text }}>{item.certificate_number || "—"}</div>
+                              <span style={{ padding: "2px 7px", borderRadius: 99, background: itemTone.bg, color: itemTone.color, border: `1px solid ${itemTone.brd}`, fontSize: 10, fontWeight: 800 }}>{itemTone.label}</span>
+                              {active && <span style={{ fontSize: 10, fontWeight: 800, color: T.accent }}>← Current</span>}
+                            </div>
+                            <div style={{ color: T.textMid, fontSize: 12 }}>{item.equipment_description || item.asset_name || "Unnamed equipment"}</div>
+                            <div style={{ color: T.textDim, fontSize: 11, marginTop: 3 }}>Position {item.folder_position || 1}</div>
+                          </div>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            <Link href={`/certificates/${item.id}`}      style={S.btnGhostSm}>View</Link>
+                            <Link href={`/certificates/${item.id}/edit`} style={S.btnGhostSm}>Edit</Link>
+                            <button type="button"
+                              style={{ ...S.btnGhostSm, border: `1px solid ${T.redBrd}`, color: T.red, background: T.redDim, cursor: "pointer" }}
+                              onClick={async () => {
+                                const fId = item.folder_id;
+                                await supabase.from("certificates").update({ folder_id: null, folder_name: null, folder_position: null }).eq("id", item.id);
+                                if (fId) {
+                                  const { data: rem } = await supabase.from("certificates").select("id").eq("folder_id", fId);
+                                  if (rem && rem.length === 1) {
+                                    await supabase.from("certificates").update({ folder_id: null, folder_name: null, folder_position: null }).eq("id", rem[0].id);
+                                  }
+                                }
+                                await loadCertificate();
+                              }}>
+                              Unlink
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
         </div>
-      </AppLayout>
-    </>
+      </div>
+    </AppLayout>
   );
 }
+
+export default function CertificateDetailsPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight: "100vh", background: "#070e18", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(240,246,255,0.4)", fontSize: 14, fontFamily: "'IBM Plex Sans',sans-serif" }}>
+        Loading…
+      </div>
+    }>
+      <CertificateDetailsInner />
+    </Suspense>
+  );
+}
+
+const S = {
+  btnGhost:    { padding: "9px 14px", borderRadius: 10, border: `1px solid rgba(148,163,184,0.18)`, background: "rgba(255,255,255,0.04)", color: "#f0f6ff", fontWeight: 700, fontSize: 12, cursor: "pointer", textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Sans',sans-serif", WebkitTapHighlightColor: "transparent" },
+  btnGhostSm2: { padding: "9px 14px", borderRadius: 10, border: `1px solid rgba(148,163,184,0.18)`, background: "rgba(255,255,255,0.04)", color: "#f0f6ff", fontWeight: 700, fontSize: 12, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Sans',sans-serif", WebkitTapHighlightColor: "transparent" },
+  btnAmber:    { padding: "9px 14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#fbbf24,#f97316)", color: "#1a0a00", fontWeight: 900, fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" },
+  btnGreen:    { padding: "9px 14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#34d399,#14b8a6)", color: "#052e16", fontWeight: 900, fontSize: 12, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Sans',sans-serif", WebkitTapHighlightColor: "transparent" },
+  btnPurple:   { padding: "9px 14px", borderRadius: 10, border: `1px solid rgba(167,139,250,0.25)`, background: "rgba(167,139,250,0.10)", color: "#a78bfa", fontWeight: 800, fontSize: 12, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Sans',sans-serif", WebkitTapHighlightColor: "transparent" },
+  btnGhostSm:  { padding: "6px 11px", borderRadius: 8, border: `1px solid rgba(148,163,184,0.18)`, background: "rgba(255,255,255,0.04)", color: "#f0f6ff", fontWeight: 700, fontSize: 11, textDecoration: "none", display: "inline-flex", alignItems: "center", WebkitTapHighlightColor: "transparent" },
+};
