@@ -1,6 +1,6 @@
 // src/app/certificates/[id]/page.jsx
 // Old view template (CertificateSheet + folder/bundle + link/unlink + delete)
-// + NCR/CAPA auto-raise from newer version
+// + NCR/CAPA auto-raise + full serial_number params on all NCR links
 "use client";
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -75,8 +75,15 @@ function resultTone(v) {
   return { color: T.textMid, bg: T.card, brd: T.border, label: "Unknown" };
 }
 
+// Builds the full /ncr/new URL with all cert params including serial_number
+function ncrNewHref(cert) {
+  if (!cert) return "/ncr/new";
+  const p = (v) => encodeURIComponent(String(v || ""));
+  return `/ncr/new?certificate_id=${p(cert.id)}&certificate_number=${p(cert.certificate_number)}&result=${p(cert.result)}&client_name=${p(cert.client_name)}&serial_number=${p(cert.serial_number)}&asset_tag=${p(cert.asset_tag)}&asset_name=${p(cert.asset_name)}&equipment_description=${p(cert.equipment_description || cert.asset_name)}&equipment_type=${p(cert.equipment_type)}&inspection_date=${p(cert.inspection_date)}&expiry_date=${p(cert.expiry_date)}`;
+}
+
 // ── NCR/CAPA status banner ────────────────────────────────────────────────────
-function NcrBanner({ status, ncr, capa, error }) {
+function NcrBanner({ status, ncr, capa, error, cert }) {
   if (!status) return null;
 
   if (status === "generating") return (
@@ -134,11 +141,17 @@ function NcrBanner({ status, ncr, capa, error }) {
   );
 
   if (status === "error") return (
-    <div className="cv-ncr-banner" style={{ padding: "11px 14px", borderRadius: 12, background: T.redDim, border: `1px solid ${T.redBrd}`, display: "flex", alignItems: "center", gap: 10 }}>
-      <span style={{ fontSize: 14 }}>⚠</span>
-      <div style={{ fontSize: 12, color: T.red, fontWeight: 700 }}>
-        NCR auto-generation failed: {error} — <Link href="/ncr/new" style={{ color: T.red }}>create manually</Link>
+    <div className="cv-ncr-banner" style={{ padding: "12px 14px", borderRadius: 12, background: T.redDim, border: `1px solid ${T.redBrd}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ fontSize: 14 }}>⚠</span>
+        <div style={{ fontSize: 12, color: T.red, fontWeight: 700 }}>NCR auto-generation failed: {error}</div>
       </div>
+      {cert && (
+        <Link href={ncrNewHref(cert)}
+          style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid ${T.redBrd}`, background: "rgba(248,113,113,0.15)", color: T.red, fontWeight: 800, fontSize: 12, textDecoration: "none", whiteSpace: "nowrap" }}>
+          🚨 Create NCR Manually →
+        </Link>
+      )}
     </div>
   );
 
@@ -167,7 +180,7 @@ function CertificateDetailsInner() {
   const [deleting,    setDeleting]    = useState(false);
 
   // NCR/CAPA auto-raise state
-  const [ncrStatus, setNcrStatus] = useState(null); // null|"generating"|"done"|"skipped"|"error"
+  const [ncrStatus, setNcrStatus] = useState(null);
   const [ncrResult, setNcrResult] = useState({ ncr: null, capa: null });
   const [ncrError,  setNcrError]  = useState("");
   const autoRanRef = useRef(false);
@@ -373,7 +386,21 @@ function CertificateDetailsInner() {
               ncr={ncrResult.ncr}
               capa={ncrResult.capa}
               error={ncrError}
+              cert={record}
             />
+          )}
+
+          {/* ── MANUAL NCR RAISE — shown when auto-raise has no NCR yet ──────── */}
+          {isNonPass && ncrStatus !== "generating" && !ncrResult.ncr && ncrStatus !== "done" && record && (
+            <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 16px", borderRadius: 12, background: T.redDim, border: `1px solid ${T.redBrd}`, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 13, color: T.red, fontWeight: 700, flex: 1 }}>
+                🚨 Non-compliant result — no NCR raised yet
+              </span>
+              <Link href={ncrNewHref(record)}
+                style={{ padding: "8px 16px", borderRadius: 9, border: `1px solid ${T.redBrd}`, background: "rgba(248,113,113,0.18)", color: T.red, fontWeight: 900, fontSize: 12, textDecoration: "none", whiteSpace: "nowrap" }}>
+                Raise NCR Manually →
+              </Link>
+            </div>
           )}
 
           {/* ── LINK PANEL ──────────────────────────────────────────────────── */}
