@@ -1131,7 +1131,7 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
         {/* Cert header row */}
         <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
           <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
-            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Load Test Certificate — Aerial Work Platform</div>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Cherrypicker Load Test Certificate</div>
             <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
             <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap",alignItems:"center"}}>
               {expiryDate&&(
@@ -1282,7 +1282,7 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
               <div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #fed7aa",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#6b7280",background:"#fff7ed"}}>
                 <span>Page 2 of 2</span>
                 <span style={{color:"#9ca3af"}}>·</span>
-                <span>Platform / Bucket Certificate</span>
+                <span>Bucket Load Test Certificate</span>
               </div>
             </div>
           </div>
