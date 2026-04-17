@@ -1,23 +1,16 @@
+// src/components/certificates/CertificateSheet.jsx
 "use client";
 
 /* ── helpers ─────────────────────────────────────────────── */
 function val(v){return v&&String(v).trim()!==""?String(v).trim():null;}
 function formatDate(raw){if(!raw)return null;const d=new Date(raw);if(isNaN(d.getTime()))return raw;return d.toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"numeric"});}
-
-function addMonths(dateStr, m) {
-  if (!dateStr) return "";
-  const d = new Date(dateStr);
-  d.setMonth(d.getMonth() + m);
-  return d.toISOString().split("T")[0];
-}
-
 function parseNotes(str){if(!str)return{};try{const p=JSON.parse(str);if(typeof p==="object"&&p!==null)return p;}catch(e){}const obj={};str.split("|").forEach(part=>{const idx=part.indexOf(":");if(idx<0)return;const k=part.slice(0,idx).trim();const v=part.slice(idx+1).trim();if(k)obj[k]=v;});return obj;}
 function pickResult(c){return(c?.result||c?.equipment_status||"").toUpperCase();}
 function resultStyle(r){
-  if(r==="PASS") return{color:"#15803d",bg:"#dcfce7",brd:"#86efac",label:"PASS"};
-  if(r==="FAIL") return{color:"#b91c1c",bg:"#fee2e2",brd:"#fca5a5",label:"FAIL"};
+  if(r==="PASS")           return{color:"#15803d",bg:"#dcfce7",brd:"#86efac",label:"PASS"};
+  if(r==="FAIL")           return{color:"#b91c1c",bg:"#fee2e2",brd:"#fca5a5",label:"FAIL"};
   if(r==="REPAIR_REQUIRED")return{color:"#b45309",bg:"#fef3c7",brd:"#fcd34d",label:"Repair Required"};
-  if(r==="CONDITIONAL") return{color:"#b45309",bg:"#fef3c7",brd:"#fcd34d",label:"Conditional"};
+  if(r==="CONDITIONAL")   return{color:"#b45309",bg:"#fef3c7",brd:"#fcd34d",label:"Conditional"};
   if(r==="OUT_OF_SERVICE") return{color:"#7f1d1d",bg:"#fee2e2",brd:"#fca5a5",label:"Out of Service"};
   return{color:"#374151",bg:"#f3f4f6",brd:"#d1d5db",label:r||"Unknown"};
 }
@@ -39,11 +32,13 @@ function parsePVChecklist(c, pn) {
       }
     }
   } catch(e) {}
+
   try {
     const ex = c.extracted_data || {};
     if (ex.checklist) Object.assign(cl, ex.checklist);
     if (ex.pressure_vessel_checklist) Object.assign(cl, ex.pressure_vessel_checklist);
   } catch(e) {}
+
   const get = (key, pnKey, fallback) => {
     const v = cl[key];
     if (v && String(v).trim()) return String(v).trim();
@@ -53,6 +48,7 @@ function parsePVChecklist(c, pn) {
     }
     return fallback || null;
   };
+
   const rawCorrosion = get("signs_of_corrosion", "Corrosion", null);
   let corrosionDisplay = "None observed";
   if (rawCorrosion) {
@@ -64,22 +60,24 @@ function parsePVChecklist(c, pn) {
       corrosionDisplay = rawCorrosion;
     }
   }
+
   const defects = val(c.defects_found) || "";
   const defectsImplyCorrosion = /corrode|corroded|corrosion|rust|rusty/i.test(defects);
   if (defectsImplyCorrosion && /^none/i.test(corrosionDisplay)) {
     corrosionDisplay = "Yes — see defects";
   }
+
   return {
     vessel_condition_external: get("vessel_condition_external", null, "Satisfactory"),
     vessel_condition_internal: get("vessel_condition_internal", null, "Satisfactory"),
-    safety_valve_fitted: get("safety_valve_fitted", null, "Yes"),
-    pressure_gauge_fitted: get("pressure_gauge_fitted", null, "Yes"),
-    drain_valve_fitted: get("drain_valve_fitted", null, "Yes"),
-    signs_of_corrosion: corrosionDisplay,
-    nameplate_legible: get("nameplate_legible", null, "Yes"),
-    hydrostatic_test: get("hydrostatic_test", null, null),
+    safety_valve_fitted:       get("safety_valve_fitted",       null, "Yes"),
+    pressure_gauge_fitted:     get("pressure_gauge_fitted",     null, "Yes"),
+    drain_valve_fitted:        get("drain_valve_fitted",        null, "Yes"),
+    signs_of_corrosion:        corrosionDisplay,
+    nameplate_legible:         get("nameplate_legible",         null, "Yes"),
+    hydrostatic_test:          get("hydrostatic_test",          null, null),
     hydrostatic_test_pressure: get("hydrostatic_test_pressure_kpa", null, null),
-    overall_assessment: get("overall_assessment", null, null),
+    overall_assessment:        get("overall_assessment",        null, null),
   };
 }
 
@@ -136,6 +134,7 @@ const CSS=`
   .cs-evidence-item{display:flex;flex-direction:column;gap:2px;max-width:90px}
   .cs-evidence-img{width:90px;height:60px;object-fit:cover;border-radius:4px;border:1px solid #c3d4e8;display:block}
   .cs-evidence-cap{font-size:6.5px;color:#4b5563;line-height:1.4;text-align:center;word-break:break-word}
+
   /* pro layout */
   .pro-wrap{background:rgba(10,18,32,0.92);border:1px solid rgba(148,163,184,0.12);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:16px;align-items:center}
   .pro-page{background:#fff;width:210mm;height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28);overflow:hidden;page-break-after:always;break-after:page;}
@@ -224,12 +223,14 @@ const CSS=`
   .pro-foot{background:#0b1d3a;border-top:2px solid #22d3ee;padding:3px 12px;display:flex;justify-content:space-between;flex-shrink:0}
   .pro-foot span{font-size:7px;color:rgba(255,255,255,0.35);font-weight:600}
   .pro-pb{page-break-after:always;break-after:page;height:0;display:block;}
+
   /* vehicle reg table */
   .vr-t{width:100%;border-collapse:collapse;font-size:8.5px;border:1px solid #1e3a5f;flex-shrink:0}
   .vr-t th{background:#0b1d3a;color:#4fc3f7;padding:4px 8px;text-align:left;border:1px solid #1e3a5f;font-size:7.5px;font-weight:700}
   .vr-t td{padding:4px 8px;border:1px solid #c3d4e8}
   .vr-t td:first-child{font-weight:700;background:#eef4ff;color:#0b1d3a;width:38%}
   .vr-t td:nth-child(2){background:#fff;font-weight:600;color:#0b1d3a}
+
   /* fork inspection table */
   .fk-t{width:100%;border-collapse:collapse;font-size:7.5px;border:1px solid #1e3a5f;flex-shrink:0}
   .fk-t th{background:#0b1d3a;color:#4fc3f7;padding:3px 5px;text-align:center;border:1px solid #1e3a5f;font-size:7px;font-weight:700}
@@ -237,12 +238,14 @@ const CSS=`
   .fk-t td{padding:3px 5px;border:1px solid #c3d4e8;text-align:center;font-weight:600;font-size:8px;background:#fff}
   .fk-t td:first-child{text-align:left;background:#eef4ff;font-weight:700;color:#0b1d3a}
   .fk-t tr:nth-child(even) td:not(:first-child){background:#f8faff}
+
   /* bucket/platform table */
   .bk-t{width:100%;border-collapse:collapse;font-size:8px;border:1px solid #1e3a5f;flex-shrink:0}
   .bk-t th{background:#0b1d3a;color:#4fc3f7;padding:3px 7px;text-align:left;border:1px solid #1e3a5f;font-size:7.5px;font-weight:700}
   .bk-t td{padding:3px 7px;border:1px solid #c3d4e8}
   .bk-t td:first-child{font-weight:700;background:#eef4ff;color:#0b1d3a;width:55%}
   .bk-t td:nth-child(2){background:#fff;font-weight:600;color:#0b1d3a}
+
   @media print{
     @page{size:A4;margin:0}
     html,body{margin:0;padding:0}
@@ -269,6 +272,7 @@ function ProEvidence({photos}){
     </div>
   );
 }
+
 /* ── Generic Field / Section ─────────────────────────────── */
 function Field({label,value,mono=false,large=false,full=false,red=false}){
   if(!value)return null;
@@ -284,6 +288,7 @@ function Section({title,children}){
   if(!kids.length)return null;
   return(<div className="cs-sec"><div className="cs-sec-ttl">{title}</div><div className="cs-fields">{kids}</div></div>);
 }
+
 /* ── Shared sub-components ───────────────────────────────── */
 function ProHdr({logoUrl}){
   return(
@@ -361,7 +366,8 @@ function PFBadge({result}){
     </div>
   );
 }
-/* ── BucketResultRow */
+
+/* ── BucketResultRow — renders a single row in the bucket inspection table ── */
 function BucketResultRow({label,result}){
   if(!result)return null;
   const isPass=(result||"").toUpperCase()==="PASS";
@@ -379,20 +385,476 @@ function BucketResultRow({label,result}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   ALL YOUR ORIGINAL FUNCTIONS (CraneLoadTestPage, CraneChecklistPage, HookRopePage, PressureVesselPage, WireRopeSlingPage, TelehandlerPage, ForkArmPage, HorseTrailerPage, MachinePage, GenericCert)
-   ── Keep them exactly as they are in your file above ──
-*/
+   CRANE LOAD TEST
+══════════════════════════════════════════════════════════ */
+function CraneLoadTestPage({c,pn,tone,pm,logo}){
+  const certNumber=val(c.certificate_number);
+  const company=val(c.client_name||c.company)||"—";
+  const location=val(c.location)||"—";
+  const issueDate=formatDate(c.issue_date||c.issued_at);
+  const equipMake=val(c.manufacturer||c.model||c.equipment_type);
+  const serialNo=val(c.serial_number);
+  const fleetNo=val(c.fleet_number);
+  const swl=val(c.swl);
+  const machineHours=val(c.machine_hours||pn["Machine hours"]||pn["Machine Hours"]);
+  const defects=val(c.defects_found);
+  const recommendations=val(c.recommendations);
+  const comments=val(c.comments||c.remarks);
+  const inspName=val(c.inspector_name)||"Moemedi Masupe";
+  const inspId=val(c.inspector_id)||"700117910";
+  const photos=parsePhotoEvidence(c.photo_evidence);
+  const C1={boom:pn["C1 boom"]||"",angle:pn["C1 angle"]||"",radius:pn["C1 radius"]||"",rated:pn["C1 rated"]||"",test:pn["C1 test"]||""};
+  const C2={boom:pn["C2 boom"]||"",angle:pn["C2 angle"]||"",radius:pn["C2 radius"]||"",rated:pn["C2 rated"]||"",test:pn["C2 test"]||pn["Crane test load"]||""};
+  const C3={boom:pn["C3 boom"]||"",angle:pn["C3 angle"]||"",radius:pn["C3 radius"]||"",rated:pn["C3 rated"]||"",test:pn["C3 test"]||""};
+  const sliRes=pn["Computer"]||pn["SLI"]||"PASS";
+  const sliModel=pn["SLI model"]||"";
+  const retractBoom=pn["Retract boom"]||C1.boom;
+  const opCode=pn["Operating code"]||"MAIN/AUX-FULL OUTRIGGER-360DEG";
+  const hookReeving=pn["Hook reeving"]||"";
+  const ctrWts=pn["Counterweights"]||"STD FITTED";
+  const jib=pn["Jib"]||"";
+  const sliCertNo=pn["SLI cert"]||certNumber?.replace("CERT-CR","SLI ")||"";
+  const expiryDate=formatDate(c.expiry_date);
+  return(
+    <div className={`pro-page${pm?" pm":""}`}>
+      <ProHdr logoUrl={logo}/>
+      <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
+      <div className="pro-body">
+        <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl} machineHours={machineHours}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:6,flexShrink:0}}>
+          <div>
+            <div className="pro-cb"><div className="pro-cb-lbl">SLI Certificate</div><div className="pro-cb-yes">YES</div>{sliCertNo&&<div className="pro-cb-num" style={{fontWeight:900,fontSize:10,color:"#0b1d3a"}}>{sliCertNo}</div>}</div>
+            <div className="pro-cb"><div className="pro-cb-lbl">Load Test Certificate</div><div className="pro-cb-yes">YES</div>{certNumber&&<div className="pro-cb-num">{certNumber}</div>}</div>
+            {expiryDate&&<div style={{fontSize:9,fontWeight:800,color:"#0b1d3a",marginTop:3,border:"1px solid #1e3a5f",padding:"2px 7px",display:"inline-block",borderRadius:3}}>expire date: {expiryDate}</div>}
+          </div>
+          <PFBadge result={tone.label}/>
+        </div>
+        <div className="pro-stl">Details of Applied Load</div>
+        <table className="pro-lt">
+          <thead>
+            <tr><th rowSpan={2} style={{textAlign:"left",width:130}}>Details of applied Load</th><th colSpan={2}>1 — Main (Short Boom)</th><th colSpan={2}>2 — Main (Test Config)</th><th colSpan={2}>3 — Aux / Max Boom</th></tr>
+            <tr><th>Actual</th><th>SLI Indicate</th><th>Actual</th><th>SLI Indicate</th><th>Actual</th><th>SLI Indicate</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Boom Length Reading</td><td>{C1.boom}</td><td>{C1.boom}</td><td>{C2.boom}</td><td>{C2.boom}</td><td>{C3.boom}</td><td>{C3.boom}</td></tr>
+            <tr><td>Boom Angle Reading</td><td>{C1.angle}</td><td>{C1.angle}</td><td>{C2.angle}</td><td>{C2.angle}</td><td>{C3.angle}</td><td>{C3.angle}</td></tr>
+            <tr><td>Radius Reading</td><td>{C1.radius}</td><td>{C1.radius}</td><td>{C2.radius}</td><td>{C2.radius}</td><td>{C3.radius}</td><td>{C3.radius}</td></tr>
+            <tr><td>Rated Load</td><td>{C1.rated}</td><td>{C1.rated}</td><td>{C2.rated}</td><td>{C2.rated}</td><td>{C3.rated}</td><td>{C3.rated}</td></tr>
+            <tr className="pro-lt-bold"><td>Test Load</td><td>{C1.test}</td><td>{C1.test}</td><td>{C2.test}</td><td>{C2.test}</td><td>{C3.test}</td><td>{C3.test}</td></tr>
+          </tbody>
+        </table>
+        <div className="pro-stl">SLI Details</div>
+        <table className="pro-st"><tbody>
+          {sliModel&&<tr><td>SLI Make &amp; Model</td><td>{sliModel}</td></tr>}
+          {retractBoom&&<tr><td>Retract Boom vs Actual Indicated</td><td>{retractBoom}</td></tr>}
+          <tr><td>Operating Code used for testing</td><td>{opCode}</td></tr>
+          {hookReeving&&<tr><td>Hook block Reeving</td><td>{hookReeving}</td></tr>}
+          {jib&&<tr><td>Jib Configuration</td><td>{jib}</td></tr>}
+          <tr><td>Counter weights during test</td><td>{ctrWts}</td></tr>
+          <tr><td>SLI cut off system — Hoist up</td><td>{sliRes==="FAIL"?"Defective":"Yes"}</td></tr>
+          <tr><td>SLI cut off system — Tele out</td><td>{sliRes==="FAIL"?"Defective":"Yes"}</td></tr>
+          <tr><td>SLI cut out system — Boom down</td><td>{sliRes==="FAIL"?"Defective":"Yes"}</td></tr>
+        </tbody></table>
+        {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
+        {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
+        {comments&&<div className="pro-comments-box"><div className="pro-comments-lbl">Comments</div><div className="pro-comments-val">{comments}</div></div>}
+        <ProEvidence photos={photos}/>
+        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
+          THE SAFE LOAD INDICATOR HAS BEEN COMPARED TO THE CRANE'S LOAD CHART AND TESTED CORRECTLY TO ORIGINAL MANUFACTURERS SPECIFICATIONS.
+        </div>
+      </div>
+      <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
+      <ProFooter/>
+    </div>
+  );
+}
 
 /* ══════════════════════════════════════════════════════════
-   CHERRY PICKER / AWP CERTIFICATE — TWO PAGES (FIXED)
+   CRANE CHECKLIST
 ══════════════════════════════════════════════════════════ */
-function CherryPickerPage({c,nd,pm,logo}){
-  const certNumber=val(c.certificate_number)||"—";
+function CraneChecklistPage({c,pn,pm,logo}){
+  const company=val(c.client_name||c.company)||"—";
+  const location=val(c.location)||"—";
+  const issueDate=formatDate(c.issue_date||c.issued_at);
+  const expiryDate=formatDate(c.expiry_date);
+  const equipMake=val(c.manufacturer||c.model||c.equipment_type);
+  const serialNo=val(c.serial_number);
+  const fleetNo=val(c.fleet_number);
+  const swl=val(c.swl);
+  const machineHours=val(c.machine_hours||pn["Machine hours"]||pn["Machine Hours"]);
+  const defects=val(c.defects_found)||"";
+  const comments=val(c.comments||c.remarks);
+  const inspName=val(c.inspector_name)||"Moemedi Masupe";
+  const inspId=val(c.inspector_id)||"700117910";
+  const photos=parsePhotoEvidence(c.photo_evidence);
+  const structural=pn["Structural"]||"PASS";
+  const boom=pn["Boom"]||"PASS";
+  const outriggers=pn["Outriggers"]||"PASS";
+  const computer=pn["Computer"]||"PASS";
+  const oilLeaks=detectFail(defects,"oil leak","leak");
+  const tires=detectFail(defects,"tire","tyre");
+  const brakes=detectFail(defects,"brake");
+  const hoist=detectFail(defects,"hoist");
+  const teleCyl=detectFail(defects,"tele cylinder","cylinder");
+  const boomCyl=detectFail(defects,"boom cylinder","lift cylinder");
+  const mcirNo="MCIR "+(c.inspection_number||c.certificate_number?.replace("CERT-CR","")||"");
+  return(
+    <div className={`pro-page${pm?" pm":""}`}>
+      <ProHdr logoUrl={logo}/>
+      <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
+      <div className="pro-body">
+        <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl} machineHours={machineHours}/>
+        <div className="pro-mhdr">
+          <div>
+            {expiryDate&&<div style={{fontSize:9,fontWeight:800,color:"#0b1d3a",marginBottom:2}}>Validity: {expiryDate}</div>}
+            <div className="pro-mt">{mcirNo}</div>
+            <div className="pro-ms">The mobile crane was inspected with regards to the MQWMR Act CAP 44:02 Under Regulations 2</div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:2,fontSize:8,fontWeight:700,color:"#0b1d3a"}}>
+            <div style={{display:"flex",alignItems:"center",gap:5}}><span>Annually:</span><span style={{fontSize:13}}>&#10003;</span></div>
+            <div style={{display:"flex",alignItems:"center",gap:5}}><span>Bi-annually:</span><span></span></div>
+            <div style={{display:"flex",alignItems:"center",gap:5}}><span>Quarterly:</span><span></span></div>
+          </div>
+        </div>
+        <div className="pro-cg">
+          <div className="pro-cc">
+            <div className="pro-csec">Cab Condition</div>
+            <CI label="Windows" result="PASS"/><CI label="Control Levers Marked" result="PASS"/>
+            <CI label="Control Lever return to neutral" result="PASS"/><CI label="Level Gauges Correct" result="PASS"/>
+            <CI label="Reverse Warning" result="PASS"/><CI label="Load Charts Available" result="PASS"/>
+            <CI label="Horn Warning" result="PASS"/><CI label="Lights, Rotating Lights" result="PASS"/>
+            <CI label="Tires" result={tires}/><CI label="Crane Brakes" result={brakes}/>
+            <CI label="Fire Extinguisher" result="PASS"/><CI label="Beacon Lights" result="PASS"/>
+            <CI label="SWL Correctly Indicated" result="PASS"/><CI label="Oil Leaks" result={oilLeaks}/>
+            <CI label="Operator Seat Condition" result="PASS"/>
+            <div className="pro-csec">Safe Load Indicator</div>
+            <CI label="Override Key Safe" result={computer}/><CI label="Load Reading" result={computer}/>
+            <CI label="A2B System Working" result={computer}/><CI label="Cut Off System Working" result={computer}/>
+            <CI label="Radius Reading" result={computer}/><CI label="Boom Length Reading" result={computer}/>
+            <CI label="Boom Angle Reading" result={computer}/>
+          </div>
+          <div className="pro-cc">
+            <div className="pro-csec">Crane Superstructure</div>
+            <CI label="Outrigger Beams (Visual)" result={outriggers}/><CI label="Outrigger Jacks (Visual)" result={outriggers}/>
+            <CI label="Fly-Jib Condition (Visual)" na/><CI label="Outrigger Pads Condition" result={outriggers}/>
+            <CI label="Outrigger Boxes (Cracks)" result={outriggers}/><CI label="Hoist Drum Condition" result={hoist}/>
+            <CI label="Hoist Brake Condition" result={hoist}/><CI label="Hoist Drum Mounting" result="PASS"/>
+            <CI label="Leaks on Hoist Drum" result={oilLeaks}/><CI label="Top Head Sheaves" result="PASS"/>
+            <CI label="Bottom Head Sheaves" result="PASS"/><CI label="Boom Retract Ropes Visible" na/>
+            <CI label="Boom Retract Sheaves" na/><CI label="Slew Bearing Checked" result="PASS"/>
+            <CI label="Slew Brake Checked" result="PASS"/><CI label="Boom Lock Pins Checked" result={boom}/>
+            <CI label="Boom Pivot Point Checked" result={boom}/><CI label="Control Valve Checked" result="PASS"/>
+            <CI label="Tele Cylinders — leaks" result={teleCyl}/><CI label="Tele Cylinders — holding under load" result={teleCyl}/>
+            <CI label="Tele Sections — damage" result={structural}/><CI label="Tele's — bending" na/>
+            <CI label="Boom Lift Cylinder — leaks" result={boomCyl}/><CI label="Boom Cylinder Mounting Points" result={boom}/>
+            <CI label="Boom Cylinder holding under load" result={boom}/><CI label="Counterweights" result="PASS"/>
+          </div>
+        </div>
+        {comments&&<div className="pro-comments-box"><div className="pro-comments-lbl">Comments</div><div className="pro-comments-val">{comments}</div></div>}
+        <ProEvidence photos={photos}/>
+      </div>
+      <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
+      <ProFooter/>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   HOOK & ROPE
+══════════════════════════════════════════════════════════ */
+function HookRopePage({c,pn,tone,pm,logo,isRope}){
+  const certNumber=val(c.certificate_number);
+  const company=val(c.client_name||c.company)||"—";
+  const location=val(c.location)||"—";
+  const issueDate=formatDate(c.issue_date||c.issued_at);
+  const expiryDate=formatDate(c.expiry_date);
+  const equipMake=val(c.manufacturer||c.model||c.equipment_type);
+  const serialNo=val(c.serial_number);
+  const fleetNo=val(c.fleet_number);
+  const swl=val(c.swl);
+  const machineHours=val(c.machine_hours||pn["Machine hours"]);
+  const defects=val(c.defects_found);
+  const recommendations=val(c.recommendations);
+  const comments=val(c.comments||c.remarks);
+  const inspName=val(c.inspector_name)||"Moemedi Masupe";
+  const inspId=val(c.inspector_id)||"700117910";
+  const photos=parsePhotoEvidence(c.photo_evidence);
+  const latch=pn["Latch"]||"PASS";
+  const structural=pn["Structural"]||"PASS";
+  const wear=pn["Wear"];
+  const brokenW=pn["Broken wires"]||"none";
+  const corrosion=pn["Corrosion"]||"none";
+  const kinks=pn["Kinks"]||"none";
+  const ropeDia=pn["Rope dia"]||val(c.capacity_volume)||"";
+  const reportNo=certNumber?.replace("CERT-","HR ")||"HR 0001";
+  const h1SWL=pn["Hook 1 SWL"]||swl||"";
+  const h2SWL=pn["Hook 2 SWL"]||"";
+  const drumMain=pn["Drum main"]||"Good";
+  const drumAux=pn["Drum aux"]||"Good";
+  const layMain=pn["Lay main"]||"Good";
+  const layAux=pn["Lay aux"]||"Good";
+  function YN(pass){return<span style={{color:pass==="PASS"?"#15803d":"#b91c1c",fontWeight:800}}>{pass==="PASS"?"Yes":"No"}</span>;}
+  return(
+    <div className={`pro-page${pm?" pm":""}`}>
+      <ProHdr logoUrl={logo}/>
+      <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
+      <div className="pro-body">
+        <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl} machineHours={machineHours}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,flexShrink:0}}>
+          <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>{isRope?"Wire Rope Inspection Report":"Hook &amp; Rope Inspection Report"}</div>
+            <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{reportNo}</div>
+            {expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry date: {expiryDate}</div>}
+          </div>
+          <div className="pro-compbox">
+            <div><div style={{fontSize:10,fontWeight:800,color:"#0b1d3a"}}>Compliance Certificate</div><div style={{fontSize:8,color:"#64748b"}}>to be issued</div></div>
+            <div style={{fontSize:26,color:tone.label==="PASS"?"#15803d":"#b91c1c",fontWeight:900}}>{tone.label==="PASS"?"✓":"✗"}</div>
+          </div>
+        </div>
+        <div className="pro-stl">Hoist Drum &amp; Rope Condition</div>
+        <table className="pro-hrt"><thead><tr><th></th><th>Main Hoist</th><th>Auxiliary Hoist</th></tr></thead>
+          <tbody>
+            <tr><td>Hoist Drum Condition</td><td>{drumMain}</td><td>{drumAux}</td></tr>
+            <tr><td>Hoist Rope Lay on Drum</td><td>{layMain}</td><td>{layAux}</td></tr>
+          </tbody>
+        </table>
+        <div className="pro-stl">Steel Wire Rope Inspection</div>
+        <table className="pro-hrt">
+          <thead><tr><th style={{textAlign:"left"}}>Inspection Item</th><th>Main</th><th>Aux</th><th style={{textAlign:"left"}}>Inspection Item</th><th>Main</th><th>Aux</th></tr></thead>
+          <tbody>
+            <tr><td>Rope Diameter (mm)</td><td>{ropeDia?.replace(/[^\d.]/g,"")||"—"}</td><td>{ropeDia?.replace(/[^\d.]/g,"")||"—"}</td><td>Rope length (3x windings)</td><td>Yes</td><td>Yes</td></tr>
+            <tr><td>Reduction in rope Dia. (max 10%)</td><td>none</td><td>none</td><td>Core Protrusion</td><td>None</td><td>None</td></tr>
+            <tr><td>Corrosion</td><td>{corrosion}</td><td>{corrosion}</td><td>Broken wires</td><td>{brokenW}</td><td>{brokenW}</td></tr>
+            <tr><td>Rope kinks / deforming</td><td>{kinks}</td><td>{kinks}</td><td>Other defects</td><td>none</td><td>none</td></tr>
+            <tr><td>End fitting / attachments</td><td>Good</td><td>Good</td><td>Serviceability</td><td>Good</td><td>Good</td></tr>
+          </tbody>
+        </table>
+        {!isRope&&(
+          <>
+            <div className="pro-stl">Hook Inspection Criteria</div>
+            <table className="pro-hrt">
+              <thead><tr><th style={{textAlign:"left",width:"38%"}}>Hook inspection criteria</th><th colSpan={2}>Hook 1 (Main)</th><th colSpan={2}>Hook 2 (Aux)</th></tr></thead>
+              <tbody>
+                <tr><td>Hook block SWL</td><td colSpan={2}>{h1SWL||"—"}</td><td colSpan={2}>{h2SWL||"—"}</td></tr>
+                <tr><td>SWL marked on hook</td><td>{YN(structural)}</td><td></td><td>{YN("PASS")}</td><td></td></tr>
+                <tr><td>Safety catch fitted &amp; good condition</td><td>{YN(latch)}</td><td></td><td>{YN("PASS")}</td><td></td></tr>
+                <tr><td>Signs of cracks</td><td>{YN(structural)}</td><td></td><td>{YN("PASS")}</td><td></td></tr>
+                <tr><td>Swivel free under load</td><td>{YN("PASS")}</td><td></td><td>{YN("PASS")}</td><td></td></tr>
+                <tr><td>Hook side bending (max 5%)</td><td><span style={{color:(!wear||parseFloat(wear)<=5)?"#15803d":"#b91c1c",fontWeight:800}}>{wear?`${wear}mm — ${parseFloat(wear)<=5?"OK":"Excessive"}`:"OK"}</span></td><td></td><td>{YN("PASS")}</td><td></td></tr>
+              </tbody>
+            </table>
+          </>
+        )}
+        {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
+        {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
+        {comments&&<div className="pro-comments-box"><div className="pro-comments-lbl">Comments</div><div className="pro-comments-val">{comments}</div></div>}
+        <ProEvidence photos={photos}/>
+      </div>
+      <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
+      <ProFooter/>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   PRESSURE VESSEL
+══════════════════════════════════════════════════════════ */
+function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
+  const certNumber=val(c.certificate_number);
+  const company=val(c.client_name||c.company)||"—";
+  const location=val(c.location)||"—";
+  const issueDate=formatDate(c.issue_date||c.issued_at);
+  const expiryDate=formatDate(c.expiry_date);
+  const equipMake=val(c.manufacturer||c.model||c.equipment_type)||"Pressure Vessel";
+  const serialNo=val(c.serial_number);
+  const fleetNo=val(c.fleet_number);
+  const swl=val(c.swl);
+  const mawp=val(c.mawp||c.working_pressure||pn[`PV${pvNum} MAWP`]||pn["MAWP"]);
+  const testP=val(c.test_pressure||pn[`PV${pvNum} test`]||pn["Test pressure"]);
+  const designP=val(c.design_pressure||pn[`PV${pvNum} design`]);
+  const pvType=pn[`PV${pvNum} type`]||val(c.equipment_description)||"Pressure Vessel";
+  const pvSN=pn[`PV${pvNum} serial`]||serialNo;
+  const pvCap=pn[`PV${pvNum} capacity`]||val(c.capacity_volume);
+  const defects=val(c.defects_found);
+  const recommendations=val(c.recommendations);
+  const comments=val(c.comments||c.remarks);
+  const inspName=val(c.inspector_name)||"Moemedi Masupe";
+  const inspId=val(c.inspector_id)||"700117910";
+  const pressureUnit=val(c.pressure_unit||pn.pressure_unit)||"bar";
+  const photos=parsePhotoEvidence(c.photo_evidence);
+
+  const cl = parsePVChecklist(c, pn);
+
+  const corrosionIsYes = /^yes/i.test(cl.signs_of_corrosion||"");
+  const corrosionStyle = corrosionIsYes
+    ? { color:"#b91c1c", fontWeight:800 }
+    : { color:"#0b1d3a", fontWeight:600 };
+
+  const overallDisplay = cl.overall_assessment
+    || (tone.label==="PASS"?"Pass":tone.label==="FAIL"?"Fail":tone.label);
+  const overallIsPass = /^pass|satisfactory/i.test(overallDisplay);
+  const overallStyle = { fontWeight:800, color: overallIsPass?"#15803d":"#b91c1c" };
+
+  const hydroDisplay = cl.hydrostatic_test
+    ? (cl.hydrostatic_test==="Yes" && (cl.hydrostatic_test_pressure||testP))
+        ? `Yes — ${cl.hydrostatic_test_pressure||testP} ${pressureUnit}`
+        : cl.hydrostatic_test
+    : testP
+      ? `Yes — ${testP} ${pressureUnit}`
+      : "N/A";
+
+  return(
+    <div className={`pro-page${pm?" pm":""}`}>
+      <ProHdr logoUrl={logo}/>
+      <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
+      <div className="pro-body">
+        <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,flexShrink:0}}>
+          <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Pressure Vessel Inspection</div>
+            <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
+            {expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry date: {expiryDate}</div>}
+          </div>
+          <div className="pro-compbox">
+            <div><div style={{fontSize:10,fontWeight:800,color:"#0b1d3a"}}>Compliance Certificate</div><div style={{fontSize:8,color:"#64748b"}}>to be issued</div></div>
+            <div style={{fontSize:26,color:tone.label==="PASS"?"#15803d":"#b91c1c",fontWeight:900}}>{tone.label==="PASS"?"✓":"✗"}</div>
+          </div>
+        </div>
+        <div className="pro-stl">Pressure Vessel Details</div>
+        <table className="pro-pv">
+          <thead>
+            <tr>
+              <th>Vessel Type</th><th>Serial Number</th><th>Capacity</th>
+              <th>MAWP ({pressureUnit})</th><th>Test Pressure ({pressureUnit})</th><th>Design Pressure ({pressureUnit})</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={{background:"#fff"}}>{pvType}</td>
+              <td style={{background:"#fff",fontFamily:"monospace"}}>{pvSN||"—"}</td>
+              <td style={{background:"#fff"}}>{pvCap||"—"}</td>
+              <td style={{background:"#fff",fontWeight:700}}>{mawp||"—"}</td>
+              <td style={{background:"#fff",fontWeight:700}}>{testP||"—"}</td>
+              <td style={{background:"#fff"}}>{designP||"—"}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div className="pro-stl">Inspection Results</div>
+        <table className="pro-st">
+          <tbody>
+            <tr><td>Vessel condition — external visual</td><td>{cl.vessel_condition_external}</td></tr>
+            <tr><td>Vessel condition — internal (if applicable)</td><td>{cl.vessel_condition_internal}</td></tr>
+            <tr><td>Safety valve fitted and operating correctly</td><td>{cl.safety_valve_fitted}</td></tr>
+            <tr><td>Pressure gauge fitted and reading correctly</td><td>{cl.pressure_gauge_fitted}</td></tr>
+            <tr><td>Drain valve fitted and operating correctly</td><td>{cl.drain_valve_fitted}</td></tr>
+            <tr>
+              <td style={corrosionIsYes?{background:"#fff5f5",fontWeight:700,color:"#b91c1c"}:{}}>Signs of corrosion, cracking or deformation</td>
+              <td style={corrosionStyle}>{cl.signs_of_corrosion}</td>
+            </tr>
+            <tr><td>Nameplate legible and data correct</td><td>{cl.nameplate_legible}</td></tr>
+            <tr><td>Hydrostatic test performed</td><td>{hydroDisplay}</td></tr>
+            <tr><td>Overall assessment</td><td style={overallStyle}>{overallDisplay}</td></tr>
+          </tbody>
+        </table>
+
+        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
+          THIS PRESSURE VESSEL HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
+        </div>
+        {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
+        {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
+        {comments&&<div className="pro-comments-box"><div className="pro-comments-lbl">Comments</div><div className="pro-comments-val">{comments}</div></div>}
+        <ProEvidence photos={photos}/>
+      </div>
+      <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
+      <ProFooter/>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   WIRE ROPE SLING
+══════════════════════════════════════════════════════════ */
+function WireRopeSlingPage({c,pn,tone,pm,logo}){
+  const certNumber=val(c.certificate_number);
+  const company=val(c.client_name||c.company)||"—";
+  const location=val(c.location)||"—";
+  const issueDate=formatDate(c.issue_date||c.issued_at);
+  const expiryDate=formatDate(c.expiry_date);
+  const equipMake=val(c.manufacturer||c.model||c.equipment_type)||"Wire Rope Sling";
+  const serialNo=val(c.serial_number);
+  const fleetNo=val(c.fleet_number);
+  const swl=val(c.swl);
+  const defects=val(c.defects_found);
+  const recommendations=val(c.recommendations);
+  const comments=val(c.comments||c.remarks);
+  const inspName=val(c.inspector_name)||"Moemedi Masupe";
+  const inspId=val(c.inspector_id)||"700117910";
+  const slingType=val(c.equipment_type)||"Wire Rope Sling";
+  const numLegs=pn["Legs"]||"";
+  const diameter=pn["Diameter"]||val(c.capacity_volume)||"";
+  const length=pn["Length"]||"";
+  const construction=pn["Construction"]||"";
+  const core=pn["Core"]||"";
+  const corrosion=pn["Corrosion"]||"none";
+  const brokenWires=pn["Broken wires"]||"none";
+  const kinks=pn["Kinks"]||"none";
+  const endFittings=pn["End fittings"]||"Good";
+  const photos=parsePhotoEvidence(c.photo_evidence);
+  return(
+    <div className={`pro-page${pm?" pm":""}`}>
+      <ProHdr logoUrl={logo}/>
+      <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
+      <div className="pro-body">
+        <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,flexShrink:0}}>
+          <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Wire Rope Sling Inspection</div>
+            <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
+            {expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry date: {expiryDate}</div>}
+          </div>
+          <div className="pro-compbox">
+            <div><div style={{fontSize:10,fontWeight:800,color:"#0b1d3a"}}>Compliance Certificate</div></div>
+            <div style={{fontSize:26,color:tone.label==="PASS"?"#15803d":"#b91c1c",fontWeight:900}}>{tone.label==="PASS"?"✓":"✗"}</div>
+          </div>
+        </div>
+        <div className="pro-stl">Sling Details</div>
+        <table className="pro-pv"><thead><tr><th>Type</th><th>Diameter (mm)</th><th>Length (m)</th><th>No. of Legs</th><th>Construction</th><th>Core Type</th><th>SWL</th></tr></thead>
+          <tbody><tr><td style={{background:"#fff"}}>{slingType}</td><td style={{background:"#fff"}}>{diameter||"—"}</td><td style={{background:"#fff"}}>{length||"—"}</td><td style={{background:"#fff"}}>{numLegs||"—"}</td><td style={{background:"#fff"}}>{construction||"—"}</td><td style={{background:"#fff"}}>{core||"—"}</td><td style={{background:"#fff",fontWeight:700}}>{swl||"—"}</td></tr></tbody>
+        </table>
+        <div className="pro-stl">Condition Assessment</div>
+        <table className="pro-st"><tbody>
+          <tr><td>Corrosion</td><td>{corrosion}</td></tr>
+          <tr><td>Broken wires</td><td>{brokenWires}</td></tr>
+          <tr><td>Rope kinks / deforming</td><td>{kinks}</td></tr>
+          <tr><td>Reduction in diameter (max 10%)</td><td>none</td></tr>
+          <tr><td>Condition of end fittings / ferrule</td><td>{endFittings}</td></tr>
+          <tr><td>Bird-caging / core protrusion</td><td>None</td></tr>
+          <tr><td>Serviceability</td><td>Serviceable</td></tr>
+          <tr><td>Overall assessment</td><td style={{fontWeight:800,color:tone.label==="PASS"?"#15803d":"#b91c1c"}}>{tone.label}</td></tr>
+        </tbody></table>
+        {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
+        {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
+        {comments&&<div className="pro-comments-box"><div className="pro-comments-lbl">Comments</div><div className="pro-comments-val">{comments}</div></div>}
+        <ProEvidence photos={photos}/>
+      </div>
+      <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
+      <ProFooter/>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   TELEHANDLER CERTIFICATE
+══════════════════════════════════════════════════════════ */
+function TelehandlerPage({c,nd,pm,logo}){
+  const certNumber=val(c.certificate_number);
   const company=val(c.client_name)||"—";
   const location=val(c.location)||"—";
   const issueDate=formatDate(c.issue_date||c.issued_at);
-  const equipMake=val(c.manufacturer||c.model)||"Cherry Picker / AWP";
-  const serialNo=val(c.serial_number)||"—";
+  const expiryDate=formatDate(c.expiry_date);
+  const equipMake=val(c.manufacturer||c.model)||"Telehandler";
+  const serialNo=val(c.serial_number);
   const fleetNo=val(c.fleet_number);
   const swl=val(c.swl);
   const defects=val(c.defects_found)||"";
@@ -400,22 +862,131 @@ function CherryPickerPage({c,nd,pm,logo}){
   const inspName=val(c.inspector_name)||"Moemedi Masupe";
   const inspId=val(c.inspector_id)||"700117910";
   const photos=parsePhotoEvidence(c.photo_evidence);
-
   const tone=resultStyle(pickResult(c));
-  const bm=nd?.boom||{};
-  const bk=nd?.bucket||{};
-  const cl=nd?.checklist||{};
+  const bm=nd.boom||{};
+  const fks=(nd.forks||[]).filter(f=>f.length||f.swl);
+  const cl=nd.checklist||{};
+  return(
+    <div className={`pro-page${pm?" pm":""}`}>
+      <ProHdr logoUrl={logo}/>
+      <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
+      <div className="pro-body">
+        <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
+          <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Load Test Certificate — Telehandler</div>
+            <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
+            {expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry: {expiryDate}</div>}
+          </div>
+          <PFBadge result={tone.label}/>
+        </div>
+        <div className="pro-stl">Boom Configuration &amp; Load Test</div>
+        <table className="pro-lt">
+          <thead>
+            <tr><th style={{textAlign:"left",width:140}}>Parameter</th><th>Min Boom</th><th>Max Boom</th><th>Actual / Test Config</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Boom Length (m)</td><td>{bm.min_boom_length||"—"}</td><td>{bm.max_boom_length||"—"}</td><td>{bm.actual_boom_length||"—"}</td></tr>
+            <tr><td>Extended / Telescoped (m)</td><td>—</td><td>—</td><td>{bm.extended_boom_length||"—"}</td></tr>
+            <tr><td>Working Radius (m)</td><td>{bm.min_radius||"—"}</td><td>{bm.max_radius||"—"}</td><td>{bm.load_tested_at_radius||"—"}</td></tr>
+            <tr><td>SWL at Radius</td><td>{bm.swl_at_min_radius||"—"}</td><td>{bm.swl_at_max_radius||"—"}</td><td>{bm.swl_at_actual_config||swl||"—"}</td></tr>
+            <tr><td>Boom Angle (°)</td><td>—</td><td>—</td><td>{bm.boom_angle||"—"}</td></tr>
+            <tr className="pro-lt-bold"><td>Test Load Applied (110% SWL)</td><td></td><td></td><td>{bm.test_load||"—"}</td></tr>
+          </tbody>
+        </table>
+        {bm.jib_fitted==="yes"&&<div style={{fontSize:8,fontWeight:700,color:"#0e7490",marginTop:2,marginBottom:2,padding:"2px 6px",background:"#eef4ff",border:"1px solid #c3d4e8",borderRadius:3,display:"inline-block"}}>Jib / Fork Attachment: FITTED</div>}
+        <div className="pro-stl">Boom Systems Condition</div>
+        <table className="pro-st"><tbody>
+          <tr><td>Boom Structure</td><td>{r(bm.boom_structure||"PASS")}</td></tr>
+          <tr><td>Boom Pins &amp; Connections</td><td>{r(bm.boom_pins||"PASS")}</td></tr>
+          <tr><td>Boom Wear / Pads</td><td>{r(bm.boom_wear||"PASS")}</td></tr>
+          <tr><td>Luffing / Extension System</td><td>{r(bm.luffing_system||"PASS")}</td></tr>
+          <tr><td>LMI Tested at Configuration</td><td>{r(bm.lmi_test||"PASS")}</td></tr>
+          <tr><td>Anti-Two-Block / Overload</td><td>{r(bm.anti_two_block||"PASS")}</td></tr>
+        </tbody></table>
+        <div className="pro-cg">
+          <div className="pro-cc">
+            <div className="pro-csec">General Condition</div>
+            <CI label="Structural Integrity" result={cl.structural_result||"PASS"}/>
+            <CI label="Hydraulic System" result={cl.hydraulics_result||"PASS"}/>
+            <CI label="Brake / Drive System" result={cl.brakes_result||"PASS"}/>
+            <CI label="Tyres &amp; Wheels" result={cl.tyres_result||"PASS"}/>
+            <CI label="Oil Leaks" result={detectFail(defects,"leak","oil")}/>
+            <CI label="Lights &amp; Horn" result="PASS"/>
+            <CI label="Fire Extinguisher" result="PASS"/>
+            <CI label="Seat Belt" result="PASS"/>
+          </div>
+          <div className="pro-cc">
+            <div className="pro-csec">Safety &amp; Controls</div>
+            <CI label="Load Management Indicator (LMI)" result={cl.lmi_result||"PASS"}/>
+            <CI label="LMI SWL Correctly Indicated" result="PASS"/>
+            <CI label="Emergency Stop Function" result="PASS"/>
+            <CI label="Overload Protection" result="PASS"/>
+            <CI label="Outrigger Interlocks (if fitted)" result="PASS"/>
+            <CI label="Controls Marked Correctly" result="PASS"/>
+            <CI label="Load Chart Available" result="PASS"/>
+            <div className="pro-csec">Load Test Result</div>
+            <CI label="Test Load Applied at Rated Config" result="PASS"/>
+            <CI label="Machine Stable Under Load" result="PASS"/>
+            <CI label="No Structural Deformation" result="PASS"/>
+          </div>
+        </div>
+        {fks.length>0&&(
+          <>
+            <div className="pro-stl">Fork Arms Inspected ({fks.length} arm{fks.length>1?"s":""})</div>
+            <table className="fk-t">
+              <thead><tr><th>Fork ID</th><th>SWL</th><th>Length (mm)</th><th>Heel (mm)</th><th>Blade (mm)</th><th>Wear %</th><th>Cracks</th><th>Bending</th><th>Result</th></tr></thead>
+              <tbody>{fks.map((fk,i)=>(
+                <tr key={i}>
+                  <td>{fk.fork_number||`Fork ${i+1}`}</td><td>{fk.swl||"—"}</td><td>{fk.length||"—"}</td>
+                  <td>{fk.thickness_heel||"—"}</td><td>{fk.thickness_blade||"—"}</td><td>{fk.wear_pct||"—"}</td>
+                  <td style={{color:fk.cracks==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.cracks==="yes"?"YES":"No"}</td>
+                  <td style={{color:fk.bending==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.bending==="yes"?"YES":"No"}</td>
+                  <td>{r(fk.result)}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </>
+        )}
+        {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
+        {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
+        {bm.notes&&<div className="pro-comments-box"><div className="pro-comments-lbl">Boom Notes</div><div className="pro-comments-val">{bm.notes}</div></div>}
+        <ProEvidence photos={photos}/>
+        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
+          THIS TELEHANDLER HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
+        </div>
+      </div>
+      <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
+      <ProFooter/>
+    </div>
+  );
+}
 
-  const bucketSerial = val(bk.serial_number) || (serialNo !== "—" ? `BUCKET-${serialNo}` : `BUCKET-${Date.now().toString().slice(-6)}`);
+/* ══════════════════════════════════════════════════════════
+   CHERRY PICKER / AWP CERTIFICATE
+   ── FIXED: Added full Platform / Bucket Inspection section
+══════════════════════════════════════════════════════════ */
+function CherryPickerPage({c,nd,pm,logo}){
+  const certNumber=val(c.certificate_number);
+  const company=val(c.client_name)||"—";
+  const location=val(c.location)||"—";
+  const issueDate=formatDate(c.issue_date||c.issued_at);
+  const expiryDate=formatDate(c.expiry_date);
+  const equipMake=val(c.manufacturer||c.model)||"Cherry Picker / AWP";
+  const serialNo=val(c.serial_number);
+  const fleetNo=val(c.fleet_number);
+  const swl=val(c.swl);
+  const defects=val(c.defects_found)||"";
+  const recommendations=val(c.recommendations);
+  const inspName=val(c.inspector_name)||"Moemedi Masupe";
+  const inspId=val(c.inspector_id)||"700117910";
+  const photos=parsePhotoEvidence(c.photo_evidence);
+  const tone=resultStyle(pickResult(c));
+  const bm=nd.boom||{};
+  const bk=nd.bucket||{};
+  const cl=nd.checklist||{};
 
-  const awpExpiry = formatDate(c.expiry_date);
-  let bucketExpiry = "—";
-  try {
-    const issueD = c.issue_date || c.issued_at || new Date().toISOString().split("T")[0];
-    const sixMonthsLater = addMonths(issueD, 6);
-    bucketExpiry = formatDate(sixMonthsLater);
-  } catch (e) {}
-
+  // Helper to render a bucket result cell with colour
   function bkResult(val){
     if(!val)return"—";
     const isPass=(val||"").toUpperCase()==="PASS";
@@ -426,109 +997,551 @@ function CherryPickerPage({c,nd,pm,logo}){
   }
 
   return(
-    <>
-      {/* PAGE 1: Cherry Picker / AWP — 12 months */}
-      <div className={`pro-page${pm?" pm":""}`}>
-        <ProHdr logoUrl={logo}/>
-        <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
-        <div className="pro-body">
-          <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl}/>
+    <div className={`pro-page${pm?" pm":""}`}>
+      <ProHdr logoUrl={logo}/>
+      <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
+      <div className="pro-body">
+        <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
+          <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Load Test Certificate — Cherry Picker / AWP</div>
+            <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
+            {expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry: {expiryDate}</div>}
+          </div>
+          <PFBadge result={tone.label}/>
+        </div>
 
-          <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
-            <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
-              <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Load Test Certificate — Cherry Picker / AWP</div>
-              <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
-              {awpExpiry&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry: {awpExpiry} (12 months)</div>}
-            </div>
-            <PFBadge result={tone.label}/>
+        {/* ── BOOM & PLATFORM SPEC (two columns to save vertical space) ── */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,flexShrink:0}}>
+          <div>
+            <div className="pro-stl">Boom Specification</div>
+            <table className="pro-st"><tbody>
+              <tr><td>Max Working Height (m)</td><td style={{fontWeight:800}}>{bm.max_height||"—"}</td></tr>
+              <tr><td>Boom Length — Min (m)</td><td>{bm.min_boom_length||"—"}</td></tr>
+              <tr><td>Boom Length — Max (m)</td><td>{bm.max_boom_length||"—"}</td></tr>
+              <tr><td>Boom Length — Actual (m)</td><td>{bm.actual_boom_length||"—"}</td></tr>
+              <tr><td>Extended / Telescoped (m)</td><td>{bm.extended_boom_length||"—"}</td></tr>
+              <tr><td>Boom Angle (°)</td><td>{bm.boom_angle||"—"}</td></tr>
+              <tr><td>Working Radius — Min (m)</td><td>{bm.min_radius||"—"}</td></tr>
+              <tr><td>Working Radius — Max (m)</td><td>{bm.max_radius||"—"}</td></tr>
+              <tr><td>Load Test Radius (m)</td><td>{bm.load_tested_at_radius||"—"}</td></tr>
+              <tr><td>SWL at Min Radius</td><td>{bm.swl_at_min_radius||"—"}</td></tr>
+              <tr><td>SWL at Max Radius</td><td>{bm.swl_at_max_radius||"—"}</td></tr>
+              <tr><td>SWL at Test Config</td><td style={{fontWeight:800}}>{bm.swl_at_actual_config||swl||"—"}</td></tr>
+              <tr style={{background:"#0b1d3a"}}><td style={{background:"#1e3a5f",color:"#4fc3f7",fontWeight:800}}>Test Load (110% SWL)</td><td style={{background:"#0b1d3a",color:"#fff",fontWeight:900}}>{bm.test_load||"—"}</td></tr>
+            </tbody></table>
           </div>
 
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,flexShrink:0}}>
-            <div>
-              <div className="pro-stl">Boom Specification</div>
-              <table className="pro-st"><tbody>
-                <tr><td>Max Working Height (m)</td><td style={{fontWeight:800}}>{bm.max_height||"—"}</td></tr>
-                <tr><td>Actual Boom Length (m)</td><td>{bm.actual_boom_length||"—"}</td></tr>
-                <tr><td>SWL at Test Config</td><td style={{fontWeight:800}}>{bm.swl_at_actual_config||swl||"—"}</td></tr>
-                <tr style={{background:"#0b1d3a"}}><td style={{background:"#1e3a5f",color:"#4fc3f7",fontWeight:800}}>Test Load (110% SWL)</td><td style={{background:"#0b1d3a",color:"#fff",fontWeight:900}}>{bm.test_load||"—"}</td></tr>
-              </tbody></table>
-            </div>
-            <div>
-              <div className="pro-stl">Key Systems</div>
-              <table className="pro-st"><tbody>
-                <tr><td>Boom Structure</td><td>{r(bm.boom_structure||"PASS")}</td></tr>
-                <tr><td>Hydraulics</td><td>{r(cl.hydraulics_result||"PASS")}</td></tr>
-                <tr><td>LMI / Safety</td><td>{r(cl.lmi_result || bm.lmi_test || "PASS")}</td></tr>
-              </tbody></table>
-            </div>
-          </div>
-
-          <ProEvidence photos={photos}/>
-
-          <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
-            THIS AERIAL WORK PLATFORM HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.<br/>VALID FOR 12 MONTHS FROM ISSUE DATE.
+          <div>
+            {/* ── PLATFORM / BUCKET INSPECTION ── */}
+            <div className="pro-stl">Platform / Bucket Inspection</div>
+            <table className="bk-t">
+              <thead><tr><th>Inspection Item</th><th>Result</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>Platform SWL</td>
+                  <td style={{fontWeight:800,color:"#0b1d3a"}}>{bk.platform_swl||swl||"—"}</td>
+                </tr>
+                <tr>
+                  <td>Platform Dimensions (m)</td>
+                  <td>{bk.platform_dimensions||"—"}</td>
+                </tr>
+                <tr>
+                  <td>Platform Material</td>
+                  <td>{bk.platform_material||"—"}</td>
+                </tr>
+                <tr>
+                  <td>Test Load Applied</td>
+                  <td style={{fontWeight:800}}>{bk.test_load_applied||bm.test_load||"—"}</td>
+                </tr>
+                <tr>
+                  <td>Platform Structure</td>
+                  <td>{bkResult(bk.platform_structure||"PASS")}</td>
+                </tr>
+                <tr>
+                  <td>Platform Floor Condition</td>
+                  <td>{bkResult(bk.platform_floor||"PASS")}</td>
+                </tr>
+                <tr>
+                  <td>Guardrails &amp; Toe Boards</td>
+                  <td>{bkResult(bk.guardrails||"PASS")}</td>
+                </tr>
+                <tr>
+                  <td>Gate / Latch System</td>
+                  <td>{bkResult(bk.gate_latch||"PASS")}</td>
+                </tr>
+                <tr>
+                  <td>Platform Auto-Levelling</td>
+                  <td>{bkResult(bk.levelling_system||"PASS")}</td>
+                </tr>
+                <tr>
+                  <td>Emergency Lowering Device</td>
+                  <td>{bkResult(bk.emergency_lowering||cl.emergency_lowering||"PASS")}</td>
+                </tr>
+                <tr>
+                  <td>Overload / SWL Cut-Off Device</td>
+                  <td>{bkResult(bk.overload_device||"PASS")}</td>
+                </tr>
+                <tr>
+                  <td>Tilt / Inclination Alarm</td>
+                  <td>{bkResult(bk.tilt_alarm||"PASS")}</td>
+                </tr>
+              </tbody>
+            </table>
+            {bk.notes&&(
+              <div style={{marginTop:4,padding:"3px 7px",background:"#f4f8ff",border:"1px solid #c3d4e8",borderRadius:3,fontSize:7.5,color:"#334155",lineHeight:1.4}}>
+                <span style={{fontWeight:800,color:"#3b6ea5",marginRight:4}}>Notes:</span>{bk.notes}
+              </div>
+            )}
           </div>
         </div>
-        <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
-        <ProFooter/>
+
+        {/* ── CHECKLIST GRID ── */}
+        <div className="pro-cg">
+          <div className="pro-cc">
+            <div className="pro-csec">Boom Systems</div>
+            <CI label="Boom Structure" result={bm.boom_structure||"PASS"}/>
+            <CI label="Boom Pins &amp; Connections" result={bm.boom_pins||"PASS"}/>
+            <CI label="Boom Wear / Pads" result={bm.boom_wear||"PASS"}/>
+            <CI label="Luffing / Extension System" result={bm.luffing_system||"PASS"}/>
+            <CI label="Slew / Rotation System" result={bm.slew_system||"PASS"}/>
+            <CI label="Hoist / Lift System" result={bm.hoist_system||"PASS"}/>
+            <CI label="LMI Tested at Config" result={bm.lmi_test||"PASS"}/>
+            <CI label="Anti-Two Block / Overload" result={bm.anti_two_block||"PASS"}/>
+            <div className="pro-csec">Hydraulics &amp; Drive</div>
+            <CI label="Hydraulic System" result={cl.hydraulics_result||"PASS"}/>
+            <CI label="Oil Leaks" result={detectFail(defects,"leak","oil")}/>
+            <CI label="Structural Integrity" result={cl.structural_result||"PASS"}/>
+          </div>
+          <div className="pro-cc">
+            <div className="pro-csec">Safety Systems</div>
+            <CI label="Safety Devices / Interlocks" result={cl.safety_devices||"PASS"}/>
+            <CI label="Fire Extinguisher" result="PASS"/>
+            <CI label="Emergency Stop" result="PASS"/>
+            <CI label="Machine Stable Under Load" result="PASS"/>
+            <CI label="No Structural Deformation Under Load" result="PASS"/>
+            <CI label="All Functions Operate Under Load" result="PASS"/>
+            {defects&&defects.length>0&&(
+              <>
+                <div className="pro-csec" style={{background:"#7f1d1d",color:"#fca5a5"}}>Defects</div>
+                <div style={{padding:"4px 8px",fontSize:7.5,color:"#b91c1c",fontWeight:700,lineHeight:1.45,background:"#fff5f5"}}>{defects}</div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
+        {(bm.notes&&!bk.notes)&&<div className="pro-comments-box"><div className="pro-comments-lbl">Notes</div><div className="pro-comments-val">{bm.notes}</div></div>}
+        <ProEvidence photos={photos}/>
+        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
+          THIS AERIAL WORK PLATFORM HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
+        </div>
       </div>
+      <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
+      <ProFooter/>
+    </div>
+  );
+}
 
-      <div className="pro-pb"/>
-
-      {/* PAGE 2: Bucket / Platform — 6 months + Serial Number */}
-      <div className={`pro-page${pm?" pm":""}`}>
-        <ProHdr logoUrl={logo} />
-        <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
-        <div className="pro-body">
-          <ProCT company={company} location={location} issueDate={issueDate} equipMake="Bucket / Platform" serialNo={bucketSerial} fleetNo={fleetNo} swl={bk.platform_swl || swl}/>
-
-          <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
-            <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
-              <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Bucket / Platform Inspection Certificate</div>
-              <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>Linked to AWP Cert: {certNumber}</div>
-              {bucketExpiry && <div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry: {bucketExpiry} (6 months)</div>}
-            </div>
-            <PFBadge result={tone.label} />
+/* ══════════════════════════════════════════════════════════
+   FORK ARM CERTIFICATE
+══════════════════════════════════════════════════════════ */
+function ForkArmPage({c,pm,logo}){
+  const certNumber=val(c.certificate_number);
+  const company=val(c.client_name)||"—";
+  const location=val(c.location)||"—";
+  const issueDate=formatDate(c.issue_date||c.issued_at);
+  const expiryDate=formatDate(c.expiry_date);
+  const serialNo=val(c.serial_number);
+  const swl=val(c.swl);
+  const defects=val(c.defects_found)||"";
+  const inspName=val(c.inspector_name)||"Moemedi Masupe";
+  const inspId=val(c.inspector_id)||"700117910";
+  const tone=resultStyle(pickResult(c));
+  const photos=parsePhotoEvidence(c.photo_evidence);
+  const raw=val(c.notes)||"";
+  const parts={};
+  raw.split("|").forEach(p=>{const i=p.indexOf(":");if(i<0)return;parts[p.slice(0,i).trim()]=p.slice(i+1).trim();});
+  const length=parts["L"]?.replace("mm","")||"";
+  const heel=parts["Heel"]?.replace("mm","")||"";
+  const blade=parts["Blade"]?.replace("mm","")||"";
+  const wear=parts["Wear"]?.replace("%","")||"";
+  const hasCracks=raw.includes("CRACKS");
+  const hasBending=raw.includes("BENDING");
+  return(
+    <div className={`pro-page${pm?" pm":""}`}>
+      <ProHdr logoUrl={logo}/>
+      <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
+      <div className="pro-body">
+        <ProCT company={company} location={location} issueDate={issueDate} equipMake={val(c.equipment_description)||"Fork Arm"} serialNo={serialNo} fleetNo={null} swl={swl}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
+          <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Fork Arm Inspection Certificate</div>
+            <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
+            {expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry: {expiryDate}</div>}
           </div>
+          <PFBadge result={tone.label}/>
+        </div>
+        <div className="pro-stl">Fork Arm Details &amp; Dimensional Inspection</div>
+        <table className="pro-st"><tbody>
+          <tr><td>Fork Serial / Identification</td><td style={{fontFamily:"monospace",fontWeight:700}}>{serialNo||"—"}</td></tr>
+          <tr><td>Safe Working Load (SWL)</td><td style={{fontWeight:800,fontSize:10}}>{swl||"—"}</td></tr>
+          {length&&<tr><td>Fork Length (mm)</td><td>{length}</td></tr>}
+          {heel&&<tr><td>Thickness at Heel (mm)</td><td>{heel}</td></tr>}
+          {blade&&<tr><td>Thickness at Blade Tip (mm)</td><td>{blade}</td></tr>}
+          {wear&&<tr><td>Wear Percentage vs Original</td><td style={{color:parseFloat(wear)>10?"#b91c1c":"#15803d",fontWeight:800}}>{wear}% {parseFloat(wear)>10?"— EXCEEDS 10% LIMIT":""}</td></tr>}
+        </tbody></table>
+        <div className="pro-stl">Defect Assessment</div>
+        <table className="pro-st"><tbody>
+          <tr><td>Cracks / Fractures Found</td><td style={{color:hasCracks?"#b91c1c":"#15803d",fontWeight:800}}>{hasCracks?"YES — DEFECT FOUND":"No cracks detected"}</td></tr>
+          <tr><td>Bending / Deformation Found</td><td style={{color:hasBending?"#b91c1c":"#15803d",fontWeight:800}}>{hasBending?"YES — DEFECT FOUND":"No bending detected"}</td></tr>
+          <tr><td>Fork Retention Pins / Hooks Secure</td><td style={{color:"#15803d",fontWeight:700}}>Yes</td></tr>
+          <tr><td>Fork Angle (perpendicular to shank)</td><td>Within tolerance</td></tr>
+          <tr><td>Surface Condition</td><td>Satisfactory</td></tr>
+          <tr><td>Identification / Marking Legible</td><td>Yes</td></tr>
+          <tr><td>Fork Rejected</td><td style={{color:tone.label!=="PASS"?"#b91c1c":"#15803d",fontWeight:800}}>{tone.label!=="PASS"?"YES — SEE DEFECTS":"No"}</td></tr>
+        </tbody></table>
+        {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
+        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
+          FORK ARMS INSPECTED IN ACCORDANCE WITH ISO 5057, EN 13157, AND THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA. FORK ARMS WITH WEAR EXCEEDING 10% OR WITH CRACKS / BENDING SHALL BE REMOVED FROM SERVICE IMMEDIATELY.
+        </div>
+        <ProEvidence photos={photos}/>
+      </div>
+      <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
+      <ProFooter/>
+    </div>
+  );
+}
 
-          <div className="pro-stl">Bucket / Platform Details</div>
-          <table className="bk-t">
-            <thead><tr><th>Item</th><th>Value</th></tr></thead>
-            <tbody>
-              <tr><td>Platform Serial Number</td><td style={{fontFamily:"monospace",fontWeight:700}}>{bucketSerial}</td></tr>
-              <tr><td>Platform SWL</td><td style={{fontWeight:800}}>{bk.platform_swl || swl || "—"}</td></tr>
-              <tr><td>Dimensions (m)</td><td>{bk.platform_dimensions || "—"}</td></tr>
-              <tr><td>Material</td><td>{bk.platform_material || "—"}</td></tr>
-            </tbody>
-          </table>
+/* ══════════════════════════════════════════════════════════
+   HORSE & TRAILER
+══════════════════════════════════════════════════════════ */
+function HorseTrailerPage({c,pm,logo,isTrailer}){
+  const certNumber=val(c.certificate_number);
+  const company=val(c.client_name)||"—";
+  const location=val(c.location)||"—";
+  const issueDate=formatDate(c.issue_date||c.issued_at);
+  const expiryDate=formatDate(c.expiry_date);
+  const defects=val(c.defects_found)||"";
+  const inspName=val(c.inspector_name)||"Moemedi Masupe";
+  const inspId=val(c.inspector_id)||"700117910";
+  const photos=parsePhotoEvidence(c.photo_evidence);
+  const tone=resultStyle(pickResult(c));
+  const nd=parseNotes(val(c.notes)||"");
+  const horse=nd.horse||{};
+  const trailer=nd.trailer||{};
+  const vd=isTrailer?trailer:horse;
+  const vtitle=isTrailer?"Trailer":"Horse / Prime Mover";
+  const regNo=val(c.registration_number)||vd.reg||"—";
+  const make=val(c.manufacturer)||vd.make||"—";
+  const model=val(c.model)||vd.model||"—";
+  const vin=val(c.serial_number)||vd.vin||"—";
+  const year=vd.year||"—";
+  const fleet=val(c.fleet_number)||vd.fleet||"—";
+  const gvm=val(c.swl)||(vd.gvm?`GVM ${vd.gvm}`:"")||"—";
+  return(
+    <div className={`pro-page${pm?" pm":""}`}>
+      <ProHdr logoUrl={logo}/>
+      <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
+      <div className="pro-body">
+        <ProCT company={company} location={location} issueDate={issueDate} equipMake={`${make} ${model}`.trim()||vtitle} serialNo={vin} fleetNo={fleet} swl={gvm}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
+          <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>{isTrailer?"Trailer":"Vehicle"} Registration Certificate</div>
+            <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
+            {expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry: {expiryDate}</div>}
+          </div>
+          <PFBadge result={tone.label}/>
+        </div>
+        <div className="pro-stl">{vtitle} Registration Details</div>
+        <table className="vr-t"><tbody>
+          <tr><td>Registration Number</td><td style={{fontFamily:"monospace",fontWeight:900,fontSize:11,color:"#0b1d3a"}}>{regNo}</td></tr>
+          <tr><td>Make / Manufacturer</td><td>{make}</td></tr>
+          <tr><td>Model</td><td>{model}</td></tr>
+          <tr><td>VIN / Chassis Number</td><td style={{fontFamily:"monospace"}}>{vin}</td></tr>
+          <tr><td>Year of Manufacture</td><td>{year}</td></tr>
+          <tr><td>Fleet Number</td><td>{fleet}</td></tr>
+          <tr><td>Gross Vehicle Mass (GVM)</td><td style={{fontWeight:800}}>{vd.gvm||"—"}</td></tr>
+        </tbody></table>
+        {!isTrailer&&trailer&&trailer.reg&&(
+          <>
+            <div className="pro-stl">Trailer Details (Linked to this Horse)</div>
+            <table className="vr-t"><tbody>
+              <tr><td>Trailer Registration</td><td style={{fontFamily:"monospace",fontWeight:900,fontSize:11,color:"#0b1d3a"}}>{trailer.reg||"—"}</td></tr>
+              <tr><td>Make / Manufacturer</td><td>{trailer.make||"—"}</td></tr>
+              <tr><td>Model / Type</td><td>{trailer.model||"—"}</td></tr>
+              <tr><td>VIN / Chassis Number</td><td style={{fontFamily:"monospace"}}>{trailer.vin||"—"}</td></tr>
+              <tr><td>Year of Manufacture</td><td>{trailer.year||"—"}</td></tr>
+              <tr><td>Gross Vehicle Mass (GVM)</td><td style={{fontWeight:800}}>{trailer.gvm||"—"}</td></tr>
+              <tr><td>Trailer Result</td><td>{r(trailer.result||"PASS")}</td></tr>
+            </tbody></table>
+          </>
+        )}
+        <div className="pro-stl">Inspection Results</div>
+        <table className="pro-st"><tbody>
+          <tr><td>Vehicle condition — external visual</td><td>Satisfactory</td></tr>
+          <tr><td>Structural integrity</td><td>Satisfactory</td></tr>
+          <tr><td>Braking system</td><td>Operational</td></tr>
+          <tr><td>Lights, indicators and reflectors</td><td>Fitted and functional</td></tr>
+          <tr><td>Tyres condition</td><td>Serviceable</td></tr>
+          {!isTrailer&&<tr><td>Fifth wheel coupling</td><td>Serviceable</td></tr>}
+          {isTrailer&&<tr><td>Coupling / King Pin</td><td>Serviceable</td></tr>}
+          <tr><td>Registration plates legible</td><td>Yes</td></tr>
+          <tr><td>Overall assessment</td><td style={{fontWeight:800,color:tone.label==="PASS"?"#15803d":"#b91c1c"}}>{tone.label}</td></tr>
+        </tbody></table>
+        {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found / Notes</div><div className="pro-red-val">{defects}</div></div>}
+        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
+          THIS VEHICLE HAS BEEN INSPECTED IN ACCORDANCE WITH THE ROAD TRAFFIC ACT AND MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
+        </div>
+        <ProEvidence photos={photos}/>
+      </div>
+      <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
+      <ProFooter/>
+    </div>
+  );
+}
 
-          <div className="pro-stl">Inspection Results</div>
-          <table className="bk-t">
-            <thead><tr><th>Inspection Item</th><th>Result</th></tr></thead>
-            <tbody>
-              <tr><td>Platform Structure</td><td>{bkResult(bk.platform_structure || "PASS")}</td></tr>
-              <tr><td>Platform Floor</td><td>{bkResult(bk.platform_floor || "PASS")}</td></tr>
-              <tr><td>Guardrails &amp; Toe Boards</td><td>{bkResult(bk.guardrails || "PASS")}</td></tr>
-              <tr><td>Gate / Latch System</td><td>{bkResult(bk.gate_latch || "PASS")}</td></tr>
-              <tr><td>Emergency Lowering</td><td>{bkResult(bk.emergency_lowering || cl.emergency_lowering || "PASS")}</td></tr>
-              <tr><td>Overload / SWL Cut-Off</td><td>{bkResult(bk.overload_device || "PASS")}</td></tr>
-              <tr><td>Tilt Alarm</td><td>{bkResult(bk.tilt_alarm || "PASS")}</td></tr>
-            </tbody>
-          </table>
-
-          {bk.notes && <div style={{marginTop:8,padding:"6px 10px",background:"#f4f8ff",border:"1px solid #c3d4e8",borderRadius:4,fontSize:7.5}}><strong>Notes:</strong> {bk.notes}</div>}
-
-          {defects && <div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
-
-          <ProEvidence photos={photos}/>
-
-          <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
-            THIS BUCKET / PLATFORM HAS BEEN INSPECTED AS PART OF THE CHERRY PICKER.<br/>
-            IT MUST BE RE-INSPECTED EVERY 6 MONTHS.
+/* ══════════════════════════════════════════════════════════
+   GENERIC MACHINE (Forklift / TLB / Frontloader / Other)
+══════════════════════════════════════════════════════════ */
+function MachinePage({c,nd,pm,logo}){
+  const certNumber=val(c.certificate_number);
+  const company=val(c.client_name||c.company)||"—";
+  const location=val(c.location)||"—";
+  const issueDate=formatDate(c.issue_date||c.issued_at);
+  const expiryDate=formatDate(c.expiry_date);
+  const equipType=val(c.equipment_type)||"Machine";
+  const equipMake=val(c.manufacturer||c.model)||equipType;
+  const serialNo=val(c.serial_number);
+  const fleetNo=val(c.fleet_number);
+  const swl=val(c.swl);
+  const defects=val(c.defects_found)||"";
+  const recommendations=val(c.recommendations);
+  const inspName=val(c.inspector_name)||"Moemedi Masupe";
+  const inspId=val(c.inspector_id)||"700117910";
+  const photos=parsePhotoEvidence(c.photo_evidence);
+  const tone=resultStyle(pickResult(c));
+  const cl=nd.checklist||{};
+  const fks=(nd.forks||[]).filter(f=>f.length||f.swl);
+  const isForklift=/forklift|fork.lift/i.test(equipType);
+  const oilLeaks=detectFail(defects,"leak","oil");
+  const tires=detectFail(defects,"tire","tyre");
+  const brakes=detectFail(defects,"brake");
+  return(
+    <div className={`pro-page${pm?" pm":""}`}>
+      <ProHdr logoUrl={logo}/>
+      <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
+      <div className="pro-body">
+        <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl}/>
+        <div className="pro-mhdr">
+          <div>
+            {expiryDate&&<div style={{fontSize:9,fontWeight:800,color:"#0b1d3a",marginBottom:2}}>Validity: {expiryDate}</div>}
+            <div className="pro-mt">{equipType} Inspection — {certNumber}</div>
+            <div className="pro-ms">Inspected with regards to the MQWMR Act CAP 44:02 Under Regulations 2</div>
+          </div>
+          <PFBadge result={tone.label}/>
+        </div>
+        <div className="pro-cg">
+          <div className="pro-cc">
+            <div className="pro-csec">General &amp; Cab Condition</div>
+            <CI label="Structural Integrity" result={cl.structural_result||"PASS"}/>
+            <CI label="Hydraulic System" result={cl.hydraulics_result||"PASS"}/>
+            <CI label="Brake System" result={cl.brakes_result||brakes||"PASS"}/>
+            <CI label="Tyres / Wheels" result={cl.tyres_result||tires||"PASS"}/>
+            <CI label="Oil Leaks (General)" result={oilLeaks}/>
+            <CI label="Lights &amp; Horn" result="PASS"/>
+            <CI label="Fire Extinguisher" result="PASS"/>
+            <CI label="Seat Belt" result="PASS"/>
+            <CI label="Controls Marked Correctly" result="PASS"/>
+            <CI label="Load Chart Available" result="PASS"/>
+            {isForklift&&<><div className="pro-csec">Forks &amp; Mast</div>
+              <CI label="Mast / Structural Integrity" result={cl.structural_result||"PASS"}/>
+              <CI label="Fork Condition" result={cl.forks_result||detectFail(defects,"fork","tine")}/>
+              <CI label="Fork Retention Pins" result="PASS"/>
+              <CI label="Mast Chain Lubrication" result="PASS"/>
+              <CI label="Tilt Cylinders — No Leaks" result={oilLeaks}/></>}
+            {!isForklift&&<><div className="pro-csec">Additional Systems</div>
+              <CI label="Safety Result" result={cl.safety_result||"PASS"}/>
+              <CI label="Operational Check" result={cl.operational_result||"PASS"}/></>}
+          </div>
+          <div className="pro-cc">
+            <div className="pro-csec">Safety Systems</div>
+            <CI label="Load Indicator / SWL Plate" result={cl.lmi_result||"PASS"}/>
+            <CI label="Emergency Stop" result="PASS"/>
+            <CI label="Overload Protection" result="PASS"/>
+            <div className="pro-csec">Hydraulics &amp; Drive</div>
+            <CI label="Hydraulic Oil Level" result="PASS"/>
+            <CI label="Hydraulic Hoses &amp; Fittings" result={oilLeaks}/>
+            <CI label="Drive Transmission" result="PASS"/>
+            <CI label="Steering System" result="PASS"/>
+            <CI label="Engine / Motor Condition" result="PASS"/>
+            <div className="pro-csec">Load Test</div>
+            <CI label="Test Load Applied at Rated Capacity" result="PASS"/>
+            <CI label="Lifting / Lowering Smooth" result="PASS"/>
+            <CI label="No Deformation Under Load" result="PASS"/>
+            <CI label="All Functions Operate Under Load" result="PASS"/>
           </div>
         </div>
-        <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
-        <ProFooter/>
+        {isForklift&&fks.length>0&&(
+          <>
+            <div className="pro-stl">Fork Arms Inspected ({fks.length} arm{fks.length>1?"s":""})</div>
+            <table className="fk-t">
+              <thead><tr><th>Fork ID</th><th>SWL</th><th>Length (mm)</th><th>Heel (mm)</th><th>Blade (mm)</th><th>Wear %</th><th>Cracks</th><th>Bending</th><th>Result</th></tr></thead>
+              <tbody>{fks.map((fk,i)=>(
+                <tr key={i}>
+                  <td>{fk.fork_number||`Fork ${i+1}`}</td><td>{fk.swl||"—"}</td><td>{fk.length||"—"}</td>
+                  <td>{fk.thickness_heel||"—"}</td><td>{fk.thickness_blade||"—"}</td><td>{fk.wear_pct||"—"}</td>
+                  <td style={{color:fk.cracks==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.cracks==="yes"?"YES":"No"}</td>
+                  <td style={{color:fk.bending==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.bending==="yes"?"YES":"No"}</td>
+                  <td>{r(fk.result)}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </>
+        )}
+        {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
+        {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
+        <ProEvidence photos={photos}/>
+      </div>
+      <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
+      <ProFooter/>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   GENERIC CERTIFICATE (fallback)
+══════════════════════════════════════════════════════════ */
+function GenericCert({c,pm,logo}){
+  const ex=c.extracted_data||{};
+  const equipType=val(c.equipment_type||c.asset_type||ex.equipment_type);
+  const _rawType=String(equipType||"").toLowerCase();
+  const _isLifting=/lift|hoist|crane|sling|chain|shackle|hook|swivel|beam|spreader|harness|lanyard|rope|rigging|winch|pulley|block|tackle/i.test(_rawType);
+  const _isPressure=/pressure|vessel|boiler|autoclave|receiver|accumulator|compressor|hydraulic|tank|cylinder|drum|pipeline/i.test(_rawType);
+  const certType=val(c.certificate_type||ex.certificate_type)||(_isLifting?"Load Test Certificate":_isPressure?"Pressure Test Certificate":"Certificate of Inspection");
+  const certNumber=val(c.certificate_number);
+  const issueDate=formatDate(c.issue_date||c.issued_at||ex.issue_date);
+  const expiryDate=formatDate(c.expiry_date||c.valid_to||ex.expiry_date);
+  const company=val(c.company||c.client_name||ex.client_name)||"Monroy (Pty) Ltd";
+  const location=val(c.equipment_location||c.location||ex.equipment_location);
+  const equipDesc=val(c.equipment_description||c.asset_name||ex.equipment_description);
+  const serialNo=val(c.serial_number||ex.serial_number);
+  const fleetNo=val(c.fleet_number||ex.fleet_number);
+  const mfg=val(c.manufacturer||ex.manufacturer);
+  const model=val(c.model||ex.model);
+  const swl=val(c.swl||ex.swl||c.safe_working_load);
+  const mawp=val(c.mawp||ex.mawp||c.working_pressure);
+  const capacity=val(c.capacity||ex.capacity||c.capacity_volume);
+  const testP=val(c.test_pressure||ex.test_pressure);
+  const inspName=val(c.inspector_name||ex.inspector_name)||"Moemedi Masupe";
+  const inspId=val(c.inspector_id||ex.inspector_id)||"700117910";
+  const defects=val(c.defects_found||ex.defects_found);
+  const recommendations=val(c.recommendations||ex.recommendations);
+  const comments=val(c.comments||ex.comments||c.remarks||ex.remarks);
+  const pressureUnit=val(c.pressure_unit||ex.pressure_unit)||"bar";
+  const photos=parsePhotoEvidence(c.photo_evidence);
+  const tone=resultStyle(pickResult(c));
+  return(
+    <>
+      <style>{CSS}</style>
+      <div className={pm?"":"cs-wrap"}>
+        <div className={`cs-page${pm?" pm":""}`}>
+          <div className="cs-hdr">
+            <svg className="cs-geo" viewBox="0 0 600 120" preserveAspectRatio="xMidYMid slice">
+              <circle cx="520" cy="-10" r="100" fill="rgba(34,211,238,0.06)"/>
+              <circle cx="480" cy="70"  r="60"  fill="rgba(59,130,246,0.05)"/>
+              <circle cx="30"  cy="120" r="70"  fill="rgba(167,139,250,0.04)"/>
+            </svg>
+            <div className="cs-hdr-inner">
+              <div className="cs-logo-box"><img src={logo||"/logo.png"} alt="Monroy" onError={e=>e.target.style.display="none"}/></div>
+              <div className="cs-hdr-text">
+                <div className="cs-brand">Monroy (Pty) Ltd · Process Control &amp; Cranes</div>
+                <div className="cs-title">{certType}</div>
+                <div className="cs-sub">{company} · {location||"Botswana"}{fleetNo?` · ${fleetNo}`:""}</div>
+              </div>
+              <div className="cs-hdr-right">
+                <span className="cs-badge" style={{background:tone.bg,color:tone.color,border:`1px solid ${tone.brd}`}}>{tone.label}</span>
+                {certNumber&&<div className="cs-certno">{certNumber}</div>}
+              </div>
+            </div>
+          </div>
+          <div className="cs-accent"/>
+          <div className="cs-body">
+            <Section title="Certificate Details">
+              <Field label="Certificate Number" value={certNumber} mono large/>
+              <Field label="Issue Date" value={issueDate}/>
+              <Field label="Expiry / Next Inspection" value={expiryDate}/>
+            </Section>
+            <Section title="Client &amp; Location">
+              <Field label="Client / Company" value={company}/>
+              <Field label="Location" value={location}/>
+              <Field label="Certificate Type" value={certType}/>
+            </Section>
+            <Section title="Equipment">
+              <Field label="Description" value={equipDesc}/>
+              <Field label="Type" value={equipType}/>
+              <Field label="Serial Number" value={serialNo} mono/>
+              {mfg&&<Field label="Manufacturer" value={mfg}/>}
+              {model&&<Field label="Model" value={model}/>}
+            </Section>
+            <Section title="Technical Data">
+              {swl&&<Field label="Safe Working Load (SWL)" value={swl}/>}
+              {mawp&&<Field label="Working Pressure" value={`${mawp} ${pressureUnit}`}/>}
+              {capacity&&<Field label="Capacity / Volume" value={capacity}/>}
+              {testP&&<Field label="Test Pressure" value={`${testP} ${pressureUnit}`}/>}
+            </Section>
+            <div className="cs-sec">
+              <div className="cs-sec-ttl">Legal Compliance</div>
+              <div className="cs-fields">
+                <div className="cs-field" style={{gridColumn:"1/-1",background:"#f4f8ff"}}>
+                  <div className="cs-fv" style={{fontSize:8,color:"#4b5563",lineHeight:1.4,fontWeight:400}}>
+                    This inspection has been performed by a <strong>competent person</strong> as defined under the <strong>Mines, Quarries, Works and Machinery Act Cap 44:02</strong> of the Laws of Botswana.
+                  </div>
+                </div>
+              </div>
+            </div>
+            {(defects||recommendations)&&(
+              <Section title="Defects &amp; Recommendations">
+                {defects&&<Field label="Defects Found" value={defects} full red/>}
+                {recommendations&&<Field label="Recommendations" value={recommendations} full red/>}
+              </Section>
+            )}
+            {comments&&<div className="cs-sec"><div className="cs-sec-ttl">Comments</div><div className="cs-remarks">{comments}</div></div>}
+            {photos.length>0&&(
+              <div className="cs-sec">
+                <div className="cs-sec-ttl">Photo Evidence ({photos.length})</div>
+                <div className="cs-evidence"><div className="cs-evidence-grid">
+                  {photos.map((p,i)=>(
+                    <div className="cs-evidence-item" key={i}>
+                      <img className="cs-evidence-img" src={p.dataURL} alt={p.caption||`Photo ${i+1}`} onError={e=>e.target.style.display="none"}/>
+                      {p.caption&&<div className="cs-evidence-cap">{p.caption}</div>}
+                    </div>
+                  ))}
+                </div></div>
+              </div>
+            )}
+          </div>
+          <div className="cs-sig-wrap">
+            <div className="cs-sig-card">
+              <div className="cs-sig-card-title">Signatures &amp; Authorisation</div>
+              <div className="cs-sig-grid">
+                <div>
+                  <div className="cs-sig-label">Inspector Signature</div>
+                  <div className="cs-sig-img-wrap"><img src="/Signature" alt="sig" style={{maxHeight:32,maxWidth:96,objectFit:"contain"}} onError={e=>e.target.style.display="none"}/></div>
+                  <div className="cs-sig-name">{inspName}</div>
+                  <div className="cs-sig-role">Inspector ID: {inspId}</div>
+                </div>
+                <div>
+                  <div className="cs-sig-label">Client / Witness Signature</div>
+                  <div className="cs-sig-img-wrap"/>
+                  <div className="cs-sig-role">Client representative sign here</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="cs-services"><p><b>Mobile Crane Hire</b> | <b>Rigging</b> | <b>NDT Test</b> | <b>Scaffolding</b> | <b>Painting</b> | <b>Inspection of Lifting Equipment and Machinery, Pressure Vessels &amp; Air Receiver</b> | <b>Steel Fabricating and Structural</b> | <b>Mechanical Engineering</b> | <b>Fencing</b> | <b>Maintenance</b></p></div>
+          <div className="cs-footer"><span>Monroy (Pty) Ltd · Mophane Avenue, Maun, Botswana</span><span>Quality · Safety · Excellence</span></div>
+        </div>
       </div>
     </>
   );
@@ -547,6 +1560,7 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   const _rawNd=val(c.notes||"")||val(c.extracted_data?JSON.stringify(c.extracted_data):"")||"";
   const nd=parseNotes(_rawNd);
   const tone=resultStyle(pickResult(c));
+
   const _isMobileCrane=/mobile.crane|crane/i.test(_rawType)&&!/hook|rope|boom|cherry|telehandler|forklift/i.test(_rawType);
   const _isHook=/hook/i.test(_rawType);
   const _isCraneRope=_rawType==="wire rope";
@@ -559,12 +1573,14 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   const _isHorse=/horse.*mover|prime.mover/i.test(_rawType);
   const _isTrailer=/^trailer$/i.test(_rawType.trim());
   const _isMachine=_isTelehandler||_isCherryPicker||_isForklift;
+
   const wrap=(children)=>(
     <>
       <style>{CSS}</style>
       <div className={pm?"":"pro-wrap"}>{children}</div>
     </>
   );
+
   if(_isMobileCrane) return wrap(
     <>
       <CraneLoadTestPage c={c} pn={pn} tone={tone} pm={pm} logo={logo}/>
