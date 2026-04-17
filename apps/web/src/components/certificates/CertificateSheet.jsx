@@ -6,6 +6,45 @@ function val(v){return v&&String(v).trim()!==""?String(v).trim():null;}
 function formatDate(raw){if(!raw)return null;const d=new Date(raw);if(isNaN(d.getTime()))return raw;return d.toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"numeric"});}
 function addMonths(raw,n){if(!raw)return null;const d=new Date(raw);if(isNaN(d.getTime()))return null;d.setMonth(d.getMonth()+n);return d.toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"numeric"});}
 function parseNotes(str){if(!str)return{};try{const p=JSON.parse(str);if(typeof p==="object"&&p!==null)return p;}catch(e){}const obj={};str.split("|").forEach(part=>{const idx=part.indexOf(":");if(idx<0)return;const k=part.slice(0,idx).trim();const v=part.slice(idx+1).trim();if(k)obj[k]=v;});return obj;}
+
+function normalizeInspectionDataShape(raw){
+  const src=(raw&&typeof raw==="object"&&!Array.isArray(raw))?raw:{};
+  const out={...src};
+
+  const firstObject=(...keys)=>{
+    for(const key of keys){
+      const value=src[key];
+      if(value&&typeof value==="object"&&!Array.isArray(value)) return value;
+    }
+    return {};
+  };
+
+  out.checklist={...firstObject("checklist","general_checklist","inspection_checklist")};
+  out.boom={...firstObject("boom","boom_configuration","boomConfig")};
+  out.bucket={...firstObject("bucket","bucket_platform","platform","bucket_inspection","platform_inspection")};
+  out.horse={...firstObject("horse","prime_mover")};
+  out.trailer={...firstObject("trailer")};
+
+  const forkCandidates=[src.forks,src.forks_arms,src.fork_arms,src.fork_arm];
+  const forkArray=forkCandidates.find(v=>Array.isArray(v));
+  out.forks=Array.isArray(forkArray)?forkArray:[];
+  return out;
+}
+
+function getInspectionData(c){
+  const notes=parseNotes(val(c.notes||"")||"");
+  const extracted=(c&&c.extracted_data&&typeof c.extracted_data==="object")?c.extracted_data:{};
+  return normalizeInspectionDataShape({
+    ...extracted,
+    ...notes,
+    checklist:{...(extracted.checklist||{}),...(notes.checklist||{})},
+    boom:{...(extracted.boom||extracted.boom_configuration||{}),...(notes.boom||notes.boom_configuration||{})},
+    bucket:{...(extracted.bucket||extracted.bucket_platform||extracted.platform||{}),...(notes.bucket||notes.bucket_platform||notes.platform||{})},
+    horse:{...(extracted.horse||extracted.prime_mover||{}),...(notes.horse||notes.prime_mover||{})},
+    trailer:{...(extracted.trailer||{}),...(notes.trailer||{})},
+    forks:Array.isArray(notes.forks)?notes.forks:Array.isArray(extracted.forks)?extracted.forks:Array.isArray(extracted.fork_arms)?extracted.fork_arms:[],
+  });
+}
 function pickResult(c){return(c?.result||c?.equipment_status||"").toUpperCase();}
 function resultStyle(r){
   if(r==="PASS")           return{color:"#15803d",bg:"#dcfce7",brd:"#86efac",label:"PASS"};
@@ -1087,7 +1126,7 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   CHERRY PICKER — PAGE 2: BUCKET / PLATFORM CERTIFICATE (6 months)
+   CHERRY PICKER — PAGE 2: BUCKET LOAD TEST CERTIFICATE (6 months)
 ══════════════════════════════════════════════════════════ */
 function CherryPickerBucketPage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -1643,8 +1682,7 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   const logo=c.logo_url||"/logo.png";
   const pm=printMode;
   const pn=parseNotes(val(c.notes||"")||"");
-  const _rawNd=val(c.notes||"")||val(c.extracted_data?JSON.stringify(c.extracted_data):"")||"";
-  const nd=parseNotes(_rawNd);
+  const nd=getInspectionData(c);
   const tone=resultStyle(pickResult(c));
 
   const _isMobileCrane=/mobile.crane|crane/i.test(_rawType)&&!/hook|rope|boom|cherry|telehandler|forklift/i.test(_rawType);
