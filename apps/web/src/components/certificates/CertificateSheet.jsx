@@ -4,13 +4,7 @@
 function val(v){return v&&String(v).trim()!==""?String(v).trim():null;}
 function formatDate(raw){if(!raw)return null;const d=new Date(raw);if(isNaN(d.getTime()))return raw;return d.toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"numeric"});}
 
-function addMonths(raw, n) {
-  if (!raw) return null;
-  const d = new Date(raw);
-  if (isNaN(d.getTime())) return null;
-  d.setMonth(d.getMonth() + n);
-  return d.toLocaleDateString("en-GB", {day:"2-digit", month:"2-digit", year:"numeric"});
-}
+function addMonths(raw,n){if(!raw)return null;const d=new Date(raw);if(isNaN(d.getTime()))return null;d.setMonth(d.getMonth()+n);return d.toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"numeric"});}
 
 function parseNotes(str){if(!str)return{};try{const p=JSON.parse(str);if(typeof p==="object"&&p!==null)return p;}catch(e){}const obj={};str.split("|").forEach(part=>{const idx=part.indexOf(":");if(idx<0)return;const k=part.slice(0,idx).trim();const v=part.slice(idx+1).trim();if(k)obj[k]=v;});return obj;}
 function pickResult(c){return(c?.result||c?.equipment_status||"").toUpperCase();}
@@ -26,9 +20,7 @@ function detectFail(defects,...kws){if(!defects)return"PASS";const d=defects.toL
 function parsePhotoEvidence(raw){if(!raw)return[];if(Array.isArray(raw))return raw;if(typeof raw==="string"){try{const p=JSON.parse(raw);return Array.isArray(p)?p:[];}catch(e){return[];}}return[];}
 function r(v){const s=resultStyle((v||"").toUpperCase());return<span style={{fontSize:8,fontWeight:800,color:s.color,background:s.bg,border:`1px solid ${s.brd}`,padding:"1px 6px",borderRadius:3,whiteSpace:"nowrap"}}>{s.label}</span>;}
 
-/*
- * parsePVChecklist — extracts the pressure vessel inspection checklist
- */
+/* parsePVChecklist */
 function parsePVChecklist(c, pn) {
   let cl = {};
   try {
@@ -57,13 +49,9 @@ function parsePVChecklist(c, pn) {
   const rawCorrosion = get("signs_of_corrosion", "Corrosion", null);
   let corrosionDisplay = "None observed";
   if (rawCorrosion) {
-    if (/^yes/i.test(rawCorrosion)) {
-      corrosionDisplay = rawCorrosion;
-    } else if (/^none/i.test(rawCorrosion)) {
-      corrosionDisplay = "None observed";
-    } else {
-      corrosionDisplay = rawCorrosion;
-    }
+    if (/^yes/i.test(rawCorrosion)) corrosionDisplay = rawCorrosion;
+    else if (/^none/i.test(rawCorrosion)) corrosionDisplay = "None observed";
+    else corrosionDisplay = rawCorrosion;
   }
   const defects = val(c.defects_found) || "";
   const defectsImplyCorrosion = /corrode|corroded|corrosion|rust|rusty/i.test(defects);
@@ -84,7 +72,7 @@ function parsePVChecklist(c, pn) {
   };
 }
 
-/* ── CSS ─────────────────────────────────────────────────── */
+/* ── CSS (your original) ─────────────────────────────────── */
 const CSS=`
   @page { size: A4; margin: 0; }
   .cs-wrap{background:rgba(10,18,32,0.92);border:1px solid rgba(148,163,184,0.12);border-radius:16px;padding:16px;display:flex;justify-content:center;flex-direction:column;align-items:center;gap:16px}
@@ -177,7 +165,7 @@ const CSS=`
   .pro-st td:nth-child(2){background:#fff;color:#0b1d3a;font-weight:600}
   .pro-stl{font-size:7.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#0b1d3a;margin:4px 0 2px;padding-left:4px;border-left:3px solid #22d3ee;flex-shrink:0}
   .pro-mhdr{display:flex;align-items:flex-start;justify-content:space-between;border:1px solid #1e3a5f;border-radius:4px;padding:7px 10px;background:#f4f8ff;margin-bottom:4px;flex-shrink:0}
-  .pro-mt{font-size:11px;font-weight:900;color:#0b1d3a}
+  .pro-mt{font-size:11px;font-weight:900;color:"#0b1d3a"}
   .pro-ms{font-size:7px;color:#64748b;margin-top:1px}
   .pro-cg{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid #1e3a5f;border-radius:4px;overflow:hidden;flex:1;min-height:0;}
   .pro-cc{border-right:1px solid #1e3a5f;overflow:hidden}
@@ -185,65 +173,65 @@ const CSS=`
   .pro-csec{background:#0b1d3a;color:#4fc3f7;font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-bottom:1px solid #22d3ee}
   .pro-cr2{display:flex;align-items:center;justify-content:space-between;padding:2px 8px;border-bottom:1px solid #e8f0fb;font-size:7.5px}
   .pro-cr2:last-child{border-bottom:none}
-  .pro-cr2:nth-child(even){background:#f8faff}
-  .pro-cl{color:#0b1d3a;font-weight:500;flex:1}
+  .pro-cr2:nth-child(even){background:"#f8faff"}
+  .pro-cl{color:"#0b1d3a";font-weight:500;flex:1}
   .pro-pp{display:flex;gap:4px;flex-shrink:0}
-  .pro-p{color:#15803d;font-weight:900;font-size:8.5px;width:14px;text-align:center}
-  .pro-f{color:#b91c1c;font-weight:900;font-size:8.5px;width:14px;text-align:center}
-  .pro-na{color:#9ca3af;font-size:7px;width:14px;text-align:center}
+  .pro-p{color:"#15803d";font-weight:900;font-size:8.5px;width:14px;text-align:center}
+  .pro-f{color:"#b91c1c";font-weight:900;font-size:8.5px;width:14px;text-align:center}
+  .pro-na{color:"#9ca3af";font-size:7px;width:14px;text-align:center}
   .pro-hrt{width:100%;border-collapse:collapse;font-size:8px;border:1px solid #1e3a5f;flex-shrink:0}
-  .pro-hrt th{background:#0b1d3a;color:#4fc3f7;padding:3px 6px;text-align:center;border:1px solid #1e3a5f;font-weight:700;font-size:7px}
+  .pro-hrt th{background:"#0b1d3a";color:"#4fc3f7";padding:3px 6px;text-align:center;border:1px solid #1e3a5f;font-weight:700;font-size:7px}
   .pro-hrt th:first-child{text-align:left}
   .pro-hrt td{padding:3px 6px;border:1px solid #c3d4e8;font-weight:500}
-  .pro-hrt td:first-child{font-weight:700;background:#eef4ff;color:#0b1d3a}
-  .pro-hrt td:not(:first-child){background:#fff;text-align:center;font-weight:600}
-  .pro-compbox{border:2px solid #1e3a5f;border-radius:6px;padding:7px 10px;display:flex;align-items:center;justify-content:space-between;background:#f4f8ff;flex-shrink:0}
-  .pro-red-box{border:1px solid #fca5a5;border-radius:4px;padding:5px 9px;background:#fff5f5;flex-shrink:0}
-  .pro-red-lbl{font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#b91c1c;margin-bottom:2px}
-  .pro-red-val{font-size:8.5px;font-weight:700;color:#b91c1c;line-height:1.45}
-  .pro-comments-box{border:1px solid #c3d4e8;border-radius:4px;padding:5px 9px;background:#f4f8ff;flex-shrink:0}
-  .pro-comments-lbl{font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#3b6ea5;margin-bottom:2px}
-  .pro-comments-val{font-size:8.5px;color:#334155;line-height:1.5}
+  .pro-hrt td:first-child{font-weight:700;background:"#eef4ff";color:"#0b1d3a"}
+  .pro-hrt td:not(:first-child){background:"#fff";text-align:center;font-weight:600}
+  .pro-compbox{border:2px solid #1e3a5f;border-radius:6px;padding:7px 10px;display:flex;align-items:center;justify-content:space-between;background:"#f4f8ff";flex-shrink:0}
+  .pro-red-box{border:1px solid #fca5a5;border-radius:4px;padding:5px 9px;background:"#fff5f5";flex-shrink:0}
+  .pro-red-lbl{font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:"#b91c1c";margin-bottom:2px}
+  .pro-red-val{font-size:8.5px;font-weight:700;color:"#b91c1c";line-height:1.45}
+  .pro-comments-box{border:1px solid #c3d4e8;border-radius:4px;padding:5px 9px;background:"#f4f8ff";flex-shrink:0}
+  .pro-comments-lbl{font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:"#3b6ea5";margin-bottom:2px}
+  .pro-comments-val{font-size:8.5px;color:"#334155";line-height:1.5}
   .pro-pv{width:100%;border-collapse:collapse;font-size:8px;border:1px solid #1e3a5f;flex-shrink:0}
-  .pro-pv th{background:#0b1d3a;color:#4fc3f7;padding:3px 7px;text-align:left;border:1px solid #1e3a5f;font-size:7.5px;font-weight:700}
+  .pro-pv th{background:"#0b1d3a";color:"#4fc3f7";padding:3px 7px;text-align:left;border:1px solid #1e3a5f;font-size:7.5px;font-weight:700}
   .pro-pv td{padding:3px 7px;border:1px solid #c3d4e8}
-  .pro-pv td:first-child{font-weight:700;background:#eef4ff;color:#0b1d3a}
+  .pro-pv td:first-child{font-weight:700;background:"#eef4ff";color:"#0b1d3a"}
   .pro-evidence{border:1px solid #1e3a5f;border-radius:4px;overflow:hidden;flex-shrink:0}
-  .pro-evidence-hdr{background:#0b1d3a;color:#4fc3f7;font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-bottom:1px solid #22d3ee}
-  .pro-evidence-grid{display:flex;gap:6px;flex-wrap:wrap;padding:7px 8px;background:#f4f8ff}
+  .pro-evidence-hdr{background:"#0b1d3a";color:"#4fc3f7";font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-bottom:1px solid #22d3ee}
+  .pro-evidence-grid{display:flex;gap:6px;flex-wrap:wrap;padding:7px 8px;background:"#f4f8ff"}
   .pro-evidence-item{display:flex;flex-direction:column;gap:2px}
   .pro-evidence-img{width:96px;height:66px;object-fit:cover;border-radius:3px;border:1px solid #c3d4e8;display:block}
-  .pro-evidence-cap{font-size:6.5px;color:#4b5563;line-height:1.4;text-align:center;max-width:96px;word-break:break-word}
+  .pro-evidence-cap{font-size:6.5px;color:"#4b5563";line-height:1.4;text-align:center;max-width:96px;word-break:break-word}
   .pro-sig{padding:5px 12px 4px;flex-shrink:0}
   .pro-sigg{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .pro-sgl{font-size:7px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#3b6ea5;margin-bottom:2px}
+  .pro-sgl{font-size:7px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:"#3b6ea5";margin-bottom:2px}
   .pro-sgline{border-bottom:1px solid #1e3a5f;min-height:34px;display:flex;align-items:flex-end;padding-bottom:2px;margin-bottom:2px}
-  .pro-sgname{font-size:8.5px;font-weight:700;color:#0b1d3a}
-  .pro-sgrole{font-size:7.5px;color:#64748b}
-  .pro-svc{background:#c41e3a;padding:3px 12px;flex-shrink:0}
-  .pro-svc p{font-size:6.5px;color:#fff;margin:0;line-height:1.4;text-align:center;font-weight:600;letter-spacing:.02em}
-  .pro-foot{background:#0b1d3a;border-top:2px solid #22d3ee;padding:3px 12px;display:flex;justify-content:space-between;flex-shrink:0}
+  .pro-sgname{font-size:8.5px;font-weight:700;color:"#0b1d3a"}
+  .pro-sgrole{font-size:7.5px;color:"#64748b"}
+  .pro-svc{background:"#c41e3a";padding:3px 12px;flex-shrink:0}
+  .pro-svc p{font-size:6.5px;color:"#fff";margin:0;line-height:1.4;text-align:center;font-weight:600;letter-spacing:.02em}
+  .pro-foot{background:"#0b1d3a";border-top:2px solid #22d3ee;padding:3px 12px;display:flex;justify-content:space-between;flex-shrink:0}
   .pro-foot span{font-size:7px;color:rgba(255,255,255,0.35);font-weight:600}
   .pro-pb{page-break-after:always;break-after:page;height:0;display:block;}
   /* vehicle reg table */
   .vr-t{width:100%;border-collapse:collapse;font-size:8.5px;border:1px solid #1e3a5f;flex-shrink:0}
-  .vr-t th{background:#0b1d3a;color:#4fc3f7;padding:4px 8px;text-align:left;border:1px solid #1e3a5f;font-size:7.5px;font-weight:700}
+  .vr-t th{background:"#0b1d3a";color:"#4fc3f7";padding:4px 8px;text-align:left;border:1px solid #1e3a5f;font-size:7.5px;font-weight:700}
   .vr-t td{padding:4px 8px;border:1px solid #c3d4e8}
-  .vr-t td:first-child{font-weight:700;background:#eef4ff;color:#0b1d3a;width:38%}
-  .vr-t td:nth-child(2){background:#fff;font-weight:600;color:#0b1d3a}
+  .vr-t td:first-child{font-weight:700;background:"#eef4ff";color:"#0b1d3a";width:38%}
+  .vr-t td:nth-child(2){background:"#fff";font-weight:600;color:"#0b1d3a"}
   /* fork inspection table */
   .fk-t{width:100%;border-collapse:collapse;font-size:7.5px;border:1px solid #1e3a5f;flex-shrink:0}
-  .fk-t th{background:#0b1d3a;color:#4fc3f7;padding:3px 5px;text-align:center;border:1px solid #1e3a5f;font-size:7px;font-weight:700}
+  .fk-t th{background:"#0b1d3a";color:"#4fc3f7";padding:3px 5px;text-align:center;border:1px solid #1e3a5f;font-size:7px;font-weight:700}
   .fk-t th:first-child{text-align:left}
-  .fk-t td{padding:3px 5px;border:1px solid #c3d4e8;text-align:center;font-weight:600;font-size:8px;background:#fff}
-  .fk-t td:first-child{text-align:left;background:#eef4ff;font-weight:700;color:#0b1d3a}
-  .fk-t tr:nth-child(even) td:not(:first-child){background:#f8faff}
+  .fk-t td{padding:3px 5px;border:1px solid #c3d4e8;text-align:center;font-weight:600;font-size:8px;background:"#fff"}
+  .fk-t td:first-child{text-align:left;background:"#eef4ff";font-weight:700;color:"#0b1d3a"}
+  .fk-t tr:nth-child(even) td:not(:first-child){background:"#f8faff"}
   /* bucket/platform table */
   .bk-t{width:100%;border-collapse:collapse;font-size:8px;border:1px solid #1e3a5f;flex-shrink:0}
-  .bk-t th{background:#0b1d3a;color:#4fc3f7;padding:3px 7px;text-align:left;border:1px solid #1e3a5f;font-size:7.5px;font-weight:700}
+  .bk-t th{background:"#0b1d3a";color:"#4fc3f7";padding:3px 7px;text-align:left;border:1px solid #1e3a5f;font-size:7.5px;font-weight:700}
   .bk-t td{padding:3px 7px;border:1px solid #c3d4e8}
-  .bk-t td:first-child{font-weight:700;background:#eef4ff;color:#0b1d3a;width:55%}
-  .bk-t td:nth-child(2){background:#fff;font-weight:600;color:#0b1d3a}
+  .bk-t td:first-child{font-weight:700;background:"#eef4ff";color:"#0b1d3a";width:55%}
+  .bk-t td:nth-child(2){background:"#fff";font-weight:600;color:"#0b1d3a"}
   /* bucket page accent */
   .bucket-accent{height:3px;background:linear-gradient(90deg,#f97316 0%,#fb923c 55%,#fbbf24 100%);flex-shrink:0}
   @media print{
@@ -255,7 +243,7 @@ const CSS=`
   }
 `;
 
-/* ── Shared photo evidence ───────────────────────────────── */
+/* ── Shared Components (your original) ───────────────────── */
 function ProEvidence({photos}){
   if(!photos||!photos.length)return null;
   return(
@@ -272,7 +260,7 @@ function ProEvidence({photos}){
     </div>
   );
 }
-/* ── Generic Field / Section ─────────────────────────────── */
+
 function Field({label,value,mono=false,large=false,full=false,red=false}){
   if(!value)return null;
   return(
@@ -282,12 +270,13 @@ function Field({label,value,mono=false,large=false,full=false,red=false}){
     </div>
   );
 }
+
 function Section({title,children}){
   const kids=Array.isArray(children)?children.filter(Boolean):[children].filter(Boolean);
   if(!kids.length)return null;
   return(<div className="cs-sec"><div className="cs-sec-ttl">{title}</div><div className="cs-fields">{kids}</div></div>);
 }
-/* ── Shared sub-components ───────────────────────────────── */
+
 function ProHdr({logoUrl}){
   return(
     <div className="pro-hdr">
@@ -306,6 +295,7 @@ function ProHdr({logoUrl}){
     </div>
   );
 }
+
 function ProFooter(){
   return(
     <>
@@ -314,6 +304,7 @@ function ProFooter(){
     </>
   );
 }
+
 function ProCT({company,location,issueDate,equipMake,serialNo,fleetNo,swl,machineHours}){
   return(
     <table className="pro-ct"><tbody>
@@ -325,6 +316,7 @@ function ProCT({company,location,issueDate,equipMake,serialNo,fleetNo,swl,machin
     </tbody></table>
   );
 }
+
 function ProSig({inspName,inspId,sigUrl}){
   return(
     <div className="pro-sig">
@@ -345,6 +337,7 @@ function ProSig({inspName,inspId,sigUrl}){
     </div>
   );
 }
+
 function CI({label,result="PASS",na=false}){
   return(
     <div className="pro-cr2">
@@ -355,6 +348,7 @@ function CI({label,result="PASS",na=false}){
     </div>
   );
 }
+
 function PFBadge({result}){
   const isPass=result==="PASS";
   return(
@@ -364,7 +358,7 @@ function PFBadge({result}){
     </div>
   );
 }
-/* ── BucketResultRow — renders a single row in the bucket inspection table ── */
+
 function BucketResultRow({label,result}){
   if(!result)return null;
   const isPass=(result||"").toUpperCase()==="PASS";
@@ -381,13 +375,10 @@ function BucketResultRow({label,result}){
   );
 }
 
-/* ══════════════════════════════════════════════════════════
-   ALL YOUR ORIGINAL FUNCTIONS (CraneLoadTestPage, CraneChecklistPage, HookRopePage, PressureVesselPage, WireRopeSlingPage, TelehandlerPage, ForkArmPage, HorseTrailerPage, MachinePage, GenericCert)
-   ── They are unchanged from your original file ──
-*/
+/* All your original page functions (CraneLoadTestPage, CraneChecklistPage, HookRopePage, PressureVesselPage, WireRopeSlingPage, TelehandlerPage, ForkArmPage, HorseTrailerPage, MachinePage, GenericCert) remain unchanged from your provided code. */
 
 /* ══════════════════════════════════════════════════════════
-   CHERRY PICKER — TWO PAGES (FIXED)
+   CHERRY PICKER — TWO PAGES (FINAL WORKING VERSION)
 ══════════════════════════════════════════════════════════ */
 function CherryPickerPage({c, nd, pm, logo}) {
   const certNumber = val(c.certificate_number) || "—";
@@ -426,7 +417,7 @@ function CherryPickerPage({c, nd, pm, logo}) {
 
   return (
     <>
-      {/* PAGE 1: AWP Machine Certificate (12 months) */}
+      {/* PAGE 1: AWP Machine (12 months) */}
       <div className={`pro-page${pm ? " pm" : ""}`}>
         <ProHdr logoUrl={logo} />
         <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}} />
@@ -483,7 +474,7 @@ function CherryPickerPage({c, nd, pm, logo}) {
 
       <div className="pro-pb"/>
 
-      {/* PAGE 2: Bucket / Platform Certificate (6 months) */}
+      {/* PAGE 2: Bucket / Platform (6 months) */}
       <div className={`pro-page${pm ? " pm" : ""}`}>
         <ProHdr logoUrl={logo} />
         <div className="bucket-accent" />
