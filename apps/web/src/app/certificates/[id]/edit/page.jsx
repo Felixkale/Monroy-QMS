@@ -1,7 +1,7 @@
 // src/app/certificates/[id]/edit/page.jsx
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
@@ -24,7 +24,151 @@ const LS = { display:"block", fontSize:10, fontWeight:700, letterSpacing:"0.08em
 function normalizeId(v){ return Array.isArray(v) ? v[0] : v; }
 function toDate(v){ if(!v) return ""; const d = new Date(v); return isNaN(d.getTime()) ? "" : d.toISOString().slice(0,10); }
 
-function parseNotes(str) {
+// ─────────────────────────────────────────────────────────────
+// INSPECTION DATA HELPERS
+// Flattens complex nested notes JSON into a flat array of
+// { section, key, value, path } objects that are easy to edit,
+// then serialises back to the original nested structure.
+// ─────────────────────────────────────────────────────────────
+
+function formatFieldLabel(key) {
+  return key
+    .replace(/_/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function getSectionLabel(key) {
+  const map = {
+    checklist: "Checklist",
+    boom: "Boom Configuration",
+    bucket: "Bucket / Platform",
+    forks: "Fork Arms",
+  };
+  return map[key] || formatFieldLabel(key);
+}
+
+/** Returns value colour style for PASS/FAIL type values */
+function valueColor(v) {
+  const s = String(v || "").toUpperCase();
+  if (s === "PASS" || s === "YES" || s === "SERVICEABLE" || s === "SATISFACTORY") return T.green;
+  if (s === "FAIL" || s === "NO" || s === "DEFECTIVE" || s === "OUT_OF_SERVICE") return T.red;
+  if (s === "REPAIR_REQUIRED" || s === "CONDITIONAL" || s === "WARNING") return T.amber;
+  return T.text;
+}
+
+/**
+ * Flattens the notes JSON (which may be a nested object) into a flat list:
+ * [{ id, section, key, label, value, path: ['boom','boom_length'] }, …]
+ * Top-level scalar keys get section = "General"
+ * Nested objects get their own section
+ * Arrays of objects (e.g. forks) are flattened per item
+ */
+function flattenNotesJson(raw) {
+  const rows = [];
+  let parsed = {};
+  try {
+    parsed = JSON.parse(raw || "{}");
+    if (typeof parsed !== "object" || Array.isArray(parsed)) parsed = {};
+  } catch(e) { parsed = {}; }
+
+  let id = 0;
+
+  function addRow(section, key, value, path) {
+    rows.push({
+      id: id++,
+      section,
+      key,
+      label: formatFieldLabel(key),
+      value: value == null ? "" : String(value),
+      path,
+    });
+  }
+
+  Object.entries(parsed).forEach(([topKey, topVal]) => {
+    if (topVal === null || topVal === undefined) {
+      addRow("General", topKey, "", [topKey]);
+      return;
+    }
+    if (Array.isArray(topVal)) {
+      // e.g. forks array
+      topVal.forEach((item, idx) => {
+        if (typeof item === "object" && item !== null) {
+          const secLabel = `${getSectionLabel(topKey)} #${idx + 1}`;
+          Object.entries(item).forEach(([k, v]) => {
+            if (typeof v !== "object") {
+              addRow(secLabel, k, v, [topKey, idx, k]);
+            }
+          });
+        } else {
+          addRow(getSectionLabel(topKey), `Item ${idx + 1}`, item, [topKey, idx]);
+        }
+      });
+    } else if (typeof topVal === "object") {
+      const secLabel = getSectionLabel(topKey);
+      Object.entries(topVal).forEach(([k, v]) => {
+        if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+          // 2-level deep nesting (rare)
+          const subSec = `${secLabel} › ${formatFieldLabel(k)}`;
+          Object.entries(v).forEach(([k2, v2]) => {
+            if (typeof v2 !== "object") {
+              addRow(subSec, k2, v2, [topKey, k, k2]);
+            }
+          });
+        } else if (Array.isArray(v)) {
+          // skip inner arrays for now — leave as JSON string
+          addRow(secLabel, k, JSON.stringify(v), [topKey, k]);
+        } else {
+          addRow(secLabel, k, v, [topKey, k]);
+        }
+      });
+    } else {
+      addRow("General", topKey, topVal, [topKey]);
+    }
+  });
+
+  return rows;
+}
+
+/**
+ * Rebuilds the nested JSON from the flat rows list, then JSON.stringifies it.
+ */
+function rebuildNotesJson(rows) {
+  const out = {};
+
+  rows.forEach(({ path, value }) => {
+    if (!path || path.length === 0) return;
+
+    // Cast back to appropriate type
+    let v = value;
+    if (v === "true") v = true;
+    else if (v === "false") v = false;
+    else if (v !== "" && !isNaN(Number(v)) && v.trim() !== "") v = Number(v);
+
+    if (path.length === 1) {
+      out[path[0]] = v;
+    } else if (path.length === 2) {
+      if (!out[path[0]] || typeof out[path[0]] !== "object") out[path[0]] = {};
+      out[path[0]][path[1]] = v;
+    } else if (path.length === 3) {
+      if (typeof path[1] === "number") {
+        // Array item
+        if (!Array.isArray(out[path[0]])) out[path[0]] = [];
+        if (!out[path[0]][path[1]]) out[path[0]][path[1]] = {};
+        out[path[0]][path[1]][path[2]] = v;
+      } else {
+        if (!out[path[0]]) out[path[0]] = {};
+        if (!out[path[0]][path[1]] || typeof out[path[0]][path[1]] !== "object") out[path[0]][path[1]] = {};
+        out[path[0]][path[1]][path[2]] = v;
+      }
+    }
+  });
+
+  return JSON.stringify(out);
+}
+
+// Legacy pipe-separated notes (non-JSON)
+function parseNotesPipe(str) {
   if (!str) return [];
   return str.split("|").map(part => {
     const idx = part.indexOf(":");
@@ -32,9 +176,18 @@ function parseNotes(str) {
     return { key: part.slice(0, idx).trim(), value: part.slice(idx + 1).trim() };
   }).filter(p => p.key);
 }
-function buildNotes(pairs) {
+function buildNotesPipe(pairs) {
   return pairs.filter(p => p.key && p.value).map(p => `${p.key}: ${p.value}`).join(" | ");
 }
+
+/** Detect whether notes string is JSON or pipe-separated */
+function isJsonNotes(str) {
+  if (!str || !str.trim()) return false;
+  const t = str.trim();
+  return t.startsWith("{") || t.startsWith("[");
+}
+
+// ─────────────────────────────────────────────────────────────
 
 function F({ label, children, span = 1 }) {
   return (
@@ -55,18 +208,32 @@ function CertificateEditInner() {
   const router = useRouter();
   const id = normalizeId(params?.id);
 
-  const [tab,        setTab]        = useState(0);
-  const [loading,    setLoading]    = useState(true);
-  const [saving,     setSaving]     = useState(false);
-  const [error,      setError]      = useState("");
-  const [success,    setSuccess]    = useState("");
-  const [bundle,     setBundle]     = useState([]);
-  const [linkSearch, setLinkSearch] = useState("");
-  const [linkResults,setLinkResults]= useState([]);
-  const [linkLoading,setLinkLoading]= useState(false);
-  const [linking,    setLinking]    = useState(false);
-  const [unlinking,  setUnlinking]  = useState(false);
-  const [notePairs,  setNotePairs]  = useState([]);
+  const [tab,          setTab]          = useState(0);
+  const [loading,      setLoading]      = useState(true);
+  const [saving,       setSaving]       = useState(false);
+  const [error,        setError]        = useState("");
+  const [success,      setSuccess]      = useState("");
+  const [bundle,       setBundle]       = useState([]);
+  const [linkSearch,   setLinkSearch]   = useState("");
+  const [linkResults,  setLinkResults]  = useState([]);
+  const [linkLoading,  setLinkLoading]  = useState(false);
+  const [linking,      setLinking]      = useState(false);
+  const [unlinking,    setUnlinking]    = useState(false);
+
+  // notes mode: "json" | "pipe"
+  const [notesMode,    setNotesMode]    = useState("pipe");
+  // json mode: flat rows
+  const [jsonRows,     setJsonRows]     = useState([]);
+  // pipe mode: pairs
+  const [notePairs,    setNotePairs]    = useState([]);
+  // add-field panel (json mode)
+  const [addSection,   setAddSection]   = useState("");
+  const [addKey,       setAddKey]       = useState("");
+  const [addValue,     setAddValue]     = useState("");
+  // search / filter inside Inspection Data
+  const [dataSearch,   setDataSearch]   = useState("");
+  // collapse sections
+  const [collapsed,    setCollapsed]    = useState({});
 
   const [form, setForm] = useState({
     certificate_number:"", certificate_type:"Certificate of Inspection",
@@ -139,7 +306,16 @@ function CertificateEditInner() {
       folder_name:           data.folder_name          || "",
       folder_position:       data.folder_position != null ? String(data.folder_position) : "",
     });
-    setNotePairs(parseNotes(data.notes || ""));
+
+    const rawNotes = data.notes || "";
+    if (isJsonNotes(rawNotes)) {
+      setNotesMode("json");
+      setJsonRows(flattenNotesJson(rawNotes));
+    } else {
+      setNotesMode("pipe");
+      setNotePairs(parseNotesPipe(rawNotes));
+    }
+
     if (data.folder_id) {
       const { data: linked } = await supabase.from("certificates")
         .select("id,certificate_number,equipment_description,equipment_type,folder_position")
@@ -150,9 +326,39 @@ function CertificateEditInner() {
   }
 
   const hc = e => setForm(p => ({ ...p, [e.target.name]: e.target.value }));
-  const updatePair = (i, field, val) => setNotePairs(p => p.map((x, j) => j === i ? { ...x, [field]: val } : x));
-  const addPair    = () => setNotePairs(p => [...p, { key: "", value: "" }]);
-  const removePair = i  => setNotePairs(p => p.filter((_, j) => j !== i));
+
+  // JSON rows helpers
+  const updateJsonRow = (rowId, newValue) =>
+    setJsonRows(prev => prev.map(r => r.id === rowId ? { ...r, value: newValue } : r));
+  const removeJsonRow = (rowId) =>
+    setJsonRows(prev => prev.filter(r => r.id !== rowId));
+  const addJsonRow = () => {
+    if (!addKey.trim()) return;
+    const section = addSection.trim() || "General";
+    const path = section === "General"
+      ? [addKey.trim()]
+      : [section.toLowerCase().replace(/\s+/g,"_"), addKey.trim()];
+    setJsonRows(prev => [...prev, {
+      id: Date.now(),
+      section,
+      key: addKey.trim(),
+      label: formatFieldLabel(addKey.trim()),
+      value: addValue.trim(),
+      path,
+    }]);
+    setAddKey(""); setAddValue("");
+  };
+
+  // Pipe pairs helpers
+  const updatePair  = (i, field, val) => setNotePairs(p => p.map((x, j) => j === i ? { ...x, [field]: val } : x));
+  const addPair     = () => setNotePairs(p => [...p, { key: "", value: "" }]);
+  const removePair  = i  => setNotePairs(p => p.filter((_, j) => j !== i));
+
+  // Build final notes string for saving
+  function buildFinalNotes() {
+    if (notesMode === "json") return rebuildNotesJson(jsonRows);
+    return buildNotesPipe(notePairs);
+  }
 
   async function handleSave() {
     setSaving(true); setError(""); setSuccess("");
@@ -200,7 +406,7 @@ function CertificateEditInner() {
         recommendations:       form.recommendations       || null,
         comments:              form.comments              || null,
         remarks:               form.comments              || null,
-        notes:                 buildNotes(notePairs)      || null,
+        notes:                 buildFinalNotes()          || null,
         folder_id:             form.folder_id             || null,
         folder_name:           form.folder_name           || null,
         folder_position:       form.folder_position ? Number(form.folder_position) : null,
@@ -226,7 +432,7 @@ function CertificateEditInner() {
 
   async function handleLink(targetId) {
     setLinking(true);
-    const folderId  = form.folder_id || crypto.randomUUID();
+    const folderId   = form.folder_id || crypto.randomUUID();
     const folderName = form.folder_name || `Folder-${form.certificate_number || id.slice(0,8)}`;
     await Promise.all([
       supabase.from("certificates").update({ folder_id: folderId, folder_name: folderName, folder_position: 1 }).eq("id", id),
@@ -244,12 +450,35 @@ function CertificateEditInner() {
 
   const isLinked = bundle.length > 0;
 
+  // ── Group json rows by section ──────────────────────────────
+  const groupedRows = useCallback(() => {
+    const groups = {};
+    const filtered = dataSearch.trim()
+      ? jsonRows.filter(r =>
+          r.label.toLowerCase().includes(dataSearch.toLowerCase()) ||
+          r.value.toLowerCase().includes(dataSearch.toLowerCase()) ||
+          r.section.toLowerCase().includes(dataSearch.toLowerCase())
+        )
+      : jsonRows;
+    filtered.forEach(row => {
+      if (!groups[row.section]) groups[row.section] = [];
+      groups[row.section].push(row);
+    });
+    return groups;
+  }, [jsonRows, dataSearch]);
+
+  const toggleCollapse = (sec) =>
+    setCollapsed(p => ({ ...p, [sec]: !p[sec] }));
+
   const SaveBtn = () => (
     <button type="button" onClick={handleSave} disabled={saving}
       style={{ padding:"12px 28px", borderRadius:11, border:"none", background:saving?"rgba(255,255,255,0.06)":"linear-gradient(135deg,#34d399,#14b8a6)", color:saving?"rgba(240,246,255,0.4)":"#052e16", fontWeight:900, fontSize:14, cursor:saving?"not-allowed":"pointer", fontFamily:"inherit" }}>
       {saving ? "Saving…" : "💾 Save Changes"}
     </button>
   );
+
+  // ── Result badge quick-select chips ────────────────────────
+  const RESULT_CHIPS = ["PASS","FAIL","REPAIR_REQUIRED"];
 
   return (
     <AppLayout title="Edit Certificate">
@@ -265,6 +494,24 @@ function CertificateEditInner() {
         .ce-tab{padding:10px 16px;border:none;background:none;color:${T.textDim};font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;transition:all .15s;font-family:'IBM Plex Sans',sans-serif;min-height:44px;-webkit-tap-highlight-color:transparent}
         .ce-tab.on{color:${T.accent};border-bottom-color:${T.accent}}
         .ce-tab:hover:not(.on){color:${T.textMid}}
+
+        /* Inspection data table */
+        .id-table{width:100%;border-collapse:collapse;font-size:13px;}
+        .id-table tr{border-bottom:1px solid ${T.border};}
+        .id-table tr:last-child{border-bottom:none}
+        .id-table tr:hover td{background:rgba(34,211,238,0.03)}
+        .id-param{padding:9px 14px;width:42%;font-weight:600;color:${T.textMid};font-size:12px;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0;}
+        .id-val{padding:6px 8px 6px 0;vertical-align:middle;}
+        .id-del{padding:6px 8px;vertical-align:middle;width:36px;}
+        .id-val input{width:100%;padding:7px 10px;border-radius:7px;border:1px solid transparent;background:transparent;font-size:12px;font-family:'IBM Plex Sans',sans-serif;outline:none;transition:all .15s;min-height:36px;}
+        .id-val input:hover{border-color:${T.border};background:rgba(18,30,50,0.5);}
+        .id-val input:focus{border-color:${T.accent}!important;background:rgba(18,30,50,0.8);}
+        .id-sec-hdr{display:flex;align-items:center;gap:8px;padding:7px 14px;background:rgba(11,29,58,0.7);border-bottom:1px solid ${T.accentBrd};cursor:pointer;user-select:none;}
+        .id-sec-hdr:hover{background:rgba(34,211,238,0.06);}
+        .id-sec-label{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:${T.accent};flex:1;}
+        .id-sec-count{font-size:9px;color:${T.textDim};background:${T.accentDim};border:1px solid ${T.accentBrd};padding:1px 7px;border-radius:99px;}
+        .id-sec-chevron{font-size:10px;color:${T.textDim};transition:transform .15s;}
+
         .np-row{display:grid;grid-template-columns:1fr 1fr 36px;gap:8px;align-items:center}
         @media(max-width:640px){.ceg{grid-template-columns:1fr!important}.np-row{grid-template-columns:1fr 1fr 36px}}
       `}</style>
@@ -313,8 +560,10 @@ function CertificateEditInner() {
                 {TABS.map((t, i) => (
                   <button key={t} type="button" className={`ce-tab${tab === i ? " on" : ""}`} onClick={() => setTab(i)}>
                     {t}
-                    {i === 4 && notePairs.length > 0 && (
-                      <span style={{ marginLeft:5, fontSize:9, padding:"1px 6px", borderRadius:99, background:T.accentDim, color:T.accent, border:`1px solid ${T.accentBrd}` }}>{notePairs.length}</span>
+                    {i === 4 && (notesMode === "json" ? jsonRows.length : notePairs.length) > 0 && (
+                      <span style={{ marginLeft:5, fontSize:9, padding:"1px 6px", borderRadius:99, background:T.accentDim, color:T.accent, border:`1px solid ${T.accentBrd}` }}>
+                        {notesMode === "json" ? jsonRows.length : notePairs.length}
+                      </span>
                     )}
                     {i === 5 && isLinked && (
                       <span style={{ marginLeft:5, fontSize:9, padding:"1px 6px", borderRadius:99, background:T.purpleDim, color:T.purple, border:`1px solid ${T.purpleBrd}` }}>{bundle.length}</span>
@@ -332,10 +581,19 @@ function CertificateEditInner() {
                       {CERT_TYPES.map(t => <option key={t}>{t}</option>)}
                     </select>
                   </F>
-                  <F label="Result">
-                    <select name="result" value={form.result} onChange={hc} style={IS}>
-                      {RESULTS.map(r => <option key={r} value={r}>{r.replace(/_/g," ")}</option>)}
-                    </select>
+                  <F label="Result" span={2}>
+                    <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                      {RESULTS.map(rv => {
+                        const isActive = form.result === rv;
+                        const col = rv === "PASS" ? T.green : rv === "FAIL" || rv === "OUT_OF_SERVICE" ? T.red : T.amber;
+                        return (
+                          <button key={rv} type="button" onClick={() => setForm(p => ({ ...p, result: rv }))}
+                            style={{ padding:"7px 14px", borderRadius:8, border:`1px solid ${isActive ? col : T.border}`, background:isActive ? `${col}22` : T.card, color:isActive ? col : T.textDim, fontWeight:800, fontSize:11, cursor:"pointer", fontFamily:"inherit", transition:"all .12s" }}>
+                            {rv.replace(/_/g," ")}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </F>
                   <F label="Status">
                     <select name="status" value={form.status} onChange={hc} style={IS}>
@@ -416,54 +674,210 @@ function CertificateEditInner() {
                 </div>
               )}
 
-              {/* ── TAB 4: INSPECTION DATA (parsed notes) ── */}
+              {/* ══════════════════════════════════════════════════════
+                  TAB 4: INSPECTION DATA — NEW LIST MODE
+              ══════════════════════════════════════════════════════ */}
               {tab === 4 && (
-                <div>
-                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14, flexWrap:"wrap", gap:8 }}>
-                    <div>
-                      <div style={{ fontSize:13, fontWeight:800, color:T.text, marginBottom:4 }}>Inspection Data Fields</div>
-                      <div style={{ fontSize:11, color:T.textDim }}>All captured inspection results — structural, boom geometry, load tests, systems condition. Edit any field or add new ones.</div>
-                    </div>
-                    <button type="button" onClick={addPair}
-                      style={{ padding:"8px 16px", borderRadius:9, border:`1px solid ${T.greenBrd}`, background:T.greenDim, color:T.green, fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
-                      + Add Field
-                    </button>
-                  </div>
+                <div style={{ display:"grid", gap:12 }}>
 
-                  {notePairs.length === 0 ? (
-                    <div style={{ padding:"32px 20px", textAlign:"center", border:`1px dashed ${T.border}`, borderRadius:12, color:T.textDim, fontSize:13 }}>
-                      No inspection data fields on this certificate. Click <strong style={{ color:T.green }}>+ Add Field</strong> to add one.
-                    </div>
-                  ) : (
-                    <>
-                      <div className="np-row" style={{ marginBottom:8, paddingBottom:6, borderBottom:`1px solid ${T.border}` }}>
-                        <div style={{ fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>Field Name</div>
-                        <div style={{ fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>Value</div>
-                        <div/>
+                  {/* ── Top toolbar ── */}
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap" }}>
+                    <div>
+                      <div style={{ fontSize:14, fontWeight:800, color:T.text }}>Inspection Data</div>
+                      <div style={{ fontSize:11, color:T.textDim, marginTop:2 }}>
+                        {notesMode === "json"
+                          ? `${jsonRows.length} fields across ${Object.keys(groupedRows()).length} sections`
+                          : `${notePairs.length} fields`}
                       </div>
-                      <div style={{ display:"grid", gap:8 }}>
-                        {notePairs.map((pair, i) => (
-                          <div key={i} className="np-row">
-                            <input value={pair.key} onChange={e => updatePair(i, "key", e.target.value)}
-                              style={{ ...IS, minHeight:40 }} placeholder="e.g. Structural, Test load, Boom length"/>
-                            <input value={pair.value} onChange={e => updatePair(i, "value", e.target.value)}
-                              style={{ ...IS, minHeight:40,
-                                color: pair.value === "FAIL" || pair.value === "REPAIR_REQUIRED" ? T.red
-                                     : pair.value === "PASS" ? T.green
-                                     : T.text
-                              }} placeholder="e.g. PASS, 36m, 110T"/>
-                            <button type="button" onClick={() => removePair(i)}
-                              style={{ width:36, height:40, borderRadius:8, border:`1px solid ${T.redBrd}`, background:T.redDim, color:T.red, fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                              ✕
-                            </button>
-                          </div>
+                    </div>
+                    <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+                      {/* Mode toggle */}
+                      <div style={{ display:"flex", border:`1px solid ${T.border}`, borderRadius:8, overflow:"hidden" }}>
+                        {[["json","Grouped"],["pipe","Simple"]].map(([m, lbl]) => (
+                          <button key={m} type="button" onClick={() => setNotesMode(m)}
+                            style={{ padding:"6px 12px", border:"none", background:notesMode===m?T.accentDim:"transparent", color:notesMode===m?T.accent:T.textDim, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
+                            {lbl}
+                          </button>
                         ))}
                       </div>
-                      {/* Preview */}
-                      <div style={{ marginTop:14, padding:"10px 14px", borderRadius:10, background:"rgba(10,18,32,0.8)", border:`1px solid ${T.border}`, fontSize:11, color:T.textDim, fontFamily:"'IBM Plex Mono',monospace", wordBreak:"break-all", lineHeight:1.7 }}>
-                        <div style={{ fontWeight:700, marginBottom:4, color:T.textMid, fontSize:10, textTransform:"uppercase", letterSpacing:"0.08em" }}>Stored as:</div>
-                        {buildNotes(notePairs) || "—"}
+                      {notesMode === "pipe" && (
+                        <button type="button" onClick={addPair}
+                          style={{ padding:"8px 14px", borderRadius:9, border:`1px solid ${T.greenBrd}`, background:T.greenDim, color:T.green, fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+                          + Add Row
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* ── Search bar (json mode only) ── */}
+                  {notesMode === "json" && jsonRows.length > 0 && (
+                    <input
+                      value={dataSearch} onChange={e => setDataSearch(e.target.value)}
+                      placeholder="🔍  Search parameters or values…"
+                      style={{ ...IS, minHeight:40, fontSize:12 }}
+                    />
+                  )}
+
+                  {/* ════════════════ JSON GROUPED MODE ════════════════ */}
+                  {notesMode === "json" && (
+                    <>
+                      {jsonRows.length === 0 ? (
+                        <div style={{ padding:"32px 20px", textAlign:"center", border:`1px dashed ${T.border}`, borderRadius:12, color:T.textDim, fontSize:13 }}>
+                          No inspection data found on this certificate.
+                        </div>
+                      ) : (
+                        <div style={{ border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden" }}>
+                          {Object.entries(groupedRows()).map(([section, rows], gi) => {
+                            const isCollapsed = collapsed[section];
+                            return (
+                              <div key={section} style={{ borderBottom: gi < Object.keys(groupedRows()).length - 1 ? `1px solid ${T.border}` : "none" }}>
+                                {/* Section header */}
+                                <div className="id-sec-hdr" onClick={() => toggleCollapse(section)}>
+                                  <span className="id-sec-chevron" style={{ transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)" }}>▾</span>
+                                  <span className="id-sec-label">{section}</span>
+                                  <span className="id-sec-count">{rows.length}</span>
+                                </div>
+
+                                {/* Rows */}
+                                {!isCollapsed && (
+                                  <table className="id-table">
+                                    <tbody>
+                                      {rows.map((row, ri) => (
+                                        <tr key={row.id} style={{ background: ri % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)" }}>
+                                          {/* Parameter name */}
+                                          <td className="id-param" title={row.key}>
+                                            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                                              {/* Result dot */}
+                                              {(() => {
+                                                const vu = row.value.toUpperCase();
+                                                const dotColor =
+                                                  vu === "PASS" || vu === "YES" ? "#34d399"
+                                                  : vu === "FAIL" || vu === "NO" ? "#f87171"
+                                                  : vu === "REPAIR_REQUIRED" ? "#fbbf24"
+                                                  : null;
+                                                return dotColor
+                                                  ? <span style={{ width:6, height:6, borderRadius:"50%", background:dotColor, flexShrink:0, display:"inline-block" }}/>
+                                                  : <span style={{ width:6, flexShrink:0, display:"inline-block" }}/>;
+                                              })()}
+                                              <span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{row.label}</span>
+                                            </div>
+                                          </td>
+
+                                          {/* Value input */}
+                                          <td className="id-val">
+                                            <input
+                                              value={row.value}
+                                              onChange={e => updateJsonRow(row.id, e.target.value)}
+                                              style={{
+                                                color: valueColor(row.value),
+                                                fontWeight: /PASS|FAIL|YES|NO|REPAIR/.test(row.value.toUpperCase()) ? 800 : 500,
+                                              }}
+                                              placeholder="—"
+                                            />
+                                          </td>
+
+                                          {/* Delete button */}
+                                          <td className="id-del">
+                                            <button type="button" onClick={() => removeJsonRow(row.id)}
+                                              title="Remove this field"
+                                              style={{ width:28, height:28, borderRadius:6, border:`1px solid ${T.redBrd}`, background:"transparent", color:T.red, fontWeight:800, fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", opacity:0.6 }}
+                                              onMouseEnter={e => e.currentTarget.style.opacity = "1"}
+                                              onMouseLeave={e => e.currentTarget.style.opacity = "0.6"}>
+                                              ✕
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* ── Add field panel ── */}
+                      <div style={{ border:`1px solid ${T.greenBrd}`, borderRadius:10, padding:14, background:T.greenDim }}>
+                        <div style={{ fontSize:11, fontWeight:800, color:T.green, marginBottom:10, textTransform:"uppercase", letterSpacing:"0.08em" }}>+ Add New Field</div>
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr auto", gap:8, alignItems:"flex-end" }}>
+                          <div>
+                            <label style={{ ...LS, color:T.green }}>Section</label>
+                            <input value={addSection} onChange={e => setAddSection(e.target.value)}
+                              list="section-suggestions"
+                              placeholder="e.g. Checklist, Boom…"
+                              style={{ ...IS, minHeight:40, fontSize:12 }}/>
+                            <datalist id="section-suggestions">
+                              {[...new Set(jsonRows.map(r => r.section))].map(s => <option key={s} value={s}/>)}
+                            </datalist>
+                          </div>
+                          <div>
+                            <label style={{ ...LS, color:T.green }}>Field Name</label>
+                            <input value={addKey} onChange={e => setAddKey(e.target.value)}
+                              placeholder="e.g. boom_length"
+                              style={{ ...IS, minHeight:40, fontSize:12 }}/>
+                          </div>
+                          <div>
+                            <label style={{ ...LS, color:T.green }}>Value</label>
+                            <input value={addValue} onChange={e => setAddValue(e.target.value)}
+                              placeholder="e.g. PASS, 36m…"
+                              style={{ ...IS, minHeight:40, fontSize:12 }}
+                              onKeyDown={e => e.key === "Enter" && addJsonRow()}/>
+                          </div>
+                          <button type="button" onClick={addJsonRow}
+                            style={{ height:40, padding:"0 18px", borderRadius:9, border:"none", background:T.green, color:"#052e16", fontWeight:900, fontSize:13, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap" }}>
+                            Add
+                          </button>
+                        </div>
                       </div>
+                    </>
+                  )}
+
+                  {/* ════════════════ PIPE SIMPLE MODE ════════════════ */}
+                  {notesMode === "pipe" && (
+                    <>
+                      {notePairs.length === 0 ? (
+                        <div style={{ padding:"32px 20px", textAlign:"center", border:`1px dashed ${T.border}`, borderRadius:12, color:T.textDim, fontSize:13 }}>
+                          No fields. Click <strong style={{ color:T.green }}>+ Add Row</strong> to add one.
+                        </div>
+                      ) : (
+                        <div style={{ border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden" }}>
+                          {/* Header */}
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 36px", gap:0, background:"rgba(11,29,58,0.8)", borderBottom:`1px solid ${T.border}`, padding:"7px 14px" }}>
+                            <div style={{ fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>Parameter</div>
+                            <div style={{ fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>Value</div>
+                            <div/>
+                          </div>
+                          <table className="id-table" style={{ width:"100%" }}>
+                            <tbody>
+                              {notePairs.map((pair, i) => (
+                                <tr key={i} style={{ background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)" }}>
+                                  <td className="id-param">
+                                    <input value={pair.key} onChange={e => updatePair(i, "key", e.target.value)}
+                                      placeholder="Field name"
+                                      style={{ width:"100%", padding:"7px 10px", borderRadius:7, border:"1px solid transparent", background:"transparent", color:T.textMid, fontSize:12, fontFamily:"inherit", outline:"none" }}
+                                      onFocus={e => { e.target.style.borderColor=T.accent; e.target.style.background="rgba(18,30,50,0.8)"; }}
+                                      onBlur={e => { e.target.style.borderColor="transparent"; e.target.style.background="transparent"; }}/>
+                                  </td>
+                                  <td className="id-val">
+                                    <input value={pair.value} onChange={e => updatePair(i, "value", e.target.value)}
+                                      placeholder="Value"
+                                      style={{ color: valueColor(pair.value), fontWeight: /PASS|FAIL|YES|NO|REPAIR/.test((pair.value||"").toUpperCase()) ? 800 : 500 }}/>
+                                  </td>
+                                  <td className="id-del">
+                                    <button type="button" onClick={() => removePair(i)}
+                                      style={{ width:28, height:28, borderRadius:6, border:`1px solid ${T.redBrd}`, background:"transparent", color:T.red, fontWeight:800, fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", opacity:0.6 }}
+                                      onMouseEnter={e => e.currentTarget.style.opacity = "1"}
+                                      onMouseLeave={e => e.currentTarget.style.opacity = "0.6"}>
+                                      ✕
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
