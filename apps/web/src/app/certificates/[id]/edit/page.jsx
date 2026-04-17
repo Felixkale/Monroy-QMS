@@ -1,647 +1,254 @@
 // src/app/certificates/[id]/edit/page.jsx
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
 
-/* ── Design tokens (match existing app theme) ──────────── */
 const T = {
-  bg:"#070e18", surface:"rgba(13,22,38,0.80)", panel:"rgba(10,18,32,0.92)",
-  card:"rgba(255,255,255,0.025)", border:"rgba(148,163,184,0.12)",
-  text:"#f0f6ff", textMid:"rgba(240,246,255,0.72)", textDim:"rgba(240,246,255,0.40)",
-  accent:"#22d3ee", accentDim:"rgba(34,211,238,0.10)", accentBrd:"rgba(34,211,238,0.25)",
-  green:"#34d399", greenDim:"rgba(52,211,153,0.10)", greenBrd:"rgba(52,211,153,0.25)",
-  red:"#f87171",   redDim:"rgba(248,113,113,0.10)",   redBrd:"rgba(248,113,113,0.25)",
-  amber:"#fbbf24", amberDim:"rgba(251,191,36,0.10)",  amberBrd:"rgba(251,191,36,0.25)",
-  blue:"#60a5fa",  blueDim:"rgba(96,165,250,0.10)",   blueBrd:"rgba(96,165,250,0.25)",
+  bg:"#070e18",surface:"rgba(13,22,38,0.80)",panel:"rgba(10,18,32,0.92)",
+  card:"rgba(255,255,255,0.025)",border:"rgba(148,163,184,0.12)",
+  text:"#f0f6ff",textMid:"rgba(240,246,255,0.72)",textDim:"rgba(240,246,255,0.40)",
+  accent:"#22d3ee",accentDim:"rgba(34,211,238,0.10)",accentBrd:"rgba(34,211,238,0.25)",
+  green:"#34d399",greenDim:"rgba(52,211,153,0.10)",greenBrd:"rgba(52,211,153,0.25)",
+  red:"#f87171",redDim:"rgba(248,113,113,0.10)",redBrd:"rgba(248,113,113,0.25)",
+  amber:"#fbbf24",amberDim:"rgba(251,191,36,0.10)",amberBrd:"rgba(251,191,36,0.25)",
   purple:"#a78bfa",purpleDim:"rgba(167,139,250,0.10)",purpleBrd:"rgba(167,139,250,0.25)",
+  blue:"#60a5fa",blueDim:"rgba(96,165,250,0.10)",blueBrd:"rgba(96,165,250,0.25)",
 };
 
-/* ── Shared input style ─────────────────────────────────── */
-const IS = {
-  width:"100%", padding:"9px 12px", borderRadius:8,
-  border:`1px solid ${T.border}`, background:"rgba(18,30,50,0.70)",
-  color:T.text, fontSize:13, fontFamily:"'IBM Plex Sans',sans-serif",
-  outline:"none", minHeight:38, transition:"border-color .15s",
-};
-const IS_FOCUS = { borderColor:T.accent };
+const IS = { width:"100%", padding:"10px 13px", borderRadius:9, border:`1px solid ${T.border}`, background:"rgba(18,30,50,0.70)", color:T.text, fontSize:13, fontFamily:"'IBM Plex Sans',sans-serif", outline:"none", minHeight:44, boxSizing:"border-box" };
+const LS = { display:"block", fontSize:10, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", color:T.textDim, marginBottom:6 };
 
-/* ── Helper: parse notes stored in various shapes ───────── */
-function parseNotesObj(raw) {
-  if (!raw) return {};
-  try {
-    const p = JSON.parse(raw);
-    if (typeof p === "object" && p !== null) return p;
-  } catch {}
-  const obj = {};
-  String(raw).split("|").forEach(part => {
+function normalizeId(v){ return Array.isArray(v) ? v[0] : v; }
+function toDate(v){ if(!v) return ""; const d = new Date(v); return isNaN(d.getTime()) ? "" : d.toISOString().slice(0,10); }
+
+function parseNotes(str) {
+  if (!str) return [];
+  return str.split("|").map(part => {
     const idx = part.indexOf(":");
-    if (idx < 0) return;
-    obj[part.slice(0, idx).trim()] = part.slice(idx + 1).trim();
-  });
-  return obj;
+    if (idx < 0) return { key: part.trim(), value: "" };
+    return { key: part.slice(0, idx).trim(), value: part.slice(idx + 1).trim() };
+  }).filter(p => p.key);
+}
+function buildNotes(pairs) {
+  return pairs.filter(p => p.key && p.value).map(p => `${p.key}: ${p.value}`).join(" | ");
 }
 
-function stringifyNotes(obj) {
-  return JSON.stringify(obj);
-}
-
-/* ── Section heading ────────────────────────────────────── */
-function SectionHead({ icon, title, color = T.accent }) {
+function F({ label, children, span = 1 }) {
   return (
-    <div style={{
-      display:"flex", alignItems:"center", gap:9,
-      padding:"10px 16px", margin:"0 0 0",
-      background:`linear-gradient(90deg,${color}18,transparent)`,
-      borderLeft:`3px solid ${color}`, borderRadius:"0 6px 6px 0",
-    }}>
-      {icon && <span style={{ fontSize:16 }}>{icon}</span>}
-      <span style={{ fontSize:12, fontWeight:900, letterSpacing:"0.06em", textTransform:"uppercase", color }}>{title}</span>
+    <div style={{ gridColumn:`span ${span}` }}>
+      <label style={LS}>{label}</label>
+      {children}
     </div>
   );
 }
 
-/* ── Individual field row in list mode ──────────────────── */
-function FieldRow({
-  label, sublabel, value, onChange, type="text",
-  options, placeholder, mono=false, readOnly=false,
-  wide=false, danger=false, highlight=false,
-}) {
-  const [focused, setFocused] = useState(false);
-  const borderColor = focused ? T.accent : danger ? T.redBrd : highlight ? T.greenBrd : T.border;
-  const rowBg = danger ? "rgba(248,113,113,0.04)" : highlight ? "rgba(52,211,153,0.04)" : "transparent";
+const TABS = ["Certificate","Equipment","Technical","Inspector","Inspection Data","Folder"];
+const CERT_TYPES = ["Certificate of Inspection","Load Test Certificate","Pressure Test Certificate","NDT Certificate","Thorough Examination Certificate"];
+const RESULTS = ["PASS","FAIL","REPAIR_REQUIRED","OUT_OF_SERVICE","CONDITIONAL","UNKNOWN"];
+const P_UNITS = ["bar","kPa","MPa","psi"];
 
-  const inputStyle = {
-    ...IS,
-    borderColor,
-    fontFamily: mono ? "'IBM Plex Mono',monospace" : IS.fontFamily,
-    fontSize: mono ? 12 : 13,
-    background: readOnly ? "rgba(34,211,238,0.05)" : IS.background,
-    color: readOnly ? T.textMid : T.text,
-    cursor: readOnly ? "default" : "text",
-  };
-
-  return (
-    <div style={{
-      display:"grid",
-      gridTemplateColumns: wide ? "1fr" : "220px 1fr",
-      gap:wide?6:12,
-      alignItems:"flex-start",
-      padding:"10px 16px",
-      borderBottom:`1px solid ${T.border}`,
-      background: rowBg,
-      transition:"background .15s",
-    }}>
-      <div style={{ paddingTop: wide ? 0 : 8 }}>
-        <div style={{ fontSize:12, fontWeight:700, color:T.textMid, lineHeight:1.3 }}>{label}</div>
-        {sublabel && <div style={{ fontSize:10, color:T.textDim, marginTop:3, lineHeight:1.4 }}>{sublabel}</div>}
-      </div>
-      <div>
-        {type === "select" ? (
-          <select
-            value={value || ""}
-            onChange={e => onChange(e.target.value)}
-            disabled={readOnly}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            style={{ ...inputStyle, appearance:"none", WebkitAppearance:"none",
-              backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(240,246,255,0.4)' stroke-width='1.5' fill='none'/%3E%3C/svg%3E")`,
-              backgroundRepeat:"no-repeat", backgroundPosition:"right 12px center",
-              paddingRight:36,
-            }}
-          >
-            {(options || []).map(o => (
-              <option key={o.value ?? o} value={o.value ?? o} style={{ background:"#0a1420", color:"#f0f6ff" }}>
-                {o.label ?? o}
-              </option>
-            ))}
-          </select>
-        ) : type === "textarea" ? (
-          <textarea
-            value={value || ""}
-            onChange={e => onChange(e.target.value)}
-            placeholder={placeholder || ""}
-            readOnly={readOnly}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            style={{ ...inputStyle, minHeight:80, resize:"vertical" }}
-          />
-        ) : type === "result" ? (
-          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-            {["PASS","FAIL","REPAIR_REQUIRED","CONDITIONAL","OUT_OF_SERVICE"].map(opt => {
-              const active = (value || "PASS") === opt;
-              const colors = {
-                PASS:           { c:T.green,  bg:T.greenDim,  brd:T.greenBrd  },
-                FAIL:           { c:T.red,    bg:T.redDim,    brd:T.redBrd    },
-                REPAIR_REQUIRED:{ c:T.amber,  bg:T.amberDim,  brd:T.amberBrd  },
-                CONDITIONAL:    { c:T.amber,  bg:T.amberDim,  brd:T.amberBrd  },
-                OUT_OF_SERVICE: { c:T.purple, bg:T.purpleDim, brd:T.purpleBrd },
-              };
-              const s = colors[opt] || { c:T.textMid, bg:T.card, brd:T.border };
-              const labels = { PASS:"Pass", FAIL:"Fail", REPAIR_REQUIRED:"Repair Required", CONDITIONAL:"Conditional", OUT_OF_SERVICE:"Out of Service" };
-              return (
-                <button key={opt} type="button"
-                  onClick={() => !readOnly && onChange(opt)}
-                  style={{
-                    padding:"6px 12px", borderRadius:8, fontSize:11, fontWeight:800,
-                    cursor: readOnly ? "default" : "pointer", fontFamily:"inherit",
-                    border:`1.5px solid ${active ? s.brd : T.border}`,
-                    background: active ? s.bg : T.card,
-                    color: active ? s.c : T.textDim,
-                    opacity: readOnly ? 0.6 : 1,
-                    transition:"all .12s",
-                  }}>
-                  {labels[opt]}
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <input
-            type={type}
-            value={value || ""}
-            onChange={e => onChange(e.target.value)}
-            placeholder={placeholder || ""}
-            readOnly={readOnly}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            style={inputStyle}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ── Collapsible card section ───────────────────────────── */
-function EditCard({ title, icon, color=T.accent, brd, defaultOpen=true, children }) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div style={{ background:T.panel, border:`1px solid ${brd||T.border}`, borderRadius:14, overflow:"hidden", marginBottom:14 }}>
-      <button
-        type="button"
-        onClick={() => setOpen(p => !p)}
-        style={{
-          width:"100%", display:"flex", alignItems:"center", gap:10,
-          padding:"13px 16px", background:"transparent", border:"none",
-          borderBottom: open ? `1px solid ${T.border}` : "none",
-          cursor:"pointer", color:T.text, fontFamily:"'IBM Plex Sans',sans-serif",
-        }}
-      >
-        <span style={{ fontSize:16 }}>{icon}</span>
-        <span style={{ flex:1, textAlign:"left", fontSize:14, fontWeight:900, color }}>{title}</span>
-        <span style={{ fontSize:12, color:T.textDim, transform:open?"rotate(180deg)":"none", transition:"transform .2s" }}>▼</span>
-      </button>
-      {open && <div>{children}</div>}
-    </div>
-  );
-}
-
-/* ── Notes editor — understands JSON or pipe-delimited ──── */
-function NotesEditor({ value, onChange }) {
-  const [mode, setMode] = useState("raw");  // "raw" | "json"
-  const isJson = (() => { try { if (value) JSON.parse(value); return true; } catch { return false; } })();
-
-  return (
-    <div>
-      {isJson && (
-        <div style={{ display:"flex", gap:6, padding:"8px 16px", borderBottom:`1px solid ${T.border}` }}>
-          {["raw","json"].map(m => (
-            <button key={m} type="button" onClick={() => setMode(m)}
-              style={{ padding:"4px 10px", borderRadius:6, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit",
-                border:`1px solid ${mode===m?T.accentBrd:T.border}`,
-                background:mode===m?T.accentDim:T.card,
-                color:mode===m?T.accent:T.textDim,
-              }}>
-              {m === "raw" ? "Raw Text" : "Formatted JSON"}
-            </button>
-          ))}
-          <span style={{ fontSize:10, color:T.textDim, alignSelf:"center", marginLeft:4 }}>Notes stored as JSON</span>
-        </div>
-      )}
-      {mode === "json" && isJson ? (
-        <pre style={{ margin:0, padding:"12px 16px", fontSize:11, fontFamily:"'IBM Plex Mono',monospace",
-          color:T.textMid, background:"rgba(0,0,0,0.2)", overflowX:"auto", maxHeight:300,
-          lineHeight:1.6, whiteSpace:"pre-wrap", wordBreak:"break-all" }}>
-          {JSON.stringify(JSON.parse(value), null, 2)}
-        </pre>
-      ) : (
-        <div style={{ padding:"0 0" }}>
-          <FieldRow label="Raw Notes" sublabel="Pipe-delimited (Key:Value|Key2:Value2) or JSON" type="textarea" value={value} onChange={onChange} wide/>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════
-   INSPECTION DATA EDITOR
-   Renders type-aware field editors for the notes/checklist
-   so inspectors can edit them without touching raw JSON.
-══════════════════════════════════════════════════════════ */
-
-/* Result options shorthand */
-const RESULT_OPTS = ["PASS","FAIL","REPAIR_REQUIRED","CONDITIONAL"];
-
-/* Generic boom editor (telehandler / cherry picker) */
-function BoomEditor({ data, onChange }) {
-  const u = (k, v) => onChange({ ...data, [k]: v });
-  return (
-    <div>
-      <SectionHead icon="📐" title="Boom Geometry" />
-      <FieldRow label="Min Boom Length (m)" value={data.min_boom_length} onChange={v=>u("min_boom_length",v)} placeholder="e.g. 6"/>
-      <FieldRow label="Max Boom Length (m)" value={data.max_boom_length} onChange={v=>u("max_boom_length",v)} placeholder="e.g. 18"/>
-      <FieldRow label="Actual Boom Length (m)" value={data.actual_boom_length} onChange={v=>u("actual_boom_length",v)} placeholder="e.g. 12"/>
-      <FieldRow label="Extended / Telescoped (m)" value={data.extended_boom_length} onChange={v=>u("extended_boom_length",v)}/>
-      <FieldRow label="Boom Angle (°)" value={data.boom_angle} onChange={v=>u("boom_angle",v)}/>
-      <FieldRow label="Max Working Height (m)" sublabel="Cherry Picker only" value={data.max_height} onChange={v=>u("max_height",v)}/>
-      <SectionHead icon="📏" title="Working Radius & SWL" />
-      <FieldRow label="Min Radius (m)" value={data.min_radius} onChange={v=>u("min_radius",v)}/>
-      <FieldRow label="Max Radius (m)" value={data.max_radius} onChange={v=>u("max_radius",v)}/>
-      <FieldRow label="Load Test Radius (m)" value={data.load_tested_at_radius} onChange={v=>u("load_tested_at_radius",v)}/>
-      <FieldRow label="SWL at Min Radius" value={data.swl_at_min_radius} onChange={v=>u("swl_at_min_radius",v)}/>
-      <FieldRow label="SWL at Max Radius" value={data.swl_at_max_radius} onChange={v=>u("swl_at_max_radius",v)}/>
-      <FieldRow label="SWL at Test Config" value={data.swl_at_actual_config} onChange={v=>u("swl_at_actual_config",v)}/>
-      <FieldRow label="Test Load Applied" sublabel="110% of SWL" value={data.test_load} onChange={v=>u("test_load",v)} highlight/>
-      <SectionHead icon="🔧" title="Boom Systems Condition" />
-      <FieldRow label="Boom Structure" type="result" value={data.boom_structure||"PASS"} onChange={v=>u("boom_structure",v)}/>
-      <FieldRow label="Boom Pins & Connections" type="result" value={data.boom_pins||"PASS"} onChange={v=>u("boom_pins",v)}/>
-      <FieldRow label="Boom Wear / Pads" type="result" value={data.boom_wear||"PASS"} onChange={v=>u("boom_wear",v)}/>
-      <FieldRow label="Luffing / Extension System" type="result" value={data.luffing_system||"PASS"} onChange={v=>u("luffing_system",v)}/>
-      <FieldRow label="Slew / Rotation System" type="result" value={data.slew_system||"PASS"} onChange={v=>u("slew_system",v)}/>
-      <FieldRow label="Hoist / Lift System" type="result" value={data.hoist_system||"PASS"} onChange={v=>u("hoist_system",v)}/>
-      <FieldRow label="LMI Tested at Config" type="result" value={data.lmi_test||"PASS"} onChange={v=>u("lmi_test",v)}/>
-      <FieldRow label="Anti-Two Block / Overload" type="result" value={data.anti_two_block||"PASS"} onChange={v=>u("anti_two_block",v)}/>
-      <FieldRow label="Jib / Fork Attachment" type="select" options={[{value:"no",label:"Not Fitted"},{value:"yes",label:"Yes — Fitted"}]} value={data.jib_fitted||"no"} onChange={v=>u("jib_fitted",v)}/>
-      <FieldRow label="Notes" type="textarea" value={data.notes} onChange={v=>u("notes",v)}/>
-    </div>
-  );
-}
-
-/* Bucket / Platform editor (cherry picker) */
-function BucketEditor({ data, onChange }) {
-  const u = (k, v) => onChange({ ...data, [k]: v });
-  return (
-    <div>
-      <SectionHead icon="🪣" title="Platform Specification" color={T.blue} />
-      <FieldRow label="Platform SWL" value={data.platform_swl} onChange={v=>u("platform_swl",v)} placeholder="e.g. 250kg" highlight/>
-      <FieldRow label="Platform Dimensions (m)" value={data.platform_dimensions} onChange={v=>u("platform_dimensions",v)} placeholder="e.g. 1.2 x 0.8"/>
-      <FieldRow label="Platform Material" value={data.platform_material} onChange={v=>u("platform_material",v)} placeholder="e.g. Steel"/>
-      <FieldRow label="Test Load Applied" sublabel="Should be 110% of SWL" value={data.test_load_applied} onChange={v=>u("test_load_applied",v)} highlight/>
-      <SectionHead icon="🔩" title="Structural Condition" color={T.blue} />
-      <FieldRow label="Platform Structure" type="result" value={data.platform_structure||"PASS"} onChange={v=>u("platform_structure",v)}/>
-      <FieldRow label="Platform Floor" type="result" value={data.platform_floor||"PASS"} onChange={v=>u("platform_floor",v)}/>
-      <FieldRow label="Guardrails / Toe Boards" type="result" value={data.guardrails||"PASS"} onChange={v=>u("guardrails",v)}/>
-      <SectionHead icon="🛡" title="Safety Systems" color={T.blue} />
-      <FieldRow label="Gate / Latch System" type="result" value={data.gate_latch||"PASS"} onChange={v=>u("gate_latch",v)}/>
-      <FieldRow label="Platform Auto-Levelling" type="result" value={data.levelling_system||"PASS"} onChange={v=>u("levelling_system",v)}/>
-      <FieldRow label="Emergency Lowering Device" type="result" value={data.emergency_lowering||"PASS"} onChange={v=>u("emergency_lowering",v)}/>
-      <FieldRow label="Overload / SWL Cut-Off Device" type="result" value={data.overload_device||"PASS"} onChange={v=>u("overload_device",v)}/>
-      <FieldRow label="Tilt / Inclination Alarm" type="result" value={data.tilt_alarm||"PASS"} onChange={v=>u("tilt_alarm",v)}/>
-      <FieldRow label="Notes" type="textarea" value={data.notes} onChange={v=>u("notes",v)}/>
-    </div>
-  );
-}
-
-/* Checklist editor (generic machine checklist object) */
-function ChecklistEditor({ data, onChange, fields }) {
-  const u = (k, v) => onChange({ ...data, [k]: v });
-  return (
-    <div>
-      {(fields || []).map(f => (
-        <FieldRow key={f.key} label={f.label} sublabel={f.sub}
-          type={f.type === "result" ? "result" : f.type || "text"}
-          value={data[f.key] || (f.type === "result" ? "PASS" : "")}
-          onChange={v => u(f.key, v)}
-          danger={f.type === "result" && data[f.key] && data[f.key] !== "PASS"}
-        />
-      ))}
-    </div>
-  );
-}
-
-/* Fork editor */
-function ForksEditor({ data, onChange }) {
-  const forks = Array.isArray(data) ? data : [];
-  const update = (i, k, v) => {
-    const next = forks.map((f, j) => j === i ? { ...f, [k]: v } : f);
-    onChange(next);
-  };
-  const add = () => onChange([...forks, { fork_number:"", length:"", thickness_heel:"", thickness_blade:"", width:"", swl:"", result:"PASS", cracks:"no", bending:"no", wear_pct:"", notes:"" }]);
-  const remove = i => onChange(forks.filter((_, j) => j !== i));
-
-  return (
-    <div>
-      {forks.map((fk, i) => (
-        <div key={i} style={{ marginBottom:12, border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden" }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"8px 14px", background:`rgba(251,191,36,0.07)`, borderBottom:`1px solid ${T.border}` }}>
-            <span style={{ fontSize:12, fontWeight:800, color:T.amber }}>🍴 Fork Arm {i + 1}</span>
-            <button type="button" onClick={() => remove(i)}
-              style={{ padding:"3px 9px", borderRadius:6, border:`1px solid ${T.redBrd}`, background:T.redDim, color:T.red, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
-              Remove
-            </button>
-          </div>
-          <FieldRow label="Fork Serial / ID" value={fk.fork_number} onChange={v=>update(i,"fork_number",v)} placeholder="e.g. FK-001-A" mono/>
-          <FieldRow label="Safe Working Load" value={fk.swl} onChange={v=>update(i,"swl",v)} placeholder="e.g. 3T"/>
-          <FieldRow label="Length (mm)" value={fk.length} onChange={v=>update(i,"length",v)}/>
-          <FieldRow label="Thickness at Heel (mm)" value={fk.thickness_heel} onChange={v=>update(i,"thickness_heel",v)}/>
-          <FieldRow label="Thickness at Blade (mm)" value={fk.thickness_blade} onChange={v=>update(i,"thickness_blade",v)}/>
-          <FieldRow label="Width (mm)" value={fk.width} onChange={v=>update(i,"width",v)}/>
-          <FieldRow label="Wear % vs Original" value={fk.wear_pct} onChange={v=>update(i,"wear_pct",v)} placeholder="e.g. 8" danger={parseFloat(fk.wear_pct)>10}/>
-          <FieldRow label="Cracks / Fractures" type="select" options={[{value:"no",label:"No — Clear"},{value:"yes",label:"Yes — FAIL"}]} value={fk.cracks||"no"} onChange={v=>update(i,"cracks",v)}/>
-          <FieldRow label="Bending / Deformation" type="select" options={[{value:"no",label:"No — Clear"},{value:"yes",label:"Yes — FAIL"}]} value={fk.bending||"no"} onChange={v=>update(i,"bending",v)}/>
-          <FieldRow label="Overall Result" type="result" value={fk.result||"PASS"} onChange={v=>update(i,"result",v)}/>
-          <FieldRow label="Notes" type="textarea" value={fk.notes} onChange={v=>update(i,"notes",v)} wide/>
-        </div>
-      ))}
-      <div style={{ padding:"12px 16px" }}>
-        <button type="button" onClick={add}
-          style={{ padding:"8px 16px", borderRadius:9, border:`1px solid ${T.greenBrd}`, background:T.greenDim, color:T.green, fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>
-          + Add Fork Arm
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* Pressure vessel checklist (stored under notes.checklist for PV type) */
-function PVChecklistEditor({ data, onChange }) {
-  const u = (k, v) => onChange({ ...data, [k]: v });
-  return (
-    <div>
-      <SectionHead icon="⚙️" title="Vessel Condition" color={T.green} />
-      <FieldRow label="External Visual Condition" type="select"
-        options={["Satisfactory","Unsatisfactory","See notes"]}
-        value={data.vessel_condition_external||"Satisfactory"} onChange={v=>u("vessel_condition_external",v)}/>
-      <FieldRow label="Internal Condition (if applicable)" type="select"
-        options={["Satisfactory","Unsatisfactory","Not accessible","N/A"]}
-        value={data.vessel_condition_internal||"Satisfactory"} onChange={v=>u("vessel_condition_internal",v)}/>
-      <SectionHead icon="🔧" title="Fittings" color={T.green} />
-      <FieldRow label="Safety Valve Fitted & Operating" type="select"
-        options={["Yes","No","Not applicable"]}
-        value={data.safety_valve_fitted||"Yes"} onChange={v=>u("safety_valve_fitted",v)}/>
-      <FieldRow label="Pressure Gauge Fitted & Reading Correctly" type="select"
-        options={["Yes","No","Requires calibration"]}
-        value={data.pressure_gauge_fitted||"Yes"} onChange={v=>u("pressure_gauge_fitted",v)}/>
-      <FieldRow label="Drain Valve Fitted & Operating" type="select"
-        options={["Yes","No","Not applicable"]}
-        value={data.drain_valve_fitted||"Yes"} onChange={v=>u("drain_valve_fitted",v)}/>
-      <SectionHead icon="🔍" title="Corrosion & Testing" color={T.green} />
-      <FieldRow label="Signs of Corrosion / Cracking" sublabel="Choose the most accurate option" type="select"
-        options={["None observed","Yes — minor","Yes — significant","Yes — severe","Yes — see defects"]}
-        value={data.signs_of_corrosion||"None observed"}
-        onChange={v=>u("signs_of_corrosion",v)}
-        danger={/^yes/i.test(data.signs_of_corrosion||"")}/>
-      <FieldRow label="Nameplate Legible & Data Correct" type="select"
-        options={["Yes","No","Partially legible"]}
-        value={data.nameplate_legible||"Yes"} onChange={v=>u("nameplate_legible",v)}/>
-      <FieldRow label="Hydrostatic Test Performed" type="select"
-        options={["Yes","No","N/A"]}
-        value={data.hydrostatic_test||"N/A"} onChange={v=>u("hydrostatic_test",v)}/>
-      <FieldRow label="Hydrostatic Test Pressure (kPa)" sublabel="Only if hydrostatic test was done"
-        value={data.hydrostatic_test_pressure_kpa} onChange={v=>u("hydrostatic_test_pressure_kpa",v)} placeholder="e.g. 1200"/>
-      <FieldRow label="Overall Assessment" type="select"
-        options={["Pass","Fail","Conditional pass","Out of service"]}
-        value={data.overall_assessment||"Pass"} onChange={v=>u("overall_assessment",v)}/>
-    </div>
-  );
-}
-
-/* ── Detect equipment family from type string ───────────── */
-function detectFamily(equipType) {
-  const t = String(equipType||"").toLowerCase();
-  if (/mobile.crane|crane/i.test(t) && !/hook|rope|cherry|telehandler|forklift/i.test(t)) return "crane";
-  if (/cherry.picker|aerial.work.platform|boom.lift/i.test(t)) return "cherry_picker";
-  if (/telehandler/i.test(t)) return "telehandler";
-  if (/forklift|fork.lift/i.test(t)) return "forklift";
-  if (/tlb|tractor.loader/i.test(t)) return "machine";
-  if (/pressure.vessel|air.receiver|boiler|autoclave/i.test(t)) return "pressure_vessel";
-  if (/wire.rope.sling/i.test(t)) return "sling";
-  if (/hook/i.test(t)) return "hook_rope";
-  if (/fork.arm/i.test(t)) return "fork_arm";
-  if (/horse.*mover|prime.mover/i.test(t)) return "horse";
-  if (/^trailer$/i.test(t.trim())) return "trailer";
-  return "generic";
-}
-
-/* ── Checklist field definitions per family ─────────────── */
-const FAMILY_CHECKLIST = {
-  telehandler: [
-    { key:"structural_result", label:"Structural Integrity",             type:"result" },
-    { key:"hydraulics_result", label:"Hydraulic System",                 type:"result" },
-    { key:"lmi_result",        label:"Load Management Indicator (LMI)", type:"result" },
-    { key:"brakes_result",     label:"Brake / Drive System",             type:"result" },
-    { key:"tyres_result",      label:"Tyres & Wheels",                   type:"result" },
-  ],
-  cherry_picker: [
-    { key:"structural_result",  label:"Structural Integrity",           type:"result" },
-    { key:"hydraulics_result",  label:"Hydraulic System",               type:"result" },
-    { key:"safety_devices",     label:"Safety Devices / Interlocks",    type:"result" },
-    { key:"emergency_lowering", label:"Emergency Lowering System",      type:"result" },
-  ],
-  forklift: [
-    { key:"structural_result", label:"Mast / Structural Integrity",     type:"result" },
-    { key:"hydraulics_result", label:"Hydraulic System",                type:"result" },
-    { key:"brakes_result",     label:"Brake System",                    type:"result" },
-    { key:"lmi_result",        label:"Load Indicator / SWL Plate",     type:"result" },
-    { key:"tyres_result",      label:"Tyres / Wheels",                  type:"result" },
-    { key:"forks_result",      label:"Fork Arms Overall",               type:"result" },
-  ],
-  machine: [
-    { key:"structural_result",  label:"Structural Integrity",           type:"result" },
-    { key:"operational_result", label:"Operational Check",             type:"result" },
-    { key:"safety_result",      label:"Safety Systems",                type:"result" },
-    { key:"hydraulics_result",  label:"Hydraulic System",              type:"result" },
-  ],
-};
-
-/* ── Inspection Data (smart) editor ─────────────────────── */
-function InspectionDataEditor({ family, notesJson, onChange }) {
-  const nd = parseNotesObj(notesJson);
-
-  const updateSection = useCallback((section, val) => {
-    const next = { ...nd, [section]: val };
-    onChange(stringifyNotes(next));
-  }, [nd, onChange]);
-
-  const updateChecklist = useCallback((val) => {
-    const next = { ...nd, checklist: val };
-    onChange(stringifyNotes(next));
-  }, [nd, onChange]);
-
-  const updateRoot = useCallback((key, val) => {
-    const next = { ...nd, [key]: val };
-    onChange(stringifyNotes(next));
-  }, [nd, onChange]);
-
-  // Families that have a boom section
-  const hasBoom = ["telehandler","cherry_picker"].includes(family);
-  const hasBucket = family === "cherry_picker";
-  const hasForks = ["telehandler","forklift","machine"].includes(family);
-  const hasChecklist = !!FAMILY_CHECKLIST[family];
-  const hasPVChecklist = family === "pressure_vessel";
-
-  // For families that have no structured notes, fall through to raw editor
-  if (!hasBoom && !hasBucket && !hasForks && !hasChecklist && !hasPVChecklist) {
-    return null; // will show raw notes editor
-  }
-
-  return (
-    <div style={{ display:"grid", gap:14 }}>
-      {/* Checklist section */}
-      {hasChecklist && (
-        <EditCard title="Inspection Checklist" icon="🔍" color={T.blue} brd={T.blueBrd}>
-          <ChecklistEditor
-            data={nd.checklist || {}}
-            onChange={updateChecklist}
-            fields={FAMILY_CHECKLIST[family]}
-          />
-          <SectionHead icon="📋" title="Overall Result & Defects" color={T.blue} />
-          <FieldRow label="Overall Result" type="result" value={nd.overall_result||"PASS"} onChange={v=>updateRoot("overall_result",v)}/>
-          <FieldRow label="Defects Found" type="textarea" value={nd.defects} onChange={v=>updateRoot("defects",v)} danger={!!nd.defects} wide/>
-          <FieldRow label="Recommendations" type="textarea" value={nd.recommendations} onChange={v=>updateRoot("recommendations",v)} wide/>
-        </EditCard>
-      )}
-
-      {/* Boom section */}
-      {hasBoom && (
-        <EditCard title="Boom Configuration & Load Test" icon="📐" color={T.accent} brd={T.accentBrd}>
-          <BoomEditor data={nd.boom || {}} onChange={val => updateSection("boom", val)}/>
-        </EditCard>
-      )}
-
-      {/* Bucket / Platform section */}
-      {hasBucket && (
-        <EditCard title="Platform / Bucket Inspection" icon="🪣" color={T.blue} brd={T.blueBrd}>
-          <BucketEditor data={nd.bucket || {}} onChange={val => updateSection("bucket", val)}/>
-        </EditCard>
-      )}
-
-      {/* Fork arms section */}
-      {hasForks && (
-        <EditCard title="Fork Arms Inspection" icon="🍴" color={T.amber} brd={T.amberBrd} defaultOpen={false}>
-          <ForksEditor data={nd.forks || []} onChange={val => updateSection("forks", val)}/>
-        </EditCard>
-      )}
-
-      {/* PV checklist */}
-      {hasPVChecklist && (
-        <EditCard title="Pressure Vessel Inspection Checklist" icon="⚙️" color={T.green} brd={T.greenBrd}>
-          <PVChecklistEditor data={nd.checklist || {}} onChange={val => updateChecklist(val)}/>
-        </EditCard>
-      )}
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════
-   MAIN EDIT PAGE
-══════════════════════════════════════════════════════════ */
-export default function EditCertificatePage() {
+function CertificateEditInner() {
   const params = useParams();
   const router = useRouter();
-  const id = Array.isArray(params?.id) ? params.id[0] : params?.id;
+  const id = normalizeId(params?.id);
 
-  const [loading,  setLoading]  = useState(true);
-  const [saving,   setSaving]   = useState(false);
-  const [saved,    setSaved]    = useState(false);
-  const [error,    setError]    = useState("");
-  const [record,   setRecord]   = useState(null);
-  const [clients,  setClients]  = useState([]);
+  const [tab,        setTab]        = useState(0);
+  const [loading,    setLoading]    = useState(true);
+  const [saving,     setSaving]     = useState(false);
+  const [error,      setError]      = useState("");
+  const [success,    setSuccess]    = useState("");
+  const [bundle,     setBundle]     = useState([]);
+  const [linkSearch, setLinkSearch] = useState("");
+  const [linkResults,setLinkResults]= useState([]);
+  const [linkLoading,setLinkLoading]= useState(false);
+  const [linking,    setLinking]    = useState(false);
+  const [unlinking,  setUnlinking]  = useState(false);
+  const [notePairs,  setNotePairs]  = useState([]);
 
-  // All editable fields as flat state
-  const [form, setForm] = useState({});
-  const [notesJson, setNotesJson] = useState("");
+  const [form, setForm] = useState({
+    certificate_number:"", certificate_type:"Certificate of Inspection",
+    result:"PASS", status:"active",
+    issue_date:"", inspection_date:"", expiry_date:"", next_inspection_due:"",
+    inspection_number:"",
+    equipment_type:"", equipment_description:"", asset_name:"", asset_tag:"",
+    serial_number:"", fleet_number:"", registration_number:"",
+    manufacturer:"", model:"", year_built:"", country_of_origin:"",
+    location:"", client_name:"",
+    swl:"", capacity_volume:"", working_pressure:"", design_pressure:"",
+    test_pressure:"", pressure_unit:"", material:"", standard_code:"",
+    lanyard_serial_no:"",
+    inspector_name:"", inspector_id:"", inspection_body:"",
+    legal_framework:"Mines, Quarries, Works and Machinery Act Cap 44:02",
+    defects_found:"", recommendations:"", comments:"",
+    folder_id:"", folder_name:"", folder_position:"",
+  });
 
+  useEffect(() => { if (id) load(); }, [id]);
   useEffect(() => {
-    if (!id) return;
-    Promise.all([
-      supabase.from("certificates").select("*").eq("id", id).maybeSingle(),
-      supabase.from("clients").select("id,company_name,city").order("company_name"),
-    ]).then(([{ data: cert, error: ce }, { data: cls }]) => {
-      if (ce || !cert) { setError(ce?.message || "Certificate not found."); setLoading(false); return; }
-      setRecord(cert);
-      setForm({
-        certificate_number: cert.certificate_number || "",
-        certificate_type:   cert.certificate_type || "",
-        equipment_type:     cert.equipment_type || "",
-        equipment_description: cert.equipment_description || "",
-        manufacturer:       cert.manufacturer || "",
-        model:              cert.model || "",
-        serial_number:      cert.serial_number || "",
-        fleet_number:       cert.fleet_number || "",
-        registration_number: cert.registration_number || "",
-        client_id:          cert.client_id || "",
-        client_name:        cert.client_name || "",
-        location:           cert.location || "",
-        issue_date:         cert.issue_date || cert.issued_at?.split("T")[0] || "",
-        expiry_date:        cert.expiry_date || "",
-        inspection_date:    cert.inspection_date || "",
-        next_inspection_due: cert.next_inspection_due || "",
-        result:             cert.result || "PASS",
-        swl:                cert.swl || "",
-        working_pressure:   cert.working_pressure || "",
-        test_pressure:      cert.test_pressure || "",
-        design_pressure:    cert.design_pressure || "",
-        pressure_unit:      cert.pressure_unit || "bar",
-        capacity_volume:    cert.capacity_volume || "",
-        mawp:               cert.mawp || "",
-        machine_hours:      cert.machine_hours || "",
-        defects_found:      cert.defects_found || "",
-        recommendations:    cert.recommendations || "",
-        comments:           cert.comments || "",
-        remarks:            cert.remarks || "",
-        inspector_name:     cert.inspector_name || "",
-        inspector_id:       cert.inspector_id || "",
-      });
-      setNotesJson(cert.notes || "");
-      setClients(cls || []);
-      setLoading(false);
+    const t = setTimeout(() => searchLink(linkSearch), 300);
+    return () => clearTimeout(t);
+  }, [linkSearch]);
+
+  async function load() {
+    setLoading(true); setError("");
+    const { data, error: e } = await supabase.from("certificates").select("*").eq("id", id).maybeSingle();
+    if (e || !data) { setError(e?.message || "Certificate not found."); setLoading(false); return; }
+    setForm({
+      certificate_number:    data.certificate_number   || "",
+      certificate_type:      data.certificate_type     || "Certificate of Inspection",
+      result:                data.result               || "PASS",
+      status:                data.status               || "active",
+      issue_date:            toDate(data.issue_date    || data.issued_at),
+      inspection_date:       toDate(data.inspection_date || data.issue_date),
+      expiry_date:           toDate(data.expiry_date   || data.valid_to),
+      next_inspection_due:   toDate(data.next_inspection_due || data.next_inspection_date),
+      inspection_number:     data.inspection_number    || data.inspection_no || "",
+      equipment_type:        data.equipment_type       || data.asset_type || "",
+      equipment_description: data.equipment_description|| data.asset_name || "",
+      asset_name:            data.asset_name           || data.equipment_description || "",
+      asset_tag:             data.asset_tag            || "",
+      serial_number:         data.serial_number        || "",
+      fleet_number:          data.fleet_number         || "",
+      registration_number:   data.registration_number  || "",
+      manufacturer:          data.manufacturer         || "",
+      model:                 data.model                || "",
+      year_built:            data.year_built           || "",
+      country_of_origin:     data.country_of_origin    || "",
+      location:              data.location             || "",
+      client_name:           data.client_name          || data.company || "",
+      swl:                   data.swl                  || "",
+      capacity_volume:       data.capacity_volume      || "",
+      working_pressure:      data.working_pressure     || "",
+      design_pressure:       data.design_pressure      || "",
+      test_pressure:         data.test_pressure        || "",
+      pressure_unit:         data.pressure_unit        || "",
+      material:              data.material             || "",
+      standard_code:         data.standard_code        || "",
+      lanyard_serial_no:     data.lanyard_serial_no    || "",
+      inspector_name:        data.inspector_name       || "",
+      inspector_id:          data.inspector_id         || data.inspector_id_number || "",
+      inspection_body:       data.inspection_body      || "",
+      legal_framework:       data.legal_framework      || "Mines, Quarries, Works and Machinery Act Cap 44:02",
+      defects_found:         data.defects_found        || "",
+      recommendations:       data.recommendations      || "",
+      comments:              data.comments             || data.remarks || "",
+      folder_id:             data.folder_id            || "",
+      folder_name:           data.folder_name          || "",
+      folder_position:       data.folder_position != null ? String(data.folder_position) : "",
     });
-  }, [id]);
-
-  const uf = (k, v) => setForm(p => ({ ...p, [k]: v }));
-
-  function clientSelected(clientId) {
-    const c = clients.find(x => x.id === clientId);
-    setForm(p => ({ ...p, client_id: clientId, client_name: c?.company_name || "", location: c?.city || p.location }));
+    setNotePairs(parseNotes(data.notes || ""));
+    if (data.folder_id) {
+      const { data: linked } = await supabase.from("certificates")
+        .select("id,certificate_number,equipment_description,equipment_type,folder_position")
+        .eq("folder_id", data.folder_id).order("folder_position", { ascending: true });
+      setBundle(linked || []);
+    }
+    setLoading(false);
   }
 
-  const family = detectFamily(form.equipment_type || record?.equipment_type);
-
-  const hasStructuredNotes = ["telehandler","cherry_picker","forklift","machine","pressure_vessel"].includes(family);
+  const hc = e => setForm(p => ({ ...p, [e.target.name]: e.target.value }));
+  const updatePair = (i, field, val) => setNotePairs(p => p.map((x, j) => j === i ? { ...x, [field]: val } : x));
+  const addPair    = () => setNotePairs(p => [...p, { key: "", value: "" }]);
+  const removePair = i  => setNotePairs(p => p.filter((_, j) => j !== i));
 
   async function handleSave() {
-    setSaving(true); setError(""); setSaved(false);
-    const payload = {
-      ...form,
-      notes: notesJson || null,
-      updated_at: new Date().toISOString(),
-    };
-    // Remove undefined/empty optional fields that shouldn't overwrite DB
-    ["mawp","machine_hours","design_pressure"].forEach(k => {
-      if (!payload[k]) delete payload[k];
-    });
-    const { error: e } = await supabase.from("certificates").update(payload).eq("id", id);
-    if (e) { setError("Save failed: " + e.message); setSaving(false); return; }
-    setSaved(true); setSaving(false);
-    setTimeout(() => setSaved(false), 3000);
+    setSaving(true); setError(""); setSuccess("");
+    try {
+      const { error: e } = await supabase.from("certificates").update({
+        certificate_number:    form.certificate_number    || null,
+        certificate_type:      form.certificate_type      || null,
+        result:                form.result                || null,
+        equipment_status:      form.result                || null,
+        status:                form.status                || "active",
+        issue_date:            form.issue_date            || null,
+        inspection_date:       form.inspection_date       || null,
+        expiry_date:           form.expiry_date           || null,
+        next_inspection_due:   form.next_inspection_due   || null,
+        next_inspection_date:  form.next_inspection_due   || null,
+        inspection_number:     form.inspection_number     || null,
+        equipment_type:        form.equipment_type        || null,
+        equipment_description: form.equipment_description || null,
+        asset_name:            form.asset_name            || null,
+        asset_tag:             form.asset_tag             || null,
+        serial_number:         form.serial_number         || null,
+        fleet_number:          form.fleet_number          || null,
+        registration_number:   form.registration_number   || null,
+        manufacturer:          form.manufacturer          || null,
+        model:                 form.model                 || null,
+        year_built:            form.year_built            || null,
+        country_of_origin:     form.country_of_origin     || null,
+        location:              form.location              || null,
+        client_name:           form.client_name           || null,
+        swl:                   form.swl                   || null,
+        capacity_volume:       form.capacity_volume       || null,
+        working_pressure:      form.working_pressure      || null,
+        design_pressure:       form.design_pressure       || null,
+        test_pressure:         form.test_pressure         || null,
+        pressure_unit:         form.pressure_unit         || null,
+        material:              form.material              || null,
+        standard_code:         form.standard_code         || null,
+        lanyard_serial_no:     form.lanyard_serial_no     || null,
+        inspector_name:        form.inspector_name        || null,
+        inspector_id:          form.inspector_id          || null,
+        inspector_id_number:   form.inspector_id          || null,
+        inspection_body:       form.inspection_body       || null,
+        legal_framework:       form.legal_framework       || null,
+        defects_found:         form.defects_found         || null,
+        recommendations:       form.recommendations       || null,
+        comments:              form.comments              || null,
+        remarks:               form.comments              || null,
+        notes:                 buildNotes(notePairs)      || null,
+        folder_id:             form.folder_id             || null,
+        folder_name:           form.folder_name           || null,
+        folder_position:       form.folder_position ? Number(form.folder_position) : null,
+      }).eq("id", id);
+      if (e) throw e;
+      setSuccess("Saved successfully.");
+      setTimeout(() => router.push(`/certificates/${id}`), 900);
+    } catch(e) {
+      setError("Save failed: " + (e?.message || "Unknown error"));
+    } finally { setSaving(false); }
   }
 
-  if (loading) return (
-    <AppLayout title="Edit Certificate">
-      <div style={{ minHeight:"60vh", display:"flex", alignItems:"center", justifyContent:"center", color:T.textDim, fontSize:14, fontFamily:"'IBM Plex Sans',sans-serif" }}>
-        Loading…
-      </div>
-    </AppLayout>
-  );
+  async function searchLink(q) {
+    if (!q || q.length < 2) { setLinkResults([]); return; }
+    setLinkLoading(true);
+    const { data } = await supabase.from("certificates")
+      .select("id,certificate_number,equipment_description,equipment_type,client_name,folder_id")
+      .or(`certificate_number.ilike.%${q}%,equipment_description.ilike.%${q}%,client_name.ilike.%${q}%`)
+      .neq("id", id).is("folder_id", null).limit(8);
+    setLinkResults(data || []);
+    setLinkLoading(false);
+  }
 
-  if (error && !record) return (
-    <AppLayout title="Edit Certificate">
-      <div style={{ padding:20, color:T.red, fontFamily:"'IBM Plex Sans',sans-serif" }}>⚠ {error}</div>
-    </AppLayout>
+  async function handleLink(targetId) {
+    setLinking(true);
+    const folderId  = form.folder_id || crypto.randomUUID();
+    const folderName = form.folder_name || `Folder-${form.certificate_number || id.slice(0,8)}`;
+    await Promise.all([
+      supabase.from("certificates").update({ folder_id: folderId, folder_name: folderName, folder_position: 1 }).eq("id", id),
+      supabase.from("certificates").update({ folder_id: folderId, folder_name: folderName, folder_position: bundle.length + 2 }).eq("id", targetId),
+    ]);
+    setLinking(false); setLinkSearch(""); setLinkResults([]);
+    await load(); setSuccess("Linked.");
+  }
+
+  async function handleUnlinkOne(targetId) {
+    setUnlinking(true);
+    await supabase.from("certificates").update({ folder_id: null, folder_name: null, folder_position: null }).eq("id", targetId);
+    setUnlinking(false); await load();
+  }
+
+  const isLinked = bundle.length > 0;
+
+  const SaveBtn = () => (
+    <button type="button" onClick={handleSave} disabled={saving}
+      style={{ padding:"12px 28px", borderRadius:11, border:"none", background:saving?"rgba(255,255,255,0.06)":"linear-gradient(135deg,#34d399,#14b8a6)", color:saving?"rgba(240,246,255,0.4)":"#052e16", fontWeight:900, fontSize:14, cursor:saving?"not-allowed":"pointer", fontFamily:"inherit" }}>
+      {saving ? "Saving…" : "💾 Save Changes"}
+    </button>
   );
 
   return (
@@ -650,183 +257,319 @@ export default function EditCertificatePage() {
         *,*::before,*::after{box-sizing:border-box}
         input::placeholder,textarea::placeholder{color:rgba(240,246,255,0.28)}
         select option{background:#0a1420;color:#f0f6ff}
+        input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:pointer}
+        input:focus,select:focus,textarea:focus{border-color:${T.accent}!important;outline:none}
         textarea{resize:vertical}
-        input[type=date]::-webkit-calendar-picker-indicator{filter:invert(1) opacity(.4)}
-        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.2);border-radius:99px}
-        @media(max-width:700px){.edit-cols{grid-template-columns:1fr!important}}
+        .ceg{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+        .ce-tabs{display:flex;gap:0;border-bottom:1px solid ${T.border};margin-bottom:18px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+        .ce-tab{padding:10px 16px;border:none;background:none;color:${T.textDim};font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;transition:all .15s;font-family:'IBM Plex Sans',sans-serif;min-height:44px;-webkit-tap-highlight-color:transparent}
+        .ce-tab.on{color:${T.accent};border-bottom-color:${T.accent}}
+        .ce-tab:hover:not(.on){color:${T.textMid}}
+        .np-row{display:grid;grid-template-columns:1fr 1fr 36px;gap:8px;align-items:center}
+        @media(max-width:640px){.ceg{grid-template-columns:1fr!important}.np-row{grid-template-columns:1fr 1fr 36px}}
       `}</style>
 
-      <div style={{
-        fontFamily:"'IBM Plex Sans',sans-serif", color:T.text,
-        padding:20, maxWidth:960, margin:"0 auto",
-        background:`radial-gradient(ellipse 60% 40% at 0% 0%,rgba(34,211,238,0.04),transparent)`,
-        minHeight:"100vh",
-      }}>
+      <div style={{ fontFamily:"'IBM Plex Sans',sans-serif", color:T.text, padding:20, minHeight:"100vh" }}>
+        <div style={{ maxWidth:1100, margin:"0 auto", display:"grid", gap:14 }}>
 
-        {/* ── HEADER ─────────────────────────────────────────── */}
-        <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:16, padding:"14px 20px", marginBottom:20, backdropFilter:"blur(20px)" }}>
-          <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:12, flexWrap:"wrap" }}>
-            <div>
-              <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", textTransform:"uppercase", color:T.accent, marginBottom:4 }}>Certificates · Edit</div>
-              <h1 style={{ margin:"0 0 4px", fontSize:20, fontWeight:900, letterSpacing:"-0.02em" }}>
-                {record?.certificate_number || "Certificate"}
-              </h1>
-              <div style={{ fontSize:12, color:T.textDim }}>
-                {record?.equipment_type} · {record?.client_name}
+          {/* HEADER */}
+          <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:18, padding:"16px 20px", backdropFilter:"blur(20px)" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, flexWrap:"wrap" }}>
+              <div>
+                <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", textTransform:"uppercase", color:T.accent, marginBottom:6 }}>Edit Certificate</div>
+                <h1 style={{ margin:"0 0 4px", fontSize:"clamp(17px,3vw,22px)", fontWeight:900 }}>{form.certificate_number || "Certificate"}</h1>
+                <p style={{ margin:0, color:T.textDim, fontSize:12 }}>
+                  {form.certificate_type}{form.equipment_type ? ` · ${form.equipment_type}` : ""}
+                  {isLinked && <span style={{ marginLeft:10, color:T.purple }}>📁 {bundle.length} in folder</span>}
+                </p>
+              </div>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                <button type="button" onClick={() => router.push(`/certificates/${id}`)}
+                  style={{ padding:"9px 14px", borderRadius:10, border:`1px solid ${T.border}`, background:T.card, color:T.textMid, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
+                  ← Back
+                </button>
+                <button type="button" onClick={() => window.open(`/certificates/print/${id}`, "_blank")}
+                  style={{ padding:"9px 14px", borderRadius:10, border:`1px solid ${T.greenBrd}`, background:T.greenDim, color:T.green, fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
+                  🖨 Print
+                </button>
+                <SaveBtn/>
               </div>
             </div>
-            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-              <button type="button" onClick={() => router.back()}
-                style={{ padding:"9px 14px", borderRadius:10, border:`1px solid ${T.border}`, background:T.card, color:T.textMid, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
-                ← Back
-              </button>
-              <a href={`/certificates/${id}`}
-                style={{ padding:"9px 14px", borderRadius:10, border:`1px solid ${T.border}`, background:T.card, color:T.textMid, fontWeight:700, fontSize:12, textDecoration:"none", display:"inline-flex", alignItems:"center" }}>
-                👁 View
-              </a>
-              <button type="button" onClick={handleSave} disabled={saving}
-                style={{
-                  padding:"9px 22px", borderRadius:10, border:"none", fontWeight:900, fontSize:13, cursor:saving?"not-allowed":"pointer", fontFamily:"inherit",
-                  background:saving?"rgba(255,255,255,0.06)":saved?"linear-gradient(135deg,#34d399,#14b8a6)":"linear-gradient(135deg,#22d3ee,#0891b2)",
-                  color:saving?"rgba(240,246,255,0.4)":saved?"#052e16":"#052e16",
-                }}>
-                {saving?"Saving…":saved?"✓ Saved":"💾 Save Changes"}
-              </button>
-            </div>
           </div>
-          {error && (
-            <div style={{ marginTop:10, padding:"9px 12px", borderRadius:9, background:T.redDim, border:`1px solid ${T.redBrd}`, color:T.red, fontSize:12, fontWeight:700 }}>
-              ⚠ {error}
+
+          {error   && <div style={{ padding:"10px 14px", borderRadius:10, border:`1px solid ${T.redBrd}`,   background:T.redDim,   color:T.red,   fontSize:13, fontWeight:700 }}>⚠ {error}</div>}
+          {success && <div style={{ padding:"10px 14px", borderRadius:10, border:`1px solid ${T.greenBrd}`, background:T.greenDim, color:T.green, fontSize:13, fontWeight:700 }}>✓ {success}</div>}
+
+          {loading ? (
+            <div style={{ background:T.panel, border:`1px solid ${T.border}`, borderRadius:14, padding:40, textAlign:"center", color:T.textDim }}>
+              <div style={{ fontSize:22, opacity:.4, marginBottom:8 }}>⏳</div>
+              <div style={{ fontSize:13, fontWeight:600 }}>Loading…</div>
+            </div>
+          ) : (
+            <div style={{ background:T.panel, border:`1px solid ${T.border}`, borderRadius:14, padding:18 }}>
+
+              {/* TABS */}
+              <div className="ce-tabs">
+                {TABS.map((t, i) => (
+                  <button key={t} type="button" className={`ce-tab${tab === i ? " on" : ""}`} onClick={() => setTab(i)}>
+                    {t}
+                    {i === 4 && notePairs.length > 0 && (
+                      <span style={{ marginLeft:5, fontSize:9, padding:"1px 6px", borderRadius:99, background:T.accentDim, color:T.accent, border:`1px solid ${T.accentBrd}` }}>{notePairs.length}</span>
+                    )}
+                    {i === 5 && isLinked && (
+                      <span style={{ marginLeft:5, fontSize:9, padding:"1px 6px", borderRadius:99, background:T.purpleDim, color:T.purple, border:`1px solid ${T.purpleBrd}` }}>{bundle.length}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* ── TAB 0: CERTIFICATE ── */}
+              {tab === 0 && (
+                <div className="ceg">
+                  <F label="Certificate Number"><input name="certificate_number" value={form.certificate_number} onChange={hc} style={IS}/></F>
+                  <F label="Certificate Type">
+                    <select name="certificate_type" value={form.certificate_type} onChange={hc} style={IS}>
+                      {CERT_TYPES.map(t => <option key={t}>{t}</option>)}
+                    </select>
+                  </F>
+                  <F label="Result">
+                    <select name="result" value={form.result} onChange={hc} style={IS}>
+                      {RESULTS.map(r => <option key={r} value={r}>{r.replace(/_/g," ")}</option>)}
+                    </select>
+                  </F>
+                  <F label="Status">
+                    <select name="status" value={form.status} onChange={hc} style={IS}>
+                      {["active","expired","suspended","cancelled"].map(s => <option key={s}>{s}</option>)}
+                    </select>
+                  </F>
+                  <F label="Inspection Number"><input name="inspection_number" value={form.inspection_number} onChange={hc} style={IS}/></F>
+                  <F label="Issue Date"><input name="issue_date" type="date" value={form.issue_date} onChange={hc} style={IS}/></F>
+                  <F label="Inspection Date"><input name="inspection_date" type="date" value={form.inspection_date} onChange={hc} style={IS}/></F>
+                  <F label="Expiry Date"><input name="expiry_date" type="date" value={form.expiry_date} onChange={hc} style={IS}/></F>
+                  <F label="Next Inspection Due"><input name="next_inspection_due" type="date" value={form.next_inspection_due} onChange={hc} style={IS}/></F>
+                  <F label="Defects Found" span={2}><textarea name="defects_found" value={form.defects_found} onChange={hc} rows={3} style={{ ...IS, minHeight:80 }}/></F>
+                  <F label="Recommendations" span={2}><textarea name="recommendations" value={form.recommendations} onChange={hc} rows={2} style={IS}/></F>
+                  <F label="Comments / Remarks" span={2}><textarea name="comments" value={form.comments} onChange={hc} rows={2} style={IS}/></F>
+                </div>
+              )}
+
+              {/* ── TAB 1: EQUIPMENT ── */}
+              {tab === 1 && (
+                <div className="ceg">
+                  <F label="Equipment Type">
+                    <select name="equipment_type" value={form.equipment_type} onChange={hc} style={IS}>
+                      <option value="">Select type…</option>
+                      <optgroup label="Cranes"><option>Mobile Crane</option><option>Crane Boom</option><option>Crane Hook</option><option>Wire Rope</option><option>Overhead Crane / EOT Crane</option><option>Gantry Crane</option><option>Tower Crane</option><option>Crawler Crane</option><option>Knuckle Boom Crane</option></optgroup>
+                      <optgroup label="Hoists"><option>Chain Block</option><option>Manual Chain Hoist</option><option>Electric Chain Hoist</option><option>Lever Hoist / Tirfor</option><option>Electric Wire Rope Hoist</option></optgroup>
+                      <optgroup label="Shackles"><option>Shackle — Bow / Anchor</option><option>Shackle — D / Dee</option><option>Shackle — Safety Bow</option><option>Shackle — Wide Mouth</option><option>Shackle — Screw Pin Anchor</option><option>Shackle — Bolt Type Anchor</option><option>Shackle — Alloy</option><option>Shackle — Stainless Steel</option></optgroup>
+                      <optgroup label="Slings"><option>Chain Sling</option><option>Wire Rope Sling</option><option>Web Sling / Flat Sling</option><option>Round Sling</option><option>Multi-Leg Chain Sling</option><option>Multi-Leg Wire Rope Sling</option></optgroup>
+                      <optgroup label="Rigging Hardware"><option>Hook — Swivel</option><option>Hook — Eye</option><option>Hook — Crane</option><option>Eye Bolt</option><option>Eye Nut</option><option>Turnbuckle</option><option>Master Link</option><option>Swivel</option><option>Wire Rope Clip</option></optgroup>
+                      <optgroup label="Beams & Spreaders"><option>Spreader Beam</option><option>Lifting Beam</option><option>Adjustable Spreader Beam</option><option>Pallet Lifter</option><option>Drum Lifter</option><option>Magnetic Lifter</option></optgroup>
+                      <optgroup label="Fall Protection"><option>Safety Harness — Full Body</option><option>Lanyard — Energy Absorbing</option><option>Lanyard — Twin Leg</option><option>Self-Retracting Lifeline (SRL)</option><option>Fall Arrest Block</option><option>Anchor Point</option></optgroup>
+                      <optgroup label="Pressure Equipment"><option>Pressure Vessel</option><option>Air Receiver</option><option>Boiler</option><option>Hydraulic Tank</option><option>Compressor — Air</option><option>Accumulator</option><option>Gas Cylinder</option><option>LPG Tank</option></optgroup>
+                      <optgroup label="Machines"><option>Forklift</option><option>Telehandler</option><option>Cherry Picker / Aerial Work Platform</option><option>TLB (Tractor Loader Backhoe)</option><option>Front Loader / Wheel Loader</option><option>Crane Truck / Hiab</option><option>Water Bowser</option><option>Tipper Truck</option><option>Bus / Personnel Carrier</option><option>Air Compressor</option></optgroup>
+                      <optgroup label="Mine & Other"><option>Scaffold</option><option>Underground Mine Cage</option><option>Skip Hoist</option><option>Fire Extinguisher</option><option>Other</option></optgroup>
+                    </select>
+                  </F>
+                  <F label="Equipment Description"><input name="equipment_description" value={form.equipment_description} onChange={hc} style={IS}/></F>
+                  <F label="Asset Name"><input name="asset_name" value={form.asset_name} onChange={hc} style={IS}/></F>
+                  <F label="Asset Tag / ID"><input name="asset_tag" value={form.asset_tag} onChange={hc} style={IS}/></F>
+                  <F label="Serial Number"><input name="serial_number" value={form.serial_number} onChange={hc} style={IS}/></F>
+                  <F label="Fleet Number"><input name="fleet_number" value={form.fleet_number} onChange={hc} style={IS} placeholder="e.g. CC150"/></F>
+                  <F label="Registration Number"><input name="registration_number" value={form.registration_number} onChange={hc} style={IS} placeholder="e.g. B 123 ABC"/></F>
+                  <F label="Manufacturer / Make"><input name="manufacturer" value={form.manufacturer} onChange={hc} style={IS}/></F>
+                  <F label="Model"><input name="model" value={form.model} onChange={hc} style={IS}/></F>
+                  <F label="Year Built / Manufactured"><input name="year_built" value={form.year_built} onChange={hc} style={IS}/></F>
+                  <F label="Country of Origin"><input name="country_of_origin" value={form.country_of_origin} onChange={hc} style={IS}/></F>
+                  <F label="Location / Site"><input name="location" value={form.location} onChange={hc} style={IS}/></F>
+                  <F label="Client Name"><input name="client_name" value={form.client_name} onChange={hc} style={IS}/></F>
+                </div>
+              )}
+
+              {/* ── TAB 2: TECHNICAL ── */}
+              {tab === 2 && (
+                <div className="ceg">
+                  <F label="Safe Working Load (SWL)"><input name="swl" value={form.swl} onChange={hc} style={IS} placeholder="e.g. 5T, 250kg"/></F>
+                  <F label="Capacity / Volume"><input name="capacity_volume" value={form.capacity_volume} onChange={hc} style={IS} placeholder="e.g. 500L, Ø26mm"/></F>
+                  <F label="Working Pressure"><input name="working_pressure" value={form.working_pressure} onChange={hc} style={IS}/></F>
+                  <F label="Design Pressure"><input name="design_pressure" value={form.design_pressure} onChange={hc} style={IS}/></F>
+                  <F label="Test Pressure"><input name="test_pressure" value={form.test_pressure} onChange={hc} style={IS}/></F>
+                  <F label="Pressure Unit">
+                    <select name="pressure_unit" value={form.pressure_unit} onChange={hc} style={IS}>
+                      <option value="">Select…</option>
+                      {P_UNITS.map(u => <option key={u}>{u}</option>)}
+                    </select>
+                  </F>
+                  <F label="Material"><input name="material" value={form.material} onChange={hc} style={IS}/></F>
+                  <F label="Standard / Code"><input name="standard_code" value={form.standard_code} onChange={hc} style={IS} placeholder="e.g. EN 361, SANS 347"/></F>
+                  <F label="Lanyard Serial No."><input name="lanyard_serial_no" value={form.lanyard_serial_no} onChange={hc} style={IS}/></F>
+                </div>
+              )}
+
+              {/* ── TAB 3: INSPECTOR ── */}
+              {tab === 3 && (
+                <div className="ceg">
+                  <F label="Inspector Name"><input name="inspector_name" value={form.inspector_name} onChange={hc} style={IS}/></F>
+                  <F label="Inspector ID / Cert Number"><input name="inspector_id" value={form.inspector_id} onChange={hc} style={IS}/></F>
+                  <F label="Inspection Body"><input name="inspection_body" value={form.inspection_body} onChange={hc} style={IS}/></F>
+                  <F label="Legal Framework" span={2}><input name="legal_framework" value={form.legal_framework} onChange={hc} style={IS}/></F>
+                </div>
+              )}
+
+              {/* ── TAB 4: INSPECTION DATA (parsed notes) ── */}
+              {tab === 4 && (
+                <div>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14, flexWrap:"wrap", gap:8 }}>
+                    <div>
+                      <div style={{ fontSize:13, fontWeight:800, color:T.text, marginBottom:4 }}>Inspection Data Fields</div>
+                      <div style={{ fontSize:11, color:T.textDim }}>All captured inspection results — structural, boom geometry, load tests, systems condition. Edit any field or add new ones.</div>
+                    </div>
+                    <button type="button" onClick={addPair}
+                      style={{ padding:"8px 16px", borderRadius:9, border:`1px solid ${T.greenBrd}`, background:T.greenDim, color:T.green, fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+                      + Add Field
+                    </button>
+                  </div>
+
+                  {notePairs.length === 0 ? (
+                    <div style={{ padding:"32px 20px", textAlign:"center", border:`1px dashed ${T.border}`, borderRadius:12, color:T.textDim, fontSize:13 }}>
+                      No inspection data fields on this certificate. Click <strong style={{ color:T.green }}>+ Add Field</strong> to add one.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="np-row" style={{ marginBottom:8, paddingBottom:6, borderBottom:`1px solid ${T.border}` }}>
+                        <div style={{ fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>Field Name</div>
+                        <div style={{ fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.08em" }}>Value</div>
+                        <div/>
+                      </div>
+                      <div style={{ display:"grid", gap:8 }}>
+                        {notePairs.map((pair, i) => (
+                          <div key={i} className="np-row">
+                            <input value={pair.key} onChange={e => updatePair(i, "key", e.target.value)}
+                              style={{ ...IS, minHeight:40 }} placeholder="e.g. Structural, Test load, Boom length"/>
+                            <input value={pair.value} onChange={e => updatePair(i, "value", e.target.value)}
+                              style={{ ...IS, minHeight:40,
+                                color: pair.value === "FAIL" || pair.value === "REPAIR_REQUIRED" ? T.red
+                                     : pair.value === "PASS" ? T.green
+                                     : T.text
+                              }} placeholder="e.g. PASS, 36m, 110T"/>
+                            <button type="button" onClick={() => removePair(i)}
+                              style={{ width:36, height:40, borderRadius:8, border:`1px solid ${T.redBrd}`, background:T.redDim, color:T.red, fontWeight:800, fontSize:13, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      {/* Preview */}
+                      <div style={{ marginTop:14, padding:"10px 14px", borderRadius:10, background:"rgba(10,18,32,0.8)", border:`1px solid ${T.border}`, fontSize:11, color:T.textDim, fontFamily:"'IBM Plex Mono',monospace", wordBreak:"break-all", lineHeight:1.7 }}>
+                        <div style={{ fontWeight:700, marginBottom:4, color:T.textMid, fontSize:10, textTransform:"uppercase", letterSpacing:"0.08em" }}>Stored as:</div>
+                        {buildNotes(notePairs) || "—"}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* ── TAB 5: FOLDER ── */}
+              {tab === 5 && (
+                <div style={{ display:"grid", gap:16 }}>
+                  <div style={{ background:T.purpleDim, border:`1px solid ${T.purpleBrd}`, borderRadius:12, padding:16 }}>
+                    <div style={{ fontSize:12, fontWeight:800, color:T.purple, marginBottom:12 }}>📁 Folder Metadata</div>
+                    <div className="ceg">
+                      <F label="Folder ID"><input name="folder_id" value={form.folder_id} onChange={hc} style={IS} placeholder="Auto-generated UUID"/></F>
+                      <F label="Folder Name"><input name="folder_name" value={form.folder_name} onChange={hc} style={IS}/></F>
+                      <F label="Position in Folder"><input name="folder_position" type="number" min={1} value={form.folder_position} onChange={hc} style={IS}/></F>
+                    </div>
+                  </div>
+
+                  {isLinked && (
+                    <div>
+                      <div style={{ fontSize:11, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", color:T.textDim, marginBottom:10 }}>Certificates in folder ({bundle.length})</div>
+                      <div style={{ display:"grid", gap:8 }}>
+                        {bundle.map((item, i) => {
+                          const isMe = String(item.id) === String(id);
+                          return (
+                            <div key={item.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap", padding:"11px 14px", borderRadius:11, border:`1px solid ${isMe?T.accentBrd:T.border}`, background:isMe?T.accentDim:T.card }}>
+                              <div>
+                                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                                  <span style={{ fontSize:12, fontWeight:800, color:T.accent, fontFamily:"'IBM Plex Mono',monospace" }}>{item.certificate_number || "—"}</span>
+                                  {isMe && <span style={{ fontSize:9, fontWeight:800, color:T.accent }}>← THIS</span>}
+                                  <span style={{ fontSize:9, color:T.textDim }}>Pos {item.folder_position || i+1}</span>
+                                </div>
+                                <div style={{ fontSize:11, color:T.textDim }}>{item.equipment_type || "—"} · {item.equipment_description || "—"}</div>
+                              </div>
+                              <div style={{ display:"flex", gap:8 }}>
+                                {!isMe && (
+                                  <button type="button" onClick={() => router.push(`/certificates/${item.id}/edit`)}
+                                    style={{ padding:"6px 12px", borderRadius:8, border:`1px solid ${T.accentBrd}`, background:T.accentDim, color:T.accent, fontWeight:700, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>Edit</button>
+                                )}
+                                <button type="button" onClick={() => handleUnlinkOne(item.id)} disabled={unlinking}
+                                  style={{ padding:"6px 12px", borderRadius:8, border:`1px solid ${T.redBrd}`, background:T.redDim, color:T.red, fontWeight:800, fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>
+                                  {unlinking ? "…" : "Unlink"}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <div style={{ fontSize:11, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", color:T.textDim, marginBottom:10 }}>
+                      {isLinked ? "Add to This Folder" : "Link to Another Certificate"}
+                    </div>
+                    <input value={linkSearch} onChange={e => setLinkSearch(e.target.value)}
+                      placeholder="Search cert number, equipment, client…" style={{ ...IS, marginBottom:10 }}/>
+                    {linkLoading && <div style={{ fontSize:12, color:T.textDim, padding:"6px 0" }}>Searching…</div>}
+                    {!linkLoading && linkSearch.length >= 2 && linkResults.length === 0 && (
+                      <div style={{ fontSize:12, color:T.textDim, padding:"6px 0" }}>No unlinked certificates found</div>
+                    )}
+                    <div style={{ display:"grid", gap:8 }}>
+                      {linkResults.map(cert => (
+                        <div key={cert.id} onClick={() => !linking && handleLink(cert.id)}
+                          style={{ cursor:"pointer", padding:"11px 14px", borderRadius:11, border:`1px solid ${T.border}`, background:T.card }}
+                          onMouseEnter={e => e.currentTarget.style.background = T.accentDim}
+                          onMouseLeave={e => e.currentTarget.style.background = T.card}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap" }}>
+                            <div>
+                              <div style={{ fontSize:13, fontWeight:800, color:T.accent, fontFamily:"'IBM Plex Mono',monospace" }}>{cert.certificate_number || "—"}</div>
+                              <div style={{ fontSize:11, color:T.textDim, marginTop:2 }}>{cert.equipment_description || "—"} · {cert.equipment_type || ""}</div>
+                              {cert.client_name && <div style={{ fontSize:11, color:T.textDim }}>{cert.client_name}</div>}
+                            </div>
+                            <button type="button" disabled={linking}
+                              style={{ padding:"7px 14px", borderRadius:9, border:`1px solid ${T.purpleBrd}`, background:T.purpleDim, color:T.purple, fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+                              {linking ? "Linking…" : "Link →"}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SAVE ROW */}
+              <div style={{ marginTop:20, paddingTop:16, borderTop:`1px solid ${T.border}`, display:"flex", gap:10, flexWrap:"wrap" }}>
+                <SaveBtn/>
+                <button type="button" onClick={() => router.push(`/certificates/${id}`)}
+                  style={{ padding:"12px 18px", borderRadius:11, border:`1px solid ${T.border}`, background:T.card, color:T.textMid, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
-          {saved && (
-            <div style={{ marginTop:10, padding:"9px 12px", borderRadius:9, background:T.greenDim, border:`1px solid ${T.greenBrd}`, color:T.green, fontSize:12, fontWeight:700 }}>
-              ✓ Certificate updated successfully
-            </div>
-          )}
         </div>
-
-        <div className="edit-cols" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, alignItems:"start" }}>
-
-          {/* ── LEFT COLUMN ─────────────────────────────────── */}
-          <div>
-
-            {/* Certificate Identity */}
-            <EditCard title="Certificate Identity" icon="📜" color={T.accent} brd={T.accentBrd}>
-              <FieldRow label="Certificate Number" sublabel="Unique identifier — change with care" value={form.certificate_number} onChange={v=>uf("certificate_number",v)} mono/>
-              <FieldRow label="Certificate Type" value={form.certificate_type} onChange={v=>uf("certificate_type",v)} placeholder="e.g. Load Test Certificate"/>
-              <FieldRow label="Equipment Type" sublabel="Controls which certificate template renders" value={form.equipment_type} onChange={v=>uf("equipment_type",v)} placeholder="e.g. Telehandler"/>
-              <FieldRow label="Equipment Description" value={form.equipment_description} onChange={v=>uf("equipment_description",v)} type="textarea" wide/>
-            </EditCard>
-
-            {/* Equipment Details */}
-            <EditCard title="Equipment Details" icon="🔧" color={T.blue} brd={T.blueBrd}>
-              <FieldRow label="Manufacturer" value={form.manufacturer} onChange={v=>uf("manufacturer",v)} placeholder="e.g. JLG, Genie"/>
-              <FieldRow label="Model" value={form.model} onChange={v=>uf("model",v)}/>
-              <FieldRow label="Serial Number" value={form.serial_number} onChange={v=>uf("serial_number",v)} mono/>
-              <FieldRow label="Fleet Number" value={form.fleet_number} onChange={v=>uf("fleet_number",v)}/>
-              <FieldRow label="Registration Number" value={form.registration_number} onChange={v=>uf("registration_number",v)}/>
-              <FieldRow label="Machine Hours" value={form.machine_hours} onChange={v=>uf("machine_hours",v)} placeholder="e.g. 4250"/>
-            </EditCard>
-
-            {/* Technical Data */}
-            <EditCard title="Technical Data" icon="📊" color={T.green} brd={T.greenBrd}>
-              <FieldRow label="Safe Working Load (SWL)" value={form.swl} onChange={v=>uf("swl",v)} placeholder="e.g. 5T"/>
-              <FieldRow label="Working Pressure / MAWP" value={form.working_pressure||form.mawp} onChange={v=>uf("working_pressure",v)} placeholder="e.g. 8"/>
-              <FieldRow label="Test Pressure" value={form.test_pressure} onChange={v=>uf("test_pressure",v)} placeholder="e.g. 12 (1.5 × MAWP)"/>
-              <FieldRow label="Design Pressure" value={form.design_pressure} onChange={v=>uf("design_pressure",v)}/>
-              <FieldRow label="Pressure Unit" type="select"
-                options={[{value:"bar",label:"bar"},{value:"psi",label:"psi"},{value:"MPa",label:"MPa"},{value:"kPa",label:"kPa"}]}
-                value={form.pressure_unit||"bar"} onChange={v=>uf("pressure_unit",v)}/>
-              <FieldRow label="Capacity / Volume" value={form.capacity_volume} onChange={v=>uf("capacity_volume",v)} placeholder="e.g. 200L"/>
-            </EditCard>
-
-          </div>
-
-          {/* ── RIGHT COLUMN ────────────────────────────────── */}
-          <div>
-
-            {/* Client & Location */}
-            <EditCard title="Client & Location" icon="🏢" color={T.purple} brd={T.purpleBrd}>
-              <FieldRow label="Client" type="select"
-                options={[{value:"",label:"— Select Client —"}, ...clients.map(c=>({value:c.id,label:c.company_name+(c.city?` — ${c.city}`:"")}))]}
-                value={form.client_id} onChange={clientSelected}/>
-              <FieldRow label="Client Name" sublabel="Auto-filled from selection, or type manually" value={form.client_name} onChange={v=>uf("client_name",v)}/>
-              <FieldRow label="Site Location" value={form.location} onChange={v=>uf("location",v)} placeholder="e.g. Orapa Mine, Botswana"/>
-              <FieldRow label="Inspector Name" value={form.inspector_name} onChange={v=>uf("inspector_name",v)}/>
-              <FieldRow label="Inspector ID" value={form.inspector_id} onChange={v=>uf("inspector_id",v)} mono/>
-            </EditCard>
-
-            {/* Dates */}
-            <EditCard title="Dates & Validity" icon="📅" color={T.amber} brd={T.amberBrd}>
-              <FieldRow label="Issue Date" type="date" value={form.issue_date} onChange={v=>uf("issue_date",v)}/>
-              <FieldRow label="Inspection Date" type="date" value={form.inspection_date} onChange={v=>uf("inspection_date",v)}/>
-              <FieldRow label="Expiry Date" type="date" value={form.expiry_date} onChange={v=>uf("expiry_date",v)} highlight/>
-              <FieldRow label="Next Inspection Due" type="date" value={form.next_inspection_due} onChange={v=>uf("next_inspection_due",v)}/>
-            </EditCard>
-
-            {/* Outcome */}
-            <EditCard title="Inspection Outcome" icon="🏁" color={T.red} brd={T.redBrd}>
-              <FieldRow label="Overall Result" type="result" value={form.result||"PASS"} onChange={v=>uf("result",v)}/>
-              <FieldRow label="Defects Found" type="textarea" value={form.defects_found} onChange={v=>uf("defects_found",v)}
-                danger={!!form.defects_found} wide
-                sublabel="Describe all observed defects clearly"/>
-              <FieldRow label="Recommendations" type="textarea" value={form.recommendations} onChange={v=>uf("recommendations",v)} wide/>
-              <FieldRow label="Comments / Remarks" type="textarea" value={form.comments||form.remarks} onChange={v=>uf("comments",v)} wide/>
-            </EditCard>
-
-          </div>
-        </div>
-
-        {/* ── INSPECTION DATA (full width, structured) ────────── */}
-        {hasStructuredNotes ? (
-          <div style={{ marginTop:0 }}>
-            <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.1em", textTransform:"uppercase", color:T.accent, marginBottom:12, paddingLeft:4 }}>
-              — Inspection Data ({family.replace("_"," ")}) —
-            </div>
-            <InspectionDataEditor
-              family={family}
-              notesJson={notesJson}
-              onChange={setNotesJson}
-            />
-          </div>
-        ) : null}
-
-        {/* ── RAW NOTES (always shown, collapsible) ───────────── */}
-        <EditCard
-          title="Raw Notes / Additional Data"
-          icon="📝"
-          color={T.textDim}
-          brd={T.border}
-          defaultOpen={!hasStructuredNotes}
-        >
-          <div style={{ padding:"10px 16px 0", fontSize:11, color:T.textDim, lineHeight:1.6 }}>
-            {hasStructuredNotes
-              ? "The structured editors above write directly to this field. Edit here only for advanced corrections or to add pipe-delimited keys not covered by the form above."
-              : "Notes are stored as JSON or pipe-delimited key:value pairs. Use the structured inspection wizard to populate these fields."
-            }
-          </div>
-          <NotesEditor value={notesJson} onChange={setNotesJson}/>
-        </EditCard>
-
-        {/* ── BOTTOM SAVE ─────────────────────────────────────── */}
-        <div style={{ display:"flex", justifyContent:"flex-end", gap:10, marginTop:6, paddingBottom:32 }}>
-          <button type="button" onClick={() => router.back()}
-            style={{ padding:"11px 20px", borderRadius:10, border:`1px solid ${T.border}`, background:T.card, color:T.textMid, fontWeight:700, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
-            Cancel
-          </button>
-          <button type="button" onClick={handleSave} disabled={saving}
-            style={{
-              padding:"11px 28px", borderRadius:10, border:"none", fontWeight:900, fontSize:14,
-              cursor:saving?"not-allowed":"pointer", fontFamily:"inherit",
-              background:saving?"rgba(255,255,255,0.06)":saved?"linear-gradient(135deg,#34d399,#14b8a6)":"linear-gradient(135deg,#22d3ee,#0891b2)",
-              color:saving?"rgba(240,246,255,0.4)":saved?"#052e16":"#052e16",
-            }}>
-            {saving?"Saving…":saved?"✓ Saved":"💾 Save Changes"}
-          </button>
-        </div>
-
       </div>
     </AppLayout>
+  );
+}
+
+export default function CertificateEditPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight:"100vh", background:"#070e18", display:"flex", alignItems:"center", justifyContent:"center", color:"rgba(240,246,255,0.4)", fontSize:14, fontFamily:"'IBM Plex Sans',sans-serif" }}>Loading…</div>
+    }>
+      <CertificateEditInner/>
+    </Suspense>
   );
 }
