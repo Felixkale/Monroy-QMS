@@ -1,7 +1,7 @@
 // src/app/certificates/[id]/edit/page.jsx
 "use client";
 
-import { Suspense, useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useMemo, useCallback, memo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
@@ -188,6 +188,76 @@ function isJsonNotes(str) {
 }
 
 // ─────────────────────────────────────────────────────────────
+function safeJsonParse(value, fallback = {}) {
+  try {
+    if (!value) return fallback;
+    if (typeof value === "object" && value !== null) return value;
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === "object" ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeSectionPathKey(section) {
+  const raw = String(section || "").trim().toLowerCase();
+  if (!raw || raw === "general") return "general";
+
+  const aliasMap = {
+    checklist: "checklist",
+    "boom configuration": "boom",
+    boom: "boom",
+    "bucket / platform": "bucket",
+    "bucket/platform": "bucket",
+    bucket: "bucket",
+    platform: "bucket",
+    "fork arms": "forks",
+    forks: "forks",
+    "fork arm": "forks",
+    fork: "forks",
+    horse: "horse",
+    trailer: "trailer",
+  };
+
+  return aliasMap[raw] || raw.replace(/\s+/g, "_");
+}
+
+function getEditableInspectionSource(data) {
+  if (isJsonNotes(data?.notes || "")) return data.notes;
+  const extracted = data?.extracted_data;
+  if (extracted && typeof extracted === "object" && !Array.isArray(extracted)) {
+    return JSON.stringify(extracted);
+  }
+  return data?.notes || "";
+}
+
+function mergeInspectionData(baseExtractedData, notesString, notesMode) {
+  const base = safeJsonParse(baseExtractedData, {});
+  if (!notesString) return base;
+
+  if (notesMode === "json" && isJsonNotes(notesString)) {
+    const parsed = safeJsonParse(notesString, {});
+    return {
+      ...base,
+      ...parsed,
+      checklist: { ...(base.checklist || {}), ...(parsed.checklist || {}) },
+      boom: { ...(base.boom || {}), ...(parsed.boom || {}) },
+      bucket: { ...(base.bucket || {}), ...(parsed.bucket || {}) },
+      horse: { ...(base.horse || {}), ...(parsed.horse || {}) },
+      trailer: { ...(base.trailer || {}), ...(parsed.trailer || {}) },
+      forks: Array.isArray(parsed.forks) ? parsed.forks : (Array.isArray(base.forks) ? base.forks : []),
+    };
+  }
+
+  const pipePairs = parseNotesPipe(notesString);
+  const flat = {};
+  pipePairs.forEach(({ key, value }) => {
+    if (key) flat[key] = value;
+  });
+  return { ...base, ...flat };
+}
+
+// ─────────────────────────────────────────────────────────────
 
 function F({ label, children, span = 1 }) {
   return (
@@ -197,6 +267,54 @@ function F({ label, children, span = 1 }) {
     </div>
   );
 }
+
+const JsonInspectionRow = memo(function JsonInspectionRow({ row, rowIndex, onChange, onRemove }) {
+  const upperValue = String(row.value || "").toUpperCase();
+  const dotColor =
+    upperValue === "PASS" || upperValue === "YES" ? "#34d399"
+    : upperValue === "FAIL" || upperValue === "NO" ? "#f87171"
+    : upperValue === "REPAIR_REQUIRED" ? "#fbbf24"
+    : null;
+
+  return (
+    <tr style={{ background: rowIndex % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)" }}>
+      <td className="id-param" title={row.key}>
+        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+          {dotColor
+            ? <span style={{ width:6, height:6, borderRadius:"50%", background:dotColor, flexShrink:0, display:"inline-block" }}/>
+            : <span style={{ width:6, flexShrink:0, display:"inline-block" }}/>}
+          <span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{row.label}</span>
+        </div>
+      </td>
+
+      <td className="id-val">
+        <input
+          value={row.value}
+          onChange={e => onChange(row.id, e.target.value)}
+          spellCheck={false}
+          autoComplete="off"
+          style={{
+            color: valueColor(row.value),
+            fontWeight: /PASS|FAIL|YES|NO|REPAIR/.test(upperValue) ? 800 : 500,
+          }}
+          placeholder="—"
+        />
+      </td>
+
+      <td className="id-del">
+        <button
+          type="button"
+          onClick={() => onRemove(row.id)}
+          title="Remove this field"
+          style={{ width:28, height:28, borderRadius:6, border:`1px solid ${T.redBrd}`, background:"transparent", color:T.red, fontWeight:800, fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", opacity:0.6 }}
+          onMouseEnter={e => e.currentTarget.style.opacity = "1"}
+          onMouseLeave={e => e.currentTarget.style.opacity = "0.6"}>
+          ✕
+        </button>
+      </td>
+    </tr>
+  );
+});
 
 const TABS = ["Certificate","Equipment","Technical","Inspector","Inspection Data","Folder"];
 const CERT_TYPES = ["Certificate of Inspection","Load Test Certificate","Pressure Test Certificate","NDT Certificate","Thorough Examination Certificate"];
@@ -234,6 +352,7 @@ function CertificateEditInner() {
   const [dataSearch,   setDataSearch]   = useState("");
   // collapse sections
   const [collapsed,    setCollapsed]    = useState({});
+  const [baseExtractedData, setBaseExtractedData] = useState({});
 
   const [form, setForm] = useState({
     certificate_number:"", certificate_type:"Certificate of Inspection",
@@ -307,13 +426,16 @@ function CertificateEditInner() {
       folder_position:       data.folder_position != null ? String(data.folder_position) : "",
     });
 
-    const rawNotes = data.notes || "";
+    setBaseExtractedData(data.extracted_data || {});
+    const rawNotes = getEditableInspectionSource(data);
     if (isJsonNotes(rawNotes)) {
       setNotesMode("json");
       setJsonRows(flattenNotesJson(rawNotes));
+      setNotePairs([]);
     } else {
       setNotesMode("pipe");
       setNotePairs(parseNotesPipe(rawNotes));
+      setJsonRows([]);
     }
 
     if (data.folder_id) {
@@ -328,26 +450,36 @@ function CertificateEditInner() {
   const hc = e => setForm(p => ({ ...p, [e.target.name]: e.target.value }));
 
   // JSON rows helpers
-  const updateJsonRow = (rowId, newValue) =>
+  const updateJsonRow = useCallback((rowId, newValue) => {
     setJsonRows(prev => prev.map(r => r.id === rowId ? { ...r, value: newValue } : r));
-  const removeJsonRow = (rowId) =>
+  }, []);
+
+  const removeJsonRow = useCallback((rowId) => {
     setJsonRows(prev => prev.filter(r => r.id !== rowId));
-  const addJsonRow = () => {
-    if (!addKey.trim()) return;
+  }, []);
+
+  const addJsonRow = useCallback(() => {
+    const key = addKey.trim();
+    if (!key) return;
+
     const section = addSection.trim() || "General";
-    const path = section === "General"
-      ? [addKey.trim()]
-      : [section.toLowerCase().replace(/\s+/g,"_"), addKey.trim()];
+    const sectionKey = normalizeSectionPathKey(section);
+    const path = sectionKey === "general"
+      ? [key]
+      : [sectionKey, key];
+
     setJsonRows(prev => [...prev, {
-      id: Date.now(),
+      id: Date.now() + Math.random(),
       section,
-      key: addKey.trim(),
-      label: formatFieldLabel(addKey.trim()),
+      key,
+      label: formatFieldLabel(key),
       value: addValue.trim(),
       path,
     }]);
-    setAddKey(""); setAddValue("");
-  };
+
+    setAddKey("");
+    setAddValue("");
+  }, [addKey, addSection, addValue]);
 
   // Pipe pairs helpers
   const updatePair  = (i, field, val) => setNotePairs(p => p.map((x, j) => j === i ? { ...x, [field]: val } : x));
@@ -363,6 +495,9 @@ function CertificateEditInner() {
   async function handleSave() {
     setSaving(true); setError(""); setSuccess("");
     try {
+      const finalNotes = buildFinalNotes();
+      const mergedInspectionData = mergeInspectionData(baseExtractedData, finalNotes, notesMode);
+
       const { error: e } = await supabase.from("certificates").update({
         certificate_number:    form.certificate_number    || null,
         certificate_type:      form.certificate_type      || null,
@@ -406,7 +541,8 @@ function CertificateEditInner() {
         recommendations:       form.recommendations       || null,
         comments:              form.comments              || null,
         remarks:               form.comments              || null,
-        notes:                 buildFinalNotes()          || null,
+        notes:                 finalNotes                || null,
+        extracted_data:         mergedInspectionData      || null,
         folder_id:             form.folder_id             || null,
         folder_name:           form.folder_name           || null,
         folder_position:       form.folder_position ? Number(form.folder_position) : null,
@@ -451,24 +587,31 @@ function CertificateEditInner() {
   const isLinked = bundle.length > 0;
 
   // ── Group json rows by section ──────────────────────────────
-  const groupedRows = useCallback(() => {
+  const groupedRows = useMemo(() => {
     const groups = {};
-    const filtered = dataSearch.trim()
+    const query = dataSearch.trim().toLowerCase();
+
+    const filtered = query
       ? jsonRows.filter(r =>
-          r.label.toLowerCase().includes(dataSearch.toLowerCase()) ||
-          r.value.toLowerCase().includes(dataSearch.toLowerCase()) ||
-          r.section.toLowerCase().includes(dataSearch.toLowerCase())
+          String(r.label || "").toLowerCase().includes(query) ||
+          String(r.value || "").toLowerCase().includes(query) ||
+          String(r.section || "").toLowerCase().includes(query)
         )
       : jsonRows;
+
     filtered.forEach(row => {
       if (!groups[row.section]) groups[row.section] = [];
       groups[row.section].push(row);
     });
+
     return groups;
   }, [jsonRows, dataSearch]);
 
-  const toggleCollapse = (sec) =>
-    setCollapsed(p => ({ ...p, [sec]: !p[sec] }));
+  const sectionEntries = useMemo(() => Object.entries(groupedRows), [groupedRows]);
+  const sectionCount = sectionEntries.length;
+
+  const toggleCollapse = useCallback((sec) =>
+    setCollapsed(p => ({ ...p, [sec]: !p[sec] })), []);
 
   const SaveBtn = () => (
     <button type="button" onClick={handleSave} disabled={saving}
@@ -686,7 +829,7 @@ function CertificateEditInner() {
                       <div style={{ fontSize:14, fontWeight:800, color:T.text }}>Inspection Data</div>
                       <div style={{ fontSize:11, color:T.textDim, marginTop:2 }}>
                         {notesMode === "json"
-                          ? `${jsonRows.length} fields across ${Object.keys(groupedRows()).length} sections`
+                          ? `${jsonRows.length} fields across ${sectionCount} sections`
                           : `${notePairs.length} fields`}
                       </div>
                     </div>
@@ -727,10 +870,10 @@ function CertificateEditInner() {
                         </div>
                       ) : (
                         <div style={{ border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden" }}>
-                          {Object.entries(groupedRows()).map(([section, rows], gi) => {
+                          {sectionEntries.map(([section, rows], gi) => {
                             const isCollapsed = collapsed[section];
                             return (
-                              <div key={section} style={{ borderBottom: gi < Object.keys(groupedRows()).length - 1 ? `1px solid ${T.border}` : "none" }}>
+                              <div key={section} style={{ borderBottom: gi < sectionEntries.length - 1 ? `1px solid ${T.border}` : "none" }}>
                                 {/* Section header */}
                                 <div className="id-sec-hdr" onClick={() => toggleCollapse(section)}>
                                   <span className="id-sec-chevron" style={{ transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)" }}>▾</span>
@@ -743,50 +886,13 @@ function CertificateEditInner() {
                                   <table className="id-table">
                                     <tbody>
                                       {rows.map((row, ri) => (
-                                        <tr key={row.id} style={{ background: ri % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)" }}>
-                                          {/* Parameter name */}
-                                          <td className="id-param" title={row.key}>
-                                            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                                              {/* Result dot */}
-                                              {(() => {
-                                                const vu = row.value.toUpperCase();
-                                                const dotColor =
-                                                  vu === "PASS" || vu === "YES" ? "#34d399"
-                                                  : vu === "FAIL" || vu === "NO" ? "#f87171"
-                                                  : vu === "REPAIR_REQUIRED" ? "#fbbf24"
-                                                  : null;
-                                                return dotColor
-                                                  ? <span style={{ width:6, height:6, borderRadius:"50%", background:dotColor, flexShrink:0, display:"inline-block" }}/>
-                                                  : <span style={{ width:6, flexShrink:0, display:"inline-block" }}/>;
-                                              })()}
-                                              <span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{row.label}</span>
-                                            </div>
-                                          </td>
-
-                                          {/* Value input */}
-                                          <td className="id-val">
-                                            <input
-                                              value={row.value}
-                                              onChange={e => updateJsonRow(row.id, e.target.value)}
-                                              style={{
-                                                color: valueColor(row.value),
-                                                fontWeight: /PASS|FAIL|YES|NO|REPAIR/.test(row.value.toUpperCase()) ? 800 : 500,
-                                              }}
-                                              placeholder="—"
-                                            />
-                                          </td>
-
-                                          {/* Delete button */}
-                                          <td className="id-del">
-                                            <button type="button" onClick={() => removeJsonRow(row.id)}
-                                              title="Remove this field"
-                                              style={{ width:28, height:28, borderRadius:6, border:`1px solid ${T.redBrd}`, background:"transparent", color:T.red, fontWeight:800, fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", opacity:0.6 }}
-                                              onMouseEnter={e => e.currentTarget.style.opacity = "1"}
-                                              onMouseLeave={e => e.currentTarget.style.opacity = "0.6"}>
-                                              ✕
-                                            </button>
-                                          </td>
-                                        </tr>
+                                        <JsonInspectionRow
+                                          key={row.id}
+                                          row={row}
+                                          rowIndex={ri}
+                                          onChange={updateJsonRow}
+                                          onRemove={removeJsonRow}
+                                        />
                                       ))}
                                     </tbody>
                                   </table>
