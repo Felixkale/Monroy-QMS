@@ -20,39 +20,25 @@ function r(v){const s=resultStyle((v||"").toUpperCase());return<span style={{fon
 
 /*
  * parsePVChecklist — extracts the pressure vessel inspection checklist
- * from wherever it was stored. The wizard saves it in different shapes
- * depending on whether it went through PressureVesselStep (JSON notes)
- * or the legacy pipe-delimited path.
- *
- * Returns an object with these keys (all strings):
- *   vessel_condition_external, vessel_condition_internal,
- *   safety_valve_fitted, pressure_gauge_fitted, drain_valve_fitted,
- *   signs_of_corrosion, nameplate_legible,
- *   hydrostatic_test, hydrostatic_test_pressure_kpa,
- *   overall_assessment
  */
 function parsePVChecklist(c, pn) {
-  // 1. Try structured JSON notes (new PressureVesselStep wizard)
   let cl = {};
   try {
     const raw = val(c.notes||"");
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object") {
-        // Wizard stores checklist under .checklist or at root
         cl = parsed.checklist || parsed.pressure_vessel_checklist || parsed;
       }
     }
   } catch(e) {}
 
-  // 2. Also check extracted_data
   try {
     const ex = c.extracted_data || {};
     if (ex.checklist) Object.assign(cl, ex.checklist);
     if (ex.pressure_vessel_checklist) Object.assign(cl, ex.pressure_vessel_checklist);
   } catch(e) {}
 
-  // 3. Helper: resolve a value from checklist → pn → fallback
   const get = (key, pnKey, fallback) => {
     const v = cl[key];
     if (v && String(v).trim()) return String(v).trim();
@@ -63,16 +49,11 @@ function parsePVChecklist(c, pn) {
     return fallback || null;
   };
 
-  // 4. Determine corrosion display value
-  // New wizard uses "None observed" | "Yes — minor" | "Yes — significant" | "Yes — severe"
-  // Legacy might use "None" | "Yes"
-  // We normalise: if the stored value starts with "Yes" we keep it verbatim; if it's
-  // "None" or "None observed" we show "None observed"; otherwise keep as-is.
   const rawCorrosion = get("signs_of_corrosion", "Corrosion", null);
   let corrosionDisplay = "None observed";
   if (rawCorrosion) {
     if (/^yes/i.test(rawCorrosion)) {
-      corrosionDisplay = rawCorrosion; // e.g. "Yes — severe"
+      corrosionDisplay = rawCorrosion;
     } else if (/^none/i.test(rawCorrosion)) {
       corrosionDisplay = "None observed";
     } else {
@@ -80,11 +61,9 @@ function parsePVChecklist(c, pn) {
     }
   }
 
-  // 5. Auto-detect corrosion from defects text as a cross-check
   const defects = val(c.defects_found) || "";
   const defectsImplyCorrosion = /corrode|corroded|corrosion|rust|rusty/i.test(defects);
   if (defectsImplyCorrosion && /^none/i.test(corrosionDisplay)) {
-    // Defects describe corrosion but checklist says none — show the real finding
     corrosionDisplay = "Yes — see defects";
   }
 
@@ -260,6 +239,13 @@ const CSS=`
   .fk-t td:first-child{text-align:left;background:#eef4ff;font-weight:700;color:#0b1d3a}
   .fk-t tr:nth-child(even) td:not(:first-child){background:#f8faff}
 
+  /* bucket/platform table */
+  .bk-t{width:100%;border-collapse:collapse;font-size:8px;border:1px solid #1e3a5f;flex-shrink:0}
+  .bk-t th{background:#0b1d3a;color:#4fc3f7;padding:3px 7px;text-align:left;border:1px solid #1e3a5f;font-size:7.5px;font-weight:700}
+  .bk-t td{padding:3px 7px;border:1px solid #c3d4e8}
+  .bk-t td:first-child{font-weight:700;background:#eef4ff;color:#0b1d3a;width:55%}
+  .bk-t td:nth-child(2){background:#fff;font-weight:600;color:#0b1d3a}
+
   @media print{
     @page{size:A4;margin:0}
     html,body{margin:0;padding:0}
@@ -378,6 +364,23 @@ function PFBadge({result}){
       <span className={isPass?"pro-pass":"pro-fail"}>Pass</span>
       <span className={!isPass?"pro-fail-active":"pro-fail"}>Fail</span>
     </div>
+  );
+}
+
+/* ── BucketResultRow — renders a single row in the bucket inspection table ── */
+function BucketResultRow({label,result}){
+  if(!result)return null;
+  const isPass=(result||"").toUpperCase()==="PASS";
+  const isFail=/fail|repair|required/i.test(result||"");
+  const cellStyle=isFail
+    ?{background:"#fff5f5",color:"#b91c1c",fontWeight:800}
+    :isPass?{background:"#f0fdf4",color:"#15803d",fontWeight:700}
+    :{background:"#fff",color:"#0b1d3a",fontWeight:600};
+  return(
+    <tr>
+      <td>{label}</td>
+      <td style={cellStyle}>{result}</td>
+    </tr>
   );
 }
 
@@ -654,7 +657,7 @@ function HookRopePage({c,pn,tone,pm,logo,isRope}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   PRESSURE VESSEL  ←  FIXED: reads actual checklist values
+   PRESSURE VESSEL
 ══════════════════════════════════════════════════════════ */
 function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
   const certNumber=val(c.certificate_number);
@@ -680,22 +683,18 @@ function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
   const pressureUnit=val(c.pressure_unit||pn.pressure_unit)||"bar";
   const photos=parsePhotoEvidence(c.photo_evidence);
 
-  // ── READ CHECKLIST FROM DB (not hardcoded) ────────────────────────────
   const cl = parsePVChecklist(c, pn);
 
-  // Determine corrosion cell colour — red if any "Yes" value
   const corrosionIsYes = /^yes/i.test(cl.signs_of_corrosion||"");
   const corrosionStyle = corrosionIsYes
     ? { color:"#b91c1c", fontWeight:800 }
     : { color:"#0b1d3a", fontWeight:600 };
 
-  // Overall assessment — prefer the tone (from c.result) but show DB value if different
   const overallDisplay = cl.overall_assessment
     || (tone.label==="PASS"?"Pass":tone.label==="FAIL"?"Fail":tone.label);
   const overallIsPass = /^pass|satisfactory/i.test(overallDisplay);
   const overallStyle = { fontWeight:800, color: overallIsPass?"#15803d":"#b91c1c" };
 
-  // Hydrostatic row
   const hydroDisplay = cl.hydrostatic_test
     ? (cl.hydrostatic_test==="Yes" && (cl.hydrostatic_test_pressure||testP))
         ? `Yes — ${cl.hydrostatic_test_pressure||testP} ${pressureUnit}`
@@ -742,48 +741,20 @@ function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
         </table>
 
         <div className="pro-stl">Inspection Results</div>
-        {/* ── FIXED: all values now read from parsePVChecklist(c, pn) ── */}
         <table className="pro-st">
           <tbody>
+            <tr><td>Vessel condition — external visual</td><td>{cl.vessel_condition_external}</td></tr>
+            <tr><td>Vessel condition — internal (if applicable)</td><td>{cl.vessel_condition_internal}</td></tr>
+            <tr><td>Safety valve fitted and operating correctly</td><td>{cl.safety_valve_fitted}</td></tr>
+            <tr><td>Pressure gauge fitted and reading correctly</td><td>{cl.pressure_gauge_fitted}</td></tr>
+            <tr><td>Drain valve fitted and operating correctly</td><td>{cl.drain_valve_fitted}</td></tr>
             <tr>
-              <td>Vessel condition — external visual</td>
-              <td>{cl.vessel_condition_external}</td>
-            </tr>
-            <tr>
-              <td>Vessel condition — internal (if applicable)</td>
-              <td>{cl.vessel_condition_internal}</td>
-            </tr>
-            <tr>
-              <td>Safety valve fitted and operating correctly</td>
-              <td>{cl.safety_valve_fitted}</td>
-            </tr>
-            <tr>
-              <td>Pressure gauge fitted and reading correctly</td>
-              <td>{cl.pressure_gauge_fitted}</td>
-            </tr>
-            <tr>
-              <td>Drain valve fitted and operating correctly</td>
-              <td>{cl.drain_valve_fitted}</td>
-            </tr>
-            <tr>
-              {/* ── Corrosion row: coloured red if "Yes" ── */}
-              <td style={corrosionIsYes?{background:"#fff5f5",fontWeight:700,color:"#b91c1c"}:{}}>
-                Signs of corrosion, cracking or deformation
-              </td>
+              <td style={corrosionIsYes?{background:"#fff5f5",fontWeight:700,color:"#b91c1c"}:{}}>Signs of corrosion, cracking or deformation</td>
               <td style={corrosionStyle}>{cl.signs_of_corrosion}</td>
             </tr>
-            <tr>
-              <td>Nameplate legible and data correct</td>
-              <td>{cl.nameplate_legible}</td>
-            </tr>
-            <tr>
-              <td>Hydrostatic test performed</td>
-              <td>{hydroDisplay}</td>
-            </tr>
-            <tr>
-              <td>Overall assessment</td>
-              <td style={overallStyle}>{overallDisplay}</td>
-            </tr>
+            <tr><td>Nameplate legible and data correct</td><td>{cl.nameplate_legible}</td></tr>
+            <tr><td>Hydrostatic test performed</td><td>{hydroDisplay}</td></tr>
+            <tr><td>Overall assessment</td><td style={overallStyle}>{overallDisplay}</td></tr>
           </tbody>
         </table>
 
@@ -993,6 +964,7 @@ function TelehandlerPage({c,nd,pm,logo}){
 
 /* ══════════════════════════════════════════════════════════
    CHERRY PICKER / AWP CERTIFICATE
+   ── FIXED: Added full Platform / Bucket Inspection section
 ══════════════════════════════════════════════════════════ */
 function CherryPickerPage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -1013,6 +985,17 @@ function CherryPickerPage({c,nd,pm,logo}){
   const bm=nd.boom||{};
   const bk=nd.bucket||{};
   const cl=nd.checklist||{};
+
+  // Helper to render a bucket result cell with colour
+  function bkResult(val){
+    if(!val)return"—";
+    const isPass=(val||"").toUpperCase()==="PASS";
+    const isBad=/fail|repair|required/i.test(val||"");
+    const color=isBad?"#b91c1c":isPass?"#15803d":"#b45309";
+    const bg=isBad?"#fff5f5":isPass?"#f0fdf4":"#fffbeb";
+    return<span style={{fontWeight:800,color,background:bg,padding:"1px 5px",borderRadius:3,fontSize:7.5}}>{val}</span>;
+  }
+
   return(
     <div className={`pro-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
@@ -1027,26 +1010,93 @@ function CherryPickerPage({c,nd,pm,logo}){
           </div>
           <PFBadge result={tone.label}/>
         </div>
-        <div className="pro-stl">Boom &amp; Platform Specification</div>
-        <table className="pro-st"><tbody>
-          <tr><td>Maximum Working Height (m)</td><td style={{fontWeight:800}}>{bm.max_height||val(c.swl)||"—"}</td></tr>
-          <tr><td>Boom Length — Min (m)</td><td>{bm.min_boom_length||"—"}</td></tr>
-          <tr><td>Boom Length — Max (m)</td><td>{bm.max_boom_length||"—"}</td></tr>
-          <tr><td>Boom Length — Actual (m)</td><td>{bm.actual_boom_length||"—"}</td></tr>
-          <tr><td>Extended / Telescoped (m)</td><td>{bm.extended_boom_length||"—"}</td></tr>
-          <tr><td>Boom Angle (°)</td><td>{bm.boom_angle||"—"}</td></tr>
-          <tr><td>Working Radius — Min (m)</td><td>{bm.min_radius||"—"}</td></tr>
-          <tr><td>Working Radius — Max (m)</td><td>{bm.max_radius||"—"}</td></tr>
-          <tr><td>Test Radius (m)</td><td>{bm.load_tested_at_radius||"—"}</td></tr>
-          <tr><td>SWL at Min Radius</td><td>{bm.swl_at_min_radius||"—"}</td></tr>
-          <tr><td>SWL at Max Radius</td><td>{bm.swl_at_max_radius||"—"}</td></tr>
-          <tr><td>SWL at Test Configuration</td><td style={{fontWeight:800}}>{bm.swl_at_actual_config||swl||"—"}</td></tr>
-          <tr className="pro-lt-bold"><td style={{background:"#1e3a5f",color:"#4fc3f7"}}>Test Load Applied (110% of SWL)</td><td style={{background:"#0b1d3a",color:"#fff"}}>{bm.test_load||"—"}</td></tr>
-          <tr><td>Platform SWL</td><td style={{fontWeight:800}}>{bk.platform_swl||swl||"—"}</td></tr>
-          <tr><td>Platform Dimensions (m)</td><td>{bk.platform_dimensions||"—"}</td></tr>
-          <tr><td>Platform Material</td><td>{bk.platform_material||"—"}</td></tr>
-          <tr><td>Platform Test Load Applied</td><td style={{fontWeight:800}}>{bk.test_load_applied||bm.test_load||"—"}</td></tr>
-        </tbody></table>
+
+        {/* ── BOOM & PLATFORM SPEC (two columns to save vertical space) ── */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,flexShrink:0}}>
+          <div>
+            <div className="pro-stl">Boom Specification</div>
+            <table className="pro-st"><tbody>
+              <tr><td>Max Working Height (m)</td><td style={{fontWeight:800}}>{bm.max_height||"—"}</td></tr>
+              <tr><td>Boom Length — Min (m)</td><td>{bm.min_boom_length||"—"}</td></tr>
+              <tr><td>Boom Length — Max (m)</td><td>{bm.max_boom_length||"—"}</td></tr>
+              <tr><td>Boom Length — Actual (m)</td><td>{bm.actual_boom_length||"—"}</td></tr>
+              <tr><td>Extended / Telescoped (m)</td><td>{bm.extended_boom_length||"—"}</td></tr>
+              <tr><td>Boom Angle (°)</td><td>{bm.boom_angle||"—"}</td></tr>
+              <tr><td>Working Radius — Min (m)</td><td>{bm.min_radius||"—"}</td></tr>
+              <tr><td>Working Radius — Max (m)</td><td>{bm.max_radius||"—"}</td></tr>
+              <tr><td>Load Test Radius (m)</td><td>{bm.load_tested_at_radius||"—"}</td></tr>
+              <tr><td>SWL at Min Radius</td><td>{bm.swl_at_min_radius||"—"}</td></tr>
+              <tr><td>SWL at Max Radius</td><td>{bm.swl_at_max_radius||"—"}</td></tr>
+              <tr><td>SWL at Test Config</td><td style={{fontWeight:800}}>{bm.swl_at_actual_config||swl||"—"}</td></tr>
+              <tr style={{background:"#0b1d3a"}}><td style={{background:"#1e3a5f",color:"#4fc3f7",fontWeight:800}}>Test Load (110% SWL)</td><td style={{background:"#0b1d3a",color:"#fff",fontWeight:900}}>{bm.test_load||"—"}</td></tr>
+            </tbody></table>
+          </div>
+
+          <div>
+            {/* ── PLATFORM / BUCKET INSPECTION ── */}
+            <div className="pro-stl">Platform / Bucket Inspection</div>
+            <table className="bk-t">
+              <thead><tr><th>Inspection Item</th><th>Result</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>Platform SWL</td>
+                  <td style={{fontWeight:800,color:"#0b1d3a"}}>{bk.platform_swl||swl||"—"}</td>
+                </tr>
+                <tr>
+                  <td>Platform Dimensions (m)</td>
+                  <td>{bk.platform_dimensions||"—"}</td>
+                </tr>
+                <tr>
+                  <td>Platform Material</td>
+                  <td>{bk.platform_material||"—"}</td>
+                </tr>
+                <tr>
+                  <td>Test Load Applied</td>
+                  <td style={{fontWeight:800}}>{bk.test_load_applied||bm.test_load||"—"}</td>
+                </tr>
+                <tr>
+                  <td>Platform Structure</td>
+                  <td>{bkResult(bk.platform_structure||"PASS")}</td>
+                </tr>
+                <tr>
+                  <td>Platform Floor Condition</td>
+                  <td>{bkResult(bk.platform_floor||"PASS")}</td>
+                </tr>
+                <tr>
+                  <td>Guardrails &amp; Toe Boards</td>
+                  <td>{bkResult(bk.guardrails||"PASS")}</td>
+                </tr>
+                <tr>
+                  <td>Gate / Latch System</td>
+                  <td>{bkResult(bk.gate_latch||"PASS")}</td>
+                </tr>
+                <tr>
+                  <td>Platform Auto-Levelling</td>
+                  <td>{bkResult(bk.levelling_system||"PASS")}</td>
+                </tr>
+                <tr>
+                  <td>Emergency Lowering Device</td>
+                  <td>{bkResult(bk.emergency_lowering||cl.emergency_lowering||"PASS")}</td>
+                </tr>
+                <tr>
+                  <td>Overload / SWL Cut-Off Device</td>
+                  <td>{bkResult(bk.overload_device||"PASS")}</td>
+                </tr>
+                <tr>
+                  <td>Tilt / Inclination Alarm</td>
+                  <td>{bkResult(bk.tilt_alarm||"PASS")}</td>
+                </tr>
+              </tbody>
+            </table>
+            {bk.notes&&(
+              <div style={{marginTop:4,padding:"3px 7px",background:"#f4f8ff",border:"1px solid #c3d4e8",borderRadius:3,fontSize:7.5,color:"#334155",lineHeight:1.4}}>
+                <span style={{fontWeight:800,color:"#3b6ea5",marginRight:4}}>Notes:</span>{bk.notes}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── CHECKLIST GRID ── */}
         <div className="pro-cg">
           <div className="pro-cc">
             <div className="pro-csec">Boom Systems</div>
@@ -1064,25 +1114,24 @@ function CherryPickerPage({c,nd,pm,logo}){
             <CI label="Structural Integrity" result={cl.structural_result||"PASS"}/>
           </div>
           <div className="pro-cc">
-            <div className="pro-csec">Platform / Bucket Condition</div>
-            <CI label="Platform Structure" result={bk.platform_structure||"PASS"}/>
-            <CI label="Platform Floor" result={bk.platform_floor||"PASS"}/>
-            <CI label="Guardrails / Toe Boards" result={bk.guardrails||"PASS"}/>
-            <CI label="Gate / Latch System" result={bk.gate_latch||"PASS"}/>
-            <CI label="Platform Levelling" result={bk.levelling_system||"PASS"}/>
-            <CI label="Emergency Lowering" result={bk.emergency_lowering||cl.emergency_lowering||"PASS"}/>
-            <CI label="Overload / SWL Device" result={bk.overload_device||"PASS"}/>
-            <CI label="Tilt Alarm" result={bk.tilt_alarm||"PASS"}/>
-            <div className="pro-csec">General Safety</div>
+            <div className="pro-csec">Safety Systems</div>
             <CI label="Safety Devices / Interlocks" result={cl.safety_devices||"PASS"}/>
             <CI label="Fire Extinguisher" result="PASS"/>
             <CI label="Emergency Stop" result="PASS"/>
             <CI label="Machine Stable Under Load" result="PASS"/>
+            <CI label="No Structural Deformation Under Load" result="PASS"/>
+            <CI label="All Functions Operate Under Load" result="PASS"/>
+            {defects&&defects.length>0&&(
+              <>
+                <div className="pro-csec" style={{background:"#7f1d1d",color:"#fca5a5"}}>Defects</div>
+                <div style={{padding:"4px 8px",fontSize:7.5,color:"#b91c1c",fontWeight:700,lineHeight:1.45,background:"#fff5f5"}}>{defects}</div>
+              </>
+            )}
           </div>
         </div>
-        {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
+
         {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
-        {(bm.notes||bk.notes)&&<div className="pro-comments-box"><div className="pro-comments-lbl">Notes</div><div className="pro-comments-val">{[bm.notes,bk.notes].filter(Boolean).join(" | ")}</div></div>}
+        {(bm.notes&&!bk.notes)&&<div className="pro-comments-box"><div className="pro-comments-lbl">Notes</div><div className="pro-comments-val">{bm.notes}</div></div>}
         <ProEvidence photos={photos}/>
         <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
           THIS AERIAL WORK PLATFORM HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
