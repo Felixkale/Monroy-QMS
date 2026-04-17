@@ -272,6 +272,7 @@ function buildCherryPickerNotes(cp) {
 
   const bucketMap = {
     platform_swl:"platform_swl", bucket_serial:"serial_number", bucket_make:"manufacturer",
+    platform_dimensions:"platform_dimensions", platform_material:"platform_material",
     test_load_applied:"test_load_applied", platform_structure:"platform_structure",
     platform_floor:"platform_floor", guardrails:"guardrails", toe_boards:"toe_boards",
     gate_latch:"gate_latch", platform_mounting:"platform_mounting", rotation:"rotation",
@@ -309,7 +310,9 @@ function parseCherryPickerNotes(notesStr) {
     boom_structure:"PASS",boom_pins:"PASS",boom_wear:"PASS",
     luffing_system:"PASS",slew_system:"PASS",hoist_system:"PASS",
     lmi_test:"PASS",anti_two_block:"PASS",boom_notes:"",
-    platform_swl:"",bucket_serial:"",bucket_make:"",test_load_applied:"",
+    platform_swl:"",bucket_serial:"",bucket_make:"",
+    platform_dimensions:"",platform_material:"",
+    test_load_applied:"",
     platform_structure:"PASS",platform_floor:"PASS",guardrails:"PASS",
     toe_boards:"PASS",gate_latch:"PASS",platform_mounting:"PASS",
     rotation:"PASS",harness_anchors:"PASS",swl_marking:"PASS",
@@ -359,6 +362,8 @@ function parseCherryPickerNotes(notesStr) {
     platform_swl:          g(bk,"platform_swl","swl","bucket_swl"),
     bucket_serial:         g(bk,"serial_number","bucket_serial"),
     bucket_make:           g(bk,"manufacturer","make"),
+    platform_dimensions:   g(bk,"platform_dimensions","dimensions"),
+    platform_material:     g(bk,"platform_material","material"),
     test_load_applied:     g(bk,"test_load_applied","test_load","load_test"),
     platform_structure:    g(bk,"platform_structure","structure") || "PASS",
     platform_floor:        g(bk,"platform_floor","floor_condition") || "PASS",
@@ -611,7 +616,9 @@ function CherryPickerEditor({ cp, onChange }) {
         <F label="Platform SWL">{inp("platform_swl","e.g. 350KG")}</F>
         <F label="Test Load Applied (110%)">{inp("test_load_applied","e.g. 385KG")}</F>
         <F label="Bucket Serial Number">{inp("bucket_serial","e.g. BKT-001")}</F>
-        <F label="Bucket Manufacturer">{inp("bucket_make","e.g. Genie")}</F>
+        <F label="Bucket Manufacturer">{inp("bucket_make","e.g. Genie / Manitou")}</F>
+        <F label="Platform Dimensions (m)">{inp("platform_dimensions","e.g. 1.2 x 0.8")}</F>
+        <F label="Platform Material">{inp("platform_material","e.g. Steel / GRP")}</F>
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:6, marginBottom:8 }}>
         <PFChip label="Platform Structure"              value={cp.platform_structure||"PASS"}  onChange={v => set("platform_structure",v)}/>
