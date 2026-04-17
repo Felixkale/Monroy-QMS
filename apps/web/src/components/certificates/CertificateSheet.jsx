@@ -1131,7 +1131,7 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
         {/* Cert header row */}
         <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
           <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
-            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Cherrypicker Load Test Certificate</div>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Cherry Picker Load Test Certificate</div>
             <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
             <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap",alignItems:"center"}}>
               {expiryDate&&(
@@ -1208,7 +1208,7 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
         {photos.length>0&&<ProEvidence photos={photos.slice(0,Math.ceil(photos.length/2))}/>}
 
         <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
-          THIS AERIAL WORK PLATFORM HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
+          THIS CHERRY PICKER HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
           THIS CERTIFICATE IS VALID FOR 12 MONTHS FROM DATE OF ISSUE.
         </div>
       </div>
@@ -1271,7 +1271,7 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
         {/* Bucket cert header row */}
         <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
           <div style={{border:"2px solid #f97316",borderRadius:4,padding:"7px 10px",background:"#fff7ed"}}>
-            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Work Platform / Bucket Inspection Certificate</div>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Bucket Load Test Certificate</div>
             <div style={{fontSize:10,fontWeight:700,color:"#ea580c",marginTop:2}}>{bucketCertNo}</div>
             <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap",alignItems:"center"}}>
               {bucketExpiry&&(
@@ -1290,10 +1290,10 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
         </div>
 
         {/* Bucket identification details */}
-        <div className="pro-stl" style={{borderLeftColor:"#f97316"}}>Platform / Bucket Identification</div>
+        <div className="pro-stl" style={{borderLeftColor:"#f97316"}}>Bucket Identification</div>
         <table className="pro-st"><tbody>
           <tr>
-            <td style={{width:"55%"}}>Bucket / Platform Serial Number</td>
+            <td style={{width:"55%"}}>Bucket Serial Number</td>
             <td style={{fontFamily:"monospace",fontWeight:900,fontSize:10,color:"#0b1d3a"}}>{bucketSerial}</td>
           </tr>
           <tr><td>Manufacturer / Make</td><td>{bucketMake}</td></tr>
