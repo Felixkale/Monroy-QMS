@@ -1,6 +1,8 @@
 // src/components/certificates/CertificateSheet.jsx
 "use client";
 
+import { useState } from "react";
+
 /* ── helpers ─────────────────────────────────────────────── */
 function val(v){return v&&String(v).trim()!==""?String(v).trim():null;}
 function formatDate(raw){if(!raw)return null;const d=new Date(raw);if(isNaN(d.getTime()))return raw;return d.toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"numeric"});}
@@ -19,9 +21,6 @@ function detectFail(defects,...kws){if(!defects)return"PASS";const d=defects.toL
 function parsePhotoEvidence(raw){if(!raw)return[];if(Array.isArray(raw))return raw;if(typeof raw==="string"){try{const p=JSON.parse(raw);return Array.isArray(p)?p:[];}catch(e){return[];}}return[];}
 function r(v){const s=resultStyle((v||"").toUpperCase());return<span style={{fontSize:8,fontWeight:800,color:s.color,background:s.bg,border:`1px solid ${s.brd}`,padding:"1px 6px",borderRadius:3,whiteSpace:"nowrap"}}>{s.label}</span>;}
 
-/*
- * parsePVChecklist — extracts the pressure vessel inspection checklist
- */
 function parsePVChecklist(c, pn) {
   let cl = {};
   try {
@@ -33,13 +32,11 @@ function parsePVChecklist(c, pn) {
       }
     }
   } catch(e) {}
-
   try {
     const ex = c.extracted_data || {};
     if (ex.checklist) Object.assign(cl, ex.checklist);
     if (ex.pressure_vessel_checklist) Object.assign(cl, ex.pressure_vessel_checklist);
   } catch(e) {}
-
   const get = (key, pnKey, fallback) => {
     const v = cl[key];
     if (v && String(v).trim()) return String(v).trim();
@@ -49,25 +46,16 @@ function parsePVChecklist(c, pn) {
     }
     return fallback || null;
   };
-
   const rawCorrosion = get("signs_of_corrosion", "Corrosion", null);
   let corrosionDisplay = "None observed";
   if (rawCorrosion) {
-    if (/^yes/i.test(rawCorrosion)) {
-      corrosionDisplay = rawCorrosion;
-    } else if (/^none/i.test(rawCorrosion)) {
-      corrosionDisplay = "None observed";
-    } else {
-      corrosionDisplay = rawCorrosion;
-    }
+    if (/^yes/i.test(rawCorrosion)) corrosionDisplay = rawCorrosion;
+    else if (/^none/i.test(rawCorrosion)) corrosionDisplay = "None observed";
+    else corrosionDisplay = rawCorrosion;
   }
-
   const defects = val(c.defects_found) || "";
   const defectsImplyCorrosion = /corrode|corroded|corrosion|rust|rusty/i.test(defects);
-  if (defectsImplyCorrosion && /^none/i.test(corrosionDisplay)) {
-    corrosionDisplay = "Yes — see defects";
-  }
-
+  if (defectsImplyCorrosion && /^none/i.test(corrosionDisplay)) corrosionDisplay = "Yes — see defects";
   return {
     vessel_condition_external: get("vessel_condition_external", null, "Satisfactory"),
     vessel_condition_internal: get("vessel_condition_internal", null, "Satisfactory"),
@@ -84,6 +72,7 @@ function parsePVChecklist(c, pn) {
 
 /* ── CSS ─────────────────────────────────────────────────── */
 const CSS=`
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700;800;900&display=swap');
   @page { size: A4; margin: 0; }
   .cs-wrap{background:rgba(10,18,32,0.92);border:1px solid rgba(148,163,184,0.12);border-radius:16px;padding:16px;display:flex;justify-content:center;flex-direction:column;align-items:center;gap:16px}
   .cs-page{background:#fff;width:210mm;height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28);overflow:hidden;page-break-after:always;break-after:page;}
@@ -136,7 +125,6 @@ const CSS=`
   .cs-evidence-img{width:90px;height:60px;object-fit:cover;border-radius:4px;border:1px solid #c3d4e8;display:block}
   .cs-evidence-cap{font-size:6.5px;color:#4b5563;line-height:1.4;text-align:center;word-break:break-word}
 
-  /* pro layout */
   .pro-wrap{background:rgba(10,18,32,0.92);border:1px solid rgba(148,163,184,0.12);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:16px;align-items:center}
   .pro-page{background:#fff;width:210mm;height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28);overflow:hidden;page-break-after:always;break-after:page;}
   .pro-page.pm{box-shadow:none;width:100%}
@@ -225,14 +213,12 @@ const CSS=`
   .pro-foot span{font-size:7px;color:rgba(255,255,255,0.35);font-weight:600}
   .pro-pb{page-break-after:always;break-after:page;height:0;display:block;}
 
-  /* vehicle reg table */
   .vr-t{width:100%;border-collapse:collapse;font-size:8.5px;border:1px solid #1e3a5f;flex-shrink:0}
   .vr-t th{background:#0b1d3a;color:#4fc3f7;padding:4px 8px;text-align:left;border:1px solid #1e3a5f;font-size:7.5px;font-weight:700}
   .vr-t td{padding:4px 8px;border:1px solid #c3d4e8}
   .vr-t td:first-child{font-weight:700;background:#eef4ff;color:#0b1d3a;width:38%}
   .vr-t td:nth-child(2){background:#fff;font-weight:600;color:#0b1d3a}
 
-  /* fork inspection table */
   .fk-t{width:100%;border-collapse:collapse;font-size:7.5px;border:1px solid #1e3a5f;flex-shrink:0}
   .fk-t th{background:#0b1d3a;color:#4fc3f7;padding:3px 5px;text-align:center;border:1px solid #1e3a5f;font-size:7px;font-weight:700}
   .fk-t th:first-child{text-align:left}
@@ -240,14 +226,12 @@ const CSS=`
   .fk-t td:first-child{text-align:left;background:#eef4ff;font-weight:700;color:#0b1d3a}
   .fk-t tr:nth-child(even) td:not(:first-child){background:#f8faff}
 
-  /* bucket/platform table */
   .bk-t{width:100%;border-collapse:collapse;font-size:8px;border:1px solid #1e3a5f;flex-shrink:0}
   .bk-t th{background:#0b1d3a;color:#4fc3f7;padding:3px 7px;text-align:left;border:1px solid #1e3a5f;font-size:7.5px;font-weight:700}
   .bk-t td{padding:3px 7px;border:1px solid #c3d4e8}
   .bk-t td:first-child{font-weight:700;background:#eef4ff;color:#0b1d3a;width:55%}
   .bk-t td:nth-child(2){background:#fff;font-weight:600;color:#0b1d3a}
 
-  /* bucket page accent — orange stripe to distinguish from main cert */
   .bucket-accent{height:3px;background:linear-gradient(90deg,#f97316 0%,#fb923c 55%,#fbbf24 100%);flex-shrink:0}
 
   @media print{
@@ -256,6 +240,7 @@ const CSS=`
     .cs-wrap,.pro-wrap{background:none!important;padding:0!important;border:none!important;gap:0!important;border-radius:0!important;display:block!important}
     .cs-page,.pro-page{box-shadow:none!important;width:210mm!important;height:297mm!important;overflow:hidden!important;page-break-after:always;break-after:page;margin:0!important}
     .pro-pb{page-break-after:always;break-after:page;height:0}
+    .cert-editor-panel{display:none!important}
   }
 `;
 
@@ -371,7 +356,6 @@ function PFBadge({result}){
   );
 }
 
-/* ── BucketResultRow — renders a single row in the bucket inspection table ── */
 function BucketResultRow({label,result}){
   if(!result)return null;
   const isPass=(result||"").toUpperCase()==="PASS";
@@ -606,7 +590,7 @@ function HookRopePage({c,pn,tone,pm,logo,isRope}){
         <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl} machineHours={machineHours}/>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,flexShrink:0}}>
           <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
-            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>{isRope?"Wire Rope Inspection Report":"Hook &amp; Rope Inspection Report"}</div>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>{isRope?"Wire Rope Inspection Report":"Hook & Rope Inspection Report"}</div>
             <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{reportNo}</div>
             {expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry date: {expiryDate}</div>}
           </div>
@@ -686,27 +670,15 @@ function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
   const inspId=val(c.inspector_id)||"700117910";
   const pressureUnit=val(c.pressure_unit||pn.pressure_unit)||"bar";
   const photos=parsePhotoEvidence(c.photo_evidence);
-
   const cl = parsePVChecklist(c, pn);
-
   const corrosionIsYes = /^yes/i.test(cl.signs_of_corrosion||"");
-  const corrosionStyle = corrosionIsYes
-    ? { color:"#b91c1c", fontWeight:800 }
-    : { color:"#0b1d3a", fontWeight:600 };
-
-  const overallDisplay = cl.overall_assessment
-    || (tone.label==="PASS"?"Pass":tone.label==="FAIL"?"Fail":tone.label);
+  const corrosionStyle = corrosionIsYes?{color:"#b91c1c",fontWeight:800}:{color:"#0b1d3a",fontWeight:600};
+  const overallDisplay = cl.overall_assessment||(tone.label==="PASS"?"Pass":tone.label==="FAIL"?"Fail":tone.label);
   const overallIsPass = /^pass|satisfactory/i.test(overallDisplay);
-  const overallStyle = { fontWeight:800, color: overallIsPass?"#15803d":"#b91c1c" };
-
+  const overallStyle = {fontWeight:800,color:overallIsPass?"#15803d":"#b91c1c"};
   const hydroDisplay = cl.hydrostatic_test
-    ? (cl.hydrostatic_test==="Yes" && (cl.hydrostatic_test_pressure||testP))
-        ? `Yes — ${cl.hydrostatic_test_pressure||testP} ${pressureUnit}`
-        : cl.hydrostatic_test
-    : testP
-      ? `Yes — ${testP} ${pressureUnit}`
-      : "N/A";
-
+    ?(cl.hydrostatic_test==="Yes"&&(cl.hydrostatic_test_pressure||testP))?`Yes — ${cl.hydrostatic_test_pressure||testP} ${pressureUnit}`:cl.hydrostatic_test
+    :testP?`Yes — ${testP} ${pressureUnit}`:"N/A";
   return(
     <div className={`pro-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
@@ -726,42 +698,21 @@ function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
         </div>
         <div className="pro-stl">Pressure Vessel Details</div>
         <table className="pro-pv">
-          <thead>
-            <tr>
-              <th>Vessel Type</th><th>Serial Number</th><th>Capacity</th>
-              <th>MAWP ({pressureUnit})</th><th>Test Pressure ({pressureUnit})</th><th>Design Pressure ({pressureUnit})</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td style={{background:"#fff"}}>{pvType}</td>
-              <td style={{background:"#fff",fontFamily:"monospace"}}>{pvSN||"—"}</td>
-              <td style={{background:"#fff"}}>{pvCap||"—"}</td>
-              <td style={{background:"#fff",fontWeight:700}}>{mawp||"—"}</td>
-              <td style={{background:"#fff",fontWeight:700}}>{testP||"—"}</td>
-              <td style={{background:"#fff"}}>{designP||"—"}</td>
-            </tr>
-          </tbody>
+          <thead><tr><th>Vessel Type</th><th>Serial Number</th><th>Capacity</th><th>MAWP ({pressureUnit})</th><th>Test Pressure ({pressureUnit})</th><th>Design Pressure ({pressureUnit})</th></tr></thead>
+          <tbody><tr><td style={{background:"#fff"}}>{pvType}</td><td style={{background:"#fff",fontFamily:"monospace"}}>{pvSN||"—"}</td><td style={{background:"#fff"}}>{pvCap||"—"}</td><td style={{background:"#fff",fontWeight:700}}>{mawp||"—"}</td><td style={{background:"#fff",fontWeight:700}}>{testP||"—"}</td><td style={{background:"#fff"}}>{designP||"—"}</td></tr></tbody>
         </table>
-
         <div className="pro-stl">Inspection Results</div>
-        <table className="pro-st">
-          <tbody>
-            <tr><td>Vessel condition — external visual</td><td>{cl.vessel_condition_external}</td></tr>
-            <tr><td>Vessel condition — internal (if applicable)</td><td>{cl.vessel_condition_internal}</td></tr>
-            <tr><td>Safety valve fitted and operating correctly</td><td>{cl.safety_valve_fitted}</td></tr>
-            <tr><td>Pressure gauge fitted and reading correctly</td><td>{cl.pressure_gauge_fitted}</td></tr>
-            <tr><td>Drain valve fitted and operating correctly</td><td>{cl.drain_valve_fitted}</td></tr>
-            <tr>
-              <td style={corrosionIsYes?{background:"#fff5f5",fontWeight:700,color:"#b91c1c"}:{}}>Signs of corrosion, cracking or deformation</td>
-              <td style={corrosionStyle}>{cl.signs_of_corrosion}</td>
-            </tr>
-            <tr><td>Nameplate legible and data correct</td><td>{cl.nameplate_legible}</td></tr>
-            <tr><td>Hydrostatic test performed</td><td>{hydroDisplay}</td></tr>
-            <tr><td>Overall assessment</td><td style={overallStyle}>{overallDisplay}</td></tr>
-          </tbody>
-        </table>
-
+        <table className="pro-st"><tbody>
+          <tr><td>Vessel condition — external visual</td><td>{cl.vessel_condition_external}</td></tr>
+          <tr><td>Vessel condition — internal (if applicable)</td><td>{cl.vessel_condition_internal}</td></tr>
+          <tr><td>Safety valve fitted and operating correctly</td><td>{cl.safety_valve_fitted}</td></tr>
+          <tr><td>Pressure gauge fitted and reading correctly</td><td>{cl.pressure_gauge_fitted}</td></tr>
+          <tr><td>Drain valve fitted and operating correctly</td><td>{cl.drain_valve_fitted}</td></tr>
+          <tr><td style={corrosionIsYes?{background:"#fff5f5",fontWeight:700,color:"#b91c1c"}:{}}>Signs of corrosion, cracking or deformation</td><td style={corrosionStyle}>{cl.signs_of_corrosion}</td></tr>
+          <tr><td>Nameplate legible and data correct</td><td>{cl.nameplate_legible}</td></tr>
+          <tr><td>Hydrostatic test performed</td><td>{hydroDisplay}</td></tr>
+          <tr><td>Overall assessment</td><td style={overallStyle}>{overallDisplay}</td></tr>
+        </tbody></table>
         <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
           THIS PRESSURE VESSEL HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
         </div>
@@ -849,7 +800,7 @@ function WireRopeSlingPage({c,pn,tone,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   TELEHANDLER CERTIFICATE
+   TELEHANDLER
 ══════════════════════════════════════════════════════════ */
 function TelehandlerPage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -886,9 +837,7 @@ function TelehandlerPage({c,nd,pm,logo}){
         </div>
         <div className="pro-stl">Boom Configuration &amp; Load Test</div>
         <table className="pro-lt">
-          <thead>
-            <tr><th style={{textAlign:"left",width:140}}>Parameter</th><th>Min Boom</th><th>Max Boom</th><th>Actual / Test Config</th></tr>
-          </thead>
+          <thead><tr><th style={{textAlign:"left",width:140}}>Parameter</th><th>Min Boom</th><th>Max Boom</th><th>Actual / Test Config</th></tr></thead>
           <tbody>
             <tr><td>Boom Length (m)</td><td>{bm.min_boom_length||"—"}</td><td>{bm.max_boom_length||"—"}</td><td>{bm.actual_boom_length||"—"}</td></tr>
             <tr><td>Extended / Telescoped (m)</td><td>—</td><td>—</td><td>{bm.extended_boom_length||"—"}</td></tr>
@@ -967,14 +916,13 @@ function TelehandlerPage({c,nd,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   CHERRY PICKER — PAGE 1: AWP / MACHINE CERTIFICATE (12 months)
+   CHERRY PICKER — PAGE 1
 ══════════════════════════════════════════════════════════ */
 function CherryPickerMachinePage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
   const company=val(c.client_name)||"—";
   const location=val(c.location)||"—";
   const issueDate=formatDate(c.issue_date||c.issued_at);
-  // Machine cert: 12-month expiry
   const expiryDate=formatDate(c.expiry_date)||addMonths(c.issue_date||c.issued_at,12);
   const equipMake=val(c.manufacturer||c.model)||"Cherry Picker / AWP";
   const serialNo=val(c.serial_number);
@@ -988,15 +936,12 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
   const tone=resultStyle(pickResult(c));
   const bm=nd.boom||{};
   const cl=nd.checklist||{};
-
   return(
     <div className={`pro-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
       <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
       <div className="pro-body">
         <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl}/>
-
-        {/* Cert header row */}
         <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
           <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
             <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Load Test Certificate — Aerial Work Platform</div>
@@ -1008,21 +953,15 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
                 </div>
               )}
               <div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#6b7280",background:"#f9fafb"}}>
-                <span>Page 1 of 2</span>
-                <span style={{color:"#9ca3af"}}>·</span>
-                <span>AWP Machine Certificate</span>
+                <span>Page 1 of 2</span><span style={{color:"#9ca3af"}}>·</span><span>AWP Machine Certificate</span>
               </div>
             </div>
           </div>
           <PFBadge result={tone.label}/>
         </div>
-
-        {/* Boom spec */}
         <div className="pro-stl">Boom Specification &amp; Load Test</div>
         <table className="pro-lt">
-          <thead>
-            <tr><th style={{textAlign:"left",width:140}}>Parameter</th><th>Min Boom</th><th>Max Boom</th><th>Actual / Test Config</th></tr>
-          </thead>
+          <thead><tr><th style={{textAlign:"left",width:140}}>Parameter</th><th>Min Boom</th><th>Max Boom</th><th>Actual / Test Config</th></tr></thead>
           <tbody>
             <tr><td>Max Working Height (m)</td><td>—</td><td>{bm.max_height||"—"}</td><td>{bm.max_height||"—"}</td></tr>
             <tr><td>Boom Length (m)</td><td>{bm.min_boom_length||"—"}</td><td>{bm.max_boom_length||"—"}</td><td>{bm.actual_boom_length||"—"}</td></tr>
@@ -1033,8 +972,6 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
             <tr className="pro-lt-bold"><td>Test Load Applied (110% SWL)</td><td></td><td></td><td>{bm.test_load||"—"}</td></tr>
           </tbody>
         </table>
-
-        {/* Checklist two-col */}
         <div className="pro-cg">
           <div className="pro-cc">
             <div className="pro-csec">Boom Systems</div>
@@ -1068,16 +1005,11 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
             )}
           </div>
         </div>
-
         {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
         {bm.notes&&<div className="pro-comments-box"><div className="pro-comments-lbl">Notes</div><div className="pro-comments-val">{bm.notes}</div></div>}
-
-        {/* Only show photos on page 1 — page 2 can have its own */}
         {photos.length>0&&<ProEvidence photos={photos.slice(0,Math.ceil(photos.length/2))}/>}
-
         <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
-          THIS AERIAL WORK PLATFORM HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
-          THIS CERTIFICATE IS VALID FOR 12 MONTHS FROM DATE OF ISSUE.
+          THIS AERIAL WORK PLATFORM HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA. THIS CERTIFICATE IS VALID FOR 12 MONTHS FROM DATE OF ISSUE.
         </div>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
@@ -1087,14 +1019,13 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   CHERRY PICKER — PAGE 2: BUCKET / PLATFORM CERTIFICATE (6 months)
+   CHERRY PICKER — PAGE 2
 ══════════════════════════════════════════════════════════ */
 function CherryPickerBucketPage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
   const company=val(c.client_name)||"—";
   const location=val(c.location)||"—";
   const issueDate=formatDate(c.issue_date||c.issued_at);
-  // Bucket cert: 6-month expiry (separate, shorter cycle)
   const bucketExpiry=addMonths(c.issue_date||c.issued_at,6);
   const inspName=val(c.inspector_name)||"Moemedi Masupe";
   const inspId=val(c.inspector_id)||"700117910";
@@ -1104,13 +1035,9 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
   const bk=nd.bucket||{};
   const cl=nd.checklist||{};
   const photos=parsePhotoEvidence(c.photo_evidence);
-
-  // Bucket-specific identifiers — fall back to machine serial with "-BKT" suffix
   const bucketCertNo=(certNumber?certNumber.replace(/(-BKT)?$/,"-BKT"):null)||"—";
-  const bucketSerial=val(bk.serial_number||bk.bucket_serial)||
-    (val(c.serial_number)?`${val(c.serial_number)}-BKT`:null)||"—";
+  const bucketSerial=val(bk.serial_number||bk.bucket_serial)||(val(c.serial_number)?`${val(c.serial_number)}-BKT`:null)||"—";
   const bucketMake=val(bk.manufacturer||bk.make)||val(c.manufacturer)||"—";
-
   function bkResult(v){
     if(!v)return"—";
     const isPass=(v||"").toUpperCase()==="PASS";
@@ -1119,24 +1046,17 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
     const bg=isBad?"#fff5f5":isPass?"#f0fdf4":"#fffbeb";
     return<span style={{fontWeight:800,color,background:bg,padding:"1px 5px",borderRadius:3,fontSize:7.5}}>{v}</span>;
   }
-
   return(
     <div className={`pro-page${pm?" pm":""}`}>
-      {/* Header — same branding */}
       <ProHdr logoUrl={logo}/>
-      {/* Orange accent stripe — visually distinguishes bucket page */}
       <div className="bucket-accent"/>
-
       <div className="pro-body">
-        {/* Compact customer table */}
         <table className="pro-ct"><tbody>
           <tr><td>Customer</td><td>{company}</td><td>AWP Make / Type</td><td>{val(c.manufacturer||c.model)||"Cherry Picker / AWP"}</td></tr>
           <tr><td>Site location</td><td>{location}</td><td>AWP Serial No.</td><td>{val(c.serial_number)||"—"}</td></tr>
           <tr><td>Date</td><td>{issueDate||"—"}</td><td>Fleet No.</td><td>{val(c.fleet_number)||"—"}</td></tr>
           <tr><td>Platform SWL</td><td style={{fontWeight:700,color:"#0b1d3a"}}>{bk.platform_swl||swl||"—"}</td><td>AWP Cert Ref.</td><td style={{fontFamily:"monospace",fontSize:8}}>{certNumber||"—"}</td></tr>
         </tbody></table>
-
-        {/* Bucket cert header row */}
         <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
           <div style={{border:"2px solid #f97316",borderRadius:4,padding:"7px 10px",background:"#fff7ed"}}>
             <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Work Platform / Bucket Inspection Certificate</div>
@@ -1148,22 +1068,15 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
                 </div>
               )}
               <div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #fed7aa",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#6b7280",background:"#fff7ed"}}>
-                <span>Page 2 of 2</span>
-                <span style={{color:"#9ca3af"}}>·</span>
-                <span>Platform / Bucket Certificate</span>
+                <span>Page 2 of 2</span><span style={{color:"#9ca3af"}}>·</span><span>Platform / Bucket Certificate</span>
               </div>
             </div>
           </div>
           <PFBadge result={tone.label}/>
         </div>
-
-        {/* Bucket identification details */}
         <div className="pro-stl" style={{borderLeftColor:"#f97316"}}>Platform / Bucket Identification</div>
         <table className="pro-st"><tbody>
-          <tr>
-            <td style={{width:"55%"}}>Bucket / Platform Serial Number</td>
-            <td style={{fontFamily:"monospace",fontWeight:900,fontSize:10,color:"#0b1d3a"}}>{bucketSerial}</td>
-          </tr>
+          <tr><td style={{width:"55%"}}>Bucket / Platform Serial Number</td><td style={{fontFamily:"monospace",fontWeight:900,fontSize:10,color:"#0b1d3a"}}>{bucketSerial}</td></tr>
           <tr><td>Manufacturer / Make</td><td>{bucketMake}</td></tr>
           <tr><td>Platform Dimensions (m)</td><td>{bk.platform_dimensions||"—"}</td></tr>
           <tr><td>Platform Material</td><td>{bk.platform_material||"—"}</td></tr>
@@ -1172,8 +1085,6 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
           <tr><td>Inspection Date</td><td>{issueDate||"—"}</td></tr>
           <tr><td>Next Inspection Due</td><td style={{fontWeight:800,color:"#b45309"}}>{bucketExpiry||"—"}</td></tr>
         </tbody></table>
-
-        {/* Full bucket inspection checklist */}
         <div className="pro-stl" style={{borderLeftColor:"#f97316"}}>Platform / Bucket Structural Inspection</div>
         <table className="bk-t">
           <thead><tr><th>Inspection Item</th><th>Result</th></tr></thead>
@@ -1190,7 +1101,6 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
             <tr><td>Paint / Coating condition</td><td>{bkResult(bk.paint_condition||"Satisfactory")}</td></tr>
           </tbody>
         </table>
-
         <div className="pro-stl" style={{borderLeftColor:"#f97316"}}>Safety Systems &amp; Controls in Platform</div>
         <div className="pro-cg">
           <div className="pro-cc">
@@ -1212,15 +1122,10 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
             <CI label="Harness anchors held under load" result={bk.harness_anchors||"PASS"}/>
           </div>
         </div>
-
         {bk.notes&&<div className="pro-comments-box"><div className="pro-comments-lbl">Platform Notes</div><div className="pro-comments-val">{bk.notes}</div></div>}
-
-        {/* Remaining photos on page 2 */}
         {photos.length>1&&<ProEvidence photos={photos.slice(Math.ceil(photos.length/2))}/>}
-
         <div style={{fontSize:7.5,color:"#9a3412",lineHeight:1.5,border:"1px solid #f97316",borderRadius:4,padding:"5px 9px",background:"#fff7ed",textAlign:"center",fontWeight:700,flexShrink:0}}>
-          THIS WORK PLATFORM / BUCKET CERTIFICATE IS VALID FOR 6 MONTHS FROM DATE OF ISSUE AND MUST BE RE-INSPECTED BEFORE EXPIRY.
-          INSPECTION CARRIED OUT IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
+          THIS WORK PLATFORM / BUCKET CERTIFICATE IS VALID FOR 6 MONTHS FROM DATE OF ISSUE AND MUST BE RE-INSPECTED BEFORE EXPIRY. INSPECTION CARRIED OUT IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
         </div>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
@@ -1230,7 +1135,7 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   FORK ARM CERTIFICATE
+   FORK ARM
 ══════════════════════════════════════════════════════════ */
 function ForkArmPage({c,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -1388,7 +1293,7 @@ function HorseTrailerPage({c,pm,logo,isTrailer}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   GENERIC MACHINE (Forklift / TLB / Frontloader / Other)
+   GENERIC MACHINE
 ══════════════════════════════════════════════════════════ */
 function MachinePage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -1558,7 +1463,7 @@ function GenericCert({c,pm,logo}){
               <Field label="Issue Date" value={issueDate}/>
               <Field label="Expiry / Next Inspection" value={expiryDate}/>
             </Section>
-            <Section title="Client &amp; Location">
+            <Section title="Client & Location">
               <Field label="Client / Company" value={company}/>
               <Field label="Location" value={location}/>
               <Field label="Certificate Type" value={certType}/>
@@ -1587,7 +1492,7 @@ function GenericCert({c,pm,logo}){
               </div>
             </div>
             {(defects||recommendations)&&(
-              <Section title="Defects &amp; Recommendations">
+              <Section title="Defects & Recommendations">
                 {defects&&<Field label="Defects Found" value={defects} full red/>}
                 {recommendations&&<Field label="Recommendations" value={recommendations} full red/>}
               </Section>
@@ -1629,6 +1534,597 @@ function GenericCert({c,pm,logo}){
           <div className="cs-footer"><span>Monroy (Pty) Ltd · Mophane Avenue, Maun, Botswana</span><span>Quality · Safety · Excellence</span></div>
         </div>
       </div>
+    </>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   CHERRY PICKER EDITOR — INLINE EDITOR PANEL
+   Allows full editing of all inspection data fields for 
+   Cherry Picker / AWP certificates (Page 1 + Page 2)
+══════════════════════════════════════════════════════════ */
+
+const EDITOR_CSS = `
+  .cert-editor-panel {
+    font-family: 'IBM Plex Sans', sans-serif;
+    background: #0b1d3a;
+    border: 1px solid #22d3ee;
+    border-radius: 12px;
+    padding: 0;
+    width: 320px;
+    flex-shrink: 0;
+    max-height: calc(297mm + 32px);
+    overflow-y: auto;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+    scrollbar-width: thin;
+    scrollbar-color: #22d3ee #0b1d3a;
+  }
+  .cert-editor-panel::-webkit-scrollbar { width: 6px; }
+  .cert-editor-panel::-webkit-scrollbar-thumb { background: #22d3ee; border-radius: 3px; }
+  .cert-editor-panel::-webkit-scrollbar-track { background: #0b1d3a; }
+
+  .ep-header {
+    background: linear-gradient(135deg, #0e2a4a, #1e3a5f);
+    border-bottom: 2px solid #22d3ee;
+    padding: 14px 16px;
+    border-radius: 12px 12px 0 0;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .ep-title {
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: #4fc3f7;
+    margin-bottom: 2px;
+  }
+  .ep-subtitle {
+    font-size: 8px;
+    color: rgba(255,255,255,0.4);
+    font-weight: 500;
+  }
+
+  .ep-section {
+    border-bottom: 1px solid rgba(34,211,238,0.15);
+    padding: 10px 14px;
+  }
+  .ep-section:last-child { border-bottom: none; }
+  
+  .ep-section-title {
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: #22d3ee;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ep-section-title::before {
+    content: '';
+    width: 2px;
+    height: 8px;
+    background: #22d3ee;
+    border-radius: 2px;
+  }
+
+  .ep-field {
+    margin-bottom: 7px;
+  }
+  .ep-label {
+    font-size: 7.5px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.5);
+    margin-bottom: 3px;
+    display: block;
+  }
+  .ep-input {
+    width: 100%;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(34,211,238,0.25);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 9px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 600;
+    color: #fff;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.15s;
+  }
+  .ep-input:focus {
+    border-color: #22d3ee;
+    background: rgba(34,211,238,0.08);
+  }
+  .ep-input::placeholder { color: rgba(255,255,255,0.2); }
+
+  .ep-select {
+    width: 100%;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(34,211,238,0.25);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 9px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 600;
+    color: #fff;
+    outline: none;
+    box-sizing: border-box;
+    cursor: pointer;
+    transition: border-color 0.15s;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2322d3ee'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 24px;
+  }
+  .ep-select:focus { border-color: #22d3ee; }
+  .ep-select option { background: #0b1d3a; color: #fff; }
+
+  .ep-textarea {
+    width: 100%;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(34,211,238,0.25);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 9px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 600;
+    color: #fff;
+    outline: none;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 44px;
+    transition: border-color 0.15s;
+  }
+  .ep-textarea:focus { border-color: #22d3ee; background: rgba(34,211,238,0.08); }
+  .ep-textarea::placeholder { color: rgba(255,255,255,0.2); }
+
+  .ep-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .ep-row-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+  }
+
+  .ep-tab-bar {
+    display: flex;
+    border-bottom: 1px solid rgba(34,211,238,0.2);
+    background: rgba(0,0,0,0.2);
+  }
+  .ep-tab {
+    flex: 1;
+    padding: 7px 6px;
+    font-size: 7.5px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.4);
+    cursor: pointer;
+    text-align: center;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.15s;
+  }
+  .ep-tab:hover { color: rgba(255,255,255,0.7); }
+  .ep-tab.active {
+    color: #22d3ee;
+    border-bottom-color: #22d3ee;
+    background: rgba(34,211,238,0.06);
+  }
+  .ep-tab.bucket-tab.active {
+    color: #f97316;
+    border-bottom-color: #f97316;
+    background: rgba(249,115,22,0.06);
+  }
+
+  .ep-checklist-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    gap: 6px;
+  }
+  .ep-checklist-row:last-child { border-bottom: none; }
+  .ep-checklist-label {
+    font-size: 7.5px;
+    color: rgba(255,255,255,0.7);
+    flex: 1;
+    font-weight: 500;
+  }
+  .ep-checklist-select {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(34,211,238,0.2);
+    border-radius: 3px;
+    padding: 2px 4px;
+    font-size: 8px;
+    font-weight: 700;
+    color: #fff;
+    outline: none;
+    width: 72px;
+    flex-shrink: 0;
+    cursor: pointer;
+    appearance: none;
+    text-align: center;
+  }
+  .ep-checklist-select option { background: #0b1d3a; }
+  .ep-checklist-select.pass { border-color: #22c55e; color: #22c55e; background: rgba(34,197,94,0.08); }
+  .ep-checklist-select.fail { border-color: #ef4444; color: #ef4444; background: rgba(239,68,68,0.08); }
+  .ep-checklist-select.na   { border-color: #9ca3af; color: #9ca3af; background: rgba(156,163,175,0.08); }
+
+  .ep-hint {
+    font-size: 7px;
+    color: rgba(255,255,255,0.25);
+    margin-top: 2px;
+    font-style: italic;
+  }
+
+  .ep-reset-btn {
+    display: block;
+    width: calc(100% - 28px);
+    margin: 10px 14px;
+    padding: 7px;
+    background: rgba(239,68,68,0.12);
+    border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 5px;
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: #ef4444;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s;
+  }
+  .ep-reset-btn:hover { background: rgba(239,68,68,0.2); border-color: #ef4444; }
+
+  .cert-editor-layout {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+  }
+  .cert-pages-column {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    flex: 1;
+    min-width: 0;
+  }
+`;
+
+/* ── Helper: ResultSelect for checklist items ─────────────── */
+function ResultSelect({value, onChange, allowNA=false}){
+  const cls = value==="PASS"?"pass":value==="N/A"?"na":"fail";
+  return(
+    <select className={`ep-checklist-select ${cls}`} value={value} onChange={e=>onChange(e.target.value)}>
+      <option value="PASS">PASS</option>
+      <option value="FAIL">FAIL</option>
+      <option value="REPAIR_REQUIRED">REPAIR REQ.</option>
+      {allowNA&&<option value="N/A">N/A</option>}
+    </select>
+  );
+}
+
+/* ── CherryPickerEditor — the full editor panel ─────────────── */
+function CherryPickerEditor({certData, onChange}){
+  const [activeTab, setActiveTab] = useState("general");
+
+  // Simple deep-update helper
+  function setField(path, value){
+    const parts = path.split(".");
+    onChange(prev => {
+      const next = JSON.parse(JSON.stringify(prev)); // deep clone
+      let obj = next;
+      for(let i=0;i<parts.length-1;i++){
+        if(!obj[parts[i]]) obj[parts[i]]={};
+        obj = obj[parts[i]];
+      }
+      obj[parts[parts.length-1]] = value;
+      return next;
+    });
+  }
+
+  const c = certData;
+  const bm = c._boom || {};
+  const bk = c._bucket || {};
+  const cl = c._checklist || {};
+
+  const Fld = ({label, path, placeholder, hint, type="text"}) => (
+    <div className="ep-field">
+      <label className="ep-label">{label}</label>
+      <input
+        className="ep-input"
+        type={type}
+        placeholder={placeholder||""}
+        value={path.split(".").reduce((o,k)=>o?.[k]||"", c)}
+        onChange={e=>setField(path, e.target.value)}
+      />
+      {hint&&<div className="ep-hint">{hint}</div>}
+    </div>
+  );
+
+  const Sel = ({label, path, options}) => (
+    <div className="ep-field">
+      <label className="ep-label">{label}</label>
+      <select className="ep-select" value={path.split(".").reduce((o,k)=>o?.[k]||"", c)||""} onChange={e=>setField(path, e.target.value)}>
+        {options.map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}
+      </select>
+    </div>
+  );
+
+  const TA = ({label, path, placeholder, rows=2}) => (
+    <div className="ep-field">
+      <label className="ep-label">{label}</label>
+      <textarea
+        className="ep-textarea"
+        rows={rows}
+        placeholder={placeholder||""}
+        value={path.split(".").reduce((o,k)=>o?.[k]||"", c)}
+        onChange={e=>setField(path, e.target.value)}
+      />
+    </div>
+  );
+
+  const CheckRow = ({label, path, allowNA=false}) => {
+    const val2 = path.split(".").reduce((o,k)=>o?.[k]||"", c) || "PASS";
+    return(
+      <div className="ep-checklist-row">
+        <span className="ep-checklist-label">{label}</span>
+        <ResultSelect value={val2} onChange={v=>setField(path,v)} allowNA={allowNA}/>
+      </div>
+    );
+  };
+
+  const tabs = [
+    {id:"general", label:"General"},
+    {id:"boom", label:"Boom / Load"},
+    {id:"checklist1", label:"Checklist P1"},
+    {id:"bucket", label:"Bucket P2"},
+    {id:"checklist2", label:"Checklist P2"},
+  ];
+
+  return(
+    <div className="cert-editor-panel">
+      <div className="ep-header">
+        <div className="ep-title">&#9998; Certificate Editor</div>
+        <div className="ep-subtitle">Cherry Picker / AWP — Live Edit</div>
+      </div>
+      <div className="ep-tab-bar">
+        {tabs.map(t=>(
+          <div
+            key={t.id}
+            className={`ep-tab${activeTab===t.id?" active":""}${t.id.startsWith("bucket")||t.id==="checklist2"?" bucket-tab":""}`}
+            onClick={()=>setActiveTab(t.id)}
+          >{t.label}</div>
+        ))}
+      </div>
+
+      {activeTab==="general"&&(
+        <>
+          <div className="ep-section">
+            <div className="ep-section-title">Customer &amp; Site</div>
+            <Fld label="Client / Company" path="client_name" placeholder="e.g. Debswana Mining"/>
+            <div className="ep-row">
+              <Fld label="Location" path="location" placeholder="e.g. Orapa Mine"/>
+              <Fld label="Fleet No." path="fleet_number" placeholder="e.g. MT13"/>
+            </div>
+          </div>
+          <div className="ep-section">
+            <div className="ep-section-title">Equipment Details</div>
+            <Fld label="Make / Model" path="manufacturer" placeholder="e.g. Manitou MRT 2150"/>
+            <div className="ep-row">
+              <Fld label="Serial Number" path="serial_number" placeholder="e.g. 971946"/>
+              <Fld label="SWL / Capacity" path="swl" placeholder="e.g. 350KG"/>
+            </div>
+          </div>
+          <div className="ep-section">
+            <div className="ep-section-title">Certificate Info</div>
+            <Fld label="Certificate Number" path="certificate_number" placeholder="e.g. CERT-CH00610"/>
+            <div className="ep-row">
+              <Fld label="Issue Date" path="issue_date" type="date"/>
+              <Fld label="Expiry Date" path="expiry_date" type="date" hint="Leave blank = auto 12 months"/>
+            </div>
+            <Sel label="Overall Result" path="result" options={[
+              {value:"PASS",label:"PASS"},
+              {value:"FAIL",label:"FAIL"},
+              {value:"REPAIR_REQUIRED",label:"Repair Required"},
+              {value:"CONDITIONAL",label:"Conditional"},
+            ]}/>
+          </div>
+          <div className="ep-section">
+            <div className="ep-section-title">Inspector</div>
+            <div className="ep-row">
+              <Fld label="Inspector Name" path="inspector_name" placeholder="e.g. Moemedi Masupe"/>
+              <Fld label="Inspector ID" path="inspector_id" placeholder="e.g. 700117910"/>
+            </div>
+          </div>
+          <div className="ep-section">
+            <div className="ep-section-title">Defects &amp; Notes</div>
+            <TA label="Defects Found" path="defects_found" placeholder="Describe any defects..."/>
+            <TA label="Recommendations" path="recommendations" placeholder="Any recommendations..."/>
+          </div>
+        </>
+      )}
+
+      {activeTab==="boom"&&(
+        <>
+          <div className="ep-section">
+            <div className="ep-section-title">Working Heights</div>
+            <div className="ep-row">
+              <Fld label="Max Working Height (m)" path="_boom.max_height" placeholder="e.g. 21"/>
+              <Fld label="Boom Angle (°)" path="_boom.boom_angle" placeholder="e.g. 75"/>
+            </div>
+          </div>
+          <div className="ep-section">
+            <div className="ep-section-title">Boom Lengths (m)</div>
+            <div className="ep-row-3">
+              <Fld label="Min Boom" path="_boom.min_boom_length" placeholder="—"/>
+              <Fld label="Max Boom" path="_boom.max_boom_length" placeholder="—"/>
+              <Fld label="Actual" path="_boom.actual_boom_length" placeholder="—"/>
+            </div>
+            <Fld label="Extended / Telescoped (m)" path="_boom.extended_boom_length" placeholder="—"/>
+          </div>
+          <div className="ep-section">
+            <div className="ep-section-title">Working Radius (m)</div>
+            <div className="ep-row-3">
+              <Fld label="Min Radius" path="_boom.min_radius" placeholder="—"/>
+              <Fld label="Max Radius" path="_boom.max_radius" placeholder="—"/>
+              <Fld label="Test Radius" path="_boom.load_tested_at_radius" placeholder="—"/>
+            </div>
+          </div>
+          <div className="ep-section">
+            <div className="ep-section-title">SWL &amp; Test Load</div>
+            <div className="ep-row-3">
+              <Fld label="SWL @ Min" path="_boom.swl_at_min_radius" placeholder="—"/>
+              <Fld label="SWL @ Max" path="_boom.swl_at_max_radius" placeholder="—"/>
+              <Fld label="SWL Actual" path="_boom.swl_at_actual_config" placeholder="—"/>
+            </div>
+            <Fld label="Test Load Applied (110% SWL)" path="_boom.test_load" placeholder="e.g. 385KG" hint="Typically 110% of SWL"/>
+          </div>
+          <div className="ep-section">
+            <div className="ep-section-title">Boom System Results</div>
+            <CheckRow label="Boom Structure" path="_boom.boom_structure"/>
+            <CheckRow label="Boom Pins & Connections" path="_boom.boom_pins"/>
+            <CheckRow label="Boom Wear / Pads" path="_boom.boom_wear"/>
+            <CheckRow label="Luffing / Extension System" path="_boom.luffing_system"/>
+            <CheckRow label="Slew / Rotation System" path="_boom.slew_system"/>
+            <CheckRow label="Hoist / Lift System" path="_boom.hoist_system"/>
+            <CheckRow label="LMI Tested at Config" path="_boom.lmi_test"/>
+            <CheckRow label="Anti-Two Block / Overload" path="_boom.anti_two_block"/>
+          </div>
+          <div className="ep-section">
+            <TA label="Boom Notes" path="_boom.notes" placeholder="Any notes about the boom..."/>
+          </div>
+        </>
+      )}
+
+      {activeTab==="checklist1"&&(
+        <>
+          <div className="ep-section">
+            <div className="ep-section-title">Hydraulics &amp; Drive</div>
+            <CheckRow label="Hydraulic System" path="_checklist.hydraulics_result"/>
+            <CheckRow label="Structural Integrity" path="_checklist.structural_result"/>
+          </div>
+          <div className="ep-section">
+            <div className="ep-section-title">Safety Systems</div>
+            <CheckRow label="Safety Devices / Interlocks" path="_checklist.safety_devices"/>
+          </div>
+          <div className="ep-section">
+            <div className="ep-hint" style={{color:"rgba(255,255,255,0.35)",padding:"4px 0",fontSize:7.5}}>
+              Note: Fire Extinguisher, Emergency Stop, Outrigger Interlocks, Machine Stable, No Structural Deformation, All Functions Operate — these always show PASS unless defects text mentions them. Edit defects on the General tab to flag failures.
+            </div>
+          </div>
+        </>
+      )}
+
+      {activeTab==="bucket"&&(
+        <>
+          <div className="ep-section">
+            <div className="ep-section-title">Bucket / Platform ID</div>
+            <div className="ep-row">
+              <Fld label="Bucket Serial No." path="_bucket.serial_number" placeholder="e.g. 971946-BKT"/>
+              <Fld label="Manufacturer" path="_bucket.manufacturer" placeholder="e.g. MANITOU"/>
+            </div>
+            <div className="ep-row">
+              <Fld label="Platform SWL" path="_bucket.platform_swl" placeholder="e.g. 350KG"/>
+              <Fld label="Test Load (110%)" path="_bucket.test_load_applied" placeholder="e.g. 385KG"/>
+            </div>
+            <div className="ep-row">
+              <Fld label="Dimensions (m)" path="_bucket.platform_dimensions" placeholder="e.g. 1.2 x 0.8"/>
+              <Fld label="Material" path="_bucket.platform_material" placeholder="e.g. Steel"/>
+            </div>
+          </div>
+          <div className="ep-section">
+            <div className="ep-section-title">Structural Inspection Results</div>
+            <CheckRow label="Platform Structure — welds & frame" path="_bucket.platform_structure"/>
+            <CheckRow label="Platform Floor Condition" path="_bucket.platform_floor"/>
+            <CheckRow label="Guardrails — height, welds & security" path="_bucket.guardrails"/>
+            <CheckRow label="Toe Boards — fitted & condition" path="_bucket.toe_boards"/>
+            <CheckRow label="Gate / Latch System" path="_bucket.gate_latch"/>
+            <CheckRow label="Platform Mounting / Attachment to Boom" path="_bucket.platform_mounting"/>
+            <CheckRow label="Rotation / Slew Mechanism" path="_bucket.rotation" allowNA/>
+            <CheckRow label="Harness Anchor Points — qty & condition" path="_bucket.harness_anchors"/>
+            <CheckRow label="SWL Marking legible on platform" path="_bucket.swl_marking"/>
+            <CheckRow label="Paint / Coating condition" path="_bucket.paint_condition"/>
+          </div>
+          <div className="ep-section">
+            <TA label="Platform Notes" path="_bucket.notes" placeholder="Any notes about the platform..."/>
+          </div>
+        </>
+      )}
+
+      {activeTab==="checklist2"&&(
+        <>
+          <div className="ep-section">
+            <div className="ep-section-title">Platform Safety Devices</div>
+            <CheckRow label="Platform Auto-Levelling" path="_bucket.levelling_system"/>
+            <CheckRow label="Emergency Lowering Device (ground)" path="_bucket.emergency_lowering"/>
+            <CheckRow label="Overload / SWL Cut-Off Device" path="_bucket.overload_device"/>
+            <CheckRow label="Tilt / Inclination Alarm" path="_bucket.tilt_alarm"/>
+            <CheckRow label="Intercom / Communication" path="_bucket.intercom" allowNA/>
+          </div>
+          <div className="ep-section">
+            <div className="ep-hint" style={{color:"rgba(255,255,255,0.35)",padding:"4px 0",fontSize:7.5}}>
+              Load Test Observations (Platform stable, No deformation, Gate secure, Levelling, Controls, Harness anchors) are driven by the safety device results above plus the bucket structural results.
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   EDITABLE CHERRY PICKER WRAPPER
+   Merges editor state into the certificate data then renders
+══════════════════════════════════════════════════════════ */
+function EditableCherryPickerCert({c, pm, logo}){
+  // Build initial state from certificate prop
+  const [certData, setCertData] = useState(() => {
+    const nd = parseNotes(val(c.notes||"")||val(c.extracted_data?JSON.stringify(c.extracted_data):"")||"");
+    return {
+      ...c,
+      _boom: nd.boom || {},
+      _bucket: nd.bucket || {},
+      _checklist: nd.checklist || {},
+    };
+  });
+
+  // Build nd object from _boom/_bucket/_checklist for rendering
+  const renderNd = {
+    boom: certData._boom || {},
+    bucket: certData._bucket || {},
+    checklist: certData._checklist || {},
+  };
+
+  const wrap = (children) => (
+    <>
+      <style>{CSS}</style>
+      <style>{EDITOR_CSS}</style>
+      <div className="cert-editor-layout">
+        <CherryPickerEditor certData={certData} onChange={setCertData}/>
+        <div className="cert-pages-column">
+          {children}
+        </div>
+      </div>
+    </>
+  );
+
+  return wrap(
+    <>
+      <CherryPickerMachinePage c={certData} nd={renderNd} pm={pm} logo={logo}/>
+      <div className="pro-pb"/>
+      <CherryPickerBucketPage c={certData} nd={renderNd} pm={pm} logo={logo}/>
     </>
   );
 }
@@ -1679,14 +2175,8 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   if(_isPV) return wrap(<PressureVesselPage c={c} pn={pn} tone={tone} pm={pm} logo={logo} pvNum={index+1}/>);
   if(_isTelehandler) return wrap(<TelehandlerPage c={c} nd={nd} pm={pm} logo={logo}/>);
 
-  // ── CHERRY PICKER: 2-page certificate ──────────────────────
-  if(_isCherryPicker) return wrap(
-    <>
-      <CherryPickerMachinePage c={c} nd={nd} pm={pm} logo={logo}/>
-      <div className="pro-pb"/>
-      <CherryPickerBucketPage c={c} nd={nd} pm={pm} logo={logo}/>
-    </>
-  );
+  // ── CHERRY PICKER: Editable 2-page certificate ──────────────
+  if(_isCherryPicker) return <EditableCherryPickerCert c={c} pm={pm} logo={logo}/>;
 
   if(_isForkArm) return wrap(<ForkArmPage c={c} pm={pm} logo={logo}/>);
   if(_isHorse) return wrap(<HorseTrailerPage c={c} pm={pm} logo={logo} isTrailer={false}/>);
