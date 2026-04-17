@@ -4,6 +4,7 @@
 /* ── helpers ─────────────────────────────────────────────── */
 function val(v){return v&&String(v).trim()!==""?String(v).trim():null;}
 function formatDate(raw){if(!raw)return null;const d=new Date(raw);if(isNaN(d.getTime()))return raw;return d.toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"numeric"});}
+function addMonths(raw,n){if(!raw)return null;const d=new Date(raw);if(isNaN(d.getTime()))return null;d.setMonth(d.getMonth()+n);return d.toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"numeric"});}
 function parseNotes(str){if(!str)return{};try{const p=JSON.parse(str);if(typeof p==="object"&&p!==null)return p;}catch(e){}const obj={};str.split("|").forEach(part=>{const idx=part.indexOf(":");if(idx<0)return;const k=part.slice(0,idx).trim();const v=part.slice(idx+1).trim();if(k)obj[k]=v;});return obj;}
 function pickResult(c){return(c?.result||c?.equipment_status||"").toUpperCase();}
 function resultStyle(r){
@@ -245,6 +246,9 @@ const CSS=`
   .bk-t td{padding:3px 7px;border:1px solid #c3d4e8}
   .bk-t td:first-child{font-weight:700;background:#eef4ff;color:#0b1d3a;width:55%}
   .bk-t td:nth-child(2){background:#fff;font-weight:600;color:#0b1d3a}
+
+  /* bucket page accent — orange stripe to distinguish from main cert */
+  .bucket-accent{height:3px;background:linear-gradient(90deg,#f97316 0%,#fb923c 55%,#fbbf24 100%);flex-shrink:0}
 
   @media print{
     @page{size:A4;margin:0}
@@ -963,15 +967,15 @@ function TelehandlerPage({c,nd,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   CHERRY PICKER / AWP CERTIFICATE
-   ── FIXED: Added full Platform / Bucket Inspection section
+   CHERRY PICKER — PAGE 1: AWP / MACHINE CERTIFICATE (12 months)
 ══════════════════════════════════════════════════════════ */
-function CherryPickerPage({c,nd,pm,logo}){
+function CherryPickerMachinePage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
   const company=val(c.client_name)||"—";
   const location=val(c.location)||"—";
   const issueDate=formatDate(c.issue_date||c.issued_at);
-  const expiryDate=formatDate(c.expiry_date);
+  // Machine cert: 12-month expiry
+  const expiryDate=formatDate(c.expiry_date)||addMonths(c.issue_date||c.issued_at,12);
   const equipMake=val(c.manufacturer||c.model)||"Cherry Picker / AWP";
   const serialNo=val(c.serial_number);
   const fleetNo=val(c.fleet_number);
@@ -983,18 +987,7 @@ function CherryPickerPage({c,nd,pm,logo}){
   const photos=parsePhotoEvidence(c.photo_evidence);
   const tone=resultStyle(pickResult(c));
   const bm=nd.boom||{};
-  const bk=nd.bucket||{};
   const cl=nd.checklist||{};
-
-  // Helper to render a bucket result cell with colour
-  function bkResult(val){
-    if(!val)return"—";
-    const isPass=(val||"").toUpperCase()==="PASS";
-    const isBad=/fail|repair|required/i.test(val||"");
-    const color=isBad?"#b91c1c":isPass?"#15803d":"#b45309";
-    const bg=isBad?"#fff5f5":isPass?"#f0fdf4":"#fffbeb";
-    return<span style={{fontWeight:800,color,background:bg,padding:"1px 5px",borderRadius:3,fontSize:7.5}}>{val}</span>;
-  }
 
   return(
     <div className={`pro-page${pm?" pm":""}`}>
@@ -1002,101 +995,46 @@ function CherryPickerPage({c,nd,pm,logo}){
       <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
       <div className="pro-body">
         <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl}/>
+
+        {/* Cert header row */}
         <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
           <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
-            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Load Test Certificate — Cherry Picker / AWP</div>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Load Test Certificate — Aerial Work Platform</div>
             <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
-            {expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry: {expiryDate}</div>}
+            <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap",alignItems:"center"}}>
+              {expiryDate&&(
+                <div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>
+                  <span style={{color:"#3b6ea5"}}>Expiry (12 months):</span> {expiryDate}
+                </div>
+              )}
+              <div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#6b7280",background:"#f9fafb"}}>
+                <span>Page 1 of 2</span>
+                <span style={{color:"#9ca3af"}}>·</span>
+                <span>AWP Machine Certificate</span>
+              </div>
+            </div>
           </div>
           <PFBadge result={tone.label}/>
         </div>
 
-        {/* ── BOOM & PLATFORM SPEC (two columns to save vertical space) ── */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,flexShrink:0}}>
-          <div>
-            <div className="pro-stl">Boom Specification</div>
-            <table className="pro-st"><tbody>
-              <tr><td>Max Working Height (m)</td><td style={{fontWeight:800}}>{bm.max_height||"—"}</td></tr>
-              <tr><td>Boom Length — Min (m)</td><td>{bm.min_boom_length||"—"}</td></tr>
-              <tr><td>Boom Length — Max (m)</td><td>{bm.max_boom_length||"—"}</td></tr>
-              <tr><td>Boom Length — Actual (m)</td><td>{bm.actual_boom_length||"—"}</td></tr>
-              <tr><td>Extended / Telescoped (m)</td><td>{bm.extended_boom_length||"—"}</td></tr>
-              <tr><td>Boom Angle (°)</td><td>{bm.boom_angle||"—"}</td></tr>
-              <tr><td>Working Radius — Min (m)</td><td>{bm.min_radius||"—"}</td></tr>
-              <tr><td>Working Radius — Max (m)</td><td>{bm.max_radius||"—"}</td></tr>
-              <tr><td>Load Test Radius (m)</td><td>{bm.load_tested_at_radius||"—"}</td></tr>
-              <tr><td>SWL at Min Radius</td><td>{bm.swl_at_min_radius||"—"}</td></tr>
-              <tr><td>SWL at Max Radius</td><td>{bm.swl_at_max_radius||"—"}</td></tr>
-              <tr><td>SWL at Test Config</td><td style={{fontWeight:800}}>{bm.swl_at_actual_config||swl||"—"}</td></tr>
-              <tr style={{background:"#0b1d3a"}}><td style={{background:"#1e3a5f",color:"#4fc3f7",fontWeight:800}}>Test Load (110% SWL)</td><td style={{background:"#0b1d3a",color:"#fff",fontWeight:900}}>{bm.test_load||"—"}</td></tr>
-            </tbody></table>
-          </div>
+        {/* Boom spec */}
+        <div className="pro-stl">Boom Specification &amp; Load Test</div>
+        <table className="pro-lt">
+          <thead>
+            <tr><th style={{textAlign:"left",width:140}}>Parameter</th><th>Min Boom</th><th>Max Boom</th><th>Actual / Test Config</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Max Working Height (m)</td><td>—</td><td>{bm.max_height||"—"}</td><td>{bm.max_height||"—"}</td></tr>
+            <tr><td>Boom Length (m)</td><td>{bm.min_boom_length||"—"}</td><td>{bm.max_boom_length||"—"}</td><td>{bm.actual_boom_length||"—"}</td></tr>
+            <tr><td>Extended / Telescoped (m)</td><td>—</td><td>—</td><td>{bm.extended_boom_length||"—"}</td></tr>
+            <tr><td>Boom Angle (°)</td><td>—</td><td>—</td><td>{bm.boom_angle||"—"}</td></tr>
+            <tr><td>Working Radius (m)</td><td>{bm.min_radius||"—"}</td><td>{bm.max_radius||"—"}</td><td>{bm.load_tested_at_radius||"—"}</td></tr>
+            <tr><td>SWL at Radius</td><td>{bm.swl_at_min_radius||"—"}</td><td>{bm.swl_at_max_radius||"—"}</td><td style={{fontWeight:800}}>{bm.swl_at_actual_config||swl||"—"}</td></tr>
+            <tr className="pro-lt-bold"><td>Test Load Applied (110% SWL)</td><td></td><td></td><td>{bm.test_load||"—"}</td></tr>
+          </tbody>
+        </table>
 
-          <div>
-            {/* ── PLATFORM / BUCKET INSPECTION ── */}
-            <div className="pro-stl">Platform / Bucket Inspection</div>
-            <table className="bk-t">
-              <thead><tr><th>Inspection Item</th><th>Result</th></tr></thead>
-              <tbody>
-                <tr>
-                  <td>Platform SWL</td>
-                  <td style={{fontWeight:800,color:"#0b1d3a"}}>{bk.platform_swl||swl||"—"}</td>
-                </tr>
-                <tr>
-                  <td>Platform Dimensions (m)</td>
-                  <td>{bk.platform_dimensions||"—"}</td>
-                </tr>
-                <tr>
-                  <td>Platform Material</td>
-                  <td>{bk.platform_material||"—"}</td>
-                </tr>
-                <tr>
-                  <td>Test Load Applied</td>
-                  <td style={{fontWeight:800}}>{bk.test_load_applied||bm.test_load||"—"}</td>
-                </tr>
-                <tr>
-                  <td>Platform Structure</td>
-                  <td>{bkResult(bk.platform_structure||"PASS")}</td>
-                </tr>
-                <tr>
-                  <td>Platform Floor Condition</td>
-                  <td>{bkResult(bk.platform_floor||"PASS")}</td>
-                </tr>
-                <tr>
-                  <td>Guardrails &amp; Toe Boards</td>
-                  <td>{bkResult(bk.guardrails||"PASS")}</td>
-                </tr>
-                <tr>
-                  <td>Gate / Latch System</td>
-                  <td>{bkResult(bk.gate_latch||"PASS")}</td>
-                </tr>
-                <tr>
-                  <td>Platform Auto-Levelling</td>
-                  <td>{bkResult(bk.levelling_system||"PASS")}</td>
-                </tr>
-                <tr>
-                  <td>Emergency Lowering Device</td>
-                  <td>{bkResult(bk.emergency_lowering||cl.emergency_lowering||"PASS")}</td>
-                </tr>
-                <tr>
-                  <td>Overload / SWL Cut-Off Device</td>
-                  <td>{bkResult(bk.overload_device||"PASS")}</td>
-                </tr>
-                <tr>
-                  <td>Tilt / Inclination Alarm</td>
-                  <td>{bkResult(bk.tilt_alarm||"PASS")}</td>
-                </tr>
-              </tbody>
-            </table>
-            {bk.notes&&(
-              <div style={{marginTop:4,padding:"3px 7px",background:"#f4f8ff",border:"1px solid #c3d4e8",borderRadius:3,fontSize:7.5,color:"#334155",lineHeight:1.4}}>
-                <span style={{fontWeight:800,color:"#3b6ea5",marginRight:4}}>Notes:</span>{bk.notes}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ── CHECKLIST GRID ── */}
+        {/* Checklist two-col */}
         <div className="pro-cg">
           <div className="pro-cc">
             <div className="pro-csec">Boom Systems</div>
@@ -1118,6 +1056,7 @@ function CherryPickerPage({c,nd,pm,logo}){
             <CI label="Safety Devices / Interlocks" result={cl.safety_devices||"PASS"}/>
             <CI label="Fire Extinguisher" result="PASS"/>
             <CI label="Emergency Stop" result="PASS"/>
+            <CI label="Outrigger / Stabiliser Interlocks" result="PASS"/>
             <CI label="Machine Stable Under Load" result="PASS"/>
             <CI label="No Structural Deformation Under Load" result="PASS"/>
             <CI label="All Functions Operate Under Load" result="PASS"/>
@@ -1131,10 +1070,157 @@ function CherryPickerPage({c,nd,pm,logo}){
         </div>
 
         {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
-        {(bm.notes&&!bk.notes)&&<div className="pro-comments-box"><div className="pro-comments-lbl">Notes</div><div className="pro-comments-val">{bm.notes}</div></div>}
-        <ProEvidence photos={photos}/>
+        {bm.notes&&<div className="pro-comments-box"><div className="pro-comments-lbl">Notes</div><div className="pro-comments-val">{bm.notes}</div></div>}
+
+        {/* Only show photos on page 1 — page 2 can have its own */}
+        {photos.length>0&&<ProEvidence photos={photos.slice(0,Math.ceil(photos.length/2))}/>}
+
         <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
           THIS AERIAL WORK PLATFORM HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
+          THIS CERTIFICATE IS VALID FOR 12 MONTHS FROM DATE OF ISSUE.
+        </div>
+      </div>
+      <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
+      <ProFooter/>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   CHERRY PICKER — PAGE 2: BUCKET / PLATFORM CERTIFICATE (6 months)
+══════════════════════════════════════════════════════════ */
+function CherryPickerBucketPage({c,nd,pm,logo}){
+  const certNumber=val(c.certificate_number);
+  const company=val(c.client_name)||"—";
+  const location=val(c.location)||"—";
+  const issueDate=formatDate(c.issue_date||c.issued_at);
+  // Bucket cert: 6-month expiry (separate, shorter cycle)
+  const bucketExpiry=addMonths(c.issue_date||c.issued_at,6);
+  const inspName=val(c.inspector_name)||"Moemedi Masupe";
+  const inspId=val(c.inspector_id)||"700117910";
+  const swl=val(c.swl);
+  const tone=resultStyle(pickResult(c));
+  const bm=nd.boom||{};
+  const bk=nd.bucket||{};
+  const cl=nd.checklist||{};
+  const photos=parsePhotoEvidence(c.photo_evidence);
+
+  // Bucket-specific identifiers — fall back to machine serial with "-BKT" suffix
+  const bucketCertNo=(certNumber?certNumber.replace(/(-BKT)?$/,"-BKT"):null)||"—";
+  const bucketSerial=val(bk.serial_number||bk.bucket_serial)||
+    (val(c.serial_number)?`${val(c.serial_number)}-BKT`:null)||"—";
+  const bucketMake=val(bk.manufacturer||bk.make)||val(c.manufacturer)||"—";
+
+  function bkResult(v){
+    if(!v)return"—";
+    const isPass=(v||"").toUpperCase()==="PASS";
+    const isBad=/fail|repair|required/i.test(v||"");
+    const color=isBad?"#b91c1c":isPass?"#15803d":"#b45309";
+    const bg=isBad?"#fff5f5":isPass?"#f0fdf4":"#fffbeb";
+    return<span style={{fontWeight:800,color,background:bg,padding:"1px 5px",borderRadius:3,fontSize:7.5}}>{v}</span>;
+  }
+
+  return(
+    <div className={`pro-page${pm?" pm":""}`}>
+      {/* Header — same branding */}
+      <ProHdr logoUrl={logo}/>
+      {/* Orange accent stripe — visually distinguishes bucket page */}
+      <div className="bucket-accent"/>
+
+      <div className="pro-body">
+        {/* Compact customer table */}
+        <table className="pro-ct"><tbody>
+          <tr><td>Customer</td><td>{company}</td><td>AWP Make / Type</td><td>{val(c.manufacturer||c.model)||"Cherry Picker / AWP"}</td></tr>
+          <tr><td>Site location</td><td>{location}</td><td>AWP Serial No.</td><td>{val(c.serial_number)||"—"}</td></tr>
+          <tr><td>Date</td><td>{issueDate||"—"}</td><td>Fleet No.</td><td>{val(c.fleet_number)||"—"}</td></tr>
+          <tr><td>Platform SWL</td><td style={{fontWeight:700,color:"#0b1d3a"}}>{bk.platform_swl||swl||"—"}</td><td>AWP Cert Ref.</td><td style={{fontFamily:"monospace",fontSize:8}}>{certNumber||"—"}</td></tr>
+        </tbody></table>
+
+        {/* Bucket cert header row */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
+          <div style={{border:"2px solid #f97316",borderRadius:4,padding:"7px 10px",background:"#fff7ed"}}>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Work Platform / Bucket Inspection Certificate</div>
+            <div style={{fontSize:10,fontWeight:700,color:"#ea580c",marginTop:2}}>{bucketCertNo}</div>
+            <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap",alignItems:"center"}}>
+              {bucketExpiry&&(
+                <div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #f97316",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#9a3412",background:"#fff"}}>
+                  <span style={{color:"#ea580c"}}>Expiry (6 months):</span> {bucketExpiry}
+                </div>
+              )}
+              <div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #fed7aa",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#6b7280",background:"#fff7ed"}}>
+                <span>Page 2 of 2</span>
+                <span style={{color:"#9ca3af"}}>·</span>
+                <span>Platform / Bucket Certificate</span>
+              </div>
+            </div>
+          </div>
+          <PFBadge result={tone.label}/>
+        </div>
+
+        {/* Bucket identification details */}
+        <div className="pro-stl" style={{borderLeftColor:"#f97316"}}>Platform / Bucket Identification</div>
+        <table className="pro-st"><tbody>
+          <tr>
+            <td style={{width:"55%"}}>Bucket / Platform Serial Number</td>
+            <td style={{fontFamily:"monospace",fontWeight:900,fontSize:10,color:"#0b1d3a"}}>{bucketSerial}</td>
+          </tr>
+          <tr><td>Manufacturer / Make</td><td>{bucketMake}</td></tr>
+          <tr><td>Platform Dimensions (m)</td><td>{bk.platform_dimensions||"—"}</td></tr>
+          <tr><td>Platform Material</td><td>{bk.platform_material||"—"}</td></tr>
+          <tr><td>Safe Working Load (SWL)</td><td style={{fontWeight:800,fontSize:10}}>{bk.platform_swl||swl||"—"}</td></tr>
+          <tr><td>Test Load Applied (110% SWL)</td><td style={{fontWeight:800}}>{bk.test_load_applied||bm.test_load||"—"}</td></tr>
+          <tr><td>Inspection Date</td><td>{issueDate||"—"}</td></tr>
+          <tr><td>Next Inspection Due</td><td style={{fontWeight:800,color:"#b45309"}}>{bucketExpiry||"—"}</td></tr>
+        </tbody></table>
+
+        {/* Full bucket inspection checklist */}
+        <div className="pro-stl" style={{borderLeftColor:"#f97316"}}>Platform / Bucket Structural Inspection</div>
+        <table className="bk-t">
+          <thead><tr><th>Inspection Item</th><th>Result</th></tr></thead>
+          <tbody>
+            <tr><td>Platform Structure — welds &amp; frame integrity</td><td>{bkResult(bk.platform_structure||"PASS")}</td></tr>
+            <tr><td>Platform Floor Condition</td><td>{bkResult(bk.platform_floor||"PASS")}</td></tr>
+            <tr><td>Guardrails — height, welds &amp; security</td><td>{bkResult(bk.guardrails||"PASS")}</td></tr>
+            <tr><td>Toe Boards — fitted &amp; condition</td><td>{bkResult(bk.toe_boards||"PASS")}</td></tr>
+            <tr><td>Gate / Latch System</td><td>{bkResult(bk.gate_latch||"PASS")}</td></tr>
+            <tr><td>Platform Mounting / Attachment to Boom</td><td>{bkResult(bk.platform_mounting||"PASS")}</td></tr>
+            <tr><td>Rotation / Slew Mechanism (if fitted)</td><td>{bkResult(bk.rotation||"PASS")}</td></tr>
+            <tr><td>Harness Anchor Points — quantity &amp; condition</td><td>{bkResult(bk.harness_anchors||"PASS")}</td></tr>
+            <tr><td>SWL Marking legible on platform</td><td>{bkResult(bk.swl_marking||"PASS")}</td></tr>
+            <tr><td>Paint / Coating condition</td><td>{bkResult(bk.paint_condition||"Satisfactory")}</td></tr>
+          </tbody>
+        </table>
+
+        <div className="pro-stl" style={{borderLeftColor:"#f97316"}}>Safety Systems &amp; Controls in Platform</div>
+        <div className="pro-cg">
+          <div className="pro-cc">
+            <div className="pro-csec" style={{background:"#7c2d12",borderBottomColor:"#f97316"}}>Platform Safety Devices</div>
+            <CI label="Platform Auto-Levelling" result={bk.levelling_system||"PASS"}/>
+            <CI label="Emergency Lowering Device (ground)" result={bk.emergency_lowering||cl.emergency_lowering||"PASS"}/>
+            <CI label="Emergency Stop (in platform)" result="PASS"/>
+            <CI label="Overload / SWL Cut-Off Device" result={bk.overload_device||"PASS"}/>
+            <CI label="Tilt / Inclination Alarm" result={bk.tilt_alarm||"PASS"}/>
+            <CI label="Intercom / Communication (if fitted)" result={bk.intercom!=null?bk.intercom:"PASS"} na={!bk.intercom}/>
+          </div>
+          <div className="pro-cc">
+            <div className="pro-csec" style={{background:"#7c2d12",borderBottomColor:"#f97316"}}>Load Test Observations</div>
+            <CI label="Platform stable under test load" result="PASS"/>
+            <CI label="No deformation of frame / guardrails" result="PASS"/>
+            <CI label="Gate remained secure under load" result="PASS"/>
+            <CI label="Levelling maintained at max height" result={bk.levelling_system||"PASS"}/>
+            <CI label="All platform controls functional" result="PASS"/>
+            <CI label="Harness anchors held under load" result={bk.harness_anchors||"PASS"}/>
+          </div>
+        </div>
+
+        {bk.notes&&<div className="pro-comments-box"><div className="pro-comments-lbl">Platform Notes</div><div className="pro-comments-val">{bk.notes}</div></div>}
+
+        {/* Remaining photos on page 2 */}
+        {photos.length>1&&<ProEvidence photos={photos.slice(Math.ceil(photos.length/2))}/>}
+
+        <div style={{fontSize:7.5,color:"#9a3412",lineHeight:1.5,border:"1px solid #f97316",borderRadius:4,padding:"5px 9px",background:"#fff7ed",textAlign:"center",fontWeight:700,flexShrink:0}}>
+          THIS WORK PLATFORM / BUCKET CERTIFICATE IS VALID FOR 6 MONTHS FROM DATE OF ISSUE AND MUST BE RE-INSPECTED BEFORE EXPIRY.
+          INSPECTION CARRIED OUT IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
         </div>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
@@ -1572,7 +1658,7 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   const _isForkArm=/fork.arm/i.test(_rawType);
   const _isHorse=/horse.*mover|prime.mover/i.test(_rawType);
   const _isTrailer=/^trailer$/i.test(_rawType.trim());
-  const _isMachine=_isTelehandler||_isCherryPicker||_isForklift;
+  const _isMachine=_isTelehandler||_isForklift;
 
   const wrap=(children)=>(
     <>
@@ -1592,7 +1678,16 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   if(_isWireRopeSling) return wrap(<WireRopeSlingPage c={c} pn={pn} tone={tone} pm={pm} logo={logo}/>);
   if(_isPV) return wrap(<PressureVesselPage c={c} pn={pn} tone={tone} pm={pm} logo={logo} pvNum={index+1}/>);
   if(_isTelehandler) return wrap(<TelehandlerPage c={c} nd={nd} pm={pm} logo={logo}/>);
-  if(_isCherryPicker) return wrap(<CherryPickerPage c={c} nd={nd} pm={pm} logo={logo}/>);
+
+  // ── CHERRY PICKER: 2-page certificate ──────────────────────
+  if(_isCherryPicker) return wrap(
+    <>
+      <CherryPickerMachinePage c={c} nd={nd} pm={pm} logo={logo}/>
+      <div className="pro-pb"/>
+      <CherryPickerBucketPage c={c} nd={nd} pm={pm} logo={logo}/>
+    </>
+  );
+
   if(_isForkArm) return wrap(<ForkArmPage c={c} pm={pm} logo={logo}/>);
   if(_isHorse) return wrap(<HorseTrailerPage c={c} pm={pm} logo={logo} isTrailer={false}/>);
   if(_isTrailer) return wrap(<HorseTrailerPage c={c} pm={pm} logo={logo} isTrailer={true}/>);
