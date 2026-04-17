@@ -10,21 +10,12 @@ function parseNotes(str){if(!str)return{};try{const p=JSON.parse(str);if(typeof 
 function normalizeInspectionDataShape(raw){
   const src=(raw&&typeof raw==="object"&&!Array.isArray(raw))?raw:{};
   const out={...src};
-
-  const firstObject=(...keys)=>{
-    for(const key of keys){
-      const value=src[key];
-      if(value&&typeof value==="object"&&!Array.isArray(value)) return value;
-    }
-    return {};
-  };
-
+  const firstObject=(...keys)=>{for(const key of keys){const value=src[key];if(value&&typeof value==="object"&&!Array.isArray(value))return value;}return {};};
   out.checklist={...firstObject("checklist","general_checklist","inspection_checklist")};
   out.boom={...firstObject("boom","boom_configuration","boomConfig")};
   out.bucket={...firstObject("bucket","bucket_platform","platform","bucket_inspection","platform_inspection")};
   out.horse={...firstObject("horse","prime_mover")};
   out.trailer={...firstObject("trailer")};
-
   const forkCandidates=[src.forks,src.forks_arms,src.fork_arms,src.fork_arm];
   const forkArray=forkCandidates.find(v=>Array.isArray(v));
   out.forks=Array.isArray(forkArray)?forkArray:[];
@@ -34,9 +25,8 @@ function normalizeInspectionDataShape(raw){
 function getInspectionData(c){
   const notes=parseNotes(val(c.notes||"")||"");
   const extracted=(c&&c.extracted_data&&typeof c.extracted_data==="object")?c.extracted_data:{};
-  const normalized = normalizeInspectionDataShape({
-    ...extracted,
-    ...notes,
+  const normalized=normalizeInspectionDataShape({
+    ...extracted,...notes,
     checklist:{...(extracted.checklist||{}),...(notes.checklist||{})},
     boom:{...(extracted.boom||extracted.boom_configuration||{}),...(notes.boom||notes.boom_configuration||{})},
     bucket:{...(extracted.bucket||extracted.bucket_platform||extracted.platform||{}),...(notes.bucket||notes.bucket_platform||notes.platform||{})},
@@ -44,27 +34,17 @@ function getInspectionData(c){
     trailer:{...(extracted.trailer||{}),...(notes.trailer||{})},
     forks:Array.isArray(notes.forks)?notes.forks:Array.isArray(extracted.forks)?extracted.forks:Array.isArray(extracted.fork_arms)?extracted.fork_arms:[],
   });
-  normalized.boom = normalizeBoomData(normalized.boom);
-  normalized.bucket = normalizeBucketData(normalized.bucket);
-  normalized.checklist = normalizeChecklistData(normalized.checklist);
+  normalized.boom=normalizeBoomData(normalized.boom);
+  normalized.bucket=normalizeBucketData(normalized.bucket);
+  normalized.checklist=normalizeChecklistData(normalized.checklist);
   return normalized;
 }
 
-function normToken(v){
-  return String(v||"").trim().toLowerCase().replace(/[()]/g,"").replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"");
-}
-function firstVal(obj, keys, fallback=null){
-  const src=(obj&&typeof obj==="object")?obj:{};
-  for(const key of keys){
-    const value=src[key];
-    if(value!==undefined && value!==null && String(value).trim()!=="") return value;
-  }
-  return fallback;
-}
+function normToken(v){return String(v||"").trim().toLowerCase().replace(/[()]/g,"").replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"");}
+function firstVal(obj,keys,fallback=null){const src=(obj&&typeof obj==="object")?obj:{};for(const key of keys){const value=src[key];if(value!==undefined&&value!==null&&String(value).trim()!=="")return value;}return fallback;}
 function normalizeBoomData(raw){
   const src=(raw&&typeof raw==="object"&&!Array.isArray(raw))?raw:{};
-  return {
-    ...src,
+  return{...src,
     max_height:firstVal(src,["max_height","max_working_height","max_working_height_m","working_height","working_height_m","height"]),
     min_boom_length:firstVal(src,["min_boom_length","boom_length_min","min_boom","min_length","minimum_boom_length"]),
     max_boom_length:firstVal(src,["max_boom_length","boom_length_max","max_boom","max_length","maximum_boom_length","boom_length"]),
@@ -92,11 +72,12 @@ function normalizeBoomData(raw){
 }
 function normalizeBucketData(raw){
   const src=(raw&&typeof raw==="object"&&!Array.isArray(raw))?raw:{};
-  return {
-    ...src,
+  return{...src,
     serial_number:firstVal(src,["serial_number","bucket_serial","serial_no"]),
     manufacturer:firstVal(src,["manufacturer","make"]),
     platform_swl:firstVal(src,["platform_swl","bucket_swl","swl_platform","swl"]),
+    platform_dimensions:firstVal(src,["platform_dimensions","dimensions"]),
+    platform_material:firstVal(src,["platform_material","material"]),
     test_load_applied:firstVal(src,["test_load_applied","test_load","load_test","proof_load"]),
     platform_structure:firstVal(src,["platform_structure","structure"]),
     platform_floor:firstVal(src,["platform_floor","floor_condition"]),
@@ -118,8 +99,7 @@ function normalizeBucketData(raw){
 }
 function normalizeChecklistData(raw){
   const src=(raw&&typeof raw==="object"&&!Array.isArray(raw))?raw:{};
-  return {
-    ...src,
+  return{...src,
     structural_result:firstVal(src,["structural_result","structural_integrity","structure"]),
     hydraulics_result:firstVal(src,["hydraulics_result","hydraulic_system","hydraulics"]),
     brakes_result:firstVal(src,["brakes_result","brakes","brake_drive_system"]),
@@ -151,66 +131,28 @@ function detectFail(defects,...kws){if(!defects)return"PASS";const d=defects.toL
 function parsePhotoEvidence(raw){if(!raw)return[];if(Array.isArray(raw))return raw;if(typeof raw==="string"){try{const p=JSON.parse(raw);return Array.isArray(p)?p:[];}catch(e){return[];}}return[];}
 function r(v){const s=resultStyle((v||"").toUpperCase());return<span style={{fontSize:8,fontWeight:800,color:s.color,background:s.bg,border:`1px solid ${s.brd}`,padding:"1px 6px",borderRadius:3,whiteSpace:"nowrap"}}>{s.label}</span>;}
 
-/*
- * parsePVChecklist — extracts the pressure vessel inspection checklist
- */
-function parsePVChecklist(c, pn) {
-  let cl = {};
-  try {
-    const raw = val(c.notes||"");
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object") {
-        cl = parsed.checklist || parsed.pressure_vessel_checklist || parsed;
-      }
-    }
-  } catch(e) {}
-
-  try {
-    const ex = c.extracted_data || {};
-    if (ex.checklist) Object.assign(cl, ex.checklist);
-    if (ex.pressure_vessel_checklist) Object.assign(cl, ex.pressure_vessel_checklist);
-  } catch(e) {}
-
-  const get = (key, pnKey, fallback) => {
-    const v = cl[key];
-    if (v && String(v).trim()) return String(v).trim();
-    if (pnKey) {
-      const pv = pn[pnKey];
-      if (pv && String(pv).trim()) return String(pv).trim();
-    }
-    return fallback || null;
-  };
-
-  const rawCorrosion = get("signs_of_corrosion", "Corrosion", null);
-  let corrosionDisplay = "None observed";
-  if (rawCorrosion) {
-    if (/^yes/i.test(rawCorrosion)) {
-      corrosionDisplay = rawCorrosion;
-    } else if (/^none/i.test(rawCorrosion)) {
-      corrosionDisplay = "None observed";
-    } else {
-      corrosionDisplay = rawCorrosion;
-    }
-  }
-
-  const defects = val(c.defects_found) || "";
-  const defectsImplyCorrosion = /corrode|corroded|corrosion|rust|rusty/i.test(defects);
-  if (defectsImplyCorrosion && /^none/i.test(corrosionDisplay)) {
-    corrosionDisplay = "Yes — see defects";
-  }
-
-  return {
-    vessel_condition_external: get("vessel_condition_external", null, "Satisfactory"),
-    vessel_condition_internal: get("vessel_condition_internal", null, "Satisfactory"),
-    safety_valve_fitted:       get("safety_valve_fitted",       null, "Yes"),
-    pressure_gauge_fitted:     get("pressure_gauge_fitted",     null, "Yes"),
-    drain_valve_fitted:        get("drain_valve_fitted",        null, "Yes"),
-    signs_of_corrosion:        corrosionDisplay,
-    nameplate_legible:         get("nameplate_legible",         null, "Yes"),
-    hydrostatic_test:          get("hydrostatic_test",          null, null),
-    hydrostatic_test_pressure: get("hydrostatic_test_pressure_kpa", null, null),
-    overall_assessment:        get("overall_assessment",        null, null),
+function parsePVChecklist(c,pn){
+  let cl={};
+  try{const raw=val(c.notes||"");if(raw){const parsed=JSON.parse(raw);if(parsed&&typeof parsed==="object"){cl=parsed.checklist||parsed.pressure_vessel_checklist||parsed;}}}catch(e){}
+  try{const ex=c.extracted_data||{};if(ex.checklist)Object.assign(cl,ex.checklist);if(ex.pressure_vessel_checklist)Object.assign(cl,ex.pressure_vessel_checklist);}catch(e){}
+  const get=(key,pnKey,fallback)=>{const v=cl[key];if(v&&String(v).trim())return String(v).trim();if(pnKey){const pv=pn[pnKey];if(pv&&String(pv).trim())return String(pv).trim();}return fallback||null;};
+  const rawCorrosion=get("signs_of_corrosion","Corrosion",null);
+  let corrosionDisplay="None observed";
+  if(rawCorrosion){if(/^yes/i.test(rawCorrosion)){corrosionDisplay=rawCorrosion;}else if(/^none/i.test(rawCorrosion)){corrosionDisplay="None observed";}else{corrosionDisplay=rawCorrosion;}}
+  const defects=val(c.defects_found)||"";
+  const defectsImplyCorrosion=/corrode|corroded|corrosion|rust|rusty/i.test(defects);
+  if(defectsImplyCorrosion&&/^none/i.test(corrosionDisplay)){corrosionDisplay="Yes — see defects";}
+  return{
+    vessel_condition_external:get("vessel_condition_external",null,"Satisfactory"),
+    vessel_condition_internal:get("vessel_condition_internal",null,"Satisfactory"),
+    safety_valve_fitted:get("safety_valve_fitted",null,"Yes"),
+    pressure_gauge_fitted:get("pressure_gauge_fitted",null,"Yes"),
+    drain_valve_fitted:get("drain_valve_fitted",null,"Yes"),
+    signs_of_corrosion:corrosionDisplay,
+    nameplate_legible:get("nameplate_legible",null,"Yes"),
+    hydrostatic_test:get("hydrostatic_test",null,null),
+    hydrostatic_test_pressure:get("hydrostatic_test_pressure_kpa",null,null),
+    overall_assessment:get("overall_assessment",null,null),
   };
 }
 
@@ -220,6 +162,7 @@ const CSS=`
   .cs-wrap{background:rgba(10,18,32,0.92);border:1px solid rgba(148,163,184,0.12);border-radius:16px;padding:16px;display:flex;justify-content:center;flex-direction:column;align-items:center;gap:16px}
   .cs-page{background:#fff;width:210mm;height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28);overflow:hidden;page-break-after:always;break-after:page;}
   .cs-page.pm{box-shadow:none;width:100%}
+  .cs-page.last-page{page-break-after:avoid!important;break-after:avoid!important;}
   .cs-hdr{background:#0b1d3a;position:relative;overflow:hidden;flex-shrink:0}
   .cs-geo{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
   .cs-hdr-inner{position:relative;z-index:2;display:flex;align-items:stretch;min-height:90px}
@@ -272,6 +215,11 @@ const CSS=`
   .pro-wrap{background:rgba(10,18,32,0.92);border:1px solid rgba(148,163,184,0.12);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:16px;align-items:center}
   .pro-page{background:#fff;width:210mm;height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28);overflow:hidden;page-break-after:always;break-after:page;}
   .pro-page.pm{box-shadow:none;width:100%}
+
+  /* ── KEY FIX: last page in any multi-page cert must NOT break-after ── */
+  .pro-page.last-page{page-break-after:avoid!important;break-after:avoid!important;}
+  .cs-page.last-page{page-break-after:avoid!important;break-after:avoid!important;}
+
   .pro-hdr{background:#0b1d3a;display:flex;align-items:center;min-height:76px;flex-shrink:0}
   .pro-logo-box{background:#fff;width:108px;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:8px;clip-path:polygon(0 0,100% 0,82% 100%,0 100%)}
   .pro-logo-box img{width:86px;height:64px;object-fit:contain}
@@ -379,7 +327,7 @@ const CSS=`
   .bk-t td:first-child{font-weight:700;background:#eef4ff;color:#0b1d3a;width:55%}
   .bk-t td:nth-child(2){background:#fff;font-weight:600;color:#0b1d3a}
 
-  /* bucket page accent — orange stripe to distinguish from main cert */
+  /* bucket page accent — orange stripe */
   .bucket-accent{height:3px;background:linear-gradient(90deg,#f97316 0%,#fb923c 55%,#fbbf24 100%);flex-shrink:0}
 
   @media print{
@@ -387,6 +335,7 @@ const CSS=`
     html,body{margin:0;padding:0}
     .cs-wrap,.pro-wrap{background:none!important;padding:0!important;border:none!important;gap:0!important;border-radius:0!important;display:block!important}
     .cs-page,.pro-page{box-shadow:none!important;width:210mm!important;height:297mm!important;overflow:hidden!important;page-break-after:always;break-after:page;margin:0!important}
+    .cs-page.last-page,.pro-page.last-page{page-break-after:avoid!important;break-after:avoid!important;}
     .pro-pb{page-break-after:always;break-after:page;height:0}
   }
 `;
@@ -502,26 +451,16 @@ function PFBadge({result}){
     </div>
   );
 }
-
-/* ── BucketResultRow — renders a single row in the bucket inspection table ── */
 function BucketResultRow({label,result}){
   if(!result)return null;
   const isPass=(result||"").toUpperCase()==="PASS";
   const isFail=/fail|repair|required/i.test(result||"");
-  const cellStyle=isFail
-    ?{background:"#fff5f5",color:"#b91c1c",fontWeight:800}
-    :isPass?{background:"#f0fdf4",color:"#15803d",fontWeight:700}
-    :{background:"#fff",color:"#0b1d3a",fontWeight:600};
-  return(
-    <tr>
-      <td>{label}</td>
-      <td style={cellStyle}>{result}</td>
-    </tr>
-  );
+  const cellStyle=isFail?{background:"#fff5f5",color:"#b91c1c",fontWeight:800}:isPass?{background:"#f0fdf4",color:"#15803d",fontWeight:700}:{background:"#fff",color:"#0b1d3a",fontWeight:600};
+  return(<tr><td>{label}</td><td style={cellStyle}>{result}</td></tr>);
 }
 
 /* ══════════════════════════════════════════════════════════
-   CRANE LOAD TEST
+   CRANE LOAD TEST  (page 1 of 2 — no last-page class)
 ══════════════════════════════════════════════════════════ */
 function CraneLoadTestPage({c,pn,tone,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -606,7 +545,7 @@ function CraneLoadTestPage({c,pn,tone,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   CRANE CHECKLIST
+   CRANE CHECKLIST  (page 2 of 2 — LAST PAGE → last-page class)
 ══════════════════════════════════════════════════════════ */
 function CraneChecklistPage({c,pn,pm,logo}){
   const company=val(c.client_name||c.company)||"—";
@@ -627,6 +566,7 @@ function CraneChecklistPage({c,pn,pm,logo}){
   const boom=pn["Boom"]||"PASS";
   const outriggers=pn["Outriggers"]||"PASS";
   const computer=pn["Computer"]||"PASS";
+  const cl=normalizeChecklistData({});
   const oilLeaks=detectFail(defects,"oil leak","leak");
   const tires=detectFail(defects,"tire","tyre");
   const brakes=detectFail(defects,"brake");
@@ -635,7 +575,7 @@ function CraneChecklistPage({c,pn,pm,logo}){
   const boomCyl=detectFail(defects,"boom cylinder","lift cylinder");
   const mcirNo="MCIR "+(c.inspection_number||c.certificate_number?.replace("CERT-CR","")||"");
   return(
-    <div className={`pro-page${pm?" pm":""}`}>
+    <div className={`pro-page last-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
       <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
       <div className="pro-body">
@@ -696,7 +636,7 @@ function CraneChecklistPage({c,pn,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   HOOK & ROPE
+   HOOK & ROPE  (single page — last-page)
 ══════════════════════════════════════════════════════════ */
 function HookRopePage({c,pn,tone,pm,logo,isRope}){
   const certNumber=val(c.certificate_number);
@@ -731,7 +671,7 @@ function HookRopePage({c,pn,tone,pm,logo,isRope}){
   const layAux=pn["Lay aux"]||"Good";
   function YN(pass){return<span style={{color:pass==="PASS"?"#15803d":"#b91c1c",fontWeight:800}}>{pass==="PASS"?"Yes":"No"}</span>;}
   return(
-    <div className={`pro-page${pm?" pm":""}`}>
+    <div className={`pro-page last-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
       <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
       <div className="pro-body">
@@ -793,7 +733,7 @@ function HookRopePage({c,pn,tone,pm,logo,isRope}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   PRESSURE VESSEL
+   PRESSURE VESSEL  (single page — last-page)
 ══════════════════════════════════════════════════════════ */
 function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
   const certNumber=val(c.certificate_number);
@@ -818,29 +758,15 @@ function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
   const inspId=val(c.inspector_id)||"700117910";
   const pressureUnit=val(c.pressure_unit||pn.pressure_unit)||"bar";
   const photos=parsePhotoEvidence(c.photo_evidence);
-
-  const cl = parsePVChecklist(c, pn);
-
-  const corrosionIsYes = /^yes/i.test(cl.signs_of_corrosion||"");
-  const corrosionStyle = corrosionIsYes
-    ? { color:"#b91c1c", fontWeight:800 }
-    : { color:"#0b1d3a", fontWeight:600 };
-
-  const overallDisplay = cl.overall_assessment
-    || (tone.label==="PASS"?"Pass":tone.label==="FAIL"?"Fail":tone.label);
-  const overallIsPass = /^pass|satisfactory/i.test(overallDisplay);
-  const overallStyle = { fontWeight:800, color: overallIsPass?"#15803d":"#b91c1c" };
-
-  const hydroDisplay = cl.hydrostatic_test
-    ? (cl.hydrostatic_test==="Yes" && (cl.hydrostatic_test_pressure||testP))
-        ? `Yes — ${cl.hydrostatic_test_pressure||testP} ${pressureUnit}`
-        : cl.hydrostatic_test
-    : testP
-      ? `Yes — ${testP} ${pressureUnit}`
-      : "N/A";
-
+  const cl=parsePVChecklist(c,pn);
+  const corrosionIsYes=/^yes/i.test(cl.signs_of_corrosion||"");
+  const corrosionStyle=corrosionIsYes?{color:"#b91c1c",fontWeight:800}:{color:"#0b1d3a",fontWeight:600};
+  const overallDisplay=cl.overall_assessment||(tone.label==="PASS"?"Pass":tone.label==="FAIL"?"Fail":tone.label);
+  const overallIsPass=/^pass|satisfactory/i.test(overallDisplay);
+  const overallStyle={fontWeight:800,color:overallIsPass?"#15803d":"#b91c1c"};
+  const hydroDisplay=cl.hydrostatic_test?(cl.hydrostatic_test==="Yes"&&(cl.hydrostatic_test_pressure||testP))?`Yes — ${cl.hydrostatic_test_pressure||testP} ${pressureUnit}`:cl.hydrostatic_test:testP?`Yes — ${testP} ${pressureUnit}`:"N/A";
   return(
-    <div className={`pro-page${pm?" pm":""}`}>
+    <div className={`pro-page last-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
       <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
       <div className="pro-body">
@@ -858,42 +784,21 @@ function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
         </div>
         <div className="pro-stl">Pressure Vessel Details</div>
         <table className="pro-pv">
-          <thead>
-            <tr>
-              <th>Vessel Type</th><th>Serial Number</th><th>Capacity</th>
-              <th>MAWP ({pressureUnit})</th><th>Test Pressure ({pressureUnit})</th><th>Design Pressure ({pressureUnit})</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td style={{background:"#fff"}}>{pvType}</td>
-              <td style={{background:"#fff",fontFamily:"monospace"}}>{pvSN||"—"}</td>
-              <td style={{background:"#fff"}}>{pvCap||"—"}</td>
-              <td style={{background:"#fff",fontWeight:700}}>{mawp||"—"}</td>
-              <td style={{background:"#fff",fontWeight:700}}>{testP||"—"}</td>
-              <td style={{background:"#fff"}}>{designP||"—"}</td>
-            </tr>
-          </tbody>
+          <thead><tr><th>Vessel Type</th><th>Serial Number</th><th>Capacity</th><th>MAWP ({pressureUnit})</th><th>Test Pressure ({pressureUnit})</th><th>Design Pressure ({pressureUnit})</th></tr></thead>
+          <tbody><tr><td style={{background:"#fff"}}>{pvType}</td><td style={{background:"#fff",fontFamily:"monospace"}}>{pvSN||"—"}</td><td style={{background:"#fff"}}>{pvCap||"—"}</td><td style={{background:"#fff",fontWeight:700}}>{mawp||"—"}</td><td style={{background:"#fff",fontWeight:700}}>{testP||"—"}</td><td style={{background:"#fff"}}>{designP||"—"}</td></tr></tbody>
         </table>
-
         <div className="pro-stl">Inspection Results</div>
-        <table className="pro-st">
-          <tbody>
-            <tr><td>Vessel condition — external visual</td><td>{cl.vessel_condition_external}</td></tr>
-            <tr><td>Vessel condition — internal (if applicable)</td><td>{cl.vessel_condition_internal}</td></tr>
-            <tr><td>Safety valve fitted and operating correctly</td><td>{cl.safety_valve_fitted}</td></tr>
-            <tr><td>Pressure gauge fitted and reading correctly</td><td>{cl.pressure_gauge_fitted}</td></tr>
-            <tr><td>Drain valve fitted and operating correctly</td><td>{cl.drain_valve_fitted}</td></tr>
-            <tr>
-              <td style={corrosionIsYes?{background:"#fff5f5",fontWeight:700,color:"#b91c1c"}:{}}>Signs of corrosion, cracking or deformation</td>
-              <td style={corrosionStyle}>{cl.signs_of_corrosion}</td>
-            </tr>
-            <tr><td>Nameplate legible and data correct</td><td>{cl.nameplate_legible}</td></tr>
-            <tr><td>Hydrostatic test performed</td><td>{hydroDisplay}</td></tr>
-            <tr><td>Overall assessment</td><td style={overallStyle}>{overallDisplay}</td></tr>
-          </tbody>
-        </table>
-
+        <table className="pro-st"><tbody>
+          <tr><td>Vessel condition — external visual</td><td>{cl.vessel_condition_external}</td></tr>
+          <tr><td>Vessel condition — internal (if applicable)</td><td>{cl.vessel_condition_internal}</td></tr>
+          <tr><td>Safety valve fitted and operating correctly</td><td>{cl.safety_valve_fitted}</td></tr>
+          <tr><td>Pressure gauge fitted and reading correctly</td><td>{cl.pressure_gauge_fitted}</td></tr>
+          <tr><td>Drain valve fitted and operating correctly</td><td>{cl.drain_valve_fitted}</td></tr>
+          <tr><td style={corrosionIsYes?{background:"#fff5f5",fontWeight:700,color:"#b91c1c"}:{}}>Signs of corrosion, cracking or deformation</td><td style={corrosionStyle}>{cl.signs_of_corrosion}</td></tr>
+          <tr><td>Nameplate legible and data correct</td><td>{cl.nameplate_legible}</td></tr>
+          <tr><td>Hydrostatic test performed</td><td>{hydroDisplay}</td></tr>
+          <tr><td>Overall assessment</td><td style={overallStyle}>{overallDisplay}</td></tr>
+        </tbody></table>
         <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
           THIS PRESSURE VESSEL HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
         </div>
@@ -909,7 +814,7 @@ function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   WIRE ROPE SLING
+   WIRE ROPE SLING  (single page — last-page)
 ══════════════════════════════════════════════════════════ */
 function WireRopeSlingPage({c,pn,tone,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -938,7 +843,7 @@ function WireRopeSlingPage({c,pn,tone,pm,logo}){
   const endFittings=pn["End fittings"]||"Good";
   const photos=parsePhotoEvidence(c.photo_evidence);
   return(
-    <div className={`pro-page${pm?" pm":""}`}>
+    <div className={`pro-page last-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
       <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
       <div className="pro-body">
@@ -981,7 +886,7 @@ function WireRopeSlingPage({c,pn,tone,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   TELEHANDLER CERTIFICATE
+   TELEHANDLER  (single page — last-page)
 ══════════════════════════════════════════════════════════ */
 function TelehandlerPage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -1003,7 +908,7 @@ function TelehandlerPage({c,nd,pm,logo}){
   const fks=(nd.forks||[]).filter(f=>f.length||f.swl);
   const cl=nd.checklist||{};
   return(
-    <div className={`pro-page${pm?" pm":""}`}>
+    <div className={`pro-page last-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
       <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
       <div className="pro-body">
@@ -1018,9 +923,7 @@ function TelehandlerPage({c,nd,pm,logo}){
         </div>
         <div className="pro-stl">Boom Configuration &amp; Load Test</div>
         <table className="pro-lt">
-          <thead>
-            <tr><th style={{textAlign:"left",width:140}}>Parameter</th><th>Min Boom</th><th>Max Boom</th><th>Actual / Test Config</th></tr>
-          </thead>
+          <thead><tr><th style={{textAlign:"left",width:140}}>Parameter</th><th>Min Boom</th><th>Max Boom</th><th>Actual / Test Config</th></tr></thead>
           <tbody>
             <tr><td>Boom Length (m)</td><td>{bm.min_boom_length||"—"}</td><td>{bm.max_boom_length||"—"}</td><td>{bm.actual_boom_length||"—"}</td></tr>
             <tr><td>Extended / Telescoped (m)</td><td>—</td><td>—</td><td>{bm.extended_boom_length||"—"}</td></tr>
@@ -1072,15 +975,7 @@ function TelehandlerPage({c,nd,pm,logo}){
             <div className="pro-stl">Fork Arms Inspected ({fks.length} arm{fks.length>1?"s":""})</div>
             <table className="fk-t">
               <thead><tr><th>Fork ID</th><th>SWL</th><th>Length (mm)</th><th>Heel (mm)</th><th>Blade (mm)</th><th>Wear %</th><th>Cracks</th><th>Bending</th><th>Result</th></tr></thead>
-              <tbody>{fks.map((fk,i)=>(
-                <tr key={i}>
-                  <td>{fk.fork_number||`Fork ${i+1}`}</td><td>{fk.swl||"—"}</td><td>{fk.length||"—"}</td>
-                  <td>{fk.thickness_heel||"—"}</td><td>{fk.thickness_blade||"—"}</td><td>{fk.wear_pct||"—"}</td>
-                  <td style={{color:fk.cracks==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.cracks==="yes"?"YES":"No"}</td>
-                  <td style={{color:fk.bending==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.bending==="yes"?"YES":"No"}</td>
-                  <td>{r(fk.result)}</td>
-                </tr>
-              ))}</tbody>
+              <tbody>{fks.map((fk,i)=>(<tr key={i}><td>{fk.fork_number||`Fork ${i+1}`}</td><td>{fk.swl||"—"}</td><td>{fk.length||"—"}</td><td>{fk.thickness_heel||"—"}</td><td>{fk.thickness_blade||"—"}</td><td>{fk.wear_pct||"—"}</td><td style={{color:fk.cracks==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.cracks==="yes"?"YES":"No"}</td><td style={{color:fk.bending==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.bending==="yes"?"YES":"No"}</td><td>{r(fk.result)}</td></tr>))}</tbody>
             </table>
           </>
         )}
@@ -1099,14 +994,13 @@ function TelehandlerPage({c,nd,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   CHERRY PICKER — PAGE 1: AWP / MACHINE CERTIFICATE (12 months)
+   CHERRY PICKER PAGE 1 — AWP Machine (no last-page)
 ══════════════════════════════════════════════════════════ */
 function CherryPickerMachinePage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
   const company=val(c.client_name)||"—";
   const location=val(c.location)||"—";
   const issueDate=formatDate(c.issue_date||c.issued_at);
-  // Machine cert: 12-month expiry
   const expiryDate=formatDate(c.expiry_date)||addMonths(c.issue_date||c.issued_at,12);
   const equipMake=val(c.manufacturer||c.model)||"Cherry Picker / AWP";
   const serialNo=val(c.serial_number);
@@ -1120,41 +1014,26 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
   const tone=resultStyle(pickResult(c));
   const bm=nd.boom||{};
   const cl=nd.checklist||{};
-
   return(
     <div className={`pro-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
       <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
       <div className="pro-body">
         <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl}/>
-
-        {/* Cert header row */}
         <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
           <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
-            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Cherry Picker Load Test Certificate</div>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Load Test Certificate — Aerial Work Platform</div>
             <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
             <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap",alignItems:"center"}}>
-              {expiryDate&&(
-                <div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>
-                  <span style={{color:"#3b6ea5"}}>Expiry (12 months):</span> {expiryDate}
-                </div>
-              )}
-              <div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#6b7280",background:"#f9fafb"}}>
-                <span>Page 1 of 2</span>
-                <span style={{color:"#9ca3af"}}>·</span>
-                <span>AWP Machine Certificate</span>
-              </div>
+              {expiryDate&&(<div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}><span style={{color:"#3b6ea5"}}>Expiry (12 months):</span> {expiryDate}</div>)}
+              <div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#6b7280",background:"#f9fafb"}}><span>Page 1 of 2</span><span style={{color:"#9ca3af"}}>·</span><span>AWP Machine Certificate</span></div>
             </div>
           </div>
           <PFBadge result={tone.label}/>
         </div>
-
-        {/* Boom spec */}
         <div className="pro-stl">Boom Specification &amp; Load Test</div>
         <table className="pro-lt">
-          <thead>
-            <tr><th style={{textAlign:"left",width:140}}>Parameter</th><th>Min Boom</th><th>Max Boom</th><th>Actual / Test Config</th></tr>
-          </thead>
+          <thead><tr><th style={{textAlign:"left",width:140}}>Parameter</th><th>Min Boom</th><th>Max Boom</th><th>Actual / Test Config</th></tr></thead>
           <tbody>
             <tr><td>Max Working Height (m)</td><td>—</td><td>{bm.max_height||"—"}</td><td>{bm.max_height||"—"}</td></tr>
             <tr><td>Boom Length (m)</td><td>{bm.min_boom_length||"—"}</td><td>{bm.max_boom_length||"—"}</td><td>{bm.actual_boom_length||"—"}</td></tr>
@@ -1165,8 +1044,6 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
             <tr className="pro-lt-bold"><td>Test Load Applied (110% SWL)</td><td></td><td></td><td>{bm.test_load||"—"}</td></tr>
           </tbody>
         </table>
-
-        {/* Checklist two-col */}
         <div className="pro-cg">
           <div className="pro-cc">
             <div className="pro-csec">Boom Systems</div>
@@ -1192,24 +1069,14 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
             <CI label="Machine Stable Under Load" result={cl.machine_stable_under_load||"PASS"}/>
             <CI label="No Structural Deformation Under Load" result={cl.no_structural_deformation_under_load||"PASS"}/>
             <CI label="All Functions Operate Under Load" result={cl.all_functions_operate_under_load||"PASS"}/>
-            {defects&&defects.length>0&&(
-              <>
-                <div className="pro-csec" style={{background:"#7f1d1d",color:"#fca5a5"}}>Defects</div>
-                <div style={{padding:"4px 8px",fontSize:7.5,color:"#b91c1c",fontWeight:700,lineHeight:1.45,background:"#fff5f5"}}>{defects}</div>
-              </>
-            )}
+            {defects&&defects.length>0&&(<><div className="pro-csec" style={{background:"#7f1d1d",color:"#fca5a5"}}>Defects</div><div style={{padding:"4px 8px",fontSize:7.5,color:"#b91c1c",fontWeight:700,lineHeight:1.45,background:"#fff5f5"}}>{defects}</div></>)}
           </div>
         </div>
-
         {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
         {bm.notes&&<div className="pro-comments-box"><div className="pro-comments-lbl">Notes</div><div className="pro-comments-val">{bm.notes}</div></div>}
-
-        {/* Only show photos on page 1 — page 2 can have its own */}
         {photos.length>0&&<ProEvidence photos={photos.slice(0,Math.ceil(photos.length/2))}/>}
-
         <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
-          THIS CHERRY PICKER HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
-          THIS CERTIFICATE IS VALID FOR 12 MONTHS FROM DATE OF ISSUE.
+          THIS AERIAL WORK PLATFORM HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA. THIS CERTIFICATE IS VALID FOR 12 MONTHS FROM DATE OF ISSUE.
         </div>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
@@ -1219,14 +1086,13 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   CHERRY PICKER — PAGE 2: BUCKET / PLATFORM CERTIFICATE (6 months)
+   CHERRY PICKER PAGE 2 — Bucket/Platform  (LAST PAGE → last-page)
 ══════════════════════════════════════════════════════════ */
 function CherryPickerBucketPage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
   const company=val(c.client_name)||"—";
   const location=val(c.location)||"—";
   const issueDate=formatDate(c.issue_date||c.issued_at);
-  // Bucket cert: 6-month expiry (separate, shorter cycle)
   const bucketExpiry=addMonths(c.issue_date||c.issued_at,6);
   const inspName=val(c.inspector_name)||"Moemedi Masupe";
   const inspId=val(c.inspector_id)||"700117910";
@@ -1236,13 +1102,9 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
   const bk=nd.bucket||{};
   const cl=nd.checklist||{};
   const photos=parsePhotoEvidence(c.photo_evidence);
-
-  // Bucket-specific identifiers — fall back to machine serial with "-BKT" suffix
   const bucketCertNo=(certNumber?certNumber.replace(/(-BKT)?$/,"-BKT"):null)||"—";
-  const bucketSerial=val(bk.serial_number||bk.bucket_serial)||
-    (val(c.serial_number)?`${val(c.serial_number)}-BKT`:null)||"—";
+  const bucketSerial=val(bk.serial_number||bk.bucket_serial)||(val(c.serial_number)?`${val(c.serial_number)}-BKT`:null)||"—";
   const bucketMake=val(bk.manufacturer||bk.make)||val(c.manufacturer)||"—";
-
   function bkResult(v){
     if(!v)return"—";
     const isPass=(v||"").toUpperCase()==="PASS";
@@ -1251,51 +1113,32 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
     const bg=isBad?"#fff5f5":isPass?"#f0fdf4":"#fffbeb";
     return<span style={{fontWeight:800,color,background:bg,padding:"1px 5px",borderRadius:3,fontSize:7.5}}>{v}</span>;
   }
-
   return(
-    <div className={`pro-page${pm?" pm":""}`}>
-      {/* Header — same branding */}
+    /* ── KEY FIX: last-page class stops the blank 3rd page ── */
+    <div className={`pro-page last-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
-      {/* Orange accent stripe — visually distinguishes bucket page */}
       <div className="bucket-accent"/>
-
       <div className="pro-body">
-        {/* Compact customer table */}
         <table className="pro-ct"><tbody>
           <tr><td>Customer</td><td>{company}</td><td>AWP Make / Type</td><td>{val(c.manufacturer||c.model)||"Cherry Picker / AWP"}</td></tr>
           <tr><td>Site location</td><td>{location}</td><td>AWP Serial No.</td><td>{val(c.serial_number)||"—"}</td></tr>
           <tr><td>Date</td><td>{issueDate||"—"}</td><td>Fleet No.</td><td>{val(c.fleet_number)||"—"}</td></tr>
           <tr><td>Platform SWL</td><td style={{fontWeight:700,color:"#0b1d3a"}}>{bk.platform_swl||swl||"—"}</td><td>AWP Cert Ref.</td><td style={{fontFamily:"monospace",fontSize:8}}>{certNumber||"—"}</td></tr>
         </tbody></table>
-
-        {/* Bucket cert header row */}
         <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
           <div style={{border:"2px solid #f97316",borderRadius:4,padding:"7px 10px",background:"#fff7ed"}}>
-            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Bucket Load Test Certificate</div>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Work Platform / Bucket Inspection Certificate</div>
             <div style={{fontSize:10,fontWeight:700,color:"#ea580c",marginTop:2}}>{bucketCertNo}</div>
             <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap",alignItems:"center"}}>
-              {bucketExpiry&&(
-                <div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #f97316",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#9a3412",background:"#fff"}}>
-                  <span style={{color:"#ea580c"}}>Expiry (6 months):</span> {bucketExpiry}
-                </div>
-              )}
-              <div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #fed7aa",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#6b7280",background:"#fff7ed"}}>
-                <span>Page 2 of 2</span>
-                <span style={{color:"#9ca3af"}}>·</span>
-                <span>Bucket Load Test Certificate</span>
-              </div>
+              {bucketExpiry&&(<div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #f97316",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#9a3412",background:"#fff"}}><span style={{color:"#ea580c"}}>Expiry (6 months):</span> {bucketExpiry}</div>)}
+              <div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #fed7aa",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#6b7280",background:"#fff7ed"}}><span>Page 2 of 2</span><span style={{color:"#9ca3af"}}>·</span><span>Platform / Bucket Certificate</span></div>
             </div>
           </div>
           <PFBadge result={tone.label}/>
         </div>
-
-        {/* Bucket identification details */}
-        <div className="pro-stl" style={{borderLeftColor:"#f97316"}}>Bucket Identification</div>
+        <div className="pro-stl" style={{borderLeftColor:"#f97316"}}>Platform / Bucket Identification</div>
         <table className="pro-st"><tbody>
-          <tr>
-            <td style={{width:"55%"}}>Bucket Serial Number</td>
-            <td style={{fontFamily:"monospace",fontWeight:900,fontSize:10,color:"#0b1d3a"}}>{bucketSerial}</td>
-          </tr>
+          <tr><td style={{width:"55%"}}>Bucket / Platform Serial Number</td><td style={{fontFamily:"monospace",fontWeight:900,fontSize:10,color:"#0b1d3a"}}>{bucketSerial}</td></tr>
           <tr><td>Manufacturer / Make</td><td>{bucketMake}</td></tr>
           <tr><td>Platform Dimensions (m)</td><td>{bk.platform_dimensions||"—"}</td></tr>
           <tr><td>Platform Material</td><td>{bk.platform_material||"—"}</td></tr>
@@ -1304,8 +1147,6 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
           <tr><td>Inspection Date</td><td>{issueDate||"—"}</td></tr>
           <tr><td>Next Inspection Due</td><td style={{fontWeight:800,color:"#b45309"}}>{bucketExpiry||"—"}</td></tr>
         </tbody></table>
-
-        {/* Full bucket inspection checklist */}
         <div className="pro-stl" style={{borderLeftColor:"#f97316"}}>Platform / Bucket Structural Inspection</div>
         <table className="bk-t">
           <thead><tr><th>Inspection Item</th><th>Result</th></tr></thead>
@@ -1322,7 +1163,6 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
             <tr><td>Paint / Coating condition</td><td>{bkResult(bk.paint_condition||"Satisfactory")}</td></tr>
           </tbody>
         </table>
-
         <div className="pro-stl" style={{borderLeftColor:"#f97316"}}>Safety Systems &amp; Controls in Platform</div>
         <div className="pro-cg">
           <div className="pro-cc">
@@ -1344,15 +1184,10 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
             <CI label="Harness anchors held under load" result={bk.harness_anchors||"PASS"}/>
           </div>
         </div>
-
         {bk.notes&&<div className="pro-comments-box"><div className="pro-comments-lbl">Platform Notes</div><div className="pro-comments-val">{bk.notes}</div></div>}
-
-        {/* Remaining photos on page 2 */}
         {photos.length>1&&<ProEvidence photos={photos.slice(Math.ceil(photos.length/2))}/>}
-
         <div style={{fontSize:7.5,color:"#9a3412",lineHeight:1.5,border:"1px solid #f97316",borderRadius:4,padding:"5px 9px",background:"#fff7ed",textAlign:"center",fontWeight:700,flexShrink:0}}>
-          THIS WORK PLATFORM / BUCKET CERTIFICATE IS VALID FOR 6 MONTHS FROM DATE OF ISSUE AND MUST BE RE-INSPECTED BEFORE EXPIRY.
-          INSPECTION CARRIED OUT IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
+          THIS WORK PLATFORM / BUCKET CERTIFICATE IS VALID FOR 6 MONTHS FROM DATE OF ISSUE AND MUST BE RE-INSPECTED BEFORE EXPIRY. INSPECTION CARRIED OUT IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
         </div>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
@@ -1362,7 +1197,7 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   FORK ARM CERTIFICATE
+   FORK ARM  (single page — last-page)
 ══════════════════════════════════════════════════════════ */
 function ForkArmPage({c,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -1387,7 +1222,7 @@ function ForkArmPage({c,pm,logo}){
   const hasCracks=raw.includes("CRACKS");
   const hasBending=raw.includes("BENDING");
   return(
-    <div className={`pro-page${pm?" pm":""}`}>
+    <div className={`pro-page last-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
       <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
       <div className="pro-body">
@@ -1432,7 +1267,7 @@ function ForkArmPage({c,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   HORSE & TRAILER
+   HORSE & TRAILER  (single page — last-page)
 ══════════════════════════════════════════════════════════ */
 function HorseTrailerPage({c,pm,logo,isTrailer}){
   const certNumber=val(c.certificate_number);
@@ -1458,7 +1293,7 @@ function HorseTrailerPage({c,pm,logo,isTrailer}){
   const fleet=val(c.fleet_number)||vd.fleet||"—";
   const gvm=val(c.swl)||(vd.gvm?`GVM ${vd.gvm}`:"")||"—";
   return(
-    <div className={`pro-page${pm?" pm":""}`}>
+    <div className={`pro-page last-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
       <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
       <div className="pro-body">
@@ -1520,7 +1355,7 @@ function HorseTrailerPage({c,pm,logo,isTrailer}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   GENERIC MACHINE (Forklift / TLB / Frontloader / Other)
+   GENERIC MACHINE (Forklift / TLB / etc)  (single page — last-page)
 ══════════════════════════════════════════════════════════ */
 function MachinePage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -1546,7 +1381,7 @@ function MachinePage({c,nd,pm,logo}){
   const tires=detectFail(defects,"tire","tyre");
   const brakes=detectFail(defects,"brake");
   return(
-    <div className={`pro-page${pm?" pm":""}`}>
+    <div className={`pro-page last-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
       <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
       <div className="pro-body">
@@ -1605,15 +1440,7 @@ function MachinePage({c,nd,pm,logo}){
             <div className="pro-stl">Fork Arms Inspected ({fks.length} arm{fks.length>1?"s":""})</div>
             <table className="fk-t">
               <thead><tr><th>Fork ID</th><th>SWL</th><th>Length (mm)</th><th>Heel (mm)</th><th>Blade (mm)</th><th>Wear %</th><th>Cracks</th><th>Bending</th><th>Result</th></tr></thead>
-              <tbody>{fks.map((fk,i)=>(
-                <tr key={i}>
-                  <td>{fk.fork_number||`Fork ${i+1}`}</td><td>{fk.swl||"—"}</td><td>{fk.length||"—"}</td>
-                  <td>{fk.thickness_heel||"—"}</td><td>{fk.thickness_blade||"—"}</td><td>{fk.wear_pct||"—"}</td>
-                  <td style={{color:fk.cracks==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.cracks==="yes"?"YES":"No"}</td>
-                  <td style={{color:fk.bending==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.bending==="yes"?"YES":"No"}</td>
-                  <td>{r(fk.result)}</td>
-                </tr>
-              ))}</tbody>
+              <tbody>{fks.map((fk,i)=>(<tr key={i}><td>{fk.fork_number||`Fork ${i+1}`}</td><td>{fk.swl||"—"}</td><td>{fk.length||"—"}</td><td>{fk.thickness_heel||"—"}</td><td>{fk.thickness_blade||"—"}</td><td>{fk.wear_pct||"—"}</td><td style={{color:fk.cracks==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.cracks==="yes"?"YES":"No"}</td><td style={{color:fk.bending==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.bending==="yes"?"YES":"No"}</td><td>{r(fk.result)}</td></tr>))}</tbody>
             </table>
           </>
         )}
@@ -1628,7 +1455,7 @@ function MachinePage({c,nd,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   GENERIC CERTIFICATE (fallback)
+   GENERIC CERTIFICATE (fallback — last-page)
 ══════════════════════════════════════════════════════════ */
 function GenericCert({c,pm,logo}){
   const ex=c.extracted_data||{};
@@ -1663,7 +1490,7 @@ function GenericCert({c,pm,logo}){
     <>
       <style>{CSS}</style>
       <div className={pm?"":"cs-wrap"}>
-        <div className={`cs-page${pm?" pm":""}`}>
+        <div className={`cs-page last-page${pm?" pm":""}`}>
           <div className="cs-hdr">
             <svg className="cs-geo" viewBox="0 0 600 120" preserveAspectRatio="xMidYMid slice">
               <circle cx="520" cy="-10" r="100" fill="rgba(34,211,238,0.06)"/>
@@ -1729,12 +1556,7 @@ function GenericCert({c,pm,logo}){
               <div className="cs-sec">
                 <div className="cs-sec-ttl">Photo Evidence ({photos.length})</div>
                 <div className="cs-evidence"><div className="cs-evidence-grid">
-                  {photos.map((p,i)=>(
-                    <div className="cs-evidence-item" key={i}>
-                      <img className="cs-evidence-img" src={p.dataURL} alt={p.caption||`Photo ${i+1}`} onError={e=>e.target.style.display="none"}/>
-                      {p.caption&&<div className="cs-evidence-cap">{p.caption}</div>}
-                    </div>
-                  ))}
+                  {photos.map((p,i)=>(<div className="cs-evidence-item" key={i}><img className="cs-evidence-img" src={p.dataURL} alt={p.caption||`Photo ${i+1}`} onError={e=>e.target.style.display="none"}/>{p.caption&&<div className="cs-evidence-cap">{p.caption}</div>}</div>))}
                 </div></div>
               </div>
             )}
@@ -1810,7 +1632,6 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   if(_isPV) return wrap(<PressureVesselPage c={c} pn={pn} tone={tone} pm={pm} logo={logo} pvNum={index+1}/>);
   if(_isTelehandler) return wrap(<TelehandlerPage c={c} nd={nd} pm={pm} logo={logo}/>);
 
-  // ── CHERRY PICKER: 2-page certificate ──────────────────────
   if(_isCherryPicker) return wrap(
     <>
       <CherryPickerMachinePage c={c} nd={nd} pm={pm} logo={logo}/>
