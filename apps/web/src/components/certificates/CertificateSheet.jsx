@@ -34,7 +34,7 @@ function normalizeInspectionDataShape(raw){
 function getInspectionData(c){
   const notes=parseNotes(val(c.notes||"")||"");
   const extracted=(c&&c.extracted_data&&typeof c.extracted_data==="object")?c.extracted_data:{};
-  return normalizeInspectionDataShape({
+  const normalized = normalizeInspectionDataShape({
     ...extracted,
     ...notes,
     checklist:{...(extracted.checklist||{}),...(notes.checklist||{})},
@@ -44,7 +44,100 @@ function getInspectionData(c){
     trailer:{...(extracted.trailer||{}),...(notes.trailer||{})},
     forks:Array.isArray(notes.forks)?notes.forks:Array.isArray(extracted.forks)?extracted.forks:Array.isArray(extracted.fork_arms)?extracted.fork_arms:[],
   });
+  normalized.boom = normalizeBoomData(normalized.boom);
+  normalized.bucket = normalizeBucketData(normalized.bucket);
+  normalized.checklist = normalizeChecklistData(normalized.checklist);
+  return normalized;
 }
+
+function normToken(v){
+  return String(v||"").trim().toLowerCase().replace(/[()]/g,"").replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"");
+}
+function firstVal(obj, keys, fallback=null){
+  const src=(obj&&typeof obj==="object")?obj:{};
+  for(const key of keys){
+    const value=src[key];
+    if(value!==undefined && value!==null && String(value).trim()!=="") return value;
+  }
+  return fallback;
+}
+function normalizeBoomData(raw){
+  const src=(raw&&typeof raw==="object"&&!Array.isArray(raw))?raw:{};
+  return {
+    ...src,
+    max_height:firstVal(src,["max_height","max_working_height","max_working_height_m","working_height","working_height_m","height"]),
+    min_boom_length:firstVal(src,["min_boom_length","boom_length_min","min_boom","min_length","minimum_boom_length"]),
+    max_boom_length:firstVal(src,["max_boom_length","boom_length_max","max_boom","max_length","maximum_boom_length","boom_length"]),
+    actual_boom_length:firstVal(src,["actual_boom_length","boom_length_actual","actual_boom","actual_length","actual_test_config"]),
+    extended_boom_length:firstVal(src,["extended_boom_length","extended_telescoped","extended","telescoped","telescoped_length"]),
+    boom_angle:firstVal(src,["boom_angle","boom_angle_deg","angle"]),
+    min_radius:firstVal(src,["min_radius","radius_min","minimum_radius"]),
+    max_radius:firstVal(src,["max_radius","radius_max","maximum_radius","working_radius"]),
+    load_tested_at_radius:firstVal(src,["load_tested_at_radius","actual_radius","test_radius","working_radius_tested","actual_working_radius"]),
+    swl_at_min_radius:firstVal(src,["swl_at_min_radius","swl_min_radius","min_radius_swl"]),
+    swl_at_max_radius:firstVal(src,["swl_at_max_radius","swl_max_radius","max_radius_swl"]),
+    swl_at_actual_config:firstVal(src,["swl_at_actual_config","swl_actual","actual_swl","actual_config_swl","swl_at_radius","swl"]),
+    test_load:firstVal(src,["test_load","test_load_applied","load_test_applied","proof_load","load_test"]),
+    boom_structure:firstVal(src,["boom_structure","structure","boom_condition"]),
+    boom_pins:firstVal(src,["boom_pins","pins_connections","pins"]),
+    boom_wear:firstVal(src,["boom_wear","wear_pads","pads"]),
+    luffing_system:firstVal(src,["luffing_system","extension_system","luffing"]),
+    slew_system:firstVal(src,["slew_system","rotation_system","slew_rotation"]),
+    hoist_system:firstVal(src,["hoist_system","lift_system","hoist_lift"]),
+    lmi_test:firstVal(src,["lmi_test","lmi_tested","lmi_tested_at_config"]),
+    anti_two_block:firstVal(src,["anti_two_block","anti_two_block_overload","overload_system"]),
+    jib_fitted:firstVal(src,["jib_fitted","fork_attachment","attachment_fitted"]),
+    notes:firstVal(src,["notes","comments","remarks"]),
+  };
+}
+function normalizeBucketData(raw){
+  const src=(raw&&typeof raw==="object"&&!Array.isArray(raw))?raw:{};
+  return {
+    ...src,
+    serial_number:firstVal(src,["serial_number","bucket_serial","serial_no"]),
+    manufacturer:firstVal(src,["manufacturer","make"]),
+    platform_swl:firstVal(src,["platform_swl","bucket_swl","swl_platform","swl"]),
+    test_load_applied:firstVal(src,["test_load_applied","test_load","load_test","proof_load"]),
+    platform_structure:firstVal(src,["platform_structure","structure"]),
+    platform_floor:firstVal(src,["platform_floor","floor_condition"]),
+    guardrails:firstVal(src,["guardrails"]),
+    toe_boards:firstVal(src,["toe_boards","toe_board"]),
+    gate_latch:firstVal(src,["gate_latch","gate_latch_system","gate"]),
+    platform_mounting:firstVal(src,["platform_mounting","mounting","attachment_to_boom"]),
+    rotation:firstVal(src,["rotation","slew"]),
+    harness_anchors:firstVal(src,["harness_anchors","anchor_points"]),
+    swl_marking:firstVal(src,["swl_marking","swl_marking_legible"]),
+    paint_condition:firstVal(src,["paint_condition","coating_condition"]),
+    levelling_system:firstVal(src,["levelling_system","auto_levelling"]),
+    emergency_lowering:firstVal(src,["emergency_lowering","emergency_lowering_device"]),
+    emergency_stop:firstVal(src,["emergency_stop","emergency_stop_platform"]),
+    overload_device:firstVal(src,["overload_device","overload_swl_cut_off_device"]),
+    tilt_alarm:firstVal(src,["tilt_alarm","inclination_alarm"]),
+    intercom:firstVal(src,["intercom","communication"]),
+  };
+}
+function normalizeChecklistData(raw){
+  const src=(raw&&typeof raw==="object"&&!Array.isArray(raw))?raw:{};
+  return {
+    ...src,
+    structural_result:firstVal(src,["structural_result","structural_integrity","structure"]),
+    hydraulics_result:firstVal(src,["hydraulics_result","hydraulic_system","hydraulics"]),
+    brakes_result:firstVal(src,["brakes_result","brakes","brake_drive_system"]),
+    tyres_result:firstVal(src,["tyres_result","tyres_wheels","tires_wheels"]),
+    lights_result:firstVal(src,["lights_result","lights_alarms"]),
+    safety_devices:firstVal(src,["safety_devices","safety_systems","safety_devices_interlocks"]),
+    fire_extinguisher:firstVal(src,["fire_extinguisher","fire_extinguisher_condition"]),
+    emergency_stop:firstVal(src,["emergency_stop"]),
+    stabiliser_interlocks:firstVal(src,["stabiliser_interlocks","outrigger_interlocks"]),
+    machine_stable_under_load:firstVal(src,["machine_stable_under_load","machine_stable"]),
+    no_structural_deformation_under_load:firstVal(src,["no_structural_deformation_under_load","no_deformation_under_load"]),
+    all_functions_operate_under_load:firstVal(src,["all_functions_operate_under_load","functions_operate_under_load"]),
+    operational_result:firstVal(src,["operational_result"]),
+    safety_result:firstVal(src,["safety_result"]),
+    lmi_result:firstVal(src,["lmi_result","load_indicator_result"]),
+  };
+}
+
 function pickResult(c){return(c?.result||c?.equipment_status||"").toUpperCase();}
 function resultStyle(r){
   if(r==="PASS")           return{color:"#15803d",bg:"#dcfce7",brd:"#86efac",label:"PASS"};
@@ -567,7 +660,7 @@ function CraneChecklistPage({c,pn,pm,logo}){
             <CI label="Reverse Warning" result="PASS"/><CI label="Load Charts Available" result="PASS"/>
             <CI label="Horn Warning" result="PASS"/><CI label="Lights, Rotating Lights" result="PASS"/>
             <CI label="Tires" result={tires}/><CI label="Crane Brakes" result={brakes}/>
-            <CI label="Fire Extinguisher" result="PASS"/><CI label="Beacon Lights" result="PASS"/>
+            <CI label="Fire Extinguisher" result={cl.fire_extinguisher||"PASS"}/><CI label="Beacon Lights" result="PASS"/>
             <CI label="SWL Correctly Indicated" result="PASS"/><CI label="Oil Leaks" result={oilLeaks}/>
             <CI label="Operator Seat Condition" result="PASS"/>
             <div className="pro-csec">Safe Load Indicator</div>
@@ -956,7 +1049,7 @@ function TelehandlerPage({c,nd,pm,logo}){
             <CI label="Tyres &amp; Wheels" result={cl.tyres_result||"PASS"}/>
             <CI label="Oil Leaks" result={detectFail(defects,"leak","oil")}/>
             <CI label="Lights &amp; Horn" result="PASS"/>
-            <CI label="Fire Extinguisher" result="PASS"/>
+            <CI label="Fire Extinguisher" result={cl.fire_extinguisher||"PASS"}/>
             <CI label="Seat Belt" result="PASS"/>
           </div>
           <div className="pro-cc">
@@ -970,7 +1063,7 @@ function TelehandlerPage({c,nd,pm,logo}){
             <CI label="Load Chart Available" result="PASS"/>
             <div className="pro-csec">Load Test Result</div>
             <CI label="Test Load Applied at Rated Config" result="PASS"/>
-            <CI label="Machine Stable Under Load" result="PASS"/>
+            <CI label="Machine Stable Under Load" result={cl.machine_stable_under_load||"PASS"}/>
             <CI label="No Structural Deformation" result="PASS"/>
           </div>
         </div>
@@ -1093,12 +1186,12 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
           <div className="pro-cc">
             <div className="pro-csec">Safety Systems</div>
             <CI label="Safety Devices / Interlocks" result={cl.safety_devices||"PASS"}/>
-            <CI label="Fire Extinguisher" result="PASS"/>
-            <CI label="Emergency Stop" result="PASS"/>
-            <CI label="Outrigger / Stabiliser Interlocks" result="PASS"/>
-            <CI label="Machine Stable Under Load" result="PASS"/>
-            <CI label="No Structural Deformation Under Load" result="PASS"/>
-            <CI label="All Functions Operate Under Load" result="PASS"/>
+            <CI label="Fire Extinguisher" result={cl.fire_extinguisher||"PASS"}/>
+            <CI label="Emergency Stop" result={cl.emergency_stop||"PASS"}/>
+            <CI label="Outrigger / Stabiliser Interlocks" result={cl.stabiliser_interlocks||"PASS"}/>
+            <CI label="Machine Stable Under Load" result={cl.machine_stable_under_load||"PASS"}/>
+            <CI label="No Structural Deformation Under Load" result={cl.no_structural_deformation_under_load||"PASS"}/>
+            <CI label="All Functions Operate Under Load" result={cl.all_functions_operate_under_load||"PASS"}/>
             {defects&&defects.length>0&&(
               <>
                 <div className="pro-csec" style={{background:"#7f1d1d",color:"#fca5a5"}}>Defects</div>
@@ -1126,7 +1219,7 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   CHERRY PICKER — PAGE 2: BUCKET LOAD TEST CERTIFICATE (6 months)
+   CHERRY PICKER — PAGE 2: BUCKET / PLATFORM CERTIFICATE (6 months)
 ══════════════════════════════════════════════════════════ */
 function CherryPickerBucketPage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -1475,7 +1568,7 @@ function MachinePage({c,nd,pm,logo}){
             <CI label="Tyres / Wheels" result={cl.tyres_result||tires||"PASS"}/>
             <CI label="Oil Leaks (General)" result={oilLeaks}/>
             <CI label="Lights &amp; Horn" result="PASS"/>
-            <CI label="Fire Extinguisher" result="PASS"/>
+            <CI label="Fire Extinguisher" result={cl.fire_extinguisher||"PASS"}/>
             <CI label="Seat Belt" result="PASS"/>
             <CI label="Controls Marked Correctly" result="PASS"/>
             <CI label="Load Chart Available" result="PASS"/>
@@ -1492,7 +1585,7 @@ function MachinePage({c,nd,pm,logo}){
           <div className="pro-cc">
             <div className="pro-csec">Safety Systems</div>
             <CI label="Load Indicator / SWL Plate" result={cl.lmi_result||"PASS"}/>
-            <CI label="Emergency Stop" result="PASS"/>
+            <CI label="Emergency Stop" result={cl.emergency_stop||"PASS"}/>
             <CI label="Overload Protection" result="PASS"/>
             <div className="pro-csec">Hydraulics &amp; Drive</div>
             <CI label="Hydraulic Oil Level" result="PASS"/>
@@ -1504,7 +1597,7 @@ function MachinePage({c,nd,pm,logo}){
             <CI label="Test Load Applied at Rated Capacity" result="PASS"/>
             <CI label="Lifting / Lowering Smooth" result="PASS"/>
             <CI label="No Deformation Under Load" result="PASS"/>
-            <CI label="All Functions Operate Under Load" result="PASS"/>
+            <CI label="All Functions Operate Under Load" result={cl.all_functions_operate_under_load||"PASS"}/>
           </div>
         </div>
         {isForklift&&fks.length>0&&(
