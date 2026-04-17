@@ -78,8 +78,8 @@ function flattenNotesJson(raw) {
     rows.push({
       id: id++,
       section,
-      key,
-      label: formatFieldLabel(key),
+      key: canonicalKey,
+      label: formatFieldLabel(canonicalKey),
       value: value == null ? "" : String(value),
       path,
     });
@@ -148,18 +148,25 @@ function rebuildNotesJson(rows) {
     if (path.length === 1) {
       out[path[0]] = v;
     } else if (path.length === 2) {
-      if (!out[path[0]] || typeof out[path[0]] !== "object") out[path[0]] = {};
-      out[path[0]][path[1]] = v;
+      const sectionKey = normalizeSectionPathKey(path[0]);
+      const fieldKey = canonicalizeFieldKey(sectionKey, path[1]);
+      if (!out[sectionKey] || typeof out[sectionKey] !== "object") out[sectionKey] = {};
+      out[sectionKey][fieldKey] = v;
     } else if (path.length === 3) {
       if (typeof path[1] === "number") {
         // Array item
-        if (!Array.isArray(out[path[0]])) out[path[0]] = [];
-        if (!out[path[0]][path[1]]) out[path[0]][path[1]] = {};
-        out[path[0]][path[1]][path[2]] = v;
+        const arrayKey = normalizeSectionPathKey(path[0]);
+        const fieldKey = canonicalizeFieldKey(arrayKey, path[2]);
+        if (!Array.isArray(out[arrayKey])) out[arrayKey] = [];
+        if (!out[arrayKey][path[1]]) out[arrayKey][path[1]] = {};
+        out[arrayKey][path[1]][fieldKey] = v;
       } else {
-        if (!out[path[0]]) out[path[0]] = {};
-        if (!out[path[0]][path[1]] || typeof out[path[0]][path[1]] !== "object") out[path[0]][path[1]] = {};
-        out[path[0]][path[1]][path[2]] = v;
+        const sectionKey = normalizeSectionPathKey(path[0]);
+        const subKey = normalizeFieldToken(path[1]);
+        const fieldKey = canonicalizeFieldKey(sectionKey, path[2]);
+        if (!out[sectionKey]) out[sectionKey] = {};
+        if (!out[sectionKey][subKey] || typeof out[sectionKey][subKey] !== "object") out[sectionKey][subKey] = {};
+        out[sectionKey][subKey][fieldKey] = v;
       }
     }
   });
@@ -220,6 +227,137 @@ function normalizeSectionPathKey(section) {
   };
 
   return aliasMap[raw] || raw.replace(/\s+/g, "_");
+}
+
+
+function normalizeFieldToken(key) {
+  return String(key || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[()]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function canonicalizeFieldKey(sectionKey, key) {
+  const section = normalizeSectionPathKey(sectionKey);
+  const token = normalizeFieldToken(key);
+  if (!token) return key;
+
+  const bySection = {
+    boom: {
+      max_working_height: "max_height",
+      max_working_height_m: "max_height",
+      working_height: "max_height",
+      working_height_m: "max_height",
+      height: "max_height",
+      boom_length_min: "min_boom_length",
+      min_boom: "min_boom_length",
+      min_length: "min_boom_length",
+      minimum_boom_length: "min_boom_length",
+      boom_length_max: "max_boom_length",
+      max_boom: "max_boom_length",
+      max_length: "max_boom_length",
+      maximum_boom_length: "max_boom_length",
+      boom_length_actual: "actual_boom_length",
+      actual_boom: "actual_boom_length",
+      actual_length: "actual_boom_length",
+      actual_test_config: "actual_boom_length",
+      extended_telescoped: "extended_boom_length",
+      telescoped: "extended_boom_length",
+      extended: "extended_boom_length",
+      telescoped_length: "extended_boom_length",
+      angle: "boom_angle",
+      boom_angle_deg: "boom_angle",
+      radius_min: "min_radius",
+      minimum_radius: "min_radius",
+      radius_max: "max_radius",
+      maximum_radius: "max_radius",
+      actual_radius: "load_tested_at_radius",
+      test_radius: "load_tested_at_radius",
+      working_radius_tested: "load_tested_at_radius",
+      actual_working_radius: "load_tested_at_radius",
+      swl_min_radius: "swl_at_min_radius",
+      min_radius_swl: "swl_at_min_radius",
+      swl_max_radius: "swl_at_max_radius",
+      max_radius_swl: "swl_at_max_radius",
+      swl_actual: "swl_at_actual_config",
+      actual_swl: "swl_at_actual_config",
+      actual_config_swl: "swl_at_actual_config",
+      swl_at_radius: "swl_at_actual_config",
+      load_test: "test_load",
+      test_load_applied: "test_load",
+      load_test_applied: "test_load",
+      proof_load: "test_load",
+      structure: "boom_structure",
+      boom_condition: "boom_structure",
+      pins_connections: "boom_pins",
+      pins: "boom_pins",
+      wear_pads: "boom_wear",
+      pads: "boom_wear",
+      extension_system: "luffing_system",
+      luffing: "luffing_system",
+      rotation_system: "slew_system",
+      slew_rotation: "slew_system",
+      hoist_lift: "hoist_system",
+      lift_system: "hoist_system",
+      lmi_tested: "lmi_test",
+      lmi_tested_at_config: "lmi_test",
+      anti_two_block_overload: "anti_two_block",
+      overload_system: "anti_two_block",
+      comments: "notes",
+      remarks: "notes",
+    },
+    bucket: {
+      bucket_serial: "serial_number",
+      serial_no: "serial_number",
+      make: "manufacturer",
+      swl: "platform_swl",
+      bucket_swl: "platform_swl",
+      swl_platform: "platform_swl",
+      load_test: "test_load_applied",
+      test_load: "test_load_applied",
+      proof_load: "test_load_applied",
+      structure: "platform_structure",
+      floor_condition: "platform_floor",
+      toe_board: "toe_boards",
+      gate_latch_system: "gate_latch",
+      gate: "gate_latch",
+      mounting: "platform_mounting",
+      attachment_to_boom: "platform_mounting",
+      slew: "rotation",
+      anchor_points: "harness_anchors",
+      swl_marking_legible: "swl_marking",
+      coating_condition: "paint_condition",
+      auto_levelling: "levelling_system",
+      emergency_lowering_device: "emergency_lowering",
+      emergency_stop_platform: "emergency_stop",
+      overload_swl_cut_off_device: "overload_device",
+      inclination_alarm: "tilt_alarm",
+      communication: "intercom",
+    },
+    checklist: {
+      structural_integrity: "structural_result",
+      structure: "structural_result",
+      hydraulic_system: "hydraulics_result",
+      hydraulics: "hydraulics_result",
+      brakes: "brakes_result",
+      brake_drive_system: "brakes_result",
+      tyres_wheels: "tyres_result",
+      tires_wheels: "tyres_result",
+      lights_alarms: "lights_result",
+      safety_systems: "safety_devices",
+      safety_devices_interlocks: "safety_devices",
+      fire_extinguisher_condition: "fire_extinguisher",
+      stabiliser_interlocks: "stabiliser_interlocks",
+      outrigger_interlocks: "stabiliser_interlocks",
+      machine_stable: "machine_stable_under_load",
+      no_deformation_under_load: "no_structural_deformation_under_load",
+      functions_operate_under_load: "all_functions_operate_under_load",
+    },
+  };
+
+  return bySection[section]?.[token] || token;
 }
 
 function getEditableInspectionSource(data) {
@@ -464,15 +602,16 @@ function CertificateEditInner() {
 
     const section = addSection.trim() || "General";
     const sectionKey = normalizeSectionPathKey(section);
+    const canonicalKey = sectionKey === "general" ? key : canonicalizeFieldKey(sectionKey, key);
     const path = sectionKey === "general"
-      ? [key]
-      : [sectionKey, key];
+      ? [canonicalKey]
+      : [sectionKey, canonicalKey];
 
     setJsonRows(prev => [...prev, {
       id: Date.now() + Math.random(),
       section,
-      key,
-      label: formatFieldLabel(key),
+      key: canonicalKey,
+      label: formatFieldLabel(canonicalKey),
       value: addValue.trim(),
       path,
     }]);
