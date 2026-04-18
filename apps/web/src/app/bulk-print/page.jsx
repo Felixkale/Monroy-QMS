@@ -1,562 +1,695 @@
-// src/app/bulk-print/page.jsx
+// src/app/bulk-export/page.jsx
 "use client";
 
-import { useEffect, useRef, useState, useMemo, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import AppLayout from "@/components/AppLayout";
 import { supabase } from "@/lib/supabaseClient";
-import CertificateSheet from "@/components/certificates/CertificateSheet";
 
 const T = {
-  bg:"#070e18",surface:"rgba(13,22,38,0.90)",border:"rgba(148,163,184,0.12)",
+  bg:"#070e18",surface:"rgba(13,22,38,0.80)",panel:"rgba(10,18,32,0.92)",
+  panel2:"rgba(18,30,50,0.70)",card:"rgba(255,255,255,0.025)",
+  border:"rgba(148,163,184,0.12)",borderMid:"rgba(148,163,184,0.22)",
   text:"#f0f6ff",textMid:"rgba(240,246,255,0.72)",textDim:"rgba(240,246,255,0.40)",
   accent:"#22d3ee",accentDim:"rgba(34,211,238,0.10)",accentBrd:"rgba(34,211,238,0.25)",
   green:"#34d399",greenDim:"rgba(52,211,153,0.10)",greenBrd:"rgba(52,211,153,0.25)",
   red:"#f87171",redDim:"rgba(248,113,113,0.10)",redBrd:"rgba(248,113,113,0.25)",
   amber:"#fbbf24",amberDim:"rgba(251,191,36,0.10)",amberBrd:"rgba(251,191,36,0.25)",
   purple:"#a78bfa",purpleDim:"rgba(167,139,250,0.10)",purpleBrd:"rgba(167,139,250,0.25)",
+  blue:"#60a5fa",blueDim:"rgba(96,165,250,0.10)",blueBrd:"rgba(96,165,250,0.25)",
 };
 
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700;800;900&family=IBM+Plex+Mono:wght@500;700&display=swap');
   *,*::before,*::after{box-sizing:border-box}
-  ::-webkit-scrollbar{width:4px}
+  ::-webkit-scrollbar{width:4px;height:4px}
   ::-webkit-scrollbar-track{background:transparent}
   ::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.2);border-radius:99px}
+  input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.6);cursor:pointer}
+  select option{background:#0a1420;color:#f0f6ff}
 
-  .bp-toolbar{
-    position:sticky;top:0;z-index:100;
-    display:flex;align-items:center;justify-content:space-between;gap:12px;
-    padding:12px 20px;
-    background:rgba(7,14,24,0.97);
+  .be-page{
+    background:radial-gradient(ellipse 70% 50% at 0% 0%,rgba(34,211,238,0.06),transparent),
+               radial-gradient(ellipse 60% 50% at 100% 100%,rgba(167,139,250,0.05),transparent),
+               #070e18;
+    color:#f0f6ff;
+    font-family:'IBM Plex Sans',sans-serif;
+    min-height:100vh;
+    padding:20px;
+    padding-bottom:120px;
+  }
+  .be-wrap{max-width:960px;margin:0 auto;display:grid;gap:16px}
+
+  .be-hero{
+    background:rgba(13,22,38,0.80);
+    border:1px solid rgba(148,163,184,0.12);
+    border-radius:20px;
+    padding:24px;
+    backdrop-filter:blur(20px);
+  }
+
+  .be-filters{
+    background:rgba(13,22,38,0.80);
+    border:1px solid rgba(148,163,184,0.12);
+    border-radius:16px;
+    padding:20px;
+    backdrop-filter:blur(20px);
+    display:grid;
+    grid-template-columns:1fr 1fr 1fr;
+    gap:16px;
+  }
+  @media(max-width:700px){.be-filters{grid-template-columns:1fr}}
+
+  .be-field label{
+    display:flex;align-items:center;gap:6px;
+    font-size:9px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;
+    color:rgba(240,246,255,0.40);margin-bottom:8px;
+  }
+  .be-field label .be-req{
+    color:#f87171;font-size:9px;font-weight:900;
+  }
+  .be-field label .be-opt{
+    color:rgba(240,246,255,0.28);font-size:8px;font-weight:600;
+    text-transform:none;letter-spacing:0;
+  }
+
+  .be-input{
+    width:100%;padding:11px 14px;
+    background:rgba(255,255,255,0.04);
+    border:1px solid rgba(148,163,184,0.18);
+    border-radius:10px;
+    color:#f0f6ff;font-size:13px;font-weight:600;
+    font-family:'IBM Plex Sans',sans-serif;
+    outline:none;cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+    transition:border-color .15s;
+    min-height:44px;
+    colorScheme:dark;
+  }
+  .be-input:focus{border-color:rgba(34,211,238,0.45)}
+  .be-input:disabled{opacity:0.4;cursor:not-allowed}
+  .be-input.active{border-color:rgba(34,211,238,0.35);background:rgba(34,211,238,0.05)}
+
+  /* Filter active pill */
+  .be-active-pill{
+    display:inline-flex;align-items:center;gap:5px;
+    padding:3px 9px;border-radius:99px;
+    font-size:10px;font-weight:800;
+    background:rgba(34,211,238,0.10);
+    border:1px solid rgba(34,211,238,0.25);
+    color:#22d3ee;
+  }
+
+  .be-filter-summary{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px;
+    padding-top:14px;border-top:1px solid rgba(148,163,184,0.08);
+    font-size:11px;color:rgba(240,246,255,0.40);
+  }
+
+  .be-preview{
+    background:rgba(10,18,32,0.92);
+    border:1px solid rgba(148,163,184,0.12);
+    border-radius:16px;
+    overflow:hidden;
+    backdrop-filter:blur(20px);
+  }
+  .be-preview-head{
+    padding:14px 18px;
     border-bottom:1px solid rgba(148,163,184,0.12);
-    backdrop-filter:blur(16px);
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
     flex-wrap:wrap;
-    -webkit-tap-highlight-color:transparent;
   }
-  .bp-btn-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .bp-btn{
-    display:inline-flex;align-items:center;justify-content:center;gap:7px;
-    padding:10px 18px;border-radius:11px;
-    font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:800;
+
+  .be-cert-row{
+    padding:12px 18px;
+    border-bottom:1px solid rgba(148,163,184,0.08);
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    transition:background .12s;
+  }
+  .be-cert-row:hover{background:rgba(34,211,238,0.02)}
+  .be-cert-row:last-child{border-bottom:none}
+
+  .be-badge{
+    display:inline-flex;align-items:center;
+    padding:3px 9px;border-radius:99px;
+    font-size:10px;font-weight:800;white-space:nowrap;
+  }
+  .be-empty{
+    padding:48px 24px;text-align:center;
+  }
+  .be-cta{
+    background:rgba(13,22,38,0.95);
+    border:1px solid rgba(148,163,184,0.12);
+    border-radius:16px;
+    padding:20px;
+    backdrop-filter:blur(20px);
+    display:flex;align-items:center;justify-content:space-between;gap:16px;
+    flex-wrap:wrap;
+    position:sticky;bottom:16px;
+    box-shadow:0 8px 40px rgba(0,0,0,0.5);
+  }
+
+  .be-btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    padding:12px 22px;border-radius:12px;
+    font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:900;
     cursor:pointer;border:none;
-    min-height:44px;min-width:44px;
+    min-height:48px;min-width:44px;
     -webkit-tap-highlight-color:transparent;
-    transition:filter .15s,transform .15s;
+    transition:filter .15s,transform .12s;
+    white-space:nowrap;
   }
-  .bp-btn:hover:not(:disabled){filter:brightness(1.12);transform:translateY(-1px)}
-  .bp-btn:active:not(:disabled){transform:scale(0.97)}
-  .bp-btn:disabled{opacity:0.5;cursor:not-allowed;transform:none}
-  .bp-btn-save{background:linear-gradient(135deg,#22d3ee,#60a5fa);color:#001018}
-  .bp-btn-print{background:linear-gradient(135deg,#34d399,#14b8a6);color:#052e16}
-  .bp-btn-back{background:rgba(255,255,255,0.06);border:1px solid rgba(148,163,184,0.18)!important;color:#f0f6ff}
+  .be-btn:hover:not(:disabled){filter:brightness(1.1);transform:translateY(-1px)}
+  .be-btn:active:not(:disabled){transform:scale(0.97)}
+  .be-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none}
+  .be-btn-primary{background:linear-gradient(135deg,#22d3ee,#60a5fa);color:#001018}
+  .be-btn-ghost{background:rgba(255,255,255,0.05);border:1px solid rgba(148,163,184,0.18)!important;color:#f0f6ff}
+  .be-btn-clear{
+    background:transparent;border:none;
+    color:rgba(240,246,255,0.35);font-size:11px;font-weight:700;
+    cursor:pointer;padding:4px 8px;border-radius:6px;font-family:inherit;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .be-btn-clear:hover{color:rgba(240,246,255,0.65);background:rgba(255,255,255,0.04)}
 
-  .bp-info{display:flex;flex-direction:column;gap:2px;min-width:0}
-  .bp-title{
-    font-size:13px;font-weight:800;color:#f0f6ff;
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px;
+  .be-spinner{
+    width:32px;height:32px;border-radius:50%;
+    border:2.5px solid rgba(34,211,238,0.15);border-top-color:#22d3ee;
+    animation:spin .8s linear infinite;margin:0 auto 12px;
   }
-  .bp-sub{font-size:10px;color:rgba(240,246,255,0.40);font-family:'IBM Plex Mono',monospace}
-
-  .bp-progress-overlay{
-    position:fixed;inset:0;z-index:200;
-    background:rgba(7,14,24,0.97);
-    display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:16px;padding:40px;
-    font-family:'IBM Plex Sans',sans-serif;color:#f0f6ff;
-  }
-  .bp-spinner{
-    width:52px;height:52px;border-radius:50%;
-    border:3px solid rgba(34,211,238,0.15);border-top-color:#22d3ee;
-    animation:spin 0.8s linear infinite;
-  }
-  .bp-progress-bar-wrap{
-    width:260px;height:4px;background:rgba(148,163,184,0.12);border-radius:99px;overflow:hidden;
-  }
-  .bp-progress-bar{
-    height:100%;border-radius:99px;
-    background:linear-gradient(90deg,#22d3ee,#60a5fa);
-    transition:width .4s ease;
-  }
-
   @keyframes spin{to{transform:rotate(360deg)}}
 
-  /* Content area — light grey so cert pages look elevated in the UI */
-  .bp-content{
-    min-height:100vh;
-    background:#d8dde3;
-    padding:24px;
-    display:flex;
-    flex-direction:column;
-    align-items:center;
-  }
-
-  /*
-   * KEY FIX: the certRef wrapper must be pure white with no padding/margin/gap.
-   * html2canvas captures this element — any dark colour outside the cert pages
-   * becomes a black/dark extra page in the PDF.
-   */
-  .bp-cert-wrap{
-    background:#ffffff;
-    padding:0;
-    margin:0;
-    display:block;
-    width:794px; /* A4 at 96dpi */
-    max-width:100%;
-  }
-
-  /* Each cert block — no gap between them, page-break only */
-  .bp-cert-page{
-    display:block;
-    background:#ffffff;
-    width:794px;
-    max-width:100%;
-    /* page-break-after is set inline per cert */
-  }
-
-  @media print{
-    .bp-toolbar{display:none!important}
-    .bp-content{
-      background:white!important;
-      padding:0!important;
-      display:block!important;
-    }
-    .bp-cert-wrap{width:100%!important}
-    .bp-cert-page{width:100%!important}
-    body{background:white!important}
-    @page{size:A4;margin:0}
-  }
-  @media(max-width:840px){
-    .bp-cert-wrap{width:100%}
-    .bp-cert-page{width:100%}
-    .bp-content{padding:12px}
-  }
   @media(max-width:768px){
-    .bp-toolbar{padding:10px 14px}
-    .bp-btn{padding:10px 14px;font-size:12px}
-    .bp-title{max-width:160px;font-size:12px}
+    .be-page{padding:10px;padding-bottom:120px}
+    .be-hero{padding:16px}
+    .be-cta{padding:14px;bottom:10px}
+    .be-btn-primary{flex:1}
   }
   @media(max-width:480px){
-    .bp-btn-row{width:100%}
-    .bp-btn{flex:1}
-    .bp-title{display:none}
-    .bp-content{padding:8px}
+    .be-cta{flex-direction:column}
+    .be-cta>*{width:100%}
+    .be-btn{width:100%}
   }
 `;
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-/**
- * Build html2pdf options.
- * windowHeight is set to the element's actual scrollHeight so html2canvas
- * never captures empty dark space below the content.
- */
-function pdfOpt(filename, el) {
-  const h = el ? el.scrollHeight : 1122;
-  return {
-    margin: 0,
-    filename,
-    image: { type: "jpeg", quality: 0.97 },
-    html2canvas: {
-      scale: 2,
-      useCORS: true,
-      allowTaint: true,
-      logging: false,
-      letterRendering: true,
-      backgroundColor: "#ffffff",   // ← force white — kills the dark bleed
-      windowWidth: 794,
-      windowHeight: h,              // ← match exact content height — no extra page
-      scrollX: 0,
-      scrollY: 0,
-      imageTimeout: 15000,
-    },
-    jsPDF: {
-      unit: "mm",
-      format: "a4",
-      orientation: "portrait",
-      compress: true,
-    },
-    pagebreak: { mode: ["css", "legacy"] },
-  };
+function formatDate(v) {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (isNaN(d)) return String(v);
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-// ─── Inner component (needs useSearchParams inside Suspense) ─────────────────
-function BulkPrintInner() {
-  const router       = useRouter();
-  const searchParams = useSearchParams();
-  const certRef      = useRef(null);
+function dateOnly(v) {
+  if (!v) return null;
+  // Handle ISO strings with time component
+  if (typeof v === "string" && v.includes("T")) return v.split("T")[0];
+  return String(v).slice(0, 10);
+}
 
-  const [certs,          setCerts]          = useState([]);
-  const [loading,        setLoading]        = useState(true);
-  const [error,          setError]          = useState("");
-  const [saving,         setSaving]         = useState(false);
-  const [saveMsg,        setSaveMsg]        = useState("");
-  const [uploadPhase,    setUploadPhase]    = useState("");
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [html2pdfReady,  setHtml2pdfReady]  = useState(false);
-  const [autoSaveDone,   setAutoSaveDone]   = useState(false);
+function normalizeResult(v) {
+  const x = String(v || "").toUpperCase().replace(/\s+/g, "_");
+  if (["PASS", "FAIL", "REPAIR_REQUIRED", "OUT_OF_SERVICE"].includes(x)) return x;
+  return "UNKNOWN";
+}
 
-  const ids = useMemo(() => {
-    const raw = searchParams.get("ids") || "";
-    return raw.split(",").map(s => s.trim()).filter(Boolean);
-  }, [searchParams]);
+const RC = {
+  PASS:           { label: "Pass",        color: T.green,  bg: T.greenDim,  brd: T.greenBrd },
+  FAIL:           { label: "Fail",        color: T.red,    bg: T.redDim,    brd: T.redBrd },
+  REPAIR_REQUIRED:{ label: "Repair Req.", color: T.amber,  bg: T.amberDim,  brd: T.amberBrd },
+  OUT_OF_SERVICE: { label: "Out of Svc",  color: T.purple, bg: T.purpleDim, brd: T.purpleBrd },
+  UNKNOWN:        { label: "Unknown",     color: T.textDim,bg: T.card,      brd: T.border },
+};
+const rc = v => RC[v] || RC.UNKNOWN;
 
-  // Load html2pdf from CDN
+export default function BulkExportPage() {
+  const router = useRouter();
+
+  const [allCerts, setAllCerts] = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [errTxt,   setErrTxt]   = useState("");
+
+  // ── Filter state ──────────────────────────────────────────────────────────
+  const [selClient,   setSelClient]   = useState("ALL");
+  const [selInspDate, setSelInspDate] = useState("");   // inspection_date filter
+  const [selCreated,  setSelCreated]  = useState("");   // created_at date filter (optional)
+
+  const [searching, setSearching] = useState(false);
+  const [preview,   setPreview]   = useState(null); // null = not searched yet
+
+  // Load ALL certs once — we use them to populate filter dropdowns
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.html2pdf) { setHtml2pdfReady(true); return; }
-    const s = document.createElement("script");
-    s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
-    s.onload  = () => setHtml2pdfReady(true);
-    s.onerror = () => console.warn("html2pdf CDN failed");
-    document.head.appendChild(s);
-  }, []);
-
-  // Load certs from Supabase
-  useEffect(() => {
-    if (!ids.length) {
-      setError("No certificate IDs provided.");
-      setLoading(false);
-      return;
-    }
     (async () => {
-      setLoading(true); setError("");
-      const { data, error: e } = await supabase
+      setLoading(true);
+      const { data, error } = await supabase
         .from("certificates")
-        .select("*")
-        .in("id", ids);
-      if (e || !data?.length) {
-        setError(e?.message || "No certificates found for the selected IDs.");
-        setLoading(false);
-        return;
-      }
-      const ordered = ids
-        .map(id => data.find(c => String(c.id) === String(id)))
-        .filter(Boolean);
-      setCerts(ordered);
+        .select([
+          "id","certificate_number","client_name","company",
+          "equipment_type","equipment_description","asset_name","asset_tag",
+          "inspection_date","issue_date","expiry_date",
+          "created_at",          // ← needed for created date filter
+          "result",
+          "folder_id","folder_name","folder_position",
+        ].join(","))
+        .order("created_at", { ascending: false });
+
+      if (error) { setErrTxt(error.message); setLoading(false); return; }
+
+      const cleaned = (data || []).map(r => ({
+        ...r,
+        result:                normalizeResult(r.result),
+        client_name:           r.client_name || r.company || "UNASSIGNED",
+        equipment_description: r.equipment_description || r.asset_name || r.asset_tag || "UNNAMED",
+        _inspDate:             dateOnly(r.inspection_date || r.issue_date),
+        _createdDate:          dateOnly(r.created_at),
+      }));
+
+      setAllCerts(cleaned);
       setLoading(false);
     })();
-  }, [ids]);
+  }, []);
 
-  // Auto-upload after render settles
-  useEffect(() => {
-    if (!certs.length || loading || autoSaveDone) return;
-    const timer = setTimeout(() => {
-      setAutoSaveDone(true);
-      runAutoUpload();
-    }, 3500);
-    return () => clearTimeout(timer);
-  }, [certs, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ── Dropdown option builders — each cascades on what's already selected ───
 
-  async function waitForRender() {
-    if (typeof document === "undefined") return;
-    await document.fonts.ready;
-    if (!certRef.current) return;
-    const imgs = Array.from(certRef.current.querySelectorAll("img"));
-    await Promise.all(imgs.map(img =>
-      img.complete ? Promise.resolve() :
-      new Promise(r => { img.onload = r; img.onerror = r; })
-    ));
-    await sleep(1500);
+  const clientOpts = useMemo(() => {
+    const set = new Set(allCerts.map(c => c.client_name).filter(Boolean));
+    return [...set].sort();
+  }, [allCerts]);
+
+  // Inspection dates available for the selected client
+  const inspDateOpts = useMemo(() => {
+    const src = selClient === "ALL"
+      ? allCerts
+      : allCerts.filter(c => c.client_name === selClient);
+    const set = new Set(src.map(c => c._inspDate).filter(Boolean));
+    return [...set].sort((a, b) => b.localeCompare(a));
+  }, [allCerts, selClient]);
+
+  // Created dates available for selected client + inspection date
+  const createdDateOpts = useMemo(() => {
+    let src = selClient === "ALL" ? allCerts : allCerts.filter(c => c.client_name === selClient);
+    if (selInspDate) src = src.filter(c => c._inspDate === selInspDate);
+    const set = new Set(src.map(c => c._createdDate).filter(Boolean));
+    return [...set].sort((a, b) => b.localeCompare(a));
+  }, [allCerts, selClient, selInspDate]);
+
+  // ── Reset downstream filters when parent changes ──────────────────────────
+  function handleClientChange(val) {
+    setSelClient(val);
+    setSelInspDate("");
+    setSelCreated("");
+    setPreview(null);
+  }
+  function handleInspDateChange(val) {
+    setSelInspDate(val);
+    setSelCreated("");
+    setPreview(null);
+  }
+  function handleCreatedChange(val) {
+    setSelCreated(val);
+    setPreview(null);
+  }
+  function clearAllFilters() {
+    setSelClient("ALL");
+    setSelInspDate("");
+    setSelCreated("");
+    setPreview(null);
   }
 
-  async function runAutoUpload() {
-    if (!certRef.current) return;
-    if (!window.html2pdf) { await sleep(2500); if (!window.html2pdf) return; }
+  // ── Active filter summary for the info strip ─────────────────────────────
+  const activeFilters = useMemo(() => {
+    const f = [];
+    if (selClient && selClient !== "ALL") f.push({ label: "Client", value: selClient });
+    if (selInspDate) f.push({ label: "Inspected", value: formatDate(selInspDate) });
+    if (selCreated)  f.push({ label: "Created",   value: formatDate(selCreated) });
+    return f;
+  }, [selClient, selInspDate, selCreated]);
 
-    const missing = certs.filter(c => !c.pdf_url);
-    if (!missing.length) { setUploadPhase("done"); return; }
+  // ── Preview — client required, at least one date filter required ──────────
+  const canPreview = selClient !== "ALL" && (!!selInspDate || !!selCreated);
 
-    setUploadPhase("generating");
-    setUploadProgress(5);
+  async function handlePreview() {
+    if (!canPreview) return;
+    setSearching(true);
+    setPreview(null);
 
     try {
-      await waitForRender();
-      setUploadProgress(15);
+      // Build the Supabase query — filter by client on the server
+      let query = supabase
+        .from("certificates")
+        .select([
+          "id","certificate_number","client_name","company",
+          "equipment_type","equipment_description","asset_name","asset_tag",
+          "inspection_date","issue_date","expiry_date",
+          "created_at",
+          "result",
+          "folder_id","folder_name","folder_position",
+        ].join(","))
+        .or(`client_name.eq.${selClient},company.eq.${selClient}`)
+        .order("folder_position", { ascending: true });
 
-      const certEls = Array.from(certRef.current.querySelectorAll("[data-cert-id]"));
-      let done  = 0;
-      const total = missing.length;
-
-      for (const el of certEls) {
-        const certId = el.getAttribute("data-cert-id");
-        const cert   = missing.find(c => String(c.id) === String(certId));
-        if (!cert) continue;
-
-        setUploadPhase("uploading");
-
-        const safeName = (cert.certificate_number || cert.id)
-          .toString().replace(/[^a-zA-Z0-9_-]/g, "_");
-
-        let blob;
-        try {
-          // Force white background on this element before capture
-          const prevBg = el.style.background;
-          el.style.background = "#ffffff";
-
-          blob = await window.html2pdf()
-            .set(pdfOpt(`${safeName}.pdf`, el))
-            .from(el)
-            .outputPdf("blob");
-
-          el.style.background = prevBg;
-        } catch (pdfErr) {
-          console.warn(`PDF render failed for ${safeName}:`, pdfErr.message);
-          done++;
-          setUploadProgress(15 + Math.round((done / total) * 80));
-          continue;
-        }
-
-        if (!blob || blob.size < 3000) {
-          done++;
-          setUploadProgress(15 + Math.round((done / total) * 80));
-          continue;
-        }
-
-        const path = `generated/${safeName}.pdf`;
-        const { data: sd, error: se } = await supabase.storage
-          .from("certificates")
-          .upload(path, blob, { contentType: "application/pdf", upsert: true });
-
-        if (!se && sd) {
-          const { data: ud } = supabase.storage.from("certificates").getPublicUrl(sd.path);
-          if (ud?.publicUrl) {
-            await supabase.from("certificates")
-              .update({ pdf_url: ud.publicUrl })
-              .eq("id", cert.id);
-          }
-        } else if (se) {
-          console.warn(`Upload failed for ${safeName}:`, se.message);
-        }
-
-        done++;
-        setUploadProgress(15 + Math.round((done / total) * 80));
-        await sleep(80);
+      // Apply created_at filter server-side when set (fast index scan)
+      if (selCreated) {
+        // created_at is a timestamptz — filter the full day
+        query = query
+          .gte("created_at", `${selCreated}T00:00:00.000Z`)
+          .lte("created_at", `${selCreated}T23:59:59.999Z`);
       }
 
-      setUploadProgress(100);
-      setUploadPhase("done");
-    } catch (err) {
-      console.warn("Auto-upload failed:", err.message);
-      setUploadPhase("error");
-    }
-  }
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
 
-  async function handleSavePDF() {
-    if (!certRef.current || !window.html2pdf) {
-      alert("PDF engine is still loading. Please wait a moment.");
-      return;
-    }
-    setSaving(true); setSaveMsg("Generating PDF…");
-    try {
-      const clientName = certs[0]?.client_name || certs[0]?.company || "Certificates";
-      const inspDate   = certs[0]?.inspection_date
-        || (certs[0]?.issue_date ? certs[0].issue_date.split("T")[0] : "")
-        || "batch";
-      const fileName = `${clientName.replace(/[^a-zA-Z0-9]/g, "_")}_${inspDate}.pdf`
-        .replace(/__+/g, "_");
+      // Client-side: apply inspection date filter and normalise
+      let matched = (data || []).map(r => ({
+        ...r,
+        result:                normalizeResult(r.result),
+        client_name:           r.client_name || r.company || "UNASSIGNED",
+        equipment_description: r.equipment_description || r.asset_name || r.asset_tag || "UNNAMED",
+        _inspDate:             dateOnly(r.inspection_date || r.issue_date),
+        _createdDate:          dateOnly(r.created_at),
+      }));
 
-      const el = certRef.current;
+      if (selInspDate) {
+        matched = matched.filter(r => r._inspDate === selInspDate);
+      }
 
-      // Temporarily force white background on wrapper before capture
-      const prevBg = el.style.background;
-      el.style.background = "#ffffff";
-      await sleep(100);
-
-      await window.html2pdf()
-        .set(pdfOpt(fileName, el))
-        .from(el)
-        .save();
-
-      el.style.background = prevBg;
-
-      setSaveMsg("✓ Saved!");
-      setTimeout(() => setSaveMsg(""), 3000);
-    } catch (err) {
-      console.error("PDF save failed:", err);
-      setSaveMsg("Falling back to print…");
-      setTimeout(() => { window.print(); setSaveMsg(""); }, 400);
+      setPreview(matched);
+    } catch (e) {
+      setErrTxt(e.message);
     } finally {
-      setSaving(false);
+      setSearching(false);
     }
   }
 
-  const clientName = certs[0]?.client_name || certs[0]?.company || "";
-  const inspDate   = certs[0]?.inspection_date || "";
+  function handleDownload() {
+    if (!preview || preview.length === 0) return;
+    const ids = preview.map(c => c.id);
+    const params = new URLSearchParams({ ids: ids.join(",") });
+    router.push(`/bulk-print?${params.toString()}`);
+  }
 
-  const phaseLabel = {
-    generating: "Rendering PDFs…",
-    uploading:  "Uploading to storage…",
-    done:       "✓ All PDFs stored",
-    error:      "Auto-upload failed (print still works)",
-  }[uploadPhase] || "";
+  const canDownload = preview && preview.length > 0;
 
-  const phaseColor = {
-    generating: T.accent,
-    uploading:  T.amber,
-    done:       T.green,
-    error:      T.red,
-  }[uploadPhase] || T.textDim;
-
-  // ── LOADING ──────────────────────────────────────────────────────────────────
-  if (loading) return (
-    <>
-      <style>{CSS}</style>
-      <div className="bp-progress-overlay">
-        <div className="bp-spinner"/>
-        <div style={{ fontSize: 14, fontWeight: 700, color: "rgba(240,246,255,0.7)" }}>
-          Loading {ids.length} certificate{ids.length !== 1 ? "s" : ""}…
-        </div>
-      </div>
-    </>
-  );
-
-  // ── ERROR ────────────────────────────────────────────────────────────────────
-  if (error) return (
-    <>
-      <style>{CSS}</style>
-      <div style={{ minHeight: "100vh", background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "'IBM Plex Sans',sans-serif" }}>
-        <div style={{ background: T.redDim, border: `1px solid ${T.redBrd}`, borderRadius: 16, padding: 28, color: T.red, fontSize: 14, fontWeight: 700, maxWidth: 440, textAlign: "center" }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>⚠</div>
-          {error}
-          <br/>
-          <button onClick={() => router.push("/bulk-export")}
-            style={{ marginTop: 16, padding: "10px 20px", borderRadius: 10, border: "none", background: T.redDim, color: T.red, cursor: "pointer", fontWeight: 800, fontFamily: "'IBM Plex Sans',sans-serif", fontSize: 13 }}>
-            ← Back to Bulk Export
-          </button>
-        </div>
-      </div>
-    </>
-  );
-
-  // ── MAIN ──────────────────────────────────────────────────────────────────────
   return (
-    <>
+    <AppLayout title="Bulk Export">
       <style>{CSS}</style>
+      <div className="be-page">
+        <div className="be-wrap">
 
-      {saving && (
-        <div className="bp-progress-overlay">
-          <div className="bp-spinner"/>
-          <div style={{ fontSize: 15, fontWeight: 800 }}>{saveMsg || "Generating PDF…"}</div>
-          <div style={{ fontSize: 12, color: "rgba(240,246,255,0.40)", marginTop: 4 }}>
-            {certs.length} certificate{certs.length !== 1 ? "s" : ""} — please wait
-          </div>
-          <div className="bp-progress-bar-wrap" style={{ marginTop: 8 }}>
-            <div className="bp-progress-bar" style={{ width: "60%" }}/>
-          </div>
-        </div>
-      )}
-
-      {/* TOOLBAR */}
-      <div className="bp-toolbar">
-        <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0, flex: 1 }}>
-          <div className="bp-info">
-            <div className="bp-title">
-              {clientName || `${certs.length} Certificates`}
+          {/* HERO */}
+          <div className="be-hero">
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+              <div style={{ width:4, height:20, borderRadius:2, background:`linear-gradient(to bottom,${T.accent},rgba(34,211,238,0.3))`, flexShrink:0 }}/>
+              <span style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", textTransform:"uppercase", color:T.accent }}>Certificate Management · ISO 9001</span>
             </div>
-            <div className="bp-sub">
-              {certs.length} cert{certs.length !== 1 ? "s" : ""}
-              {inspDate ? ` · ${inspDate}` : ""}
-              {phaseLabel && (
-                <span style={{ color: phaseColor, marginLeft: 8 }}>{phaseLabel}</span>
+            <h1 style={{ margin:0, fontSize:"clamp(18px,3vw,26px)", fontWeight:900, letterSpacing:"-0.02em" }}>Bulk Export</h1>
+            <p style={{ margin:"6px 0 0", color:T.textDim, fontSize:13 }}>
+              Filter by client, inspection date, and/or date created to find and export exactly the certificates you need.
+            </p>
+          </div>
+
+          {errTxt && (
+            <div style={{ padding:"10px 14px", borderRadius:10, border:`1px solid ${T.redBrd}`, background:T.redDim, color:T.red, fontSize:13, fontWeight:600, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <span>⚠ {errTxt}</span>
+              <button className="be-btn-clear" onClick={() => setErrTxt("")}>✕</button>
+            </div>
+          )}
+
+          {/* FILTERS */}
+          <div style={{ background:"rgba(13,22,38,0.80)", border:`1px solid ${T.border}`, borderRadius:16, padding:20, backdropFilter:"blur(20px)" }}>
+            <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.12em", textTransform:"uppercase", color:T.textDim, marginBottom:14 }}>
+              Filter Certificates
+            </div>
+
+            <div className="be-filters" style={{ padding:0, border:"none", borderRadius:0, background:"none", backdropFilter:"none" }}>
+
+              {/* Client — REQUIRED */}
+              <div className="be-field">
+                <label>
+                  Client
+                  <span className="be-req">*</span>
+                </label>
+                <select
+                  className={`be-input${selClient !== "ALL" ? " active" : ""}`}
+                  value={selClient}
+                  disabled={loading}
+                  onChange={e => handleClientChange(e.target.value)}
+                >
+                  <option value="ALL">— Select a client —</option>
+                  {clientOpts.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              {/* Inspection Date — REQUIRED (unless created date set) */}
+              <div className="be-field">
+                <label>
+                  Inspection Date
+                  <span className="be-req" style={{ color: selCreated ? T.textDim : T.red }}>
+                    {selCreated ? "" : "*"}
+                  </span>
+                  {selCreated && <span className="be-opt">(optional)</span>}
+                </label>
+                <select
+                  className={`be-input${selInspDate ? " active" : ""}`}
+                  value={selInspDate}
+                  disabled={loading || selClient === "ALL"}
+                  onChange={e => handleInspDateChange(e.target.value)}
+                >
+                  <option value="">— All inspection dates —</option>
+                  {inspDateOpts.map(d => (
+                    <option key={d} value={d}>{formatDate(d)}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Created Date — OPTIONAL extra filter */}
+              <div className="be-field">
+                <label>
+                  Date Created
+                  <span className="be-opt">(optional)</span>
+                </label>
+                <select
+                  className={`be-input${selCreated ? " active" : ""}`}
+                  value={selCreated}
+                  disabled={loading || selClient === "ALL"}
+                  onChange={e => handleCreatedChange(e.target.value)}
+                >
+                  <option value="">— Any creation date —</option>
+                  {createdDateOpts.map(d => (
+                    <option key={d} value={d}>{formatDate(d)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Active filter summary + clear */}
+            {activeFilters.length > 0 && (
+              <div className="be-filter-summary">
+                <span>Active filters:</span>
+                {activeFilters.map(f => (
+                  <span key={f.label} className="be-active-pill">
+                    <span style={{ color:T.textDim, fontWeight:600 }}>{f.label}:</span>
+                    {f.value}
+                  </span>
+                ))}
+                <button className="be-btn-clear" onClick={clearAllFilters}>
+                  Clear all ✕
+                </button>
+              </div>
+            )}
+
+            {/* Requirement hint */}
+            {selClient === "ALL" && (
+              <div style={{ marginTop:12, fontSize:11, color:T.textDim }}>
+                ← Select a client to begin
+              </div>
+            )}
+            {selClient !== "ALL" && !selInspDate && !selCreated && (
+              <div style={{ marginTop:12, fontSize:11, color:T.amber }}>
+                ⚠ Select at least one date filter (Inspection Date or Date Created) to preview
+              </div>
+            )}
+          </div>
+
+          {/* PREVIEW BUTTON */}
+          <div style={{ display:"flex", justifyContent:"flex-end", gap:10, alignItems:"center" }}>
+            {preview !== null && (
+              <span style={{ fontSize:12, color:T.textDim }}>
+                {preview.length} result{preview.length !== 1 ? "s" : ""}
+              </span>
+            )}
+            <button
+              type="button"
+              className="be-btn be-btn-primary"
+              disabled={!canPreview || searching || loading}
+              onClick={handlePreview}
+            >
+              {searching ? (
+                <>
+                  <span style={{ width:16, height:16, borderRadius:"50%", border:"2px solid rgba(0,16,24,0.3)", borderTopColor:"#001018", animation:"spin 0.8s linear infinite", display:"inline-block" }}/>
+                  Searching…
+                </>
+              ) : "🔍 Preview Certificates"}
+            </button>
+          </div>
+
+          {/* PREVIEW PANEL */}
+          {preview !== null && (
+            <div className="be-preview">
+              <div className="be-preview-head">
+                <div>
+                  <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.1em", textTransform:"uppercase", color:T.textDim, marginBottom:4 }}>Preview Results</div>
+                  <div style={{ fontSize:14, fontWeight:800 }}>
+                    {selClient}
+                    {selInspDate ? ` · Inspected ${formatDate(selInspDate)}` : ""}
+                    {selCreated  ? ` · Created ${formatDate(selCreated)}`    : ""}
+                  </div>
+                  <div style={{ fontSize:11, color:T.textDim, marginTop:3 }}>
+                    {activeFilters.map(f => `${f.label}: ${f.value}`).join(" · ")}
+                  </div>
+                </div>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <span style={{ fontSize:12, fontWeight:700, color: preview.length > 0 ? T.green : T.textDim }}>
+                    {preview.length} certificate{preview.length !== 1 ? "s" : ""} found
+                  </span>
+                  {preview.length > 0 && (
+                    <span style={{ padding:"3px 10px", borderRadius:99, background:T.greenDim, border:`1px solid ${T.greenBrd}`, color:T.green, fontSize:10, fontWeight:800 }}>
+                      Ready to export
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {preview.length === 0 ? (
+                <div className="be-empty">
+                  <div style={{ fontSize:28, opacity:0.3, marginBottom:10 }}>📄</div>
+                  <div style={{ fontSize:14, fontWeight:800, marginBottom:6 }}>No certificates found</div>
+                  <div style={{ fontSize:12, color:T.textDim, lineHeight:1.6 }}>
+                    No records match your filters.
+                    {selInspDate && selCreated && (
+                      <><br/>Try removing the <strong style={{ color:T.textMid }}>Date Created</strong> filter — the inspection may have been created on a different day.</>
+                    )}
+                    {!selInspDate && selCreated && (
+                      <><br/>Try also selecting an <strong style={{ color:T.textMid }}>Inspection Date</strong> to narrow results.</>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  {(() => {
+                    // Group by folder for display
+                    const folders    = {};
+                    const standalone = [];
+                    for (const c of preview) {
+                      if (c.folder_id) {
+                        if (!folders[c.folder_id]) folders[c.folder_id] = [];
+                        folders[c.folder_id].push(c);
+                      } else {
+                        standalone.push(c);
+                      }
+                    }
+                    const rows = [];
+                    for (const c of standalone) rows.push({ type:"single", cert:c });
+                    for (const grp of Object.values(folders)) {
+                      const sorted = [...grp].sort((a,b) => (a.folder_position||99) - (b.folder_position||99));
+                      rows.push({ type:"folder", certs:sorted });
+                    }
+
+                    return rows.map((row, ri) => {
+                      if (row.type === "single") {
+                        const c = row.cert;
+                        const r = rc(c.result);
+                        return (
+                          <div key={c.id} className="be-cert-row">
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                                <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:12, fontWeight:700, color:T.accent }}>
+                                  {c.certificate_number || "—"}
+                                </span>
+                                <span className="be-badge" style={{ background:r.bg, color:r.color, border:`1px solid ${r.brd}` }}>{r.label}</span>
+                                {c.equipment_type && (
+                                  <span style={{ fontSize:10, color:T.textDim }}>{c.equipment_type}</span>
+                                )}
+                              </div>
+                              <div style={{ fontSize:12, color:T.textMid, marginTop:3 }}>
+                                {c.equipment_description}
+                              </div>
+                            </div>
+                            <div style={{ fontSize:11, color:T.textDim, flexShrink:0, textAlign:"right", lineHeight:1.7 }}>
+                              <div>Inspected: <span style={{ color:T.textMid }}>{formatDate(c._inspDate)}</span></div>
+                              <div>Created: <span style={{ color:T.textMid }}>{formatDate(c._createdDate)}</span></div>
+                              <div>Expires: {formatDate(c.expiry_date)}</div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Folder group
+                      const { certs } = row;
+                      return (
+                        <div key={`folder-${certs[0].folder_id}`} style={{ borderBottom:`1px solid rgba(148,163,184,0.08)` }}>
+                          <div style={{ padding:"10px 18px 6px", display:"flex", alignItems:"center", gap:8 }}>
+                            <span style={{ fontSize:14 }}>📁</span>
+                            <span style={{ fontSize:11, fontWeight:800, color:T.purple }}>{certs[0].folder_name || "Linked Group"}</span>
+                            <span style={{ fontSize:10, color:T.textDim }}>({certs.length} certificates)</span>
+                          </div>
+                          {certs.map((c, fi) => {
+                            const r = rc(c.result);
+                            return (
+                              <div key={c.id} className="be-cert-row" style={{ paddingLeft:36, borderBottom: fi < certs.length - 1 ? `1px dashed rgba(148,163,184,0.08)` : "none" }}>
+                                <div style={{ flex:1, minWidth:0 }}>
+                                  <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                                    <span style={{ color:T.purple, fontSize:10 }}>{"└─"}</span>
+                                    <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:12, fontWeight:700, color:T.accent }}>{c.certificate_number || "—"}</span>
+                                    <span className="be-badge" style={{ background:r.bg, color:r.color, border:`1px solid ${r.brd}` }}>{r.label}</span>
+                                  </div>
+                                  <div style={{ fontSize:12, color:T.textMid, marginTop:3, paddingLeft:22 }}>
+                                    {c.equipment_description} · <span style={{ color:T.textDim }}>{c.equipment_type}</span>
+                                  </div>
+                                </div>
+                                <div style={{ fontSize:11, color:T.textDim, flexShrink:0, textAlign:"right" }}>
+                                  <div>Inspected: {formatDate(c._inspDate)}</div>
+                                  <div>Created: {formatDate(c._createdDate)}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
               )}
             </div>
-          </div>
-          {(uploadPhase === "generating" || uploadPhase === "uploading") && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-              <div className="bp-progress-bar-wrap" style={{ width: 100 }}>
-                <div className="bp-progress-bar" style={{ width: `${uploadProgress}%` }}/>
+          )}
+
+          {/* CTA BAR — sticky bottom */}
+          {canDownload && (
+            <div className="be-cta">
+              <div style={{ minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:800 }}>
+                  {preview.length} certificate{preview.length !== 1 ? "s" : ""} ready to export
+                </div>
+                <div style={{ fontSize:11, color:T.textDim, marginTop:3, display:"flex", gap:8, flexWrap:"wrap" }}>
+                  {activeFilters.map(f => (
+                    <span key={f.label} style={{ display:"inline-flex", gap:4 }}>
+                      <span style={{ color:T.textDim }}>{f.label}:</span>
+                      <span style={{ color:T.textMid, fontWeight:700 }}>{f.value}</span>
+                    </span>
+                  ))}
+                </div>
               </div>
-              <span style={{ fontSize: 10, color: T.textDim, minWidth: 28 }}>{uploadProgress}%</span>
+              <button
+                type="button"
+                className="be-btn be-btn-primary"
+                onClick={handleDownload}
+              >
+                ⬇ Export &amp; Print All
+              </button>
             </div>
           )}
-          {uploadPhase === "done" && (
-            <span style={{ fontSize: 11, fontWeight: 800, color: T.green, flexShrink: 0 }}>✓ Stored</span>
-          )}
-        </div>
 
-        <div className="bp-btn-row">
-          <button type="button" className="bp-btn bp-btn-back"
-            onClick={() => router.push("/bulk-export")}
-            style={{ border: "1px solid rgba(148,163,184,0.18)" }}>
-            ← Back
-          </button>
-          <button type="button" className="bp-btn bp-btn-print"
-            onClick={() => window.print()}>
-            🖨 Print All
-          </button>
-          <button type="button" className="bp-btn bp-btn-save"
-            onClick={handleSavePDF}
-            disabled={saving || !html2pdfReady}
-            title={!html2pdfReady ? "Loading PDF engine…" : "Download combined PDF"}>
-            {saving ? (
-              <>
-                <span style={{ width: 14, height: 14, borderRadius: "50%", border: "2px solid rgba(0,16,24,0.3)", borderTopColor: "#001018", animation: "spin 0.8s linear infinite", display: "inline-block" }}/>
-                Saving…
-              </>
-            ) : (saveMsg || "⬇ Save PDF")}
-          </button>
         </div>
       </div>
-
-      {/* CERTIFICATE PAGES */}
-      <div className="bp-content">
-        {/*
-          certRef wraps ONLY the cert pages.
-          background:#ffffff and no padding = html2canvas captures only white cert content.
-          No dark UI chrome = no extra black/dark page at the end.
-        */}
-        <div ref={certRef} className="bp-cert-wrap">
-          {certs.map((cert, i) => (
-            <div
-              key={cert.id}
-              data-cert-id={String(cert.id)}
-              className="bp-cert-page"
-              style={{
-                pageBreakAfter: i < certs.length - 1 ? "always" : "avoid",
-                breakAfter:     i < certs.length - 1 ? "page"   : "avoid",
-              }}
-            >
-              <CertificateSheet
-                certificate={cert}
-                index={i}
-                total={certs.length}
-                printMode
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-    </>
-  );
-}
-
-// ─── Suspense wrapper (required by Next.js 14 for useSearchParams) ────────────
-const CSS_FALLBACK = `@keyframes spin{to{transform:rotate(360deg)}}`;
-
-export default function BulkPrintPage() {
-  return (
-    <Suspense fallback={
-      <>
-        <style>{CSS_FALLBACK}</style>
-        <div style={{
-          minHeight: "100vh", background: "#070e18",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontFamily: "'IBM Plex Sans',sans-serif", color: "#f0f6ff",
-        }}>
-          <div style={{ textAlign: "center" }}>
-            <div style={{
-              width: 48, height: 48, borderRadius: "50%",
-              border: "3px solid rgba(34,211,238,0.15)", borderTopColor: "#22d3ee",
-              animation: "spin 0.8s linear infinite", margin: "0 auto 16px",
-            }}/>
-            <div style={{ fontSize: 14, color: "rgba(240,246,255,0.6)" }}>
-              Preparing certificates…
-            </div>
-          </div>
-        </div>
-      </>
-    }>
-      <BulkPrintInner />
-    </Suspense>
+    </AppLayout>
   );
 }
