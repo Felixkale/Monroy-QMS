@@ -1022,7 +1022,7 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
         <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl}/>
         <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
           <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
-            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Load Test Certificate — Aerial Work Platform</div>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Load Test Certificate — Cherry Picker</div>
             <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
             <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap",alignItems:"center"}}>
               {expiryDate&&(<div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}><span style={{color:"#3b6ea5"}}>Expiry (12 months):</span> {expiryDate}</div>)}
@@ -1076,7 +1076,7 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
         {bm.notes&&<div className="pro-comments-box"><div className="pro-comments-lbl">Notes</div><div className="pro-comments-val">{bm.notes}</div></div>}
         {photos.length>0&&<ProEvidence photos={photos.slice(0,Math.ceil(photos.length/2))}/>}
         <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
-          THIS AERIAL WORK PLATFORM HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA. THIS CERTIFICATE IS VALID FOR 12 MONTHS FROM DATE OF ISSUE.
+          THIS CHERRY PICKER HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA. THIS CERTIFICATE IS VALID FOR 12 MONTHS FROM DATE OF ISSUE.
         </div>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
@@ -1086,7 +1086,7 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   CHERRY PICKER PAGE 2 — Bucket/Platform  (LAST PAGE → last-page)
+   CHERRY PICKER PAGE 2 — Bucket Inspection  (LAST PAGE → last-page)
 ══════════════════════════════════════════════════════════ */
 function CherryPickerBucketPage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -1127,7 +1127,7 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
         </tbody></table>
         <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
           <div style={{border:"2px solid #f97316",borderRadius:4,padding:"7px 10px",background:"#fff7ed"}}>
-            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Work Platform / Bucket Inspection Certificate</div>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Bucket Load Test Certificate</div>
             <div style={{fontSize:10,fontWeight:700,color:"#ea580c",marginTop:2}}>{bucketCertNo}</div>
             <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap",alignItems:"center"}}>
               {bucketExpiry&&(<div style={{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #f97316",borderRadius:3,padding:"2px 7px",fontSize:8,fontWeight:700,color:"#9a3412",background:"#fff"}}><span style={{color:"#ea580c"}}>Expiry (6 months):</span> {bucketExpiry}</div>)}
@@ -1138,7 +1138,7 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
         </div>
         <div className="pro-stl" style={{borderLeftColor:"#f97316"}}>Platform / Bucket Identification</div>
         <table className="pro-st"><tbody>
-          <tr><td style={{width:"55%"}}>Bucket / Platform Serial Number</td><td style={{fontFamily:"monospace",fontWeight:900,fontSize:10,color:"#0b1d3a"}}>{bucketSerial}</td></tr>
+          <tr><td style={{width:"55%"}}>Bucket Serial Number</td><td style={{fontFamily:"monospace",fontWeight:900,fontSize:10,color:"#0b1d3a"}}>{bucketSerial}</td></tr>
           <tr><td>Manufacturer / Make</td><td>{bucketMake}</td></tr>
           <tr><td>Platform Dimensions (m)</td><td>{bk.platform_dimensions||"—"}</td></tr>
           <tr><td>Platform Material</td><td>{bk.platform_material||"—"}</td></tr>
