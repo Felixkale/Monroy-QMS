@@ -276,7 +276,7 @@ async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, listMode
       generationConfig: {
         temperature: 0.1,
         topP: 0.95,
-        maxOutputTokens: listMode ? 16384 : 4096,
+        maxOutputTokens: listMode ? 16384 : 8192,
         responseMimeType: "application/json",
         ...(useSchema ? { responseSchema: listMode ? LIST_RESPONSE_SCHEMA : RESPONSE_SCHEMA } : {}),
       },
@@ -304,6 +304,10 @@ async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, listMode
       if (finishReason === "SAFETY" || finishReason === "RECITATION") {
         throw new Error(`Gemini blocked: ${finishReason}`);
       }
+      if (finishReason === "MAX_TOKENS") {
+        // Response was truncated — log but continue; extractJsonFromPayload will do its best
+        console.warn(`[${fileName}] Response truncated (MAX_TOKENS). JSON may be incomplete.`);
+      }
 
       // Check for overload message in 200 response
       const textCheck = (json?.candidates?.[0]?.content?.parts || []).map(p => p?.text || "").join("");
@@ -319,6 +323,12 @@ async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, listMode
       return json;
     }
     throw new Error("Gemini is overloaded after all retries.");
+  }
+
+  // Count meaningful fields in a parsed document result
+  function countDocFields(parsed) {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return 0;
+    return Object.values(parsed).filter(v => v != null && String(v).trim() !== "").length;
   }
 
   // Shot 1: with schema
@@ -348,7 +358,29 @@ async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, listMode
     return { payload: json1, parsed: normalized1 || { items: [] } };
   }
 
-  // Document mode — single shot is fine
+  // ── Document mode: two-shot with fallback ────────────────────────────────
+  // Shot 1 result check: schema can force empty strings for all fields,
+  // giving a technically valid but useless {} object. Detect this.
+  const fields1 = countDocFields(parsed1);
+  if (fields1 >= 2) {
+    // Good result — has meaningful data
+    console.log(`[${fileName}] Doc schema shot: ${fields1} fields extracted ✓`);
+    return { payload: json1, parsed: parsed1 };
+  }
+
+  // Shot 1 returned empty or near-empty — try without schema
+  console.log(`[${fileName}] Doc schema shot returned ${fields1} fields. Trying plain JSON fallback...`);
+  const json2 = await makeRequest(false);
+  const parsed2 = extractJsonFromPayload(json2);
+  const fields2 = countDocFields(parsed2);
+
+  if (fields2 >= fields1) {
+    console.log(`[${fileName}] Doc plain JSON fallback: ${fields2} fields extracted ✓`);
+    return { payload: json2, parsed: parsed2 };
+  }
+
+  // Fallback was worse — return whichever had more fields
+  console.warn(`[${fileName}] Both doc shots weak (${fields1} vs ${fields2} fields). Using best.`);
   return { payload: json1, parsed: parsed1 };
 }
 
@@ -408,6 +440,17 @@ async function processOneFile(fileData, systemPrompt, listMode = false) {
     }
     data.result = normalizeResult(data.result);
 
+    // Surface a proper error if the model returned essentially nothing
+    const meaningfulFields = Object.values(data).filter(v => v && String(v).trim()).length;
+    if (meaningfulFields < 2) {
+      return {
+        fileName,
+        ok: false,
+        error: `AI extracted 0 usable fields from this file. The document may be encrypted, image-only, or too low resolution. Try a clearer scan or a text-based PDF.`,
+      };
+    }
+
+    console.log(`[${fileName}] doc mode: ${meaningfulFields} fields extracted ✓`);
     return { fileName, ok: true, data, usage: payload?.usageMetadata || null };
 
   } catch (err) {
