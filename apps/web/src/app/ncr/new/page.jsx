@@ -102,6 +102,8 @@ function buildDetails(src) {
     `Asset Tag: ${nz(src.asset_tag, "—")}`,
     `Asset Name: ${nz(src.asset_name, "—")}`,
     `Serial No.: ${nz(src.serial_number, "—")}`,
+    `Fleet No.: ${nz(src.fleet_number, "—")}`,
+    `Reg No.: ${nz(src.registration_number, "—")}`,
     `Equipment: ${nz(src.equipment_description, "—")}`,
     `Type: ${nz(src.equipment_type, "—")}`,
     `Result: ${resultLabel(src.result)}`,
@@ -110,18 +112,28 @@ function buildDetails(src) {
   ].join("\n");
 }
 
-// ── Smart asset fetcher ───────────────────────────────────────────────────────
-// Priority 1 — serial + client + equipment_type  (exact, zero collisions)
-// Priority 2 — serial + client                   (if type mismatch/missing)
-// Priority 3 — serial only                       (last resort single match)
-// Priority 4 — fuzzy equipment_description       (no serial at all)
-// Fallback   — all recent assets for manual pick
-//
-// Returns { autoMatch, matchedBy, allAssets }
+/* ─────────────────────────────────────────────────────────────────────────────
+   fetchAssets
+   Tries to auto-match the certificate to an asset using a priority chain:
+   1. serial + client + type  (tightest)
+   2. serial + client
+   3. serial only
+   4. fleet_number + client
+   5. fleet_number only
+   6. registration_number + client
+   7. registration_number only
+   8. asset_tag
+   9. fuzzy equipment_description / asset_name
+   Fallback: no match — user picks manually from full list
+───────────────────────────────────────────────────────────────────────────── */
 async function fetchAssets(src) {
-  const sel = "id,asset_tag,asset_name,asset_type,serial_number,client_id,clients(id,company_name)";
+  const sel = [
+    "id","asset_tag","asset_name","asset_type",
+    "serial_number","fleet_number","registration_number",
+    "client_id","clients(id,company_name)",
+  ].join(",");
 
-  // Resolve client_id from client_name first
+  // Resolve client_id from client_name
   let clientId = null;
   if (nz(src.client_name)) {
     const { data: cl } = await supabase
@@ -132,49 +144,93 @@ async function fetchAssets(src) {
     clientId = cl?.id || null;
   }
 
-  // Load full asset list for the manual override dropdown
+  // Full asset list for manual dropdown
   const { data: allAssets } = await supabase
     .from("assets")
     .select(sel)
     .order("created_at", { ascending: false })
-    .limit(100);
+    .limit(200);
   const all = allAssets || [];
 
-  // ── Priority 1: serial + client + equipment_type (tightest match) ──────────
+  // Helper — run a filtered query and return match if found
+  async function tryMatch(filters, label) {
+    let q = supabase.from("assets").select(sel);
+    for (const [col, val] of Object.entries(filters)) {
+      if (val) q = q.eq(col, val);
+    }
+    const { data } = await q.limit(5);
+    if (!data?.length) return null;
+    // Single match — unambiguous
+    if (data.length === 1) return { autoMatch: data[0], matchedBy: label, allAssets: all };
+    // Multiple hits — if client is locked in, take first
+    if (filters.client_id) return { autoMatch: data[0], matchedBy: label, allAssets: all };
+    return null;
+  }
+
+  // ── 1. Serial + client + type ─────────────────────────────────────────────
   if (nz(src.serial_number) && clientId && nz(src.equipment_type)) {
-    const { data } = await supabase
-      .from("assets")
-      .select(sel)
-      .eq("serial_number",  src.serial_number)
-      .eq("client_id",      clientId)
-      .eq("asset_type",     src.equipment_type)
-      .limit(5);
-    if (data?.length) return { autoMatch: data[0], matchedBy: "serial + client + type", allAssets: all };
+    const m = await tryMatch(
+      { serial_number: src.serial_number, client_id: clientId, asset_type: src.equipment_type },
+      "serial + client + type"
+    );
+    if (m) return m;
   }
 
-  // ── Priority 2: serial + client (type missing or different label) ──────────
+  // ── 2. Serial + client ────────────────────────────────────────────────────
   if (nz(src.serial_number) && clientId) {
-    const { data } = await supabase
-      .from("assets")
-      .select(sel)
-      .eq("serial_number", src.serial_number)
-      .eq("client_id",     clientId)
-      .limit(5);
-    if (data?.length === 1) return { autoMatch: data[0], matchedBy: "serial + client", allAssets: all };
-    // Multiple hits with same serial+client but different types — don't auto-pick
+    const m = await tryMatch(
+      { serial_number: src.serial_number, client_id: clientId },
+      "serial + client"
+    );
+    if (m) return m;
   }
 
-  // ── Priority 3: serial only (single unambiguous match across all clients) ──
+  // ── 3. Serial only ────────────────────────────────────────────────────────
   if (nz(src.serial_number)) {
-    const { data } = await supabase
-      .from("assets")
-      .select(sel)
-      .eq("serial_number", src.serial_number)
-      .limit(5);
-    if (data?.length === 1) return { autoMatch: data[0], matchedBy: "serial number", allAssets: all };
+    const m = await tryMatch({ serial_number: src.serial_number }, "serial number");
+    if (m) return m;
   }
 
-  // ── Priority 4: fuzzy equipment_description match ──────────────────────────
+  // ── 4. Fleet number + client ──────────────────────────────────────────────
+  if (nz(src.fleet_number) && clientId) {
+    const m = await tryMatch(
+      { fleet_number: src.fleet_number, client_id: clientId },
+      "fleet number + client"
+    );
+    if (m) return m;
+  }
+
+  // ── 5. Fleet number only ──────────────────────────────────────────────────
+  if (nz(src.fleet_number)) {
+    const m = await tryMatch({ fleet_number: src.fleet_number }, "fleet number");
+    if (m) return m;
+  }
+
+  // ── 6. Registration number + client ───────────────────────────────────────
+  if (nz(src.registration_number) && clientId) {
+    const m = await tryMatch(
+      { registration_number: src.registration_number, client_id: clientId },
+      "registration + client"
+    );
+    if (m) return m;
+  }
+
+  // ── 7. Registration number only ───────────────────────────────────────────
+  if (nz(src.registration_number)) {
+    const m = await tryMatch(
+      { registration_number: src.registration_number },
+      "registration number"
+    );
+    if (m) return m;
+  }
+
+  // ── 8. Asset tag ──────────────────────────────────────────────────────────
+  if (nz(src.asset_tag)) {
+    const m = await tryMatch({ asset_tag: src.asset_tag }, "asset tag");
+    if (m) return m;
+  }
+
+  // ── 9. Fuzzy name match ───────────────────────────────────────────────────
   const fuzzyTerms = [src.equipment_description, src.asset_name].filter(Boolean);
   for (const term of fuzzyTerms) {
     if (term.length < 3) continue;
@@ -183,14 +239,20 @@ async function fetchAssets(src) {
       .select(sel)
       .ilike("asset_name", `%${term}%`)
       .limit(10);
-    if (data?.length === 1) return { autoMatch: data[0], matchedBy: "equipment name", allAssets: all };
+    if (data?.length === 1) {
+      return { autoMatch: data[0], matchedBy: "equipment name", allAssets: all };
+    }
+    if (data?.length > 1 && clientId) {
+      const clientMatch = data.find(a => a.client_id === clientId);
+      if (clientMatch) return { autoMatch: clientMatch, matchedBy: "equipment name + client", allAssets: all };
+    }
   }
 
-  // ── Fallback: no auto-match, show full list for manual selection ────────────
+  // ── Fallback: no match ────────────────────────────────────────────────────
   return { autoMatch: null, matchedBy: null, allAssets: all };
 }
 
-// ── UI helpers ───────────────────────────────────────────────────────────────
+/* ── UI helpers ─────────────────────────────────────────────────────────────── */
 function Sec({ icon, title, children, brd }) {
   return (
     <div style={{ background: T.panel, border: `1px solid ${brd || T.border}`, borderRadius: 16, padding: 18 }}>
@@ -216,11 +278,12 @@ function InfoRow({ label, value, mono = false, accent = false }) {
   );
 }
 
-// ── Main form ────────────────────────────────────────────────────────────────
+/* ── Main form ──────────────────────────────────────────────────────────────── */
 function NCRCreateInner() {
   const router = useRouter();
   const sp     = useSearchParams();
 
+  // All fields from certificate URL params — including fleet + registration
   const src = useMemo(() => ({
     source:               nz(sp.get("source")),
     certificate_id:       nz(sp.get("certificate_id")),
@@ -229,6 +292,8 @@ function NCRCreateInner() {
     asset_tag:            nz(sp.get("asset_tag")),
     asset_name:           nz(sp.get("asset_name")),
     serial_number:        nz(sp.get("serial_number")),
+    fleet_number:         nz(sp.get("fleet_number")),         // ← NEW
+    registration_number:  nz(sp.get("registration_number")),  // ← NEW
     equipment_description:nz(sp.get("equipment_description")),
     equipment_type:       nz(sp.get("equipment_type")),
     client_name:          nz(sp.get("client_name")),
@@ -322,7 +387,6 @@ function NCRCreateInner() {
     }
   }
 
-  // Equipment link section border color reflects match quality
   const equipBrd = loadingA ? T.border
     : autoMatched && !overriding ? T.greenBrd
     : !autoMatched ? T.amberBrd
@@ -417,7 +481,7 @@ function NCRCreateInner() {
                   <div style={{ padding: "10px 12px", borderRadius: 9, border: `1px solid ${T.redBrd}`, background: T.redDim, color: T.red, fontSize: 12 }}>{assetErr}</div>
                 ) : (
                   <>
-                    {/* ── Auto-detected banner ── */}
+                    {/* Auto-detected banner */}
                     {autoMatched && !overriding && selectedAsset && (
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "11px 14px", borderRadius: 10, background: T.greenDim, border: `1px solid ${T.greenBrd}`, marginBottom: 14, flexWrap: "wrap" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
@@ -436,15 +500,16 @@ function NCRCreateInner() {
                       </div>
                     )}
 
-                    {/* ── No auto-match warning ── */}
+                    {/* No auto-match warning */}
                     {!autoMatched && (
                       <div style={{ padding: "10px 12px", borderRadius: 9, border: `1px solid ${T.amberBrd}`, background: T.amberDim, color: T.amber, fontSize: 12, fontWeight: 600, marginBottom: 14 }}>
-                        ⚠ Could not auto-detect equipment — serial, client or type not found in assets. Please select manually or{" "}
-                        <Link href="/equipment/new" style={{ color: T.amber, fontWeight: 800 }}>add new equipment →</Link>
+                        ⚠ Could not auto-detect equipment — tried serial, fleet number, registration and asset tag.
+                        Please select manually or{" "}
+                        <Link href="/equipment/register" style={{ color: T.amber, fontWeight: 800 }}>register new equipment →</Link>
                       </div>
                     )}
 
-                    {/* ── Manual selector — shown when no auto-match OR user overrides ── */}
+                    {/* Manual selector */}
                     {(!autoMatched || overriding) && (
                       <div style={{ marginBottom: 14 }}>
                         <F label={overriding ? "Override Equipment" : "Select Equipment"}>
@@ -466,14 +531,16 @@ function NCRCreateInner() {
                       </div>
                     )}
 
-                    {/* ── Selected asset info card ── */}
+                    {/* Selected asset info */}
                     {selectedAsset ? (
                       <div style={{ display: "grid", gap: 0, padding: "4px 0" }}>
-                        <InfoRow label="Asset Tag"   value={selectedAsset.asset_tag}      mono />
-                        <InfoRow label="Asset Name"  value={selectedAsset.asset_name} />
-                        <InfoRow label="Asset Type"  value={selectedAsset.asset_type} />
-                        <InfoRow label="Serial No."  value={selectedAsset.serial_number}  mono />
-                        <InfoRow label="Client"      value={selectedAsset.clients?.company_name} />
+                        <InfoRow label="Asset Tag"        value={selectedAsset.asset_tag}             mono />
+                        <InfoRow label="Asset Name"       value={selectedAsset.asset_name} />
+                        <InfoRow label="Asset Type"       value={selectedAsset.asset_type} />
+                        <InfoRow label="Serial No."       value={selectedAsset.serial_number}         mono />
+                        <InfoRow label="Fleet No."        value={selectedAsset.fleet_number}          mono />
+                        <InfoRow label="Registration No." value={selectedAsset.registration_number}   mono />
+                        <InfoRow label="Client"           value={selectedAsset.clients?.company_name} />
                       </div>
                     ) : (
                       <div style={{ padding: "10px 12px", borderRadius: 9, border: `1px solid ${T.redBrd}`, background: T.redDim, color: T.red, fontSize: 12, fontWeight: 600 }}>
@@ -503,17 +570,19 @@ function NCRCreateInner() {
               {/* Certificate source */}
               <Sec icon="📄" title="Certificate Source">
                 <div style={{ display: "grid", gap: 0 }}>
-                  <InfoRow label="Certificate No." value={src.certificate_number} mono accent />
-                  <InfoRow label="Inspection No."  value={src.inspection_number} />
-                  <InfoRow label="Result"          value={resultLabel(src.result)} />
-                  <InfoRow label="Client"          value={src.client_name} />
-                  <InfoRow label="Asset Tag"       value={src.asset_tag}     mono />
-                  <InfoRow label="Serial No."      value={src.serial_number} mono />
-                  <InfoRow label="Asset Name"      value={src.asset_name} />
-                  <InfoRow label="Equipment"       value={src.equipment_description} />
-                  <InfoRow label="Type"            value={src.equipment_type} />
-                  <InfoRow label="Issue Date"      value={src.issue_date} />
-                  <InfoRow label="Expiry Date"     value={src.expiry_date} />
+                  <InfoRow label="Certificate No."  value={src.certificate_number}  mono accent />
+                  <InfoRow label="Inspection No."   value={src.inspection_number} />
+                  <InfoRow label="Result"           value={resultLabel(src.result)} />
+                  <InfoRow label="Client"           value={src.client_name} />
+                  <InfoRow label="Asset Tag"        value={src.asset_tag}            mono />
+                  <InfoRow label="Serial No."       value={src.serial_number}        mono />
+                  <InfoRow label="Fleet No."        value={src.fleet_number}         mono />
+                  <InfoRow label="Reg No."          value={src.registration_number}  mono />
+                  <InfoRow label="Asset Name"       value={src.asset_name} />
+                  <InfoRow label="Equipment"        value={src.equipment_description} />
+                  <InfoRow label="Type"             value={src.equipment_type} />
+                  <InfoRow label="Issue Date"       value={src.issue_date} />
+                  <InfoRow label="Expiry Date"      value={src.expiry_date} />
                 </div>
                 {src.certificate_id && (
                   <Link href={`/certificates/${encodeURIComponent(src.certificate_id)}`}
@@ -523,7 +592,7 @@ function NCRCreateInner() {
                 )}
               </Sec>
 
-              {/* Severity guide — clickable */}
+              {/* Severity guide */}
               <Sec icon="🎯" title="Severity Guide">
                 <div style={{ display: "grid", gap: 10 }}>
                   {[
