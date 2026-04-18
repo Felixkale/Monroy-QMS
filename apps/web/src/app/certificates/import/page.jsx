@@ -28,50 +28,60 @@ DATE FORMAT: Return dates as MM/YYYY or DD/MM/YYYY or YYYY only.
 Return ONLY valid JSON, no markdown:
 {"equipment_type":"","equipment_description":"","manufacturer":"","model":"","serial_number":"","asset_tag":"","year_built":"","capacity_volume":"","swl":"","working_pressure":"","design_pressure":"","test_pressure":"","pressure_unit":"","material":"","standard_code":"","inspection_number":"","client_name":"","location":"","inspection_date":"","expiry_date":"","next_inspection_due":"","inspector_name":"","inspection_body":"","result":"","defects_found":"","recommendations":"","comments":"","nameplate_data":"","raw_text_summary":""}`;
 
+// ── LIST MODE SYSTEM PROMPT — much stronger and more explicit ──────────────
 function buildListPrompt(client, inspDate, expiryDate) {
-  return `You are a senior industrial inspection AI. The image shows a HANDWRITTEN LIST of equipment items.
+  return `You are an expert OCR and data extraction AI specializing in industrial inspection lists.
 
-Your job: read EVERY line carefully and extract each item as a separate record.
+The image shows a HANDWRITTEN or PRINTED LIST of lifting/inspection equipment items.
 
-EQUIPMENT TYPE IDENTIFICATION — CRITICAL:
-Identify the correct equipment type for EACH individual item from this approved list:
-"Chain Block", "Manual Chain Hoist", "Electric Chain Hoist", "Lever Hoist / Tirfor", "Chain Pulley Block",
-"Electric Wire Rope Hoist", "Wire Rope Winch",
-"Mobile Crane", "Overhead Crane / EOT Crane", "Gantry Crane", "Jib Crane", "Knuckle Boom Crane", "Davit Crane",
-"Chain Sling", "Wire Rope Sling", "Web Sling / Flat Sling", "Round Sling", "Multi-Leg Chain Sling", "Multi-Leg Wire Rope Sling",
-"Shackle — Bow / Anchor", "Shackle — D / Dee", "Hook — Swivel", "Hook — Eye", "Swivel", "Eye Bolt", "Turnbuckle", "Master Link",
-"Spreader Beam", "Lifting Beam", "Adjustable Spreader Beam", "Magnetic Lifter", "Vacuum Lifter Pad",
-"Beam Clamp", "Plate Clamp — Vertical", "Plate Clamp — Horizontal", "Pipe Clamp",
-"Safety Harness — Full Body", "Lanyard — Energy Absorbing", "Lanyard — Twin Leg", "Self-Retracting Lifeline (SRL)", "Fall Arrest Block",
-"Electric Winch", "Hydraulic Winch", "Snatch Block", "Pulley Block",
-"Trestle Jack", "Bottle Jack", "Axle Jack", "Floor Jack", "Hydraulic Jack", "Jack Stand",
-"Counterbalance Forklift", "Scissor Lift", "Boom Lift / Cherry Picker", "Personnel Basket / Man Basket",
-"Pressure Vessel", "Air Receiver", "Boiler", "Compressor — Air", "Gas Cylinder",
-"Hydraulic Pump", "Impact Wrench", "Torque Wrench",
-"Scaffold", "Fire Extinguisher", "Other"
+YOUR TASK: Read EVERY single line in the image and extract each item as a JSON object.
 
-READING RULES:
-- Ditto marks (" or ,,) mean same equipment type as the line above — carry the type forward
-- Read serial numbers exactly, preserve dashes, slashes, zeros vs letter O
-- SWL/capacity: read number and unit together (e.g. "12 Ton", "3T", "620 kPa")
-- result: if the line says "Fail" set "FAIL", if "Pass" set "PASS", if "Conditional" set "CONDITIONAL", otherwise default to "PASS"
-- defects_found: read any defect note on that line or immediately below it
-- Skip page title/header lines, only extract individual equipment lines
-- Read ALL items — do not skip any
-
-Return ONLY a valid JSON object, no markdown, no explanation:
+OUTPUT FORMAT — YOU MUST RETURN EXACTLY THIS JSON STRUCTURE, nothing else:
 {
   "items": [
     {
-      "equipment_type": "Trestle Jack",
-      "serial_number": "Axle-s/01",
-      "swl": "12 Ton",
+      "equipment_type": "Chain Block",
+      "serial_number": "CB-001",
+      "swl": "3T",
       "result": "PASS",
       "defects_found": "",
-      "equipment_description": "Trestle Jack SN Axle-s/01 SWL 12 Ton"
+      "equipment_description": "Chain Block SN CB-001 SWL 3T"
     }
   ]
-}`;
+}
+
+EQUIPMENT TYPE — pick the CLOSEST match from this list:
+"Chain Block", "Manual Chain Hoist", "Electric Chain Hoist", "Lever Hoist / Tirfor", "Chain Pulley Block",
+"Electric Wire Rope Hoist", "Wire Rope Winch",
+"Mobile Crane", "Overhead Crane / EOT Crane", "Gantry Crane", "Jib Crane", "Knuckle Boom Crane",
+"Chain Sling", "Wire Rope Sling", "Web Sling / Flat Sling", "Round Sling", "Multi-Leg Chain Sling",
+"Shackle — Bow / Anchor", "Shackle — D / Dee", "Hook — Swivel", "Hook — Eye", "Swivel",
+"Eye Bolt", "Turnbuckle", "Master Link", "Spreader Beam", "Lifting Beam",
+"Beam Clamp", "Plate Clamp — Vertical", "Plate Clamp — Horizontal",
+"Safety Harness — Full Body", "Lanyard — Energy Absorbing", "Lanyard — Twin Leg",
+"Self-Retracting Lifeline (SRL)", "Fall Arrest Block",
+"Electric Winch", "Hydraulic Winch", "Snatch Block", "Pulley Block",
+"Trestle Jack", "Bottle Jack", "Axle Jack", "Floor Jack", "Hydraulic Jack", "Jack Stand",
+"Counterbalance Forklift", "Scissor Lift", "Boom Lift / Cherry Picker",
+"Pressure Vessel", "Air Receiver", "Boiler", "Compressor — Air", "Gas Cylinder",
+"Scaffold", "Fire Extinguisher", "Other"
+
+READING RULES:
+1. Read EVERY line — do NOT skip any item, even if handwriting is unclear
+2. Ditto marks (" or ,, or do.) mean SAME equipment type as the line above — copy it forward
+3. If a serial number is unclear, make your best guess at what is written — never leave it blank if anything is visible
+4. SWL/capacity: include the unit (e.g. "3T", "1000kg", "5 Ton")
+5. result field: "PASS" unless you see "Fail", "F", "X", "Reject", "Condemned" on that line — then "FAIL"
+6. defects_found: copy any note written next to that item
+7. equipment_description: summarize as "TypeName SN serial SWL swl"
+8. Skip ONLY page headers and column headers (like "S/N", "Description", "SWL", "Result")
+9. If the image has multiple columns of items, read ALL columns
+
+IMPORTANT: Return ONLY the JSON object starting with { and ending with }. No explanation, no markdown, no extra text.
+
+${client ? `Client name for these items: ${client}` : ""}
+${inspDate ? `Inspection date: ${inspDate}` : ""}
+${expiryDate ? `Expiry date: ${expiryDate}` : ""}`;
 }
 
 const MAX_FILES = 20;
@@ -121,9 +131,6 @@ function normalizeDate(raw) {
   return"";
 }
 
-// ══════════════════════════════════════════════════════════════
-// PDF UPLOAD HELPER
-// ══════════════════════════════════════════════════════════════
 async function uploadPdfToStorage(file, certId, certNumber) {
   try {
     if (!file || file.type !== "application/pdf") return null;
@@ -142,9 +149,6 @@ async function uploadPdfToStorage(file, certId, certNumber) {
   }
 }
 
-// ══════════════════════════════════════════════════════════════
-// ROOT PAGE
-// ══════════════════════════════════════════════════════════════
 export default function ImportCertificatesPage() {
   const [mode, setMode] = useState("document");
 
@@ -152,7 +156,6 @@ export default function ImportCertificatesPage() {
     <AppLayout title="Import Certificates">
       <div className="cert-import-page">
         <div className="wrap">
-
           <div className="top-bar">
             <div className="brand">
               <div className="brand-label"><span className="brand-dot"/>Monroy QMS · Certificates</div>
@@ -325,7 +328,7 @@ export default function ImportCertificatesPage() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// DOCUMENT MODE — with PDF upload
+// DOCUMENT MODE
 // ══════════════════════════════════════════════════════════════
 function DocumentMode() {
   const [files, setFiles] = useState([]);
@@ -398,22 +401,9 @@ function DocumentMode() {
 
   function setResultField(idx,key,value){setResults(prev=>prev.map((it,i)=>i===idx?{...it,[key]:value}:it));}
   function toggleExpanded(idx){setResults(prev=>prev.map((it,i)=>i===idx?{...it,expanded:!it.expanded}:it));}
-
   function generateCompanyCode(name){const initials=name.trim().split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");return`${initials}-${String(Math.floor(Math.random()*900)+100)}`;}
   function generateSerialNumber(clientName,equipmentType){const clientCode=(clientName||"UNK").trim().split(/\s+/).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");const equipCode=(equipmentType||"EQP").trim().split(/[\s/—-]+/).filter(Boolean).map(w=>w[0]?.toUpperCase()||"").join("").slice(0,3).padEnd(3,"X");const ts=String(Date.now()).slice(-6);return`${clientCode}-${equipCode}-${ts}`;}
-
-  async function ensureClient(clientName,city){
-    if(!clientName||!clientName.trim())return{skip:true};
-    const name=clientName.trim();
-    try{
-      const{data:existing,error:lookupErr}=await supabase.from("clients").select("id").ilike("company_name",name).maybeSingle();
-      if(lookupErr)return{error:lookupErr.message};
-      if(existing)return{exists:true};
-      const{error:insertErr}=await supabase.from("clients").insert({company_name:name,company_code:generateCompanyCode(name),city:city||"",country:"Botswana",status:"active"});
-      if(insertErr)return{error:insertErr.message};
-      return{created:true};
-    }catch(e){return{error:e.message};}
-  }
+  async function ensureClient(clientName,city){if(!clientName||!clientName.trim())return{skip:true};const name=clientName.trim();try{const{data:existing,error:lookupErr}=await supabase.from("clients").select("id").ilike("company_name",name).maybeSingle();if(lookupErr)return{error:lookupErr.message};if(existing)return{exists:true};const{error:insertErr}=await supabase.from("clients").insert({company_name:name,company_code:generateCompanyCode(name),city:city||"",country:"Botswana",status:"active"});if(insertErr)return{error:insertErr.message};return{created:true};}catch(e){return{error:e.message};}}
 
   async function saveOne(idx){
     const row=results[idx];
@@ -429,25 +419,17 @@ function DocumentMode() {
       const effectiveCity=overrides.location?.trim()||row.data.location||"";
       const clientResult=await ensureClient(effectiveClient,effectiveCity);
       if(clientResult?.error)console.warn("Client auto-register failed:",clientResult.error);
-
       const payload={certificate_number:certNumber,inspection_number:row.data.inspection_number||null,result:row.manualResult||row.data.result||"UNKNOWN",issue_date:row.data.inspection_date||null,inspection_date:row.data.inspection_date||null,expiry_date:row.data.expiry_date||null,next_inspection_due:row.data.next_inspection_due||null,equipment_description:row.data.equipment_description||row.data.equipment_type||null,equipment_type:row.data.equipment_type||null,asset_name:row.data.equipment_description||row.data.equipment_type||null,asset_type:row.data.equipment_type||null,client_name:row.data.client_name||null,status:"active",manufacturer:row.data.manufacturer||null,model:row.data.model||null,serial_number:row.data.serial_number||null,year_built:row.data.year_built||null,capacity_volume:row.data.capacity_volume||null,swl:row.data.swl||null,working_pressure:row.data.working_pressure||null,design_pressure:row.data.design_pressure||null,test_pressure:row.data.test_pressure||null,pressure_unit:row.data.pressure_unit||null,material:row.data.material||null,standard_code:row.data.standard_code||null,location:row.data.location||null,inspector_name:row.data.inspector_name||null,inspection_body:row.data.inspection_body||null,defects_found:row.manualDefects||row.data.defects_found||null,recommendations:row.data.recommendations||null,comments:row.data.comments||null,nameplate_data:row.data.nameplate_data||null,raw_text_summary:row.data.raw_text_summary||null,asset_tag:row.data.asset_tag||null};
-
       const res=await fetch("/api/certificates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
       const json=await res.json();
       if(!res.ok)throw new Error(json?.error||`Save failed: ${res.status}`);
-
       const certId=json?.id||json?.data?.id||null;
-
-      // ── Upload PDF to Supabase Storage ──────────────────────
       let pdfUrl=null;
       const fileEntry=files.find(f=>f.file.name===row.fileName);
       if(fileEntry?.file&&fileEntry.file.type==="application/pdf"){
         pdfUrl=await uploadPdfToStorage(fileEntry.file,certId,certNumber);
-        if(pdfUrl&&certId){
-          await supabase.from("certificates").update({pdf_url:pdfUrl}).eq("id",certId);
-        }
+        if(pdfUrl&&certId){await supabase.from("certificates").update({pdf_url:pdfUrl}).eq("id",certId);}
       }
-
       setResults(prev=>prev.map((it,i)=>i===idx?{...it,saving:false,saved:true,certNumber,savedId:certId,saveError:null,pdfUrl}:it));
     }catch(e){setResults(prev=>prev.map((it,i)=>i===idx?{...it,saving:false,saved:false,saveError:e.message||"Save failed."}:it));}
   }
@@ -521,7 +503,7 @@ function DocumentMode() {
               {!results.length?<div className="empty-state" style={{padding:"32px 0"}}>Upload files and click Extract with AI to begin</div>
               :results.map((item,idx)=>{
                 const d=item.data||{};
-                const r=item.manualResult||d.result||"UNKNOWN";
+                const rv=item.manualResult||d.result||"UNKNOWN";
                 const disabled=item.saved||item.saving;
                 return(
                   <div key={`${item.fileName}-${idx}`} className={`rcard${item.ok?(item.saved?" is-saved":""):" is-err"}`}>
@@ -530,7 +512,7 @@ function DocumentMode() {
                       <div className="rfname" title={item.fileName}>{item.fileName}</div>
                       {item.ok&&<span className="pill p-info">{nonEmpty(d)} fields</span>}
                       {item.ok&&d.equipment_type&&<span className="pill p-neutral">{d.equipment_type}</span>}
-                      {item.ok&&<span className={`pill ${pillClass(r)}`}>{r}</span>}
+                      {item.ok&&<span className={`pill ${pillClass(rv)}`}>{rv}</span>}
                       {item.saved&&item.certNumber&&<span className="cert-num">{item.certNumber}</span>}
                       {item.saved&&item.pdfUrl&&<span className="pill p-pass">📎 PDF</span>}
                       <span className={`pill ${item.ok?"p-ok":"p-err"}`}>{item.ok?"OK":"Error"}</span>
@@ -581,11 +563,11 @@ function DocumentMode() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// BACKFILL MODE — upload PDFs for existing certificates
+// BACKFILL MODE
 // ══════════════════════════════════════════════════════════════
 function BackfillMode() {
   const [files, setFiles] = useState([]);
-  const [rows, setRows] = useState([]); // {file, certId, certNumber, status, pdfUrl, error}
+  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [progress, setProgressState] = useState({visible:false,pct:0,done:0,total:0});
@@ -593,49 +575,21 @@ function BackfillMode() {
 
   function addFiles(list) {
     const pdfs = Array.from(list).filter(f=>f.type==="application/pdf"&&f.size<=MAX_FILE_SIZE);
-    setFiles(prev=>{
-      const next=[...prev];
-      pdfs.forEach(f=>{if(!next.find(x=>x.name===f.name&&x.size===f.size))next.push(f);});
-      return next;
-    });
+    setFiles(prev=>{const next=[...prev];pdfs.forEach(f=>{if(!next.find(x=>x.name===f.name&&x.size===f.size))next.push(f);});return next;});
     if(fileInputRef.current)fileInputRef.current.value="";
   }
 
   async function matchFiles() {
     if(!files.length)return;
     setLoading(true);
-    // Load all certs without a pdf_url
-    const {data:certs}=await supabase.from("certificates")
-      .select("id,certificate_number,equipment_description,client_name")
-      .is("pdf_url",null)
-      .order("created_at",{ascending:false})
-      .limit(2000);
-
+    const {data:certs}=await supabase.from("certificates").select("id,certificate_number,equipment_description,client_name").is("pdf_url",null).order("created_at",{ascending:false}).limit(2000);
     const matched = files.map(file => {
       const fname = file.name.replace(/\.pdf$/i,"").toUpperCase().replace(/[^A-Z0-9]/g,"");
-      // Try to match filename against certificate_number
-      const cert = (certs||[]).find(c=>{
-        const cnum = (c.certificate_number||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
-        return fname.includes(cnum) || cnum.includes(fname);
-      });
-      return {
-        file,
-        certId: cert?.id||null,
-        certNumber: cert?.certificate_number||null,
-        clientName: cert?.client_name||null,
-        status: cert?"ready":"unmatched",
-        pdfUrl: null,
-        error: null,
-      };
+      const cert = (certs||[]).find(c=>{const cnum=(c.certificate_number||"").toUpperCase().replace(/[^A-Z0-9]/g,"");return fname.includes(cnum)||cnum.includes(fname);});
+      return {file,certId:cert?.id||null,certNumber:cert?.certificate_number||null,clientName:cert?.client_name||null,status:cert?"ready":"unmatched",pdfUrl:null,error:null};
     });
     setRows(matched);
     setLoading(false);
-  }
-
-  function setRowCert(idx, certNumber, allCerts) {
-    // allow manual override of matched cert
-    const cert = allCerts?.find(c=>c.certificate_number===certNumber);
-    setRows(prev=>prev.map((r,i)=>i===idx?{...r,certId:cert?.id||null,certNumber:cert?.certificate_number||null,status:cert?"ready":"unmatched"}:r));
   }
 
   async function uploadOne(idx) {
@@ -643,15 +597,9 @@ function BackfillMode() {
     if(!row.certId||row.status==="done"||row.status==="uploading")return;
     setRows(prev=>prev.map((r,i)=>i===idx?{...r,status:"uploading",error:null}:r));
     const pdfUrl = await uploadPdfToStorage(row.file, row.certId, row.certNumber);
-    if(!pdfUrl){
-      setRows(prev=>prev.map((r,i)=>i===idx?{...r,status:"error",error:"Upload failed"}:r));
-      return;
-    }
+    if(!pdfUrl){setRows(prev=>prev.map((r,i)=>i===idx?{...r,status:"error",error:"Upload failed"}:r));return;}
     const {error:patchErr}=await supabase.from("certificates").update({pdf_url:pdfUrl}).eq("id",row.certId);
-    if(patchErr){
-      setRows(prev=>prev.map((r,i)=>i===idx?{...r,status:"error",error:patchErr.message}:r));
-      return;
-    }
+    if(patchErr){setRows(prev=>prev.map((r,i)=>i===idx?{...r,status:"error",error:patchErr.message}:r));return;}
     setRows(prev=>prev.map((r,i)=>i===idx?{...r,status:"done",pdfUrl}:r));
   }
 
@@ -659,10 +607,7 @@ function BackfillMode() {
     setRunning(true);
     const ready = rows.map((_,i)=>i).filter(i=>rows[i].status==="ready");
     setProgressState({visible:true,pct:0,done:0,total:ready.length});
-    for(let i=0;i<ready.length;i++){
-      await uploadOne(ready[i]);
-      setProgressState({visible:true,pct:Math.round(((i+1)/ready.length)*100),done:i+1,total:ready.length});
-    }
+    for(let i=0;i<ready.length;i++){await uploadOne(ready[i]);setProgressState({visible:true,pct:Math.round(((i+1)/ready.length)*100),done:i+1,total:ready.length});}
     setRunning(false);
   }
 
@@ -673,46 +618,27 @@ function BackfillMode() {
   return(
     <div style={{display:"grid",gap:14}}>
       <div className="card">
-        <div className="card-header">
-          <div>
-            <div className="card-title">🗂 Backfill PDFs for existing certificates</div>
-            <div className="card-sub">Upload the original PDFs — they'll be matched to certificates by filename and stored.</div>
-          </div>
-        </div>
+        <div className="card-header"><div><div className="card-title">🗂 Backfill PDFs for existing certificates</div><div className="card-sub">Upload the original PDFs — matched to certificates by filename and stored.</div></div></div>
         <div className="card-body">
           <div style={{background:"rgba(0,212,255,0.06)",border:"1px solid rgba(0,212,255,0.2)",borderRadius:10,padding:"12px 16px",marginBottom:14,fontSize:12,color:"var(--sub)",lineHeight:1.7}}>
             <strong style={{color:"var(--accent)"}}>How it works:</strong> Name your PDF files after the certificate number (e.g. <code style={{background:"var(--s3)",padding:"1px 6px",borderRadius:4}}>CERT-CR00040.pdf</code>). Upload them here — the tool matches each file to the right certificate and uploads it to storage automatically.
           </div>
-          <div className={`drop-area`} onDragOver={e=>{e.preventDefault();}} onDrop={e=>{e.preventDefault();addFiles(e.dataTransfer.files);}}>
+          <div className="drop-area" onDragOver={e=>{e.preventDefault();}} onDrop={e=>{e.preventDefault();addFiles(e.dataTransfer.files);}}>
             <input ref={fileInputRef} type="file" multiple accept=".pdf" onChange={e=>addFiles(e.target.files)}/>
             <div className="drop-icon-ring"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 3v13M6 9l6-6 6 6" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/><path d="M3 20h18" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round"/></svg></div>
             <div className="drop-h">Drop PDF files here</div>
             <div className="drop-p">Named after certificate numbers — e.g. CERT-CR00040.pdf</div>
           </div>
           <div style={{display:"flex",gap:8,marginBottom:files.length?12:0}}>
-            {files.length>0&&<>
-              <span style={{fontSize:12,color:"var(--sub)",alignSelf:"center"}}>{files.length} PDF{files.length===1?"":"s"} selected</span>
-              <button className="btn btn-primary" type="button" onClick={matchFiles} disabled={loading} style={{flex:"none",padding:"8px 18px"}}>
-                {loading?"Matching…":"🔍 Match to certificates"}
-              </button>
-              <button className="btn btn-ghost" type="button" onClick={()=>{setFiles([]);setRows([]);}} style={{flex:"none"}}>Clear</button>
-            </>}
+            {files.length>0&&<><span style={{fontSize:12,color:"var(--sub)",alignSelf:"center"}}>{files.length} PDF{files.length===1?"":"s"} selected</span><button className="btn btn-primary" type="button" onClick={matchFiles} disabled={loading} style={{flex:"none",padding:"8px 18px"}}>{loading?"Matching…":"🔍 Match to certificates"}</button><button className="btn btn-ghost" type="button" onClick={()=>{setFiles([]);setRows([]);}} style={{flex:"none"}}>Clear</button></>}
           </div>
         </div>
       </div>
-
       {rows.length>0&&(
         <div className="card">
           <div className="card-header">
-            <div>
-              <div className="list-banner-text">
-                {readyCount} ready · {doneCount} uploaded · {errCount} errors · {rows.filter(r=>r.status==="unmatched").length} unmatched
-              </div>
-              <div className="list-banner-sub">Unmatched files could not be linked to a certificate — rename to match the cert number.</div>
-            </div>
-            <button className="btn-saveall" type="button" onClick={uploadAll} disabled={readyCount===0||running}>
-              {running?<><span className="spinner"/>Uploading…</>:`⬆ Upload all (${readyCount})`}
-            </button>
+            <div><div className="list-banner-text">{readyCount} ready · {doneCount} uploaded · {errCount} errors · {rows.filter(r=>r.status==="unmatched").length} unmatched</div><div className="list-banner-sub">Unmatched files could not be linked — rename to match the cert number.</div></div>
+            <button className="btn-saveall" type="button" onClick={uploadAll} disabled={readyCount===0||running}>{running?<><span className="spinner"/>Uploading…</>:`⬆ Upload all (${readyCount})`}</button>
           </div>
           {progress.visible&&<div style={{padding:"8px 18px",borderBottom:"1px solid var(--b1)"}}><div className="prog-meta"><span>{progress.done}/{progress.total} uploaded</span><span className="prog-pct">{progress.pct}%</span></div><div className="prog-track"><div className="prog-fill" style={{width:`${progress.pct}%`}}/></div></div>}
           <div>
@@ -725,9 +651,7 @@ function BackfillMode() {
                 <div className="bf-status" style={{color:row.status==="done"?"var(--green-t)":row.status==="error"?"var(--red-t)":row.status==="unmatched"?"var(--amber-t)":row.status==="uploading"?"var(--blue-t)":"var(--sub)"}}>
                   {row.status==="done"?"✓ Uploaded":row.status==="error"?`⚠ ${row.error}`:row.status==="unmatched"?"No match":row.status==="uploading"?<><span className="spinner"/>Uploading…</>:"Ready"}
                 </div>
-                {row.status==="ready"&&(
-                  <button className="btn-save" type="button" style={{fontSize:11,padding:"4px 10px"}} onClick={()=>uploadOne(idx)}>Upload</button>
-                )}
+                {row.status==="ready"&&<button className="btn-save" type="button" style={{fontSize:11,padding:"4px 10px"}} onClick={()=>uploadOne(idx)}>Upload</button>}
               </div>
             ))}
           </div>
@@ -738,7 +662,7 @@ function BackfillMode() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// LIST MODE
+// LIST MODE — fixed extraction and error surfacing
 // ══════════════════════════════════════════════════════════════
 function ListMode() {
   const [files, setFiles] = useState([]);
@@ -749,6 +673,7 @@ function ListMode() {
   const [overrides, setOverrides] = useState({client_name:"",location:"",inspection_date:"",expiry_date:""});
   const [savingAll, setSavingAll] = useState(false);
   const [error, setError] = useState("");
+  const [rawDebug, setRawDebug] = useState(""); // show raw AI response on failure
   const fileInputRef = useRef(null);
   const certSeqRef = useRef(1);
 
@@ -756,27 +681,89 @@ function ListMode() {
   const pendingCount = useMemo(()=>items.filter(x=>!x.saved&&!x.saving).length,[items]);
 
   function setProgress(pct,label){setProgressState({visible:true,pct:Math.round(pct),label});}
-  function addFiles(list){setFiles(prev=>{const next=[...prev];Array.from(list).filter(isAllowedFile).forEach(f=>{if(!next.find(x=>x.file.name===f.name&&x.file.size===f.size)&&next.length<5)next.push({id:uid(),file:f});});return next;});if(fileInputRef.current)fileInputRef.current.value="";}
-  function clearAll(){setFiles([]);setItems([]);setError("");setProgressState({visible:false,pct:0,label:""});}
+  function addFiles(list){
+    setFiles(prev=>{const next=[...prev];Array.from(list).filter(isAllowedFile).forEach(f=>{if(!next.find(x=>x.file.name===f.name&&x.file.size===f.size)&&next.length<5)next.push({id:uid(),file:f});});return next;});
+    if(fileInputRef.current)fileInputRef.current.value="";
+  }
+  function clearAll(){setFiles([]);setItems([]);setError("");setRawDebug("");setProgressState({visible:false,pct:0,label:""});}
 
   async function handleExtract(){
     if(!files.length||extracting)return;
-    setExtracting(true);setError("");setItems([]);setProgress(10,"Reading list photos...");
+    setExtracting(true);setError("");setRawDebug("");setItems([]);
+    setProgress(10,"Reading list photos...");
     try{
       const payloads=[];
-      for(let i=0;i<files.length;i++){setProgress(10+(i/files.length)*35,`Reading page ${i+1}/${files.length}...`);payloads.push({fileName:files[i].file.name,mimeType:files[i].file.type||"image/jpeg",base64Data:await toBase64(files[i].file)});}
+      for(let i=0;i<files.length;i++){
+        setProgress(10+(i/files.length)*35,`Reading page ${i+1}/${files.length}...`);
+        payloads.push({fileName:files[i].file.name,mimeType:files[i].file.type||"image/jpeg",base64Data:await toBase64(files[i].file)});
+      }
       setProgress(50,"AI reading list...");
-      const res=await fetch("/api/ai/extract",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({files:payloads,systemPrompt:buildListPrompt(overrides.client_name,overrides.inspection_date,overrides.expiry_date),listMode:true})});
+
+      const res=await fetch("/api/ai/extract",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          files:payloads,
+          systemPrompt:buildListPrompt(overrides.client_name,overrides.inspection_date,overrides.expiry_date),
+          listMode:true,
+        }),
+      });
+
       setProgress(80,"Parsing items...");
       const json=await res.json();
-      if(!res.ok)throw new Error(json?.error||`Server error ${res.status}`);
+
+      if(!res.ok){
+        throw new Error(json?.error||`Server error ${res.status}`);
+      }
+
+      // Collect ALL items from ALL file results
       let allItems=[];
-      for(const result of(json.results||[])){if(!result.ok)continue;let parsed=result.data;if(typeof parsed==="string"){try{parsed=JSON.parse(parsed);}catch(e){}}allItems=[...allItems,...(parsed?.items||[])];}
-      if(!allItems.length){setError("AI could not extract items. Make sure the photo is clear.");setProgress(100,"Failed");setExtracting(false);return;}
-      setProgress(100,`Found ${allItems.length} items`);
-      setItems(allItems.map((item,i)=>({id:uid(),serial_number:String(item.serial_number||"").trim(),swl:String(item.swl||"").trim(),equipment_type:String(item.equipment_type||"Other").trim(),equipment_description:item.equipment_description||`${item.equipment_type||"Equipment"} SN ${item.serial_number||i+1} SWL ${item.swl||""}`.trim(),result:String(item.result||"PASS").trim().toUpperCase()||"PASS",defects_found:String(item.defects_found||"").trim(),saved:false,saving:false,savedId:null,certNumber:null,saveError:null})));
-    }catch(e){setError(e.message||"Extraction failed.");setProgress(100,"Failed");}
-    finally{setExtracting(false);}
+      const errors=[];
+
+      for(const result of(json.results||[])){
+        if(!result.ok){
+          errors.push(result.error||"File extraction failed");
+          continue;
+        }
+        // result.data should now always be { items: [...] } from the fixed route
+        const items=result.data?.items;
+        if(Array.isArray(items)&&items.length>0){
+          allItems=[...allItems,...items];
+        } else {
+          errors.push(`${result.fileName}: AI returned 0 items`);
+        }
+      }
+
+      setProgress(100,allItems.length>0?`Found ${allItems.length} items`:"Failed");
+
+      if(allItems.length===0){
+        const errMsg=errors.length>0?errors.join(" | "):"AI could not extract any items from the image.";
+        setError(`${errMsg} — Tips: Use a higher-resolution photo, ensure good lighting, avoid shadows over text.`);
+        setExtracting(false);
+        return;
+      }
+
+      if(errors.length>0){
+        setError(`Warning: Some pages had issues — ${errors.join(" | ")}`);
+      }
+
+      setItems(allItems.map((item,i)=>({
+        id:uid(),
+        serial_number:String(item.serial_number||"").trim(),
+        swl:String(item.swl||"").trim(),
+        equipment_type:String(item.equipment_type||"Other").trim(),
+        equipment_description:item.equipment_description||`${item.equipment_type||"Equipment"} SN ${item.serial_number||i+1} SWL ${item.swl||""}`.trim(),
+        result:String(item.result||"PASS").trim().toUpperCase()||"PASS",
+        defects_found:String(item.defects_found||"").trim(),
+        saved:false,saving:false,savedId:null,certNumber:null,saveError:null,
+      })));
+
+    }catch(e){
+      setError(e.message||"Extraction failed. Check your API key and try again.");
+      setProgress(100,"Failed");
+    }finally{
+      setExtracting(false);
+    }
   }
 
   function updateItem(id,key,value){setItems(prev=>prev.map(it=>it.id===id?{...it,[key]:value}:it));}
@@ -807,27 +794,135 @@ function ListMode() {
   return(
     <div style={{display:"grid",gap:14}}>
       <div className="card">
-        <div className="card-header"><div><div className="card-title">Manual override</div><div className="card-sub">Always overwrites extracted values when set.</div></div>{Object.values(overrides).some(v=>String(v||"").trim())&&<button className="btn btn-ghost" type="button" style={{fontSize:11,padding:"5px 10px"}} onClick={()=>setOverrides({client_name:"",location:"",inspection_date:"",expiry_date:""})}>Clear</button>}</div>
+        <div className="card-header"><div><div className="card-title">Manual override</div><div className="card-sub">Client, dates applied to ALL extracted items.</div></div>{Object.values(overrides).some(v=>String(v||"").trim())&&<button className="btn btn-ghost" type="button" style={{fontSize:11,padding:"5px 10px"}} onClick={()=>setOverrides({client_name:"",location:"",inspection_date:"",expiry_date:""})}>Clear</button>}</div>
         <div className="card-body"><div className="override-grid"><div className="ov-f"><label className="ov-lbl">Client name</label><input className="ov-input" type="text" placeholder="e.g. Unitrans" value={overrides.client_name} onChange={e=>setOverrides(p=>({...p,client_name:e.target.value}))}/></div><div className="ov-f"><label className="ov-lbl">Location / Site</label><input className="ov-input" type="text" placeholder="e.g. Processing Plant" value={overrides.location} onChange={e=>setOverrides(p=>({...p,location:e.target.value}))}/></div><div className="ov-f"><label className="ov-lbl">Inspection date</label><input className="ov-input" type="date" value={overrides.inspection_date} onChange={e=>setOverrides(p=>({...p,inspection_date:e.target.value}))}/></div><div className="ov-f"><label className="ov-lbl">Expiry date</label><input className="ov-input" type="date" value={overrides.expiry_date} onChange={e=>setOverrides(p=>({...p,expiry_date:e.target.value}))}/></div></div></div>
       </div>
+
       <div className="card">
-        <div className="card-header"><div><div className="card-title">📸 Upload list photos</div><div className="card-sub">Up to 5 pages — AI reads every line</div></div><label className="browse-label">Browse<input ref={fileInputRef} type="file" multiple accept="image/*" style={{display:"none"}} onChange={e=>addFiles(e.target.files)}/></label></div>
+        <div className="card-header">
+          <div><div className="card-title">📸 Upload list photos</div><div className="card-sub">Up to 5 pages — AI reads every line of your handwritten or printed list</div></div>
+          <label className="browse-label">Browse<input ref={fileInputRef} type="file" multiple accept="image/*" style={{display:"none"}} onChange={e=>addFiles(e.target.files)}/></label>
+        </div>
         <div className="card-body">
-          <div className={`drop-area${dragActive?" drag":""}`} style={{padding:"20px 16px"}} onDragOver={e=>{e.preventDefault();setDragActive(true);}} onDragLeave={()=>setDragActive(false)} onDrop={e=>{e.preventDefault();setDragActive(false);addFiles(e.dataTransfer.files);}}>
+          {/* Tips banner */}
+          <div style={{background:"rgba(0,212,255,0.05)",border:"1px solid rgba(0,212,255,0.15)",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:11,color:"var(--sub)",lineHeight:1.7}}>
+            <strong style={{color:"var(--accent)"}}>Tips for best results:</strong> Take photo in good light · Keep camera parallel to page · Avoid shadows · Full resolution · Each column clearly visible
+          </div>
+
+          <div className={`drop-area${dragActive?" drag":""}`} style={{padding:"20px 16px"}}
+            onDragOver={e=>{e.preventDefault();setDragActive(true);}}
+            onDragLeave={()=>setDragActive(false)}
+            onDrop={e=>{e.preventDefault();setDragActive(false);addFiles(e.dataTransfer.files);}}>
             <input type="file" multiple accept="image/*" onChange={e=>addFiles(e.target.files)}/>
             <div className="drop-icon-ring"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 3v13M6 9l6-6 6 6" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/><path d="M3 20h18" stroke="var(--accent)" strokeWidth="1.6" strokeLinecap="round"/></svg></div>
-            <div className="drop-h">Drop list photos here</div><div className="drop-p">Multiple pages OK — max 5 images</div>
+            <div className="drop-h">Drop list photos here</div>
+            <div className="drop-p">Multiple pages OK — max 5 images</div>
           </div>
-          {files.length>0&&<div style={{display:"grid",gap:6,marginBottom:12}}>{files.map(item=>(<div className="q-item" key={item.id}><div className="q-icon">IMG</div><div style={{flex:1,minWidth:0}}><div className="q-name" title={item.file.name}>{item.file.name}</div><div className="q-size">{fileSizeLabel(item.file)}</div></div><button className="btn-remove" type="button" onClick={()=>setFiles(p=>p.filter(x=>x.id!==item.id))}>✕</button></div>))}</div>}
-          <div className="action-row"><button className="btn btn-ghost" type="button" onClick={clearAll}>Clear</button><button className="btn btn-primary" type="button" onClick={handleExtract} disabled={!files.length||extracting}>{extracting?"Reading list...":"⚡ Read List with AI"}</button></div>
-          {progress.visible&&<div className="prog-wrap"><div className="prog-meta"><span>{progress.label}</span><span className="prog-pct">{progress.pct}%</span></div><div className="prog-track"><div className="prog-fill" style={{width:`${progress.pct}%`}}/></div></div>}
-          {error&&<div className="err-box" style={{marginTop:12}}><div className="err-title">{error}</div><div className="err-detail">Tips: Use good lighting, hold camera steady.</div></div>}
+
+          {files.length>0&&(
+            <div style={{display:"grid",gap:6,marginBottom:12}}>
+              {files.map(item=>(
+                <div className="q-item" key={item.id}>
+                  <div className="q-icon">IMG</div>
+                  <div style={{flex:1,minWidth:0}}><div className="q-name" title={item.file.name}>{item.file.name}</div><div className="q-size">{fileSizeLabel(item.file)}</div></div>
+                  <button className="btn-remove" type="button" onClick={()=>setFiles(p=>p.filter(x=>x.id!==item.id))}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="action-row">
+            <button className="btn btn-ghost" type="button" onClick={clearAll}>Clear</button>
+            <button className="btn btn-primary" type="button" onClick={handleExtract} disabled={!files.length||extracting}>
+              {extracting?<><span className="spinner"/>Reading list...</>:"⚡ Read List with AI"}
+            </button>
+          </div>
+
+          {progress.visible&&(
+            <div className="prog-wrap">
+              <div className="prog-meta"><span>{progress.label}</span><span className="prog-pct">{progress.pct}%</span></div>
+              <div className="prog-track"><div className="prog-fill" style={{width:`${progress.pct}%`}}/></div>
+            </div>
+          )}
+
+          {error&&(
+            <div className="err-box" style={{marginTop:12}}>
+              <div className="err-title">⚠ {error}</div>
+              <div className="err-detail" style={{marginTop:6}}>
+                If this keeps failing, try: higher resolution photo · better lighting · fewer items per page · or add items manually below.
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
       {items.length>0&&(
         <div className="card">
-          <div className="card-header"><div><div className="list-banner-text">📋 {items.length} items · {savedCount} saved · {pendingCount} pending</div><div className="list-banner-sub">Client: {overrides.client_name||"not set"} · Inspection: {overrides.inspection_date||"not set"} · Expiry: {overrides.expiry_date||"not set"}</div></div><div style={{display:"flex",gap:8,flexWrap:"wrap"}}><button className="btn" type="button" style={{fontSize:11,padding:"6px 12px"}} onClick={addBlankItem}>+ Add row</button><button className="btn-saveall" type="button" onClick={saveAll} disabled={pendingCount===0||savingAll}>{savingAll?<><span className="spinner"/>Saving...</>:`Save all (${pendingCount})`}</button></div></div>
-          <div style={{padding:0}}><div className="list-table-wrap"><table className="list-table"><thead><tr><th style={{width:36}}>#</th><th style={{minWidth:160}}>Equipment Type</th><th style={{width:140}}>Serial Number</th><th style={{width:80}}>SWL</th><th>Description</th><th style={{width:110}}>Result</th><th style={{width:80}}>Status</th><th style={{width:110}}>Action</th></tr></thead><tbody>{items.map((item,idx)=>(<tr key={item.id} className={item.saved?"row-saved":item.saveError?"row-err":""}><td style={{color:"var(--hint)",fontWeight:700,fontSize:11}}>{idx+1}</td><td><select className="list-input" value={item.equipment_type} disabled={item.saved} onChange={e=>updateItem(item.id,"equipment_type",e.target.value)}>{EQUIPMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></td><td><input className="list-input" style={{fontFamily:"'IBM Plex Mono',monospace"}} value={item.serial_number} disabled={item.saved} onChange={e=>updateItem(item.id,"serial_number",e.target.value)}/></td><td><input className="list-input" value={item.swl} disabled={item.saved} onChange={e=>updateItem(item.id,"swl",e.target.value)}/></td><td><input className="list-input" value={item.equipment_description} disabled={item.saved} onChange={e=>updateItem(item.id,"equipment_description",e.target.value)}/></td><td><select className="list-input" value={item.result} disabled={item.saved} onChange={e=>updateItem(item.id,"result",e.target.value)}><option value="PASS">PASS</option><option value="FAIL">FAIL</option><option value="CONDITIONAL">CONDITIONAL</option></select></td><td>{item.saved?<span className="pill p-pass">✓ Saved</span>:item.saving?<span className="pill p-neutral"><span className="spinner"/>Saving</span>:item.saveError?<span className="pill p-err" title={item.saveError}>⚠ Error</span>:<span className="pill p-neutral">Pending</span>}</td><td><div style={{display:"flex",gap:5,alignItems:"center"}}>{item.saved&&item.savedId?<Link href={`/certificates/${item.savedId}`} className="view-btn" style={{fontSize:11,padding:"4px 9px"}}>View →</Link>:<button className="btn-save" type="button" disabled={item.saved||item.saving} onClick={()=>saveOne(item.id)} style={{fontSize:11,padding:"4px 10px"}}>Save</button>}{!item.saved&&<button type="button" onClick={()=>removeItem(item.id)} style={{background:"none",border:"none",color:"var(--hint)",cursor:"pointer",fontSize:14,padding:"2px 4px",lineHeight:1}}>✕</button>}</div></td></tr>))}</tbody></table></div></div>
+          <div className="card-header">
+            <div>
+              <div className="list-banner-text">📋 {items.length} items · {savedCount} saved · {pendingCount} pending</div>
+              <div className="list-banner-sub">Client: {overrides.client_name||"not set"} · Inspection: {overrides.inspection_date||"not set"} · Expiry: {overrides.expiry_date||"not set"}</div>
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <button className="btn" type="button" style={{fontSize:11,padding:"6px 12px"}} onClick={addBlankItem}>+ Add row</button>
+              <button className="btn-saveall" type="button" onClick={saveAll} disabled={pendingCount===0||savingAll}>
+                {savingAll?<><span className="spinner"/>Saving...</>:`Save all (${pendingCount})`}
+              </button>
+            </div>
+          </div>
+          <div style={{padding:0}}>
+            <div className="list-table-wrap">
+              <table className="list-table">
+                <thead>
+                  <tr>
+                    <th style={{width:36}}>#</th>
+                    <th style={{minWidth:160}}>Equipment Type</th>
+                    <th style={{width:140}}>Serial Number</th>
+                    <th style={{width:80}}>SWL</th>
+                    <th>Description</th>
+                    <th style={{width:110}}>Result</th>
+                    <th style={{width:80}}>Status</th>
+                    <th style={{width:110}}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item,idx)=>(
+                    <tr key={item.id} className={item.saved?"row-saved":item.saveError?"row-err":""}>
+                      <td style={{color:"var(--hint)",fontWeight:700,fontSize:11}}>{idx+1}</td>
+                      <td><select className="list-input" value={item.equipment_type} disabled={item.saved} onChange={e=>updateItem(item.id,"equipment_type",e.target.value)}>{EQUIPMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></td>
+                      <td><input className="list-input" style={{fontFamily:"'IBM Plex Mono',monospace"}} value={item.serial_number} disabled={item.saved} onChange={e=>updateItem(item.id,"serial_number",e.target.value)}/></td>
+                      <td><input className="list-input" value={item.swl} disabled={item.saved} onChange={e=>updateItem(item.id,"swl",e.target.value)}/></td>
+                      <td><input className="list-input" value={item.equipment_description} disabled={item.saved} onChange={e=>updateItem(item.id,"equipment_description",e.target.value)}/></td>
+                      <td><select className="list-input" value={item.result} disabled={item.saved} onChange={e=>updateItem(item.id,"result",e.target.value)}><option value="PASS">PASS</option><option value="FAIL">FAIL</option><option value="CONDITIONAL">CONDITIONAL</option></select></td>
+                      <td>
+                        {item.saved?<span className="pill p-pass">✓ Saved</span>
+                        :item.saving?<span className="pill p-neutral"><span className="spinner"/>Saving</span>
+                        :item.saveError?<span className="pill p-err" title={item.saveError}>⚠ Error</span>
+                        :<span className="pill p-neutral">Pending</span>}
+                      </td>
+                      <td>
+                        <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                          {item.saved&&item.savedId
+                            ?<Link href={`/certificates/${item.savedId}`} className="view-btn" style={{fontSize:11,padding:"4px 9px"}}>View →</Link>
+                            :<button className="btn-save" type="button" disabled={item.saved||item.saving} onClick={()=>saveOne(item.id)} style={{fontSize:11,padding:"4px 10px"}}>Save</button>}
+                          {!item.saved&&<button type="button" onClick={()=>removeItem(item.id)} style={{background:"none",border:"none",color:"var(--hint)",cursor:"pointer",fontSize:14,padding:"2px 4px",lineHeight:1}}>✕</button>}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Allow adding items manually even when extraction fails */}
+      {items.length===0&&!extracting&&(
+        <div style={{textAlign:"center",padding:"8px 0"}}>
+          <button className="btn" type="button" onClick={addBlankItem} style={{fontSize:12,padding:"8px 16px"}}>
+            + Add items manually
+          </button>
         </div>
       )}
     </div>
