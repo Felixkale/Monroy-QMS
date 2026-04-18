@@ -2,6 +2,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Auto-generates NCR + CAPA whenever a certificate has a non-PASS result.
 //
+// Uses service role client so system operations bypass RLS entirely.
+// The browser anon client is only used for idempotency read checks.
+//
 // Exports:
 //   autoRaiseNcr(cert, options)            — single cert, idempotent
 //   triggerAutoNcr(cert)                   — lightweight wrapper for wizard saves
@@ -9,10 +12,28 @@
 //   autoRaiseNcrBatch(certs, options)      — legacy batch alias (kept for compat)
 // ─────────────────────────────────────────────────────────────────────────────
 import { supabase } from "@/lib/supabaseClient";
+import { createClient } from "@supabase/supabase-js";
 
 const INSPECTOR = "Moemedi Masupe";
-
 const NON_PASS_RESULTS = ["FAIL", "REPAIR_REQUIRED", "OUT_OF_SERVICE", "CONDITIONAL"];
+
+// ── Service role client — bypasses RLS for system writes ──────────────────────
+// Falls back to anon client if service role key is not set (dev environments)
+function getAdminClient() {
+  const url     = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const svcKey  = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (url && svcKey) {
+    return createClient(url, svcKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+
+  // Fallback: use browser client (works if RLS policies are correctly set)
+  console.warn("[autoNcr] SUPABASE_SERVICE_ROLE_KEY not set — falling back to anon client. RLS may block writes.");
+  return supabase;
+}
 
 // ── Utility helpers ───────────────────────────────────────────────────────────
 
@@ -63,8 +84,8 @@ function dueDateFromSeverity(severity) {
 }
 
 function generateNcrNumber(certNumber) {
-  const n   = new Date();
-  const pad = v => String(v).padStart(2, "0");
+  const n    = new Date();
+  const pad  = v => String(v).padStart(2, "0");
   const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
   const base = certNumber
     ? certNumber.replace(/^CERT-/, "").replace(/[^A-Z0-9]/gi, "").slice(0, 12)
@@ -89,7 +110,6 @@ function parseFindings(cert) {
     cert.observation,
   ].filter(Boolean).map(s => String(s).trim()).filter(s => s.length > 2);
 
-  // Also parse JSON notes from inspection wizards
   let jsonNotes = [];
   if (cert.notes && typeof cert.notes === "string" && cert.notes.startsWith("{")) {
     try {
@@ -102,7 +122,7 @@ function parseFindings(cert) {
     } catch (_) {}
   }
 
-  const all = [...rawFields, ...jsonNotes];
+  const all         = [...rawFields, ...jsonNotes];
   const defectText  = nz(cert.defects_found || cert.findings || cert.observation, "");
   const remarkText  = nz(cert.recommendations || cert.remarks || cert.comments, "");
   const allFindings = all.length ? all.join("\n\n") : "";
@@ -112,7 +132,7 @@ function parseFindings(cert) {
 
 // ── CAPA immediate action builder ─────────────────────────────────────────────
 function buildImmediateAction(result, defectText, equipType) {
-  const r = normalizeResult(result);
+  const r     = normalizeResult(result);
   const lines = [];
 
   if (r === "OUT_OF_SERVICE") {
@@ -145,22 +165,20 @@ function buildImmediateAction(result, defectText, equipType) {
   return lines.join("\n").trim() || "Inspect, repair, and re-certify before returning to service.";
 }
 
-// ── Smart asset resolver ───────────────────────────────────────────────────────
-// Priority 1: serial + client_id + equipment_type  (zero collisions)
-// Priority 2: serial + client_id
-// Priority 3: serial only (single unambiguous match)
-// Priority 4: fleet_number / registration_number as asset_tag
-// Priority 5: fuzzy equipment_description / asset_name
-async function resolveAssetId(cert) {
+// ── Smart asset resolver ──────────────────────────────────────────────────────
+// Tries multiple identifiers in priority order to find the linked asset.
+// Uses admin client so it can read assets regardless of RLS.
+async function resolveAssetId(cert, adminClient) {
   if (cert.asset_id) return cert.asset_id;
 
+  const db  = adminClient;
   const sel = "id";
 
   // Resolve client_id from client_name
   let clientId = null;
   const clientName = nz(cert.client_name || cert.company);
   if (clientName) {
-    const { data: cl } = await supabase
+    const { data: cl } = await db
       .from("clients")
       .select("id")
       .eq("company_name", clientName)
@@ -168,9 +186,9 @@ async function resolveAssetId(cert) {
     clientId = cl?.id || null;
   }
 
-  // Priority 1: serial + client + equipment_type
+  // 1. serial + client + equipment_type
   if (nz(cert.serial_number) && clientId && nz(cert.equipment_type)) {
-    const { data } = await supabase.from("assets").select(sel)
+    const { data } = await db.from("assets").select(sel)
       .eq("serial_number", cert.serial_number)
       .eq("client_id",     clientId)
       .eq("asset_type",    cert.equipment_type)
@@ -178,37 +196,67 @@ async function resolveAssetId(cert) {
     if (data?.[0]?.id) return data[0].id;
   }
 
-  // Priority 2: serial + client
+  // 2. serial + client
   if (nz(cert.serial_number) && clientId) {
-    const { data } = await supabase.from("assets").select(sel)
+    const { data } = await db.from("assets").select(sel)
       .eq("serial_number", cert.serial_number)
       .eq("client_id",     clientId)
       .limit(2);
     if (data?.length === 1) return data[0].id;
   }
 
-  // Priority 3: serial only (unambiguous)
+  // 3. serial only (unambiguous single match)
   if (nz(cert.serial_number)) {
-    const { data } = await supabase.from("assets").select(sel)
+    const { data } = await db.from("assets").select(sel)
       .eq("serial_number", cert.serial_number)
       .limit(2);
     if (data?.length === 1) return data[0].id;
   }
 
-  // Priority 4: fleet or registration number as asset_tag
-  for (const tag of [cert.fleet_number, cert.registration_number].filter(Boolean)) {
-    const { data } = await supabase.from("assets").select(sel)
-      .eq("asset_tag", tag).limit(1);
+  // 4. fleet_number — try fleet_number column first, then asset_tag
+  if (nz(cert.fleet_number)) {
+    const { data: byFleet } = await db.from("assets").select(sel)
+      .eq("fleet_number", cert.fleet_number).limit(2);
+    if (byFleet?.length === 1) return byFleet[0].id;
+
+    // Fleet number stored as asset_tag fallback
+    const { data: byTag } = await db.from("assets").select(sel)
+      .eq("asset_tag", cert.fleet_number).limit(1);
+    if (byTag?.[0]?.id) return byTag[0].id;
+  }
+
+  // 5. registration_number — try registration_number column first, then asset_tag
+  if (nz(cert.registration_number)) {
+    const { data: byReg } = await db.from("assets").select(sel)
+      .eq("registration_number", cert.registration_number).limit(2);
+    if (byReg?.length === 1) return byReg[0].id;
+
+    const { data: byTag } = await db.from("assets").select(sel)
+      .eq("asset_tag", cert.registration_number).limit(1);
+    if (byTag?.[0]?.id) return byTag[0].id;
+  }
+
+  // 6. asset_tag direct
+  if (nz(cert.asset_tag)) {
+    const { data } = await db.from("assets").select(sel)
+      .eq("asset_tag", cert.asset_tag).limit(1);
     if (data?.[0]?.id) return data[0].id;
   }
 
-  // Priority 5: fuzzy equipment_description / asset_name
+  // 7. fuzzy equipment_description / asset_name
   const fuzzyTerms = [cert.equipment_description, cert.asset_name].filter(Boolean);
   for (const term of fuzzyTerms) {
     if (term.length < 4) continue;
-    const { data } = await supabase.from("assets").select(sel)
+    const { data } = await db.from("assets").select(sel)
       .ilike("asset_name", `%${term}%`).limit(2);
     if (data?.length === 1) return data[0].id;
+    if (data?.length > 1 && clientId) {
+      // Multiple — try to narrow by client
+      const { data: narrow } = await db.from("assets").select(sel)
+        .ilike("asset_name", `%${term}%`)
+        .eq("client_id", clientId).limit(1);
+      if (narrow?.[0]?.id) return narrow[0].id;
+    }
   }
 
   return null;
@@ -231,17 +279,27 @@ export async function autoRaiseNcr(certificate, { createCapa = true, force = fal
   const result = normalizeResult(certificate.result);
   if (!isNonPass(result)) return { ncr: null, capa: null, skipped: true, error: null };
 
-  // Idempotency check
+  // Use admin client for all writes — bypasses RLS
+  const adminClient = getAdminClient();
+
+  // Idempotency check — use anon client (read-only, RLS allows select)
   if (!force && certificate.id) {
     const { data: existing } = await supabase
       .from("ncrs")
-      .select("id, ncr_number, capas(id, capa_number)")
+      .select("id, ncr_number")
       .eq("certificate_id", certificate.id)
       .limit(1)
       .maybeSingle();
 
     if (existing) {
-      const capa = existing.capas?.[0] || null;
+      // Also fetch linked CAPA
+      const { data: capa } = await supabase
+        .from("capas")
+        .select("id, capa_number")
+        .eq("ncr_id", existing.id)
+        .limit(1)
+        .maybeSingle();
+
       return {
         ncr:     { id: existing.id, ncr_number: existing.ncr_number },
         capa:    capa ? { id: capa.id, capa_number: capa.capa_number } : null,
@@ -251,11 +309,13 @@ export async function autoRaiseNcr(certificate, { createCapa = true, force = fal
     }
   }
 
-  const severity   = severityFromResult(result);
-  const priority   = priorityFromResult(result);
-  const dueDate    = dueDateFromSeverity(severity);
-  const ncrNumber  = generateNcrNumber(certificate.certificate_number);
-  const assetId    = await resolveAssetId(certificate);
+  const severity  = severityFromResult(result);
+  const priority  = priorityFromResult(result);
+  const dueDate   = dueDateFromSeverity(severity);
+  const ncrNumber = generateNcrNumber(certificate.certificate_number);
+
+  // Resolve asset — pass admin client so it can read regardless of RLS
+  const assetId = await resolveAssetId(certificate, adminClient);
 
   const clientName = nz(certificate.client_name || certificate.company, "—");
   const equipDesc  = nz(certificate.equipment_description || certificate.asset_name || certificate.asset_tag, "equipment");
@@ -283,13 +343,13 @@ export async function autoRaiseNcr(certificate, { createCapa = true, force = fal
     `Certificate No.:    ${certNo}`,
     `Client:             ${clientName}`,
     `Equipment:          ${equipDesc}`,
-    equipType  ? `Type:               ${equipType}`   : null,
-    serialNo   ? `Serial No.:         ${serialNo}`    : null,
-    fleetNo    ? `Fleet No.:          ${fleetNo}`     : null,
-    regNo      ? `Reg. No.:           ${regNo}`       : null,
+    equipType  ? `Type:               ${equipType}`  : null,
+    serialNo   ? `Serial No.:         ${serialNo}`   : null,
+    fleetNo    ? `Fleet No.:          ${fleetNo}`    : null,
+    regNo      ? `Reg. No.:           ${regNo}`      : null,
     `Result:             ${resultLabel(result)}`,
-    inspDate   ? `Inspection Date:    ${inspDate}`    : null,
-    expiryDate ? `Expiry Date:        ${expiryDate}`  : null,
+    inspDate   ? `Inspection Date:    ${inspDate}`   : null,
+    expiryDate ? `Expiry Date:        ${expiryDate}` : null,
     "",
     allFindings ? `FINDINGS & DEFECTS:\n${allFindings}` : "No specific defects recorded.",
     remarkText  ? `\nRECOMMENDATIONS:\n${remarkText}` : null,
@@ -305,21 +365,25 @@ export async function autoRaiseNcr(certificate, { createCapa = true, force = fal
     `Auto-raised: ${new Date().toISOString()}`,
   ].filter(s => s !== null).join("\n").trim();
 
-  // Insert NCR
+  // ── Build NCR payload ─────────────────────────────────────────────────────
+  // Only include asset_id and certificate_id if they exist — avoids not-null
+  // constraint errors when those columns don't exist in the schema
   const ncrPayload = {
-    ncr_number:     ncrNumber,
-    title:          `${resultLabel(result)} — ${equipDesc.slice(0, 80)}`,
+    ncr_number:  ncrNumber,
+    title:       `${resultLabel(result)} — ${equipDesc.slice(0, 80)}`,
     severity,
-    status:         "open",
+    status:      "open",
     description,
     details,
-    due_date:       dueDate,
-    raised_by:      INSPECTOR,
-    certificate_id: certificate.id || null,
-    ...(assetId ? { asset_id: assetId } : {}),
+    due_date:    dueDate,
+    raised_by:   INSPECTOR,
   };
 
-  const { data: ncrData, error: ncrErr } = await supabase
+  // Conditionally add FK columns only if the values exist
+  if (certificate.id)  ncrPayload.certificate_id = certificate.id;
+  if (assetId)         ncrPayload.asset_id        = assetId;
+
+  const { data: ncrData, error: ncrErr } = await adminClient
     .from("ncrs")
     .insert(ncrPayload)
     .select("id, ncr_number")
@@ -332,7 +396,7 @@ export async function autoRaiseNcr(certificate, { createCapa = true, force = fal
 
   if (!createCapa) return { ncr: ncrData, capa: null, skipped: false, error: null };
 
-  // Insert CAPA
+  // ── Build CAPA payload ────────────────────────────────────────────────────
   const capaNumber      = generateCapaNumber(ncrNumber);
   const immediateAction = buildImmediateAction(result, defectText, equipType);
 
@@ -354,10 +418,11 @@ export async function autoRaiseNcr(certificate, { createCapa = true, force = fal
       ? remarkText.slice(0, 500)
       : "Corrective action to be defined after root cause analysis.",
     ncr_id:              ncrData.id,
-    ...(assetId ? { asset_id: assetId } : {}),
   };
 
-  const { data: capaData, error: capaErr } = await supabase
+  if (assetId) capaPayload.asset_id = assetId;
+
+  const { data: capaData, error: capaErr } = await adminClient
     .from("capas")
     .insert(capaPayload)
     .select("id, capa_number")
@@ -372,13 +437,6 @@ export async function autoRaiseNcr(certificate, { createCapa = true, force = fal
 }
 
 // ── Lightweight trigger for wizard / edit saves ───────────────────────────────
-/**
- * Call this at the end of any certificate save handler.
- * Fires and forgets — won't block the UI.
- *
- * import { triggerAutoNcr } from "@/lib/autoNcr";
- * await triggerAutoNcr(savedCertificate);
- */
 export async function triggerAutoNcr(certificate) {
   if (!certificate) return;
   const result = normalizeResult(certificate.result || "");
@@ -397,14 +455,7 @@ export async function triggerAutoNcr(certificate) {
   }
 }
 
-// ── Batch backfill — process all existing non-pass certs ──────────────────────
-/**
- * Scans entire certificates table for non-pass results with no NCR yet.
- * Safe to run multiple times — idempotent.
- *
- * @param {function} [onProgress]  Optional callback(current, total, cert)
- * @returns {{ created, skipped, failed, errors }}
- */
+// ── Batch backfill ────────────────────────────────────────────────────────────
 export async function autoRaiseNcrForAllExisting(onProgress) {
   const report = { created: 0, skipped: 0, failed: 0, errors: [] };
 
@@ -419,10 +470,7 @@ export async function autoRaiseNcrForAllExisting(onProgress) {
     return report;
   }
 
-  if (!certs?.length) {
-    console.log("[autoRaiseNcrForAllExisting] No non-pass certificates found.");
-    return report;
-  }
+  if (!certs?.length) return report;
 
   const certIds = certs.map(c => c.id);
   const { data: existingNcrs } = await supabase
@@ -431,14 +479,13 @@ export async function autoRaiseNcrForAllExisting(onProgress) {
     .in("certificate_id", certIds);
 
   const alreadyHasNcr = new Set((existingNcrs || []).map(n => n.certificate_id));
-  const toProcess = certs.filter(c => !alreadyHasNcr.has(c.id));
+  const toProcess     = certs.filter(c => !alreadyHasNcr.has(c.id));
 
-  console.log(`[autoRaiseNcrForAllExisting] ${certs.length} non-pass certs. ${alreadyHasNcr.size} already have NCRs. Processing ${toProcess.length}…`);
+  console.log(`[autoRaiseNcrForAllExisting] ${toProcess.length} to process…`);
 
   for (let i = 0; i < toProcess.length; i++) {
     const cert = toProcess[i];
     if (onProgress) onProgress(i + 1, toProcess.length, cert);
-
     try {
       const result = await autoRaiseNcr(cert, { createCapa: true, force: false });
       if (result.error && !result.ncr) {
@@ -448,25 +495,18 @@ export async function autoRaiseNcrForAllExisting(onProgress) {
         report.skipped++;
       } else {
         report.created++;
-        console.log(`[autoRaiseNcrForAllExisting] ✅ ${result.ncr?.ncr_number} + ${result.capa?.capa_number} for ${cert.certificate_number}`);
       }
     } catch (e) {
       report.failed++;
       report.errors.push(`${cert.certificate_number}: ${e?.message || "Unknown error"}`);
     }
-
     if (i < toProcess.length - 1) await new Promise(r => setTimeout(r, 120));
   }
 
-  console.log("[autoRaiseNcrForAllExisting] Done.", report);
   return report;
 }
 
-// ── Legacy batch alias — keeps crane-inspection and machine-inspection happy ──
-/**
- * @deprecated Use autoRaiseNcrForAllExisting() or call autoRaiseNcr() per cert.
- * Kept for backward compatibility with existing wizard imports.
- */
+// ── Legacy alias ──────────────────────────────────────────────────────────────
 export async function autoRaiseNcrBatch(certificates, options = {}) {
   const results = [];
   for (const cert of (certificates || [])) {
