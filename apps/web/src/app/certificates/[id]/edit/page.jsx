@@ -153,7 +153,6 @@ function canonicalizeFieldKey(sectionKey, key) {
   return bySection[section]?.[token] || token;
 }
 
-/* ── flattenNotesJson — FIX: canonicalKey was undefined in original ── */
 function flattenNotesJson(raw) {
   const rows = [];
   let parsed = {};
@@ -164,7 +163,6 @@ function flattenNotesJson(raw) {
 
   let rowId = 0;
 
-  // FIX: resolve the key per-row inside addRow (was a closure bug in original)
   function addRow(section, key, value, path) {
     const sectionKey = normalizeSectionPathKey(section);
     const resolvedKey = sectionKey === "general"
@@ -545,20 +543,12 @@ function CherryPickerEditor({ cp, onChange }) {
     <input value={cp[key] || ""} onChange={e => set(key, e.target.value)}
       placeholder={placeholder || "—"} style={{ ...IS, minHeight:40, fontSize:12 }}/>
   );
-  const SH = ({ label, color = T.accent }) => (
-    <div style={{ fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",
-      color, borderLeft:`3px solid ${color}`, paddingLeft:8, marginTop:14, marginBottom:8,
-      gridColumn:"1/-1" }}>
-      {label}
-    </div>
-  );
   const gridStyle = { display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))", gap:10, marginBottom:4 };
 
   return (
     <div>
-      {/* BOOM SPEC */}
       <div style={gridStyle}>
-        <SH label="Boom Specification & Load Test" color={T.accent}/>
+        <div style={{ fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.accent,borderLeft:`3px solid ${T.accent}`,paddingLeft:8,marginTop:14,marginBottom:8,gridColumn:"1/-1" }}>Boom Specification & Load Test</div>
         <F label="Max Working Height (m)">{inp("max_height","e.g. 18")}</F>
         <F label="Min Boom Length (m)">{inp("min_boom_length","e.g. 6")}</F>
         <F label="Max Boom Length (m)">{inp("max_boom_length","e.g. 18")}</F>
@@ -574,11 +564,7 @@ function CherryPickerEditor({ cp, onChange }) {
         <F label="Test Load Applied (110% SWL)">{inp("test_load","e.g. 385KG")}</F>
       </div>
 
-      {/* BOOM CONDITION */}
-      <div style={{ fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",
-        color:T.accent, borderLeft:`3px solid ${T.accent}`, paddingLeft:8, marginTop:14, marginBottom:8 }}>
-        Boom Systems Condition
-      </div>
+      <div style={{ fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.accent,borderLeft:`3px solid ${T.accent}`,paddingLeft:8,marginTop:14,marginBottom:8 }}>Boom Systems Condition</div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:6, marginBottom:4 }}>
         <PFChip label="Boom Structure"                value={cp.boom_structure||"PASS"}   onChange={v => set("boom_structure",v)}/>
         <PFChip label="Boom Pins & Connections"        value={cp.boom_pins||"PASS"}        onChange={v => set("boom_pins",v)}/>
@@ -590,11 +576,7 @@ function CherryPickerEditor({ cp, onChange }) {
         <PFChip label="Anti-Two Block / Overload"     value={cp.anti_two_block||"PASS"}   onChange={v => set("anti_two_block",v)}/>
       </div>
 
-      {/* GENERAL CHECKLIST */}
-      <div style={{ fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",
-        color:T.blue, borderLeft:`3px solid ${T.blue}`, paddingLeft:8, marginTop:14, marginBottom:8 }}>
-        General & Safety Checklist
-      </div>
+      <div style={{ fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.blue,borderLeft:`3px solid ${T.blue}`,paddingLeft:8,marginTop:14,marginBottom:8 }}>General & Safety Checklist</div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:6, marginBottom:4 }}>
         <PFChip label="Structural Integrity"                   value={cp.structural_result||"PASS"}                    onChange={v => set("structural_result",v)}/>
         <PFChip label="Hydraulic System"                       value={cp.hydraulics_result||"PASS"}                    onChange={v => set("hydraulics_result",v)}/>
@@ -607,11 +589,7 @@ function CherryPickerEditor({ cp, onChange }) {
         <PFChip label="All Functions Operate Under Load"       value={cp.all_functions_operate_under_load||"PASS"}     onChange={v => set("all_functions_operate_under_load",v)}/>
       </div>
 
-      {/* BUCKET / PLATFORM */}
-      <div style={{ fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",
-        color:T.orange, borderLeft:`3px solid ${T.orange}`, paddingLeft:8, marginTop:14, marginBottom:8 }}>
-        Work Platform / Bucket — Page 2 (6 Month Cert)
-      </div>
+      <div style={{ fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.orange,borderLeft:`3px solid ${T.orange}`,paddingLeft:8,marginTop:14,marginBottom:8 }}>Work Platform / Bucket — Page 2 (6 Month Cert)</div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))", gap:10, marginBottom:4 }}>
         <F label="Platform SWL">{inp("platform_swl","e.g. 350KG")}</F>
         <F label="Test Load Applied (110%)">{inp("test_load_applied","e.g. 385KG")}</F>
@@ -654,6 +632,172 @@ function CherryPickerEditor({ cp, onChange }) {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   EQUIPMENT TYPE DROPDOWN — FULL LIST
+───────────────────────────────────────────────────────────── */
+function EquipmentTypeSelect({ value, onChange, style }) {
+  return (
+    <select value={value} onChange={onChange} style={style}>
+      <option value="">Select type…</option>
+
+      <optgroup label="🏗 Cranes">
+        <option>Mobile Crane</option>
+        <option>Crane Boom</option>
+        <option>Crane Hook</option>
+        <option>Wire Rope</option>
+        <option>Overhead Crane / EOT Crane</option>
+        <option>Gantry Crane</option>
+        <option>Tower Crane</option>
+        <option>Crawler Crane</option>
+        <option>Knuckle Boom Crane</option>
+        <option>Tadano Crane</option>
+        <option>Rough Terrain Crane</option>
+        <option>Truck-Mounted Crane</option>
+      </optgroup>
+
+      <optgroup label="⛓ Hoists">
+        <option>Chain Block</option>
+        <option>Manual Chain Hoist</option>
+        <option>Electric Chain Hoist</option>
+        <option>Lever Hoist / Tirfor</option>
+        <option>Electric Wire Rope Hoist</option>
+      </optgroup>
+
+      <optgroup label="🔗 Shackles">
+        <option>Shackle — Bow / Anchor</option>
+        <option>Shackle — D / Dee</option>
+        <option>Shackle — Safety Bow</option>
+        <option>Shackle — Wide Mouth</option>
+        <option>Shackle — Screw Pin Anchor</option>
+        <option>Shackle — Bolt Type Anchor</option>
+        <option>Shackle — Alloy</option>
+        <option>Shackle — Stainless Steel</option>
+      </optgroup>
+
+      <optgroup label="🪢 Slings">
+        <option>Chain Sling</option>
+        <option>Wire Rope Sling</option>
+        <option>Web Sling / Flat Sling</option>
+        <option>Round Sling</option>
+        <option>Multi-Leg Chain Sling</option>
+        <option>Multi-Leg Wire Rope Sling</option>
+      </optgroup>
+
+      <optgroup label="🔩 Rigging Hardware">
+        <option>Hook — Swivel</option>
+        <option>Hook — Eye</option>
+        <option>Hook — Crane</option>
+        <option>Eye Bolt</option>
+        <option>Eye Nut</option>
+        <option>Turnbuckle</option>
+        <option>Master Link</option>
+        <option>Swivel</option>
+        <option>Wire Rope Clip</option>
+      </optgroup>
+
+      <optgroup label="📐 Beams & Spreaders">
+        <option>Spreader Beam</option>
+        <option>Lifting Beam</option>
+        <option>Adjustable Spreader Beam</option>
+        <option>Pallet Lifter</option>
+        <option>Drum Lifter</option>
+        <option>Magnetic Lifter</option>
+      </optgroup>
+
+      <optgroup label="🦺 Fall Protection">
+        <option>Safety Harness — Full Body</option>
+        <option>Lanyard — Energy Absorbing</option>
+        <option>Lanyard — Twin Leg</option>
+        <option>Self-Retracting Lifeline (SRL)</option>
+        <option>Fall Arrest Block</option>
+        <option>Anchor Point</option>
+      </optgroup>
+
+      <optgroup label="🔥 Pressure Equipment">
+        <option>Pressure Vessel</option>
+        <option>Air Receiver</option>
+        <option>Boiler</option>
+        <option>Hydraulic Tank</option>
+        <option>Compressor — Air</option>
+        <option>Accumulator</option>
+        <option>Gas Cylinder</option>
+        <option>LPG Tank</option>
+      </optgroup>
+
+      <optgroup label="🚛 Trucks & Heavy Vehicles">
+        <option>Mixer Truck</option>
+        <option>Diesel Bowser</option>
+        <option>Water Bowser</option>
+        <option>Tipper Truck</option>
+        <option>Rigid Truck</option>
+        <option>Flatbed Truck</option>
+        <option>Crane Truck / Hiab</option>
+        <option>Horse (Prime Mover)</option>
+        <option>Horse &amp; Trailer</option>
+        <option>Trailer — Flatbed</option>
+        <option>Trailer — Lowbed</option>
+        <option>Trailer — Tanker</option>
+        <option>Trailer — Side Tipper</option>
+        <option>Trailer — Skeletal</option>
+        <option>Bus / Personnel Carrier</option>
+        <option>Light Vehicle / Pickup</option>
+        <option>Ambulance</option>
+      </optgroup>
+
+      <optgroup label="🏗 Earthmoving & Construction">
+        <option>Excavator</option>
+        <option>Bulldozer</option>
+        <option>Grader / Motor Grader</option>
+        <option>Compactor / Roller</option>
+        <option>Scraper</option>
+        <option>Dump Truck</option>
+        <option>Haul Truck</option>
+        <option>TLB (Tractor Loader Backhoe)</option>
+        <option>Front Loader / Wheel Loader</option>
+        <option>Skid Steer Loader</option>
+      </optgroup>
+
+      <optgroup label="⚙ Forklifts & Lifting Machines">
+        <option>Forklift</option>
+        <option>Reach Stacker</option>
+        <option>Telehandler</option>
+        <option>Cherry Picker / Aerial Work Platform</option>
+        <option>Scissor Lift</option>
+        <option>Personnel Lift / Manlift</option>
+        <option>Fork Arm Assembly</option>
+      </optgroup>
+
+      <optgroup label="💧 Pumps & Fluid Equipment">
+        <option>Water Pump</option>
+        <option>Submersible Pump</option>
+        <option>Diesel Fuel Pump</option>
+        <option>Chemical Dosing Pump</option>
+        <option>Generator — Diesel</option>
+        <option>Generator — Petrol</option>
+        <option>Air Compressor</option>
+        <option>Welding Machine</option>
+      </optgroup>
+
+      <optgroup label="⛏ Mine & Site Specific">
+        <option>Scaffold</option>
+        <option>Underground Mine Cage</option>
+        <option>Skip Hoist</option>
+        <option>Rock Drill / Drill Rig</option>
+        <option>Continuous Miner</option>
+        <option>LHD (Load Haul Dump)</option>
+        <option>Conveyor Belt System</option>
+        <option>Fire Extinguisher</option>
+        <option>Breathing Apparatus / SCBA</option>
+        <option>Gas Detector</option>
+      </optgroup>
+
+      <optgroup label="📦 Other">
+        <option>Other</option>
+      </optgroup>
+    </select>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
    MAIN PAGE
 ───────────────────────────────────────────────────────────── */
 const TABS = ["Certificate","Equipment","Technical","Inspector","Inspection Data","Folder"];
@@ -678,7 +822,7 @@ function CertificateEditInner() {
   const [linking,      setLinking]      = useState(false);
   const [unlinking,    setUnlinking]    = useState(false);
 
-  const [notesMode,    setNotesMode]    = useState("pipe"); // "cherry" | "json" | "pipe"
+  const [notesMode,    setNotesMode]    = useState("pipe");
   const [jsonRows,     setJsonRows]     = useState([]);
   const [notePairs,    setNotePairs]    = useState([]);
   const [cpData,       setCpData]       = useState(parseCherryPickerNotes(""));
@@ -1011,7 +1155,7 @@ function CertificateEditInner() {
             </div>
           </div>
 
-          {error   && <div style={{ padding:"10px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,  background:T.redDim,  color:T.red,  fontSize:13,fontWeight:700 }}>⚠ {error}</div>}
+          {error   && <div style={{ padding:"10px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,background:T.redDim,color:T.red,fontSize:13,fontWeight:700 }}>⚠ {error}</div>}
           {success && <div style={{ padding:"10px 14px",borderRadius:10,border:`1px solid ${T.greenBrd}`,background:T.greenDim,color:T.green,fontSize:13,fontWeight:700 }}>✓ {success}</div>}
 
           {loading ? (
@@ -1072,25 +1216,7 @@ function CertificateEditInner() {
               {tab === 1 && (
                 <div className="ceg">
                   <F label="Equipment Type">
-                    <select name="equipment_type" value={form.equipment_type} onChange={hcEquipType} style={IS}>
-                      <option value="">Select type…</option>
-                      <optgroup label="Cranes"><option>Mobile Crane</option><option>Crane Boom</option><option>Crane Hook</option><option>Wire Rope</option><option>Overhead Crane / EOT Crane</option><option>Gantry Crane</option><option>Tower Crane</option><option>Crawler Crane</option><option>Knuckle Boom Crane</option></optgroup>
-                      <optgroup label="Hoists"><option>Chain Block</option><option>Manual Chain Hoist</option><option>Electric Chain Hoist</option><option>Lever Hoist / Tirfor</option><option>Electric Wire Rope Hoist</option></optgroup>
-                      <optgroup label="Shackles"><option>Shackle — Bow / Anchor</option><option>Shackle — D / Dee</option><option>Shackle — Safety Bow</option><option>Shackle — Wide Mouth</option><option>Shackle — Screw Pin Anchor</option><option>Shackle — Bolt Type Anchor</option><option>Shackle — Alloy</option><option>Shackle — Stainless Steel</option></optgroup>
-                      <optgroup label="Slings"><option>Chain Sling</option><option>Wire Rope Sling</option><option>Web Sling / Flat Sling</option><option>Round Sling</option><option>Multi-Leg Chain Sling</option><option>Multi-Leg Wire Rope Sling</option></optgroup>
-                      <optgroup label="Rigging Hardware"><option>Hook — Swivel</option><option>Hook — Eye</option><option>Hook — Crane</option><option>Eye Bolt</option><option>Eye Nut</option><option>Turnbuckle</option><option>Master Link</option><option>Swivel</option><option>Wire Rope Clip</option></optgroup>
-                      <optgroup label="Beams & Spreaders"><option>Spreader Beam</option><option>Lifting Beam</option><option>Adjustable Spreader Beam</option><option>Pallet Lifter</option><option>Drum Lifter</option><option>Magnetic Lifter</option></optgroup>
-                      <optgroup label="Fall Protection"><option>Safety Harness — Full Body</option><option>Lanyard — Energy Absorbing</option><option>Lanyard — Twin Leg</option><option>Self-Retracting Lifeline (SRL)</option><option>Fall Arrest Block</option><option>Anchor Point</option></optgroup>
-                      <optgroup label="Pressure Equipment"><option>Pressure Vessel</option><option>Air Receiver</option><option>Boiler</option><option>Hydraulic Tank</option><option>Compressor — Air</option><option>Accumulator</option><option>Gas Cylinder</option><option>LPG Tank</option></optgroup>
-                      <optgroup label="Machines">
-                        <option>Forklift</option><option>Telehandler</option>
-                        <option>Cherry Picker / Aerial Work Platform</option>
-                        <option>TLB (Tractor Loader Backhoe)</option><option>Front Loader / Wheel Loader</option>
-                        <option>Crane Truck / Hiab</option><option>Water Bowser</option>
-                        <option>Tipper Truck</option><option>Bus / Personnel Carrier</option><option>Air Compressor</option>
-                      </optgroup>
-                      <optgroup label="Mine & Other"><option>Scaffold</option><option>Underground Mine Cage</option><option>Skip Hoist</option><option>Fire Extinguisher</option><option>Other</option></optgroup>
-                    </select>
+                    <EquipmentTypeSelect value={form.equipment_type} onChange={hcEquipType} style={IS}/>
                   </F>
                   <F label="Equipment Description"><input name="equipment_description" value={form.equipment_description} onChange={hc} style={IS}/></F>
                   <F label="Asset Name"><input name="asset_name" value={form.asset_name} onChange={hc} style={IS}/></F>
@@ -1140,7 +1266,6 @@ function CertificateEditInner() {
               {/* ── TAB 4: INSPECTION DATA ── */}
               {tab === 4 && (
                 <div style={{ display:"grid", gap:12 }}>
-                  {/* toolbar */}
                   <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap" }}>
                     <div>
                       <div style={{ fontSize:14,fontWeight:800,color:T.text }}>Inspection Data</div>
@@ -1188,7 +1313,6 @@ function CertificateEditInner() {
                           <div style={{ fontSize:13,fontWeight:800,color:T.orange }}>Cherry Picker / AWP Inspector</div>
                           <div style={{ fontSize:11,color:T.textDim,marginTop:1 }}>
                             Fills Page 1 (AWP Machine — 12 months) and Page 2 (Platform/Bucket — 6 months).
-                            Saves directly into the structured <code style={{ color:T.accent,fontSize:10 }}>notes</code> JSON.
                           </div>
                         </div>
                       </div>
@@ -1230,7 +1354,6 @@ function CertificateEditInner() {
                           })}
                         </div>
                       )}
-                      {/* add field */}
                       <div style={{ border:`1px solid ${T.greenBrd}`,borderRadius:10,padding:14,background:T.greenDim }}>
                         <div style={{ fontSize:11,fontWeight:800,color:T.green,marginBottom:10,textTransform:"uppercase",letterSpacing:"0.08em" }}>+ Add New Field</div>
                         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:8,alignItems:"flex-end" }}>
