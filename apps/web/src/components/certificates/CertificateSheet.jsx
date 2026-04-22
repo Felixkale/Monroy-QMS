@@ -215,11 +215,8 @@ const CSS=`
   .pro-wrap{background:rgba(10,18,32,0.92);border:1px solid rgba(148,163,184,0.12);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:16px;align-items:center}
   .pro-page{background:#fff;width:210mm;height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28);overflow:hidden;page-break-after:always;break-after:page;}
   .pro-page.pm{box-shadow:none;width:100%}
-
-  /* ── KEY FIX: last page in any multi-page cert must NOT break-after ── */
   .pro-page.last-page{page-break-after:avoid!important;break-after:avoid!important;}
   .cs-page.last-page{page-break-after:avoid!important;break-after:avoid!important;}
-
   .pro-hdr{background:#0b1d3a;display:flex;align-items:center;min-height:76px;flex-shrink:0}
   .pro-logo-box{background:#fff;width:108px;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:8px;clip-path:polygon(0 0,100% 0,82% 100%,0 100%)}
   .pro-logo-box img{width:86px;height:64px;object-fit:contain}
@@ -460,7 +457,7 @@ function BucketResultRow({label,result}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   CRANE LOAD TEST  (page 1 of 2 — no last-page class)
+   CRANE LOAD TEST
 ══════════════════════════════════════════════════════════ */
 function CraneLoadTestPage({c,pn,tone,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -545,7 +542,7 @@ function CraneLoadTestPage({c,pn,tone,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   CRANE CHECKLIST  (page 2 of 2 — LAST PAGE → last-page class)
+   CRANE CHECKLIST
 ══════════════════════════════════════════════════════════ */
 function CraneChecklistPage({c,pn,pm,logo}){
   const company=val(c.client_name||c.company)||"—";
@@ -636,7 +633,7 @@ function CraneChecklistPage({c,pn,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   HOOK & ROPE  (single page — last-page)
+   HOOK & ROPE
 ══════════════════════════════════════════════════════════ */
 function HookRopePage({c,pn,tone,pm,logo,isRope}){
   const certNumber=val(c.certificate_number);
@@ -733,7 +730,7 @@ function HookRopePage({c,pn,tone,pm,logo,isRope}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   PRESSURE VESSEL  (single page — last-page)
+   PRESSURE VESSEL
 ══════════════════════════════════════════════════════════ */
 function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
   const certNumber=val(c.certificate_number);
@@ -814,7 +811,8 @@ function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   WIRE ROPE SLING  (single page — last-page)
+   WIRE ROPE SLING  — FIXED: reads from extracted_data.sling_details
+                              and extracted_data.condition_assessment
 ══════════════════════════════════════════════════════════ */
 function WireRopeSlingPage({c,pn,tone,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -831,17 +829,43 @@ function WireRopeSlingPage({c,pn,tone,pm,logo}){
   const comments=val(c.comments||c.remarks);
   const inspName=val(c.inspector_name)||"Moemedi Masupe";
   const inspId=val(c.inspector_id)||"700117910";
-  const slingType=val(c.equipment_type)||"Wire Rope Sling";
-  const numLegs=pn["Legs"]||"";
-  const diameter=pn["Diameter"]||val(c.capacity_volume)||"";
-  const length=pn["Length"]||"";
-  const construction=pn["Construction"]||"";
-  const core=pn["Core"]||"";
-  const corrosion=pn["Corrosion"]||"none";
-  const brokenWires=pn["Broken wires"]||"none";
-  const kinks=pn["Kinks"]||"none";
-  const endFittings=pn["End fittings"]||"Good";
   const photos=parsePhotoEvidence(c.photo_evidence);
+
+  // ── Read from structured JSON (saved by WireRopeSlingEditor) ──────────────
+  // Priority: extracted_data.sling_details → extracted_data (flat) → pn (pipe) → c fields
+  const ex=c.extracted_data||{};
+  const sd=ex.sling_details||{};
+  const ca=ex.condition_assessment||{};
+
+  const slingType=val(sd.type)||val(ex.type)||val(c.equipment_type)||"Wire Rope Sling";
+  const diameter=val(sd.diameter_mm)||val(sd.diameter)||pn["Diameter"]||val(ex.diameter_mm)||val(c.capacity_volume)||"";
+  const length=val(sd.length_m)||val(sd.length)||pn["Length"]||val(ex.length_m)||"";
+  const numLegs=val(sd.num_legs)||val(sd.number_of_legs)||pn["Legs"]||val(ex.num_legs)||"";
+  const construction=val(sd.construction)||pn["Construction"]||val(ex.construction)||"";
+  const core=val(sd.core_type)||val(sd.core)||pn["Core"]||val(ex.core_type)||"";
+  const slingSWL=val(sd.swl)||swl||"";
+
+  const corrosion=val(ca.corrosion)||pn["Corrosion"]||val(ex.corrosion)||"none";
+  const brokenWires=val(ca.broken_wires)||pn["Broken wires"]||val(ex.broken_wires)||"none";
+  const kinks=val(ca.rope_kinks_deforming)||val(ca.rope_kinks)||pn["Kinks"]||val(ex.rope_kinks_deforming)||"none";
+  const reductionDia=val(ca.reduction_in_diameter)||pn["Reduction"]||val(ex.reduction_in_diameter)||"none";
+  const endFittings=val(ca.condition_of_end_fittings)||pn["End fittings"]||val(ex.condition_of_end_fittings)||"Good";
+  const birdCaging=val(ca.bird_caging_core_protrusion)||val(ca.bird_caging)||pn["Bird-caging"]||val(ex.bird_caging_core_protrusion)||"None";
+  const serviceability=val(ca.serviceability)||pn["Serviceability"]||val(ex.serviceability)||"Serviceable";
+  const overallAssessment=val(ca.overall_assessment)||val(ex.overall_assessment)||tone.label;
+  const wrsNotes=val(ca.notes)||val(ca.comments)||val(ex.notes)||"";
+
+  // Colour helper for condition values
+  function condStyle(v){
+    if(!v)return{fontWeight:600};
+    if(/reject|fail|severe|>5|>10|unservice/i.test(v))return{color:"#b91c1c",fontWeight:800};
+    if(/conditional|moderate|fair|3-5|5-10/i.test(v))return{color:"#b45309",fontWeight:700};
+    if(/^pass$|^none$|^good|^serviceable|^new/i.test(v.trim()))return{color:"#15803d",fontWeight:700};
+    return{fontWeight:600};
+  }
+  const overallIsPass=/^pass/i.test(overallAssessment);
+  const overallIsFail=/^fail|reject|unservice/i.test(overallAssessment);
+
   return(
     <div className={`pro-page last-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
@@ -856,27 +880,55 @@ function WireRopeSlingPage({c,pn,tone,pm,logo}){
           </div>
           <div className="pro-compbox">
             <div><div style={{fontSize:10,fontWeight:800,color:"#0b1d3a"}}>Compliance Certificate</div></div>
-            <div style={{fontSize:26,color:tone.label==="PASS"?"#15803d":"#b91c1c",fontWeight:900}}>{tone.label==="PASS"?"✓":"✗"}</div>
+            <div style={{fontSize:26,color:overallIsPass?"#15803d":overallIsFail?"#b91c1c":"#b45309",fontWeight:900}}>{overallIsPass?"✓":"✗"}</div>
           </div>
         </div>
         <div className="pro-stl">Sling Details</div>
-        <table className="pro-pv"><thead><tr><th>Type</th><th>Diameter (mm)</th><th>Length (m)</th><th>No. of Legs</th><th>Construction</th><th>Core Type</th><th>SWL</th></tr></thead>
-          <tbody><tr><td style={{background:"#fff"}}>{slingType}</td><td style={{background:"#fff"}}>{diameter||"—"}</td><td style={{background:"#fff"}}>{length||"—"}</td><td style={{background:"#fff"}}>{numLegs||"—"}</td><td style={{background:"#fff"}}>{construction||"—"}</td><td style={{background:"#fff"}}>{core||"—"}</td><td style={{background:"#fff",fontWeight:700}}>{swl||"—"}</td></tr></tbody>
+        <table className="pro-pv">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Diameter (mm)</th>
+              <th>Length (m)</th>
+              <th>No. of Legs</th>
+              <th>Construction</th>
+              <th>Core Type</th>
+              <th>SWL</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={{background:"#fff"}}>{slingType}</td>
+              <td style={{background:"#fff"}}>{diameter||"—"}</td>
+              <td style={{background:"#fff"}}>{length||"—"}</td>
+              <td style={{background:"#fff"}}>{numLegs||"—"}</td>
+              <td style={{background:"#fff"}}>{construction||"—"}</td>
+              <td style={{background:"#fff"}}>{core||"—"}</td>
+              <td style={{background:"#fff",fontWeight:700}}>{slingSWL||"—"}</td>
+            </tr>
+          </tbody>
         </table>
         <div className="pro-stl">Condition Assessment</div>
-        <table className="pro-st"><tbody>
-          <tr><td>Corrosion</td><td>{corrosion}</td></tr>
-          <tr><td>Broken wires</td><td>{brokenWires}</td></tr>
-          <tr><td>Rope kinks / deforming</td><td>{kinks}</td></tr>
-          <tr><td>Reduction in diameter (max 10%)</td><td>none</td></tr>
-          <tr><td>Condition of end fittings / ferrule</td><td>{endFittings}</td></tr>
-          <tr><td>Bird-caging / core protrusion</td><td>None</td></tr>
-          <tr><td>Serviceability</td><td>Serviceable</td></tr>
-          <tr><td>Overall assessment</td><td style={{fontWeight:800,color:tone.label==="PASS"?"#15803d":"#b91c1c"}}>{tone.label}</td></tr>
-        </tbody></table>
+        <table className="pro-st">
+          <tbody>
+            <tr><td>Corrosion</td><td style={condStyle(corrosion)}>{corrosion}</td></tr>
+            <tr><td>Broken wires</td><td style={condStyle(brokenWires)}>{brokenWires}</td></tr>
+            <tr><td>Rope kinks / deforming</td><td style={condStyle(kinks)}>{kinks}</td></tr>
+            <tr><td>Reduction in diameter (max 10%)</td><td style={condStyle(reductionDia)}>{reductionDia}</td></tr>
+            <tr><td>Condition of end fittings / ferrule</td><td style={condStyle(endFittings)}>{endFittings}</td></tr>
+            <tr><td>Bird-caging / core protrusion</td><td style={condStyle(birdCaging)}>{birdCaging}</td></tr>
+            <tr><td>Serviceability</td><td style={condStyle(serviceability)}>{serviceability}</td></tr>
+            <tr>
+              <td>Overall assessment</td>
+              <td style={{fontWeight:800,color:overallIsPass?"#15803d":overallIsFail?"#b91c1c":"#b45309"}}>
+                {overallAssessment}
+              </td>
+            </tr>
+          </tbody>
+        </table>
         {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
         {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
-        {comments&&<div className="pro-comments-box"><div className="pro-comments-lbl">Comments</div><div className="pro-comments-val">{comments}</div></div>}
+        {(comments||wrsNotes)&&<div className="pro-comments-box"><div className="pro-comments-lbl">Comments / Notes</div><div className="pro-comments-val">{comments||wrsNotes}</div></div>}
         <ProEvidence photos={photos}/>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
@@ -886,7 +938,7 @@ function WireRopeSlingPage({c,pn,tone,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   TELEHANDLER  (single page — last-page)
+   TELEHANDLER
 ══════════════════════════════════════════════════════════ */
 function TelehandlerPage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -994,7 +1046,7 @@ function TelehandlerPage({c,nd,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   CHERRY PICKER PAGE 1 — AWP Machine (no last-page)
+   CHERRY PICKER PAGE 1 — AWP Machine
 ══════════════════════════════════════════════════════════ */
 function CherryPickerMachinePage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -1086,7 +1138,7 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   CHERRY PICKER PAGE 2 — Bucket Inspection  (LAST PAGE → last-page)
+   CHERRY PICKER PAGE 2 — Bucket Inspection
 ══════════════════════════════════════════════════════════ */
 function CherryPickerBucketPage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -1114,7 +1166,6 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
     return<span style={{fontWeight:800,color,background:bg,padding:"1px 5px",borderRadius:3,fontSize:7.5}}>{v}</span>;
   }
   return(
-    /* ── KEY FIX: last-page class stops the blank 3rd page ── */
     <div className={`pro-page last-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
       <div className="bucket-accent"/>
@@ -1197,7 +1248,7 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   FORK ARM  (single page — last-page)
+   FORK ARM
 ══════════════════════════════════════════════════════════ */
 function ForkArmPage({c,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -1267,7 +1318,7 @@ function ForkArmPage({c,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   HORSE & TRAILER  (single page — last-page)
+   HORSE & TRAILER
 ══════════════════════════════════════════════════════════ */
 function HorseTrailerPage({c,pm,logo,isTrailer}){
   const certNumber=val(c.certificate_number);
@@ -1355,7 +1406,7 @@ function HorseTrailerPage({c,pm,logo,isTrailer}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   GENERIC MACHINE (Forklift / TLB / etc)  (single page — last-page)
+   GENERIC MACHINE (Forklift / TLB / etc)
 ══════════════════════════════════════════════════════════ */
 function MachinePage({c,nd,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -1455,7 +1506,7 @@ function MachinePage({c,nd,pm,logo}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   GENERIC CERTIFICATE (fallback — last-page)
+   GENERIC CERTIFICATE (fallback)
 ══════════════════════════════════════════════════════════ */
 function GenericCert({c,pm,logo}){
   const ex=c.extracted_data||{};
@@ -1603,7 +1654,7 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   const _isMobileCrane=/mobile.crane|crane/i.test(_rawType)&&!/hook|rope|boom|cherry|telehandler|forklift/i.test(_rawType);
   const _isHook=/hook/i.test(_rawType);
   const _isCraneRope=_rawType==="wire rope";
-  const _isWireRopeSling=_rawType==="wire rope sling";
+  const _isWireRopeSling=/wire.rope.sling/i.test(_rawType);
   const _isPV=/pressure.vessel|air.receiver|boiler|autoclave/i.test(_rawType);
   const _isTelehandler=/telehandler/i.test(_rawType);
   const _isCherryPicker=/cherry.picker|aerial.work.platform|boom.lift/i.test(_rawType);
