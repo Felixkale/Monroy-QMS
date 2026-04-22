@@ -986,6 +986,25 @@ function EquipmentTypeSelect({ value, onChange, style }) {
         <option>Anchor Point</option>
       </optgroup>
 
+      <optgroup label="🔧 Jacks & Hydraulic Lifting">
+        <option>Electric Hydraulic Lifting Machine</option>
+        <option>Jinyun Electric Hydraulic Lifting Machine</option>
+        <option>Hydraulic Jack — General</option>
+        <option>Bottle Jack</option>
+        <option>Toe Jack / Skid Jack</option>
+        <option>Screw Jack</option>
+        <option>Pneumatic Jack</option>
+        <option>Railway Jack</option>
+        <option>Strand Jack</option>
+        <option>Hydraulic Cylinder Jack</option>
+        <option>Hydraulic Gantry / Portal Jack</option>
+        <option>Hydraulic Floor Jack</option>
+        <option>Hydraulic Press</option>
+        <option>Air / Pneumatic Lifting Bag</option>
+        <option>Mechanical Screw Lift</option>
+        <option>Synchronised Hydraulic Lifting System</option>
+      </optgroup>
+
       <optgroup label="🔥 Pressure Equipment">
         <option>Pressure Vessel</option>
         <option>Air Receiver</option>
@@ -1064,25 +1083,6 @@ function EquipmentTypeSelect({ value, onChange, style }) {
         <option>Gas Detector</option>
       </optgroup>
 
-  <optgroup label="🔧 Jacks & Hydraulic Lifting">
-  <option>Electric Hydraulic Lifting Machine</option>
-  <option>Hydraulic Jack — General</option>
-  <option>Bottle Jack</option>
-  <option>Toe Jack / Skid Jack</option>
-  <option>Screw Jack</option>
-  <option>Pneumatic Jack</option>
-  <option>Railway Jack</option>
-  <option>Strand Jack</option>
-  <option>Hydraulic Cylinder Jack</option>
-  <option>Hydraulic Gantry / Portal Jack</option>
-  <option>Hydraulic Floor Jack</option>
-  <option>Hydraulic Press</option>
-  <option>Air / Pneumatic Lifting Bag</option>
-  <option>Mechanical Screw Lift</option>
-  <option>Synchronised Hydraulic Lifting System</option>
-  <option>Jinyun Electric Hydraulic Lifting Machine</option>
-  </optgroup>
-      
       <optgroup label="📦 Other">
         <option>Other</option>
       </optgroup>
