@@ -20,56 +20,132 @@ const T = {
 
 const CSS = `
   *,*::before,*::after{box-sizing:border-box}
-  ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.2);border-radius:99px}
-  input::placeholder{color:rgba(240,246,255,0.28)}select option{background:#0a1420;color:#f0f6ff}
-  .cr{transition:background .12s}.cr:hover{background:rgba(34,211,238,0.03)!important}
+  ::-webkit-scrollbar{width:4px;height:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:rgba(148,163,184,0.2);border-radius:99px}
+  input::placeholder{color:rgba(240,246,255,0.28)}
+  select option{background:#0a1420;color:#f0f6ff}
+  .cr{transition:background .12s}
+  .cr:hover{background:rgba(34,211,238,0.03)!important}
+
+  /* ── DEFAULT: show table, hide mobile cards ── */
   .cert-mob{display:none}
   .cert-tbl{display:block}
+
+  /* ── FILTER GRID ── */
   .cert-filters{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr}
 
-  @media(max-width:1100px){.cert-filters{grid-template-columns:1fr 1fr 1fr}}
+  /* ── STATS GRID ── */
+  .cert-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+
+  /* ── ACTION BUTTONS ── */
+  .act-btns{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+
+  /* ── TOP HEADER ROW ── */
+  .cert-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
+  .cert-top-btns{display:flex;gap:8px;flex-shrink:0}
+
+  /* ══════════════════════════════════════════
+     TABLET LANDSCAPE  ≤1100px
+  ══════════════════════════════════════════ */
+  @media(max-width:1100px){
+    .cert-filters{grid-template-columns:1fr 1fr 1fr}
+    .cert-stats{grid-template-columns:repeat(4,minmax(0,1fr))}
+  }
+
+  /* ══════════════════════════════════════════
+     TABLET PORTRAIT  ≤768px
+  ══════════════════════════════════════════ */
   @media(max-width:768px){
     .cert-page{padding:10px!important}
-    .cert-top{flex-direction:column!important;gap:10px!important;align-items:flex-start!important}
+    .cert-top{flex-direction:column!important;gap:10px!important;align-items:stretch!important}
     .cert-top-btns{width:100%;display:flex!important;gap:8px;flex-wrap:wrap}
-    .cert-top-btns a{flex:1;text-align:center;justify-content:center}
+    .cert-top-btns a{flex:1;min-height:44px;text-align:center;justify-content:center;display:inline-flex;align-items:center}
     .cert-filters{grid-template-columns:1fr 1fr}
+    .cert-stats{grid-template-columns:repeat(2,1fr);gap:8px}
     .cert-tbl{display:none!important}
     .cert-mob{display:grid!important;gap:10px;padding:12px}
     .view-toggle{display:none!important}
+    .act-btns{gap:5px}
   }
+
+  /* ══════════════════════════════════════════
+     MOBILE  ≤480px
+  ══════════════════════════════════════════ */
   @media(max-width:480px){
+    .cert-page{padding:8px!important}
     .cert-filters{grid-template-columns:1fr}
     .cert-top-btns{flex-direction:column}
-    .cert-top-btns a{text-align:center}
+    .cert-top-btns a{width:100%}
+    .cert-stats{grid-template-columns:repeat(2,1fr);gap:6px}
+    .act-btns{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+    .act-btns button,.act-btns a{min-height:44px!important;font-size:12px!important;justify-content:center}
+  }
+
+  /* ══════════════════════════════════════════
+     PRINT — enable graphics on all devices
+     (mobile Safari, Chrome Android, WebKit)
+  ══════════════════════════════════════════ */
+  @media print{
+    *{
+      -webkit-print-color-adjust:exact!important;
+      print-color-adjust:exact!important;
+      color-adjust:exact!important;
+    }
+    img{
+      display:block!important;
+      visibility:visible!important;
+      -webkit-print-color-adjust:exact!important;
+      print-color-adjust:exact!important;
+    }
+    .cert-page{
+      background:#070e18!important;
+      padding:0!important;
+      -webkit-print-color-adjust:exact!important;
+      print-color-adjust:exact!important;
+    }
+    /* Hide UI chrome when printing the list page itself */
+    .cert-top-btns,
+    .cert-filters,
+    .view-toggle,
+    .act-btns button,
+    .act-btns a{
+      display:none!important;
+    }
+    .cert-tbl{display:block!important}
+    .cert-mob{display:none!important}
   }
 `;
 
 function nz(v,fb="—"){if(v===null||v===undefined)return fb;const s=String(v).trim();return s||fb;}
 function normalizeResult(v){const x=String(v||"").toUpperCase().replace(/\s+/g,"_");if(["PASS","FAIL","REPAIR_REQUIRED","OUT_OF_SERVICE"].includes(x))return x;if(x==="CONDITIONAL")return "REPAIR_REQUIRED";return "UNKNOWN";}
 function formatDate(v){if(!v)return "—";const d=new Date(v);if(isNaN(d))return String(v);return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});}
-function daysDiff(v){if(!v)return null;const d=new Date(v);if(isNaN(d))return null;const t=new Date();return Math.round((new Date(d.getFullYear(),d.getMonth(),d.getDate())- new Date(t.getFullYear(),t.getMonth(),t.getDate()))/86400000);}
+function daysDiff(v){if(!v)return null;const d=new Date(v);if(isNaN(d))return null;const t=new Date();return Math.round((new Date(d.getFullYear(),d.getMonth(),d.getDate())-new Date(t.getFullYear(),t.getMonth(),t.getDate()))/86400000);}
 function expiryBucket(v){const d=daysDiff(v);if(d===null)return "NO_EXPIRY";if(d<0)return "EXPIRED";if(d<=30)return "EXPIRING_SOON";if(d<=90)return "EXPIRING_90";return "VALID";}
 
 const RC={
-  PASS:         {label:"Pass",          color:T.green,  bg:T.greenDim,  brd:T.greenBrd},
-  FAIL:         {label:"Fail",          color:T.red,    bg:T.redDim,    brd:T.redBrd},
-  REPAIR_REQUIRED:{label:"Repair req.", color:T.amber,  bg:T.amberDim,  brd:T.amberBrd},
-  OUT_OF_SERVICE: {label:"Out of svc",  color:T.purple, bg:T.purpleDim, brd:T.purpleBrd},
-  UNKNOWN:      {label:"Unknown",       color:T.textDim,bg:T.card,      brd:T.border},
+  PASS:          {label:"Pass",        color:T.green,  bg:T.greenDim,  brd:T.greenBrd},
+  FAIL:          {label:"Fail",        color:T.red,    bg:T.redDim,    brd:T.redBrd},
+  REPAIR_REQUIRED:{label:"Repair req.",color:T.amber,  bg:T.amberDim,  brd:T.amberBrd},
+  OUT_OF_SERVICE: {label:"Out of svc", color:T.purple, bg:T.purpleDim, brd:T.purpleBrd},
+  UNKNOWN:       {label:"Unknown",     color:T.textDim,bg:T.card,      brd:T.border},
 };
 const EC={
-  EXPIRED:      {color:T.red,   bg:T.redDim},
-  EXPIRING_SOON:{color:T.amber, bg:T.amberDim},
-  EXPIRING_90:  {color:T.purple,bg:T.purpleDim},
-  VALID:        {color:T.green, bg:T.greenDim},
+  EXPIRED:      {color:T.red,    bg:T.redDim},
+  EXPIRING_SOON:{color:T.amber,  bg:T.amberDim},
+  EXPIRING_90:  {color:T.purple, bg:T.purpleDim},
+  VALID:        {color:T.green,  bg:T.greenDim},
   NO_EXPIRY:    {color:T.textDim,bg:T.card},
 };
 const rc=v=>RC[v]||RC.UNKNOWN;
 const ec=v=>EC[v]||EC.NO_EXPIRY;
 
 function Badge({label,color,bg,brd}){
-  return <span style={{display:"inline-flex",alignItems:"center",padding:"3px 9px",borderRadius:99,background:bg,color,border:`1px solid ${brd}`,fontSize:10,fontWeight:800,whiteSpace:"nowrap"}}>{label}</span>;
+  return(
+    <span style={{display:"inline-flex",alignItems:"center",padding:"3px 9px",borderRadius:99,background:bg,color,border:`1px solid ${brd}`,fontSize:10,fontWeight:800,whiteSpace:"nowrap"}}>
+      {label}
+    </span>
+  );
 }
 
 function groupCerts(rows){
@@ -77,7 +153,7 @@ function groupCerts(rows){
   const standalone=[];
   for(const r of rows){
     if(r.folder_id){
-      if(!folderMap[r.folder_id]){folderMap[r.folder_id]=[];}
+      if(!folderMap[r.folder_id])folderMap[r.folder_id]=[];
       folderMap[r.folder_id].push(r);
     }else{
       standalone.push(r);
@@ -85,35 +161,32 @@ function groupCerts(rows){
   }
   const folderLeaders=Object.values(folderMap).map(certs=>{
     const sorted=[...certs].sort((a,b)=>(a.folder_position||99)-(b.folder_position||99));
-    return {...sorted[0],_folderCerts:sorted};
+    return{...sorted[0],_folderCerts:sorted};
   });
   const allRows=[...standalone,...folderLeaders];
-
   const g={};
-  for (const r of allRows) {
-    const cl = nz(r.client_name, "UNASSIGNED");
-    const tp = nz(r.equipment_type || r.asset_type, "UNCATEGORIZED");
-    const ds = nz(r.equipment_description || r.asset_name || r.asset_tag, "UNNAMED");
-    if (!g[cl]) g[cl] = {};
-    if (!g[cl][tp]) g[cl][tp] = {};
-    if (!g[cl][tp][ds]) g[cl][tp][ds] = [];
+  for(const r of allRows){
+    const cl=nz(r.client_name,"UNASSIGNED");
+    const tp=nz(r.equipment_type||r.asset_type,"UNCATEGORIZED");
+    const ds=nz(r.equipment_description||r.asset_name||r.asset_tag,"UNNAMED");
+    if(!g[cl])g[cl]={};
+    if(!g[cl][tp])g[cl][tp]={};
+    if(!g[cl][tp][ds])g[cl][tp][ds]=[];
     g[cl][tp][ds].push(r);
   }
-  return Object.keys(g).sort().map(cl => ({
-    client: cl,
-    types: Object.keys(g[cl]).sort().map(tp => ({
-      type: tp,
-      items: Object.keys(g[cl][tp]).sort().map(ds => ({
-        desc: ds,
-        certs: [...g[cl][tp][ds]].sort(
-          (a, b) => new Date(b.issue_date || b.created_at || 0) - new Date(a.issue_date || a.created_at || 0)
-        ),
+  return Object.keys(g).sort().map(cl=>({
+    client:cl,
+    types:Object.keys(g[cl]).sort().map(tp=>({
+      type:tp,
+      items:Object.keys(g[cl][tp]).sort().map(ds=>({
+        desc:ds,
+        certs:[...g[cl][tp][ds]].sort((a,b)=>new Date(b.issue_date||b.created_at||0)-new Date(a.issue_date||a.created_at||0)),
       })),
     })),
   }));
 }
 
-export default function CertificatesPageClient() {
+export default function CertificatesPageClient(){
   const [certs,setCerts]=useState([]);
   const [loading,setLoading]=useState(true);
   const [errTxt,setErrTxt]=useState("");
@@ -158,37 +231,31 @@ export default function CertificatesPageClient() {
     await loadCerts();
   }
 
-  // ── FIXED: use raw certId (UUID), not URL-encoded id ──────────────────────
-  async function unlinkCert(certId) {
-    const cert = certs.find(c => String(c.id) === String(certId));
-    const folderId = cert?.folder_id;
-
-    const { error: e } = await supabase.from("certificates")
-      .update({ folder_id: null, folder_name: null, folder_position: null })
-      .eq("id", certId);
-
-    if (e) { console.error("Unlink failed:", e.message); return; }
-
-    if (folderId) {
-      const { data: remaining } = await supabase.from("certificates")
-        .select("id").eq("folder_id", folderId);
-      if (remaining && remaining.length === 1) {
+  async function unlinkCert(certId){
+    const cert=certs.find(c=>String(c.id)===String(certId));
+    const folderId=cert?.folder_id;
+    const{error:e}=await supabase.from("certificates")
+      .update({folder_id:null,folder_name:null,folder_position:null})
+      .eq("id",certId);
+    if(e){console.error("Unlink failed:",e.message);return;}
+    if(folderId){
+      const{data:remaining}=await supabase.from("certificates").select("id").eq("folder_id",folderId);
+      if(remaining&&remaining.length===1){
         await supabase.from("certificates")
-          .update({ folder_id: null, folder_name: null, folder_position: null })
-          .eq("id", remaining[0].id);
+          .update({folder_id:null,folder_name:null,folder_position:null})
+          .eq("id",remaining[0].id);
       }
     }
-
     await loadCerts();
   }
 
-  async function deleteCert(certId, folderId, certNo) {
-    if (!window.confirm(`Delete ${certNo||"this certificate"}? This cannot be undone.`)) return;
-    await supabase.from("certificates").delete().eq("id", certId);
-    if (folderId) {
-      const { data: remaining } = await supabase.from("certificates").select("id").eq("folder_id", folderId);
-      if (remaining && remaining.length === 1) {
-        await supabase.from("certificates").update({ folder_id:null, folder_name:null, folder_position:null }).eq("id", remaining[0].id);
+  async function deleteCert(certId,folderId,certNo){
+    if(!window.confirm(`Delete ${certNo||"this certificate"}? This cannot be undone.`))return;
+    await supabase.from("certificates").delete().eq("id",certId);
+    if(folderId){
+      const{data:remaining}=await supabase.from("certificates").select("id").eq("folder_id",folderId);
+      if(remaining&&remaining.length===1){
+        await supabase.from("certificates").update({folder_id:null,folder_name:null,folder_position:null}).eq("id",remaining[0].id);
       }
     }
     await loadCerts();
@@ -224,11 +291,17 @@ export default function CertificatesPageClient() {
         nz(r.equipment_type||r.asset_type||ex.equipment_type,null)||
         nz(r.assets?.asset_type,null)||
         "UNCATEGORIZED";
-      return{...r,issue_date:issue,expiry_date:expiry,result:normalizeResult(r.result||ex.result),
+      return{
+        ...r,
+        issue_date:issue,
+        expiry_date:expiry,
+        result:normalizeResult(r.result||ex.result),
         client_name:resolvedClient,
         equipment_type:resolvedEquipType,
         equipment_description:resolvedEquipDesc,
-        status:nz(r.status,"active"),expiry_bucket:expiryBucket(expiry)};
+        status:nz(r.status,"active"),
+        expiry_bucket:expiryBucket(expiry),
+      };
     });
     const oc={};cleaned.forEach(r=>{oc[r.client_name]=true;});
     setOpenClients(oc);setCerts(cleaned);setLoading(false);
@@ -242,13 +315,23 @@ export default function CertificatesPageClient() {
     const q=search.toLowerCase();
     return certs.filter(r=>{
       const hay=[r.certificate_number,r.client_name,r.asset_tag,r.asset_name,r.equipment_description,r.equipment_type,r.inspection_number,r.inspection_no,r.folder_name].filter(Boolean).join(" ").toLowerCase();
-      return(!q||hay.includes(q))&&(fResult==="ALL"||r.result===fResult)&&(!fInspDate||r.inspection_date===fInspDate)&&(fClient==="ALL"||r.client_name===fClient)&&(fType==="ALL"||r.equipment_type===fType)&&(fStatus==="ALL"||r.status===fStatus);
+      return(
+        (!q||hay.includes(q))&&
+        (fResult==="ALL"||r.result===fResult)&&
+        (!fInspDate||r.inspection_date===fInspDate)&&
+        (fClient==="ALL"||r.client_name===fClient)&&
+        (fType==="ALL"||r.equipment_type===fType)&&
+        (fStatus==="ALL"||r.status===fStatus)
+      );
     });
   },[certs,search,fResult,fInspDate,fClient,fType,fStatus]);
 
   const grouped=useMemo(()=>groupCerts(filtered),[filtered]);
   const hasFilters=search||fResult!=="ALL"||fInspDate||fClient!=="ALL"||fType!=="ALL"||fStatus!=="ALL";
-  function clearFilters(){setSearch("");setFResult("ALL");setFInspDate("");setFClient("ALL");setFType("ALL");setFStatus("ALL");}
+
+  function clearFilters(){
+    setSearch("");setFResult("ALL");setFInspDate("");setFClient("ALL");setFType("ALL");setFStatus("ALL");
+  }
 
   const FILTER_CELLS=[
     {label:"Search",type:"input"},
@@ -262,46 +345,56 @@ export default function CertificatesPageClient() {
   return(
     <AppLayout title="Certificates Register">
       <style>{CSS}</style>
-      <div className="cert-page" style={{background:`radial-gradient(ellipse 70% 50% at 0% 0%,rgba(34,211,238,0.06),transparent),radial-gradient(ellipse 60% 50% at 100% 100%,rgba(167,139,250,0.05),transparent),${T.bg}`,color:T.text,fontFamily:"'IBM Plex Sans',sans-serif",padding:20,paddingBottom:60}}>
+      <div className="cert-page" style={{
+        background:`radial-gradient(ellipse 70% 50% at 0% 0%,rgba(34,211,238,0.06),transparent),radial-gradient(ellipse 60% 50% at 100% 100%,rgba(167,139,250,0.05),transparent),${T.bg}`,
+        color:T.text,fontFamily:"'IBM Plex Sans',sans-serif",padding:20,paddingBottom:60,
+        minHeight:"100vh",WebkitTapHighlightColor:"transparent",
+      }}>
         <div style={{maxWidth:1500,margin:"0 auto",display:"grid",gap:16}}>
 
-          {/* HEADER */}
+          {/* ── HEADER ── */}
           <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:20,padding:"18px 20px",backdropFilter:"blur(20px)"}}>
-            <div className="cert-top" style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,marginBottom:14}}>
+            <div className="cert-top">
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
                   <div style={{width:4,height:20,borderRadius:2,background:`linear-gradient(to bottom,${T.accent},rgba(34,211,238,0.3))`,flexShrink:0}}/>
                   <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.14em",textTransform:"uppercase",color:T.accent}}>ISO 9001 · Document Register</span>
                 </div>
-                <h1 style={{margin:0,fontSize:"clamp(18px,3vw,26px)",fontWeight:900,letterSpacing:"-0.02em"}}>Certificates Register</h1>
-                <p style={{margin:"5px 0 0",color:T.textDim,fontSize:12}}>{filtered.length} of {certs.length} records · grouped by client, equipment type, asset</p>
+                <h1 style={{margin:0,fontSize:"clamp(16px,3vw,26px)",fontWeight:900,letterSpacing:"-0.02em"}}>Certificates Register</h1>
+                <p style={{margin:"5px 0 0",color:T.textDim,fontSize:12}}>
+                  {filtered.length} of {certs.length} records · grouped by client, equipment type, asset
+                </p>
               </div>
-              <div className="cert-top-btns" style={{display:"flex",gap:8,flexShrink:0}}>
+              <div className="cert-top-btns">
                 <Link href="/bulk-export" style={S.export}>⬇ Bulk Export</Link>
                 <Link href="/certificates/import" style={S.ghost}>↑ AI Import</Link>
                 <Link href="/certificates/create" style={S.accent}>+ New</Link>
               </div>
             </div>
 
-            {/* Stats row */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:8}}>
+            {/* Stats */}
+            <div className="cert-stats">
               {[
-                {label:"Total",value:certs.length,color:T.accent},
-                {label:"Pass",value:certs.filter(c=>c.result==="PASS").length,color:T.green},
-                {label:"Fail / Repair",value:certs.filter(c=>["FAIL","REPAIR_REQUIRED"].includes(c.result)).length,color:T.red},
-                {label:"Expiring ≤30d",value:certs.filter(c=>c.expiry_bucket==="EXPIRING_SOON").length,color:T.amber},
+                {label:"Total",        value:certs.length,                                                              color:T.accent},
+                {label:"Pass",         value:certs.filter(c=>c.result==="PASS").length,                                 color:T.green},
+                {label:"Fail / Repair",value:certs.filter(c=>["FAIL","REPAIR_REQUIRED"].includes(c.result)).length,     color:T.red},
+                {label:"Expiring ≤30d",value:certs.filter(c=>c.expiry_bucket==="EXPIRING_SOON").length,                 color:T.amber},
               ].map(({label,value,color})=>(
                 <div key={label} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px"}}>
                   <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:T.textDim,marginBottom:4}}>{label}</div>
-                  <div style={{fontSize:22,fontWeight:900,color,lineHeight:1}}>{loading?"…":value}</div>
+                  <div style={{fontSize:"clamp(18px,4vw,22px)",fontWeight:900,color,lineHeight:1}}>{loading?"…":value}</div>
                 </div>
               ))}
             </div>
           </div>
 
-          {errTxt&&<div style={{padding:"10px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,background:T.redDim,color:T.red,fontSize:13,fontWeight:600}}>⚠ {errTxt}</div>}
+          {errTxt&&(
+            <div style={{padding:"10px 14px",borderRadius:10,border:`1px solid ${T.redBrd}`,background:T.redDim,color:T.red,fontSize:13,fontWeight:600}}>
+              ⚠ {errTxt}
+            </div>
+          )}
 
-          {/* LINK TOOLBAR */}
+          {/* ── LINK TOOLBAR ── */}
           {(selectMode||linkMsg)&&(
             <div style={{background:T.surface,border:`1px solid ${T.purpleBrd}`,borderRadius:14,padding:"12px 16px",backdropFilter:"blur(20px)",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
               <span style={{fontSize:13,fontWeight:700,color:T.purple}}>
@@ -311,13 +404,13 @@ export default function CertificatesPageClient() {
               <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
                 {selectMode&&selected.size>=2&&(
                   <button type="button" onClick={linkSelected} disabled={linking}
-                    style={{padding:"8px 16px",borderRadius:9,border:"none",background:"linear-gradient(135deg,#a78bfa,#60a5fa)",color:"#fff",fontWeight:900,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent"}}>
+                    style={{padding:"8px 16px",borderRadius:9,border:"none",background:"linear-gradient(135deg,#a78bfa,#60a5fa)",color:"#fff",fontWeight:900,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent",minHeight:44}}>
                     {linking?"Linking…":`🔗 Link ${selected.size} Certificates`}
                   </button>
                 )}
                 {selectMode&&(
                   <button type="button" onClick={()=>{setSelected(new Set());setLinkMsg("");}}
-                    style={{padding:"8px 14px",borderRadius:9,border:`1px solid ${T.border}`,background:T.card,color:T.textMid,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent"}}>
+                    style={{padding:"8px 14px",borderRadius:9,border:`1px solid ${T.border}`,background:T.card,color:T.textMid,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent",minHeight:44}}>
                     Cancel
                   </button>
                 )}
@@ -325,31 +418,46 @@ export default function CertificatesPageClient() {
             </div>
           )}
 
-          {/* FILTERS */}
+          {/* ── FILTERS ── */}
           <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden",backdropFilter:"blur(20px)"}}>
-            <div style={{padding:"10px 14px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{padding:"10px 14px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
               <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",color:T.textDim}}>Filters</span>
               <div style={{display:"flex",alignItems:"center",gap:12}}>
-                {hasFilters&&<button type="button" onClick={clearFilters} style={{background:"none",border:"none",color:T.textDim,fontSize:11,cursor:"pointer",fontWeight:700}}>Clear ×</button>}
+                {hasFilters&&(
+                  <button type="button" onClick={clearFilters}
+                    style={{background:"none",border:"none",color:T.textDim,fontSize:11,cursor:"pointer",fontWeight:700,WebkitTapHighlightColor:"transparent",minHeight:36,padding:"0 4px"}}>
+                    Clear ×
+                  </button>
+                )}
                 <div className="view-toggle" style={{display:"flex",border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden"}}>
-                  {["grouped","flat"].map(v=><button key={v} type="button" onClick={()=>setView(v)} style={{border:"none",cursor:"pointer",padding:"5px 12px",fontSize:11,fontWeight:700,background:view===v?T.accentDim:"transparent",color:view===v?T.accent:T.textDim,fontFamily:"'IBM Plex Sans',sans-serif"}}>{v==="grouped"?"Grouped":"Flat"}</button>)}
+                  {["grouped","flat"].map(v=>(
+                    <button key={v} type="button" onClick={()=>setView(v)}
+                      style={{border:"none",cursor:"pointer",padding:"6px 14px",fontSize:11,fontWeight:700,background:view===v?T.accentDim:"transparent",color:view===v?T.accent:T.textDim,fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent",minHeight:36}}>
+                      {v==="grouped"?"Grouped":"Flat"}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
             <div className="cert-filters">
               {FILTER_CELLS.map((cell)=>(
-                <div key={cell.label} style={{padding:"10px 12px",borderRight:cell.last?0:`1px solid ${T.border}`,borderBottom:"0"}}>
-                  <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:cell.val&&cell.val!=="ALL"?T.accent:T.textDim,marginBottom:6}}>{cell.label}</div>
+                <div key={cell.label} style={{padding:"10px 12px",borderRight:cell.last?0:`1px solid ${T.border}`}}>
+                  <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:cell.val&&cell.val!=="ALL"?T.accent:T.textDim,marginBottom:6}}>
+                    {cell.label}
+                  </div>
                   {cell.type==="input"?(
-                    <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cert no, client, equipment…"
-                      style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.textMid,fontSize:12,padding:0,fontFamily:"'IBM Plex Sans',sans-serif"}}/>
+                    <input value={search} onChange={e=>setSearch(e.target.value)}
+                      placeholder="Cert no, client, equipment…"
+                      style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.textMid,fontSize:12,padding:0,fontFamily:"'IBM Plex Sans',sans-serif",minHeight:28}}/>
                   ):cell.type==="date"?(
-                    <input type="date" value={cell.val} onChange={e=>{cell.set(e.target.value);}}
-                      style={{width:"100%",background:"transparent",border:"none",outline:"none",color:cell.val?T.accent:T.textMid,fontSize:12,padding:0,fontFamily:"'IBM Plex Sans',sans-serif",colorScheme:"dark"}}/>
+                    <input type="date" value={cell.val} onChange={e=>cell.set(e.target.value)}
+                      style={{width:"100%",background:"transparent",border:"none",outline:"none",color:cell.val?T.accent:T.textMid,fontSize:12,padding:0,fontFamily:"'IBM Plex Sans',sans-serif",colorScheme:"dark",minHeight:28}}/>
                   ):(
                     <select value={cell.val} onChange={e=>cell.set(e.target.value)}
-                      style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.textMid,fontSize:12,cursor:"pointer",padding:0,fontFamily:"'IBM Plex Sans',sans-serif"}}>
-                      {cell.opts.map(o=><option key={o.v} value={o.v} style={{background:"#0a1420",color:"#f0f6ff"}}>{o.l}</option>)}
+                      style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.textMid,fontSize:12,cursor:"pointer",padding:0,fontFamily:"'IBM Plex Sans',sans-serif",minHeight:28}}>
+                      {cell.opts.map(o=>(
+                        <option key={o.v} value={o.v} style={{background:"#0a1420",color:"#f0f6ff"}}>{o.l}</option>
+                      ))}
                     </select>
                   )}
                 </div>
@@ -357,7 +465,7 @@ export default function CertificatesPageClient() {
             </div>
           </div>
 
-          {/* CONTENT */}
+          {/* ── CONTENT ── */}
           {loading?(
             <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:14,padding:40,textAlign:"center",color:T.textDim}}>
               <div style={{fontSize:22,opacity:.4,marginBottom:8}}>⏳</div>
@@ -367,8 +475,15 @@ export default function CertificatesPageClient() {
             <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:14,padding:"44px 20px",textAlign:"center"}}>
               <div style={{fontSize:28,opacity:.3,marginBottom:10}}>📄</div>
               <div style={{fontSize:15,fontWeight:800,marginBottom:5}}>No certificates found</div>
-              <div style={{fontSize:13,color:T.textDim,marginBottom:14}}>{hasFilters?"Try changing your filters.":"No records available yet."}</div>
-              {hasFilters&&<button type="button" onClick={clearFilters} style={{padding:"9px 18px",borderRadius:9,border:`1px solid ${T.accentBrd}`,background:T.accentDim,color:T.accent,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif"}}>Clear Filters</button>}
+              <div style={{fontSize:13,color:T.textDim,marginBottom:14}}>
+                {hasFilters?"Try changing your filters.":"No records available yet."}
+              </div>
+              {hasFilters&&(
+                <button type="button" onClick={clearFilters}
+                  style={{padding:"9px 18px",borderRadius:9,border:`1px solid ${T.accentBrd}`,background:T.accentDim,color:T.accent,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",minHeight:44,WebkitTapHighlightColor:"transparent"}}>
+                  Clear Filters
+                </button>
+              )}
             </div>
           ):view==="flat"?(
             <FlatView certs={filtered} onUnlink={unlinkCert} onDelete={deleteCert} onSelect={toggleSelect} selected={selected} selectMode={selectMode}/>
@@ -380,12 +495,16 @@ export default function CertificatesPageClient() {
               onUnlink={unlinkCert} onDelete={deleteCert} onSelect={toggleSelect}
               selected={selected} selectMode={selectMode}/>
           )}
+
         </div>
       </div>
     </AppLayout>
   );
 }
 
+/* ══════════════════════════════════════════════════════════
+   GROUPED VIEW
+══════════════════════════════════════════════════════════ */
 function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allCerts=[],onUnlink,onDelete,onSelect,selected,selectMode}){
   return(
     <div style={{display:"grid",gap:10}}>
@@ -394,7 +513,8 @@ function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allC
         const count=cg.types.reduce((a,t)=>a+t.items.reduce((b,i)=>b+i.certs.length,0),0);
         return(
           <div key={cg.client} style={{border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden",background:T.panel}}>
-            <button type="button" onClick={()=>toggleClient(cg.client)} style={{width:"100%",border:"none",cursor:"pointer",textAlign:"left",padding:"14px 16px",background:"transparent",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,color:T.text,WebkitTapHighlightColor:"transparent"}}>
+            <button type="button" onClick={()=>toggleClient(cg.client)}
+              style={{width:"100%",border:"none",cursor:"pointer",textAlign:"left",padding:"14px 16px",background:"transparent",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,color:T.text,WebkitTapHighlightColor:"transparent",minHeight:56}}>
               <div>
                 <div style={{fontSize:15,fontWeight:800}}>{cg.client}</div>
                 <div style={{fontSize:11,color:T.textDim,marginTop:3}}>{count} cert{count===1?"":"s"}</div>
@@ -408,7 +528,8 @@ function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allC
                   const tOpen=openTypes[key]??true;
                   return(
                     <div key={key} style={{border:`1px solid ${T.border}`,borderRadius:11,overflow:"hidden",background:T.panel2}}>
-                      <button type="button" onClick={()=>toggleType(key)} style={{width:"100%",border:"none",cursor:"pointer",textAlign:"left",padding:"11px 14px",background:"transparent",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,color:T.text,WebkitTapHighlightColor:"transparent"}}>
+                      <button type="button" onClick={()=>toggleType(key)}
+                        style={{width:"100%",border:"none",cursor:"pointer",textAlign:"left",padding:"11px 14px",background:"transparent",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,color:T.text,WebkitTapHighlightColor:"transparent",minHeight:48}}>
                         <div style={{fontSize:13,fontWeight:800}}>{tg.type}</div>
                         <div style={{fontSize:15,fontWeight:800,color:T.accent,flexShrink:0}}>{tOpen?"−":"+"}</div>
                       </button>
@@ -416,8 +537,11 @@ function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allC
                         <div style={{padding:12,borderTop:`1px solid ${T.border}`,display:"grid",gap:10}}>
                           {tg.items.map(item=>(
                             <div key={`${tg.type}-${item.desc}`} style={{border:`1px solid ${T.border}`,borderRadius:10,overflow:"hidden",background:"rgba(255,255,255,0.015)"}}>
-                              <div style={{padding:"10px 14px",borderBottom:`1px solid ${T.border}`,fontSize:13,fontWeight:800,color:T.text}}>{item.desc}</div>
-                              <div className="cert-tbl" style={{overflowX:"auto"}}>
+                              <div style={{padding:"10px 14px",borderBottom:`1px solid ${T.border}`,fontSize:13,fontWeight:800,color:T.text}}>
+                                {item.desc}
+                              </div>
+                              {/* TABLE — desktop/tablet landscape */}
+                              <div className="cert-tbl" style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
                                 <table style={{width:"100%",borderCollapse:"collapse",minWidth:640}}>
                                   <thead>
                                     <tr style={{background:"rgba(255,255,255,0.02)"}}>
@@ -426,19 +550,30 @@ function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allC
                                       ))}
                                     </tr>
                                   </thead>
-                                  <tbody>{item.certs.map(cert=>{
-                                    if(cert._folderCerts&&cert._folderCerts.length>1){
-                                      return cert._folderCerts.map((fc,fi)=>(
-                                        <CertRow key={fc.id} cert={fc} compact allCerts={allCerts} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}
-                                          folderRow={true} folderFirst={fi===0} folderLast={fi===cert._folderCerts.length-1} folderSize={cert._folderCerts.length}/>
-                                      ));
-                                    }
-                                    return <CertRow key={cert.id} cert={cert} compact allCerts={allCerts} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}/>;
-                                  })}</tbody>
+                                  <tbody>
+                                    {item.certs.map(cert=>{
+                                      if(cert._folderCerts&&cert._folderCerts.length>1){
+                                        return cert._folderCerts.map((fc,fi)=>(
+                                          <CertRow key={fc.id} cert={fc} compact allCerts={allCerts}
+                                            onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect}
+                                            selected={selected} selectMode={selectMode}
+                                            folderRow folderFirst={fi===0} folderLast={fi===cert._folderCerts.length-1} folderSize={cert._folderCerts.length}/>
+                                        ));
+                                      }
+                                      return(
+                                        <CertRow key={cert.id} cert={cert} compact allCerts={allCerts}
+                                          onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect}
+                                          selected={selected} selectMode={selectMode}/>
+                                      );
+                                    })}
+                                  </tbody>
                                 </table>
                               </div>
+                              {/* CARDS — mobile/tablet portrait */}
                               <div className="cert-mob">
-                                {item.certs.map(cert=><CertMobCard key={cert.id} cert={cert} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}/>)}
+                                {item.certs.map(cert=>(
+                                  <CertMobCard key={cert.id} cert={cert} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}/>
+                                ))}
                               </div>
                             </div>
                           ))}
@@ -456,10 +591,13 @@ function GroupedView({grouped,openClients,openTypes,toggleClient,toggleType,allC
   );
 }
 
+/* ══════════════════════════════════════════════════════════
+   FLAT VIEW
+══════════════════════════════════════════════════════════ */
 function FlatView({certs,onUnlink,onDelete,onSelect,selected,selectMode}){
   return(
     <div style={{border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden",background:T.panel}}>
-      <div className="cert-tbl" style={{overflowX:"auto"}}>
+      <div className="cert-tbl" style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:900}}>
           <thead>
             <tr style={{background:"rgba(255,255,255,0.02)"}}>
@@ -468,16 +606,27 @@ function FlatView({certs,onUnlink,onDelete,onSelect,selected,selectMode}){
               ))}
             </tr>
           </thead>
-          <tbody>{certs.map(cert=><CertRow key={cert.id} cert={cert} allCerts={certs} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}/>)}</tbody>
+          <tbody>
+            {certs.map(cert=>(
+              <CertRow key={cert.id} cert={cert} allCerts={certs}
+                onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect}
+                selected={selected} selectMode={selectMode}/>
+            ))}
+          </tbody>
         </table>
       </div>
       <div className="cert-mob">
-        {certs.map(cert=><CertMobCard key={cert.id} cert={cert} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}/>)}
+        {certs.map(cert=>(
+          <CertMobCard key={cert.id} cert={cert} onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect} selected={selected} selectMode={selectMode}/>
+        ))}
       </div>
     </div>
   );
 }
 
+/* ══════════════════════════════════════════════════════════
+   CERT TABLE ROW
+══════════════════════════════════════════════════════════ */
 function CertRow({cert,compact=false,allCerts=[],onUnlink,onDelete,onSelect,selected,selectMode,folderRow=false,folderFirst=false,folderLast=false,folderSize=0}){
   const r=rc(cert.result);const e=ec(cert.expiry_bucket);
   const days=daysDiff(cert.expiry_date);
@@ -490,7 +639,9 @@ function CertRow({cert,compact=false,allCerts=[],onUnlink,onDelete,onSelect,sele
         <td style={{...TD,paddingLeft:folderRow?22:12}}>
           <div style={{display:"flex",alignItems:"center",gap:6}}>
             {folderRow&&<span style={{color:T.purple,fontSize:10}}>{folderFirst?"📁":"  └"}</span>}
-            <span style={{color:T.accent,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",fontSize:12}}>{cert.certificate_number||"—"}</span>
+            <span style={{color:T.accent,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",fontSize:12}}>
+              {cert.certificate_number||"—"}
+            </span>
           </div>
         </td>
         <td style={TD}><Badge label={r.label} color={r.color} bg={r.bg} brd={r.brd}/></td>
@@ -498,23 +649,15 @@ function CertRow({cert,compact=false,allCerts=[],onUnlink,onDelete,onSelect,sele
         <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.expiry_date)}</td>
         <td style={{...TD,fontSize:12,color:T.textMid,textTransform:"capitalize"}}>{nz(cert.status,"active")}</td>
         <td style={TD}>
-          <ActBtns
-            encodedId={encodedId}
-            certId={cert.id}
-            certNo={cert.certificate_number}
-            folderId={cert.folder_id}
-            folderName={cert.folder_name}
-            allCerts={allCerts}
-            onUnlink={onUnlink}
-            onDelete={onDelete}
-            onSelect={onSelect}
-            isSelected={isSelected}
-            selectMode={selectMode}
-          />
+          <ActBtns encodedId={encodedId} certId={cert.id} certNo={cert.certificate_number}
+            folderId={cert.folder_id} folderName={cert.folder_name} allCerts={allCerts}
+            onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect}
+            isSelected={isSelected} selectMode={selectMode}/>
         </td>
       </tr>
     );
   }
+
   return(
     <tr className="cr" style={{borderBottom:`1px solid ${T.border}`}}>
       <td style={TD}><span style={{color:T.accent,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",fontSize:12}}>{cert.certificate_number||"—"}</span></td>
@@ -525,65 +668,72 @@ function CertRow({cert,compact=false,allCerts=[],onUnlink,onDelete,onSelect,sele
       <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.inspection_date||cert.issue_date)}</td>
       <td style={{...TD,fontSize:12,color:T.textMid}}>{formatDate(cert.expiry_date)}</td>
       <td style={TD}>
-        {days!==null?<span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:5,background:e.bg,color:e.color}}>{days<0?`${Math.abs(days)}d ago`:`${days}d`}</span>:<span style={{color:T.textDim,fontSize:12}}>—</span>}
+        {days!==null
+          ?<span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:5,background:e.bg,color:e.color}}>{days<0?`${Math.abs(days)}d ago`:`${days}d`}</span>
+          :<span style={{color:T.textDim,fontSize:12}}>—</span>
+        }
       </td>
       <td style={{...TD,fontSize:12,color:T.textMid,textTransform:"capitalize"}}>{nz(cert.status,"active")}</td>
       <td style={TD}>
-        <ActBtns
-          encodedId={encodedId}
-          certId={cert.id}
-          certNo={cert.certificate_number}
-          folderId={cert.folder_id}
-          folderName={cert.folder_name}
-          allCerts={allCerts}
-          onUnlink={onUnlink}
-          onDelete={onDelete}
-          onSelect={onSelect}
-          isSelected={isSelected}
-          selectMode={selectMode}
-        />
+        <ActBtns encodedId={encodedId} certId={cert.id} certNo={cert.certificate_number}
+          folderId={cert.folder_id} folderName={cert.folder_name} allCerts={allCerts}
+          onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect}
+          isSelected={isSelected} selectMode={selectMode}/>
       </td>
     </tr>
   );
 }
 
+/* ══════════════════════════════════════════════════════════
+   MOBILE CARD
+══════════════════════════════════════════════════════════ */
 function CertMobCard({cert,onUnlink,onDelete,onSelect,selected,selectMode}){
   const r=rc(cert.result);const e=ec(cert.expiry_bucket);
   const days=daysDiff(cert.expiry_date);
   const encodedId=encodeURIComponent(String(cert.id??""));
   const isSelected=selected?.has(cert.id);
   return(
-    <div style={{padding:"13px 14px",borderBottom:`1px solid ${T.border}`,display:"grid",gap:9}}>
+    <div style={{padding:"14px",borderBottom:`1px solid ${T.border}`,display:"grid",gap:10}}>
+      {/* Top row: cert no + badges */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,flexWrap:"wrap"}}>
-        <span style={{color:T.accent,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",fontSize:13}}>{cert.certificate_number||"—"}</span>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        <span style={{color:T.accent,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",fontSize:13,wordBreak:"break-all"}}>
+          {cert.certificate_number||"—"}
+        </span>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",flexShrink:0}}>
           <Badge label={r.label} color={r.color} bg={r.bg} brd={r.brd}/>
-          {days!==null&&<span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:6,background:e.bg,color:e.color}}>{days<0?`${Math.abs(days)}d ago`:`${days}d`}</span>}
+          {days!==null&&(
+            <span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:6,background:e.bg,color:e.color}}>
+              {days<0?`${Math.abs(days)}d ago`:`${days}d`}
+            </span>
+          )}
         </div>
       </div>
-      <div style={{fontSize:12,color:T.textMid}}>{cert.equipment_description} · {cert.equipment_type}</div>
-      <div style={{fontSize:11,color:T.textDim,display:"flex",gap:12,flexWrap:"wrap"}}>
-        {cert.client_name!=="UNASSIGNED"&&<span>{cert.client_name}</span>}
-        <span>Inspected: {formatDate(cert.inspection_date||cert.issue_date)}</span>
-        <span>Expiry: {formatDate(cert.expiry_date)}</span>
+      {/* Equipment info */}
+      <div style={{fontSize:13,color:T.textMid,fontWeight:600}}>
+        {cert.equipment_description}
+        {cert.equipment_type&&cert.equipment_type!=="UNCATEGORIZED"&&(
+          <span style={{fontSize:11,color:T.textDim,fontWeight:400}}> · {cert.equipment_type}</span>
+        )}
       </div>
-      <ActBtns
-        encodedId={encodedId}
-        certId={cert.id}
-        certNo={cert.certificate_number}
-        folderId={cert.folder_id}
-        folderName={cert.folder_name}
-        allCerts={[]}
-        onUnlink={onUnlink}
-        onDelete={onDelete}
-        onSelect={onSelect}
-        isSelected={isSelected}
-        selectMode={selectMode}
-      />
+      {/* Meta row */}
+      <div style={{fontSize:11,color:T.textDim,display:"grid",gridTemplateColumns:"1fr 1fr",gap:"3px 12px"}}>
+        {cert.client_name!=="UNASSIGNED"&&<span>👤 {cert.client_name}</span>}
+        <span>📅 {formatDate(cert.inspection_date||cert.issue_date)}</span>
+        <span>⏰ Exp: {formatDate(cert.expiry_date)}</span>
+        <span style={{textTransform:"capitalize"}}>● {nz(cert.status,"active")}</span>
+      </div>
+      {/* Actions */}
+      <ActBtns encodedId={encodedId} certId={cert.id} certNo={cert.certificate_number}
+        folderId={cert.folder_id} folderName={cert.folder_name} allCerts={[]}
+        onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect}
+        isSelected={isSelected} selectMode={selectMode}/>
     </div>
   );
 }
 
+/* ══════════════════════════════════════════════════════════
+   ACTION BUTTONS
+══════════════════════════════════════════════════════════ */
 function ActBtns({encodedId,certId,certNo,folderId,folderName,allCerts,onUnlink,onDelete,onSelect,isSelected,selectMode}){
   function handlePrint(e){
     e.preventDefault();
@@ -598,11 +748,25 @@ function ActBtns({encodedId,certId,certNo,folderId,folderName,allCerts,onUnlink,
     }
     window.open(`/certificates/print/${encodedId}`,"_blank");
   }
-  const btnBase={display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"6px 11px",borderRadius:8,fontSize:11,fontWeight:800,textDecoration:"none",whiteSpace:"nowrap",cursor:"pointer",fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent",minHeight:32,border:"1px solid"};
+
+  const btnBase={
+    display:"inline-flex",alignItems:"center",justifyContent:"center",
+    padding:"7px 12px",borderRadius:8,fontSize:11,fontWeight:800,
+    textDecoration:"none",whiteSpace:"nowrap",cursor:"pointer",
+    fontFamily:"'IBM Plex Sans',sans-serif",WebkitTapHighlightColor:"transparent",
+    minHeight:40,border:"1px solid",lineHeight:1,
+  };
+
   return(
-    <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-      <Link href={`/certificates/${encodedId}`}      prefetch={false} style={{...btnBase,background:T.accentDim,color:T.accent,borderColor:T.accentBrd}}>View</Link>
-      <Link href={`/certificates/${encodedId}/edit`} prefetch={false} style={{...btnBase,background:T.amberDim,color:T.amber,borderColor:T.amberBrd}}>Edit</Link>
+    <div className="act-btns">
+      <Link href={`/certificates/${encodedId}`} prefetch={false}
+        style={{...btnBase,background:T.accentDim,color:T.accent,borderColor:T.accentBrd}}>
+        View
+      </Link>
+      <Link href={`/certificates/${encodedId}/edit`} prefetch={false}
+        style={{...btnBase,background:T.amberDim,color:T.amber,borderColor:T.amberBrd}}>
+        Edit
+      </Link>
       {folderId?(
         <button type="button" onClick={()=>onUnlink&&onUnlink(certId)}
           style={{...btnBase,background:T.redDim,color:T.red,borderColor:T.redBrd}}>
@@ -611,7 +775,7 @@ function ActBtns({encodedId,certId,certNo,folderId,folderName,allCerts,onUnlink,
       ):(
         <button type="button" onClick={()=>onSelect&&onSelect(certId)}
           style={{...btnBase,background:isSelected?T.purpleDim:T.card,color:isSelected?T.purple:T.textDim,borderColor:isSelected?T.purpleBrd:T.border}}>
-          {isSelected?"✓ Selected":"Select"}
+          {isSelected?"✓ Sel":"Select"}
         </button>
       )}
       <button type="button" onClick={handlePrint}
@@ -626,9 +790,28 @@ function ActBtns({encodedId,certId,certNo,folderId,folderName,allCerts,onUnlink,
   );
 }
 
+/* ══════════════════════════════════════════════════════════
+   SHARED STYLES
+══════════════════════════════════════════════════════════ */
 const TD={padding:"10px 12px",fontSize:13,color:T.textMid,verticalAlign:"top"};
+
 const S={
-  accent:{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"9px 14px",borderRadius:10,border:`1px solid ${T.accentBrd}`,background:T.accentDim,color:T.accent,fontSize:12,fontWeight:900,textDecoration:"none",whiteSpace:"nowrap"},
-  ghost:{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"9px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.card,color:T.textMid,fontSize:12,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap"},
-  export:{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"9px 12px",borderRadius:10,border:`1px solid ${T.greenBrd}`,background:T.greenDim,color:T.green,fontSize:12,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap"},
+  accent:{
+    display:"inline-flex",alignItems:"center",justifyContent:"center",
+    padding:"9px 14px",borderRadius:10,border:`1px solid ${T.accentBrd}`,
+    background:T.accentDim,color:T.accent,fontSize:12,fontWeight:900,
+    textDecoration:"none",whiteSpace:"nowrap",minHeight:40,
+  },
+  ghost:{
+    display:"inline-flex",alignItems:"center",justifyContent:"center",
+    padding:"9px 12px",borderRadius:10,border:`1px solid ${T.border}`,
+    background:T.card,color:T.textMid,fontSize:12,fontWeight:700,
+    textDecoration:"none",whiteSpace:"nowrap",minHeight:40,
+  },
+  export:{
+    display:"inline-flex",alignItems:"center",justifyContent:"center",
+    padding:"9px 12px",borderRadius:10,border:`1px solid ${T.greenBrd}`,
+    background:T.greenDim,color:T.green,fontSize:12,fontWeight:700,
+    textDecoration:"none",whiteSpace:"nowrap",minHeight:40,
+  },
 };
