@@ -9,6 +9,7 @@ const MODEL = "gemini-2.5-flash";
 const FILE_API_BASE = "https://generativelanguage.googleapis.com";
 const MAX_RETRIES = 5;
 
+/* ── KEY POOL with per-key cooldown tracking ─────────────── */
 const KEY_POOL = [
   process.env.GEMINI_API_KEY,
   process.env.GEMINI_API_KEY_2,
@@ -19,18 +20,62 @@ const KEY_POOL = [
 
 if (KEY_POOL.length === 0) throw new Error("No GEMINI_API_KEY set in environment.");
 
+// Per-key cooldown: tracks when each key is next available
+const keyCooldowns = new Map(KEY_POOL.map(k => [k, 0]));
+
 const PER_KEY_DELAY_MS = 12000;
 const EFFECTIVE_DELAY_MS = Math.ceil(PER_KEY_DELAY_MS / KEY_POOL.length);
 
 console.log(`Gemini key pool: ${KEY_POOL.length} key(s), effective delay: ${EFFECTIVE_DELAY_MS}ms`);
 
 let keyIndex = 0;
-function nextKey() {
-  const key = KEY_POOL[keyIndex % KEY_POOL.length];
-  keyIndex++;
-  return key;
+
+/**
+ * Returns the next available key, respecting per-key cooldowns.
+ * If all keys are on cooldown, waits for the soonest-available one.
+ */
+async function nextKey() {
+  const now = Date.now();
+
+  // Find a key that's already available
+  for (let i = 0; i < KEY_POOL.length; i++) {
+    const idx = (keyIndex + i) % KEY_POOL.length;
+    const key = KEY_POOL[idx];
+    if ((keyCooldowns.get(key) || 0) <= now) {
+      keyIndex = (idx + 1) % KEY_POOL.length;
+      keyCooldowns.set(key, now + PER_KEY_DELAY_MS);
+      return key;
+    }
+  }
+
+  // All keys on cooldown — wait for the soonest available
+  let soonestKey = KEY_POOL[0];
+  let soonestTime = keyCooldowns.get(KEY_POOL[0]) || 0;
+  for (const k of KEY_POOL) {
+    const t = keyCooldowns.get(k) || 0;
+    if (t < soonestTime) { soonestTime = t; soonestKey = k; }
+  }
+
+  const wait = soonestTime - now;
+  if (wait > 0) {
+    console.log(`All keys on cooldown. Waiting ${Math.round(wait / 1000)}s for next available key…`);
+    await sleep(wait);
+  }
+
+  keyCooldowns.set(soonestKey, Date.now() + PER_KEY_DELAY_MS);
+  return soonestKey;
 }
 
+/**
+ * Mark a key as rate-limited for an extended cooldown.
+ */
+function penalizeKey(key, extraMs = 60000) {
+  const current = keyCooldowns.get(key) || Date.now();
+  keyCooldowns.set(key, Math.max(current, Date.now() + extraMs));
+  console.warn(`Key penalized for ${Math.round(extraMs / 1000)}s due to rate limit.`);
+}
+
+/* ── SCHEMAS ─────────────────────────────────────────────── */
 const RESPONSE_SCHEMA = {
   type: "object",
   properties: {
@@ -67,7 +112,6 @@ const RESPONSE_SCHEMA = {
   required: ["equipment_type", "result"],
 };
 
-// ── List mode schema — strict: forces { items: [...] } shape ──────────────
 const LIST_ITEM_SCHEMA = {
   type: "object",
   properties: {
@@ -89,6 +133,7 @@ const LIST_RESPONSE_SCHEMA = {
   required: ["items"],
 };
 
+/* ── UTILITIES ───────────────────────────────────────────── */
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function sanitize(v) { return v == null ? "" : String(v).trim(); }
 
@@ -99,29 +144,32 @@ function normalizeResult(v) {
   return "UNKNOWN";
 }
 
-/* ─────────────────────────────────────────────────────────
-   extractJsonFromPayload — THE CORE FIX
-   
-   Gemini returns JSON in two different ways depending on config:
-   1. When responseMimeType = "application/json" + responseSchema:
-      The JSON is already parsed and available in parts[0].text
-      as a raw JSON string (no markdown fences).
-   2. When using plain text generation:
-      The JSON is wrapped in ```json ... ``` markdown.
-   
-   We handle BOTH cases plus a third: sometimes the model
-   ignores the schema and returns plain text description.
-   
-   Priority order:
-   a) Try parts[0].text as raw JSON (most reliable with schema)
-   b) Strip markdown fences and try again
-   c) Find first { } or [ ] block in the full text
-   d) Return null (caller handles error)
-───────────────────────────────────────────────────────── */
+/**
+ * fetchWithTimeout — wraps fetch with an AbortController timeout.
+ * Prevents individual Gemini calls from hanging indefinitely.
+ */
+async function fetchWithTimeout(url, options, timeoutMs = 90000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err.name === "AbortError") throw new Error(`Request timed out after ${timeoutMs / 1000}s`);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * extractJsonFromPayload — handles all Gemini response formats:
+ * a) Raw JSON string (schema mode)
+ * b) Markdown-fenced JSON
+ * c) First { } block in text
+ * d) First [ ] block in text
+ */
 function extractJsonFromPayload(payload) {
   const parts = payload?.candidates?.[0]?.content?.parts || [];
-  
-  // Collect all text from all parts
   const allText = parts
     .map(p => (typeof p?.text === "string" ? p.text : ""))
     .join("")
@@ -129,10 +177,10 @@ function extractJsonFromPayload(payload) {
 
   if (!allText) return null;
 
-  // Attempt a: direct parse (works when Gemini returns clean JSON with schema)
+  // a) Direct parse
   try { return JSON.parse(allText); } catch {}
 
-  // Attempt b: strip markdown fences
+  // b) Strip markdown fences
   const stripped = allText
     .replace(/^```json\s*/im, "")
     .replace(/^```\s*/im, "")
@@ -140,14 +188,14 @@ function extractJsonFromPayload(payload) {
     .trim();
   try { return JSON.parse(stripped); } catch {}
 
-  // Attempt c: extract first complete JSON object
+  // c) First complete JSON object
   const oi = stripped.indexOf("{");
   const oj = stripped.lastIndexOf("}");
   if (oi >= 0 && oj > oi) {
     try { return JSON.parse(stripped.slice(oi, oj + 1)); } catch {}
   }
 
-  // Attempt d: extract first JSON array (bare array fallback)
+  // d) First JSON array
   const ai = stripped.indexOf("[");
   const aj = stripped.lastIndexOf("]");
   if (ai >= 0 && aj > ai) {
@@ -158,48 +206,36 @@ function extractJsonFromPayload(payload) {
   return null;
 }
 
-/* ─────────────────────────────────────────────────────────
-   normalizeListResult — ensures we always get { items: [...] }
-   regardless of what shape the model returned
-───────────────────────────────────────────────────────── */
+/**
+ * normalizeListResult — ensures { items: [...] } regardless of model shape.
+ */
 function normalizeListResult(parsed) {
   if (!parsed) return null;
+  if (parsed.items && Array.isArray(parsed.items)) return parsed;
+  if (Array.isArray(parsed)) return { items: parsed };
 
-  // Already correct shape
-  if (parsed.items && Array.isArray(parsed.items)) {
-    return parsed;
-  }
-
-  // Bare array returned
-  if (Array.isArray(parsed)) {
-    return { items: parsed };
-  }
-
-  // Model used a different key
   const altKeys = ["certificates", "equipment", "results", "data", "list", "records", "entries"];
   for (const key of altKeys) {
-    if (Array.isArray(parsed[key])) {
-      return { items: parsed[key] };
-    }
+    if (Array.isArray(parsed[key])) return { items: parsed[key] };
   }
 
-  // Model returned a single item object (no array at all)
-  if (parsed.equipment_type || parsed.serial_number) {
-    return { items: [parsed] };
-  }
+  if (parsed.equipment_type || parsed.serial_number) return { items: [parsed] };
 
-  // Last resort: look for any array value in the object
   for (const val of Object.values(parsed)) {
-    if (Array.isArray(val) && val.length > 0) {
-      return { items: val };
-    }
+    if (Array.isArray(val) && val.length > 0) return { items: val };
   }
 
   return null;
 }
 
+function countDocFields(parsed) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return 0;
+  return Object.values(parsed).filter(v => v != null && String(v).trim() !== "").length;
+}
+
+/* ── FILE UPLOAD ─────────────────────────────────────────── */
 async function uploadFile(bytes, mimeType, displayName, apiKey) {
-  const startRes = await fetch(
+  const startRes = await fetchWithTimeout(
     `${FILE_API_BASE}/upload/v1beta/files?key=${apiKey}`,
     {
       method: "POST",
@@ -211,33 +247,45 @@ async function uploadFile(bytes, mimeType, displayName, apiKey) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ file: { display_name: displayName } }),
-    }
+    },
+    30000
   );
   if (!startRes.ok) throw new Error(`Upload start failed: ${startRes.status}`);
+
   const uploadUrl = startRes.headers.get("x-goog-upload-url");
   if (!uploadUrl) throw new Error("No upload URL returned");
 
-  const uploadRes = await fetch(uploadUrl, {
-    method: "POST",
-    headers: {
-      "Content-Length": String(bytes.byteLength),
-      "X-Goog-Upload-Offset": "0",
-      "X-Goog-Upload-Command": "upload, finalize",
+  const uploadRes = await fetchWithTimeout(
+    uploadUrl,
+    {
+      method: "POST",
+      headers: {
+        "Content-Length": String(bytes.byteLength),
+        "X-Goog-Upload-Offset": "0",
+        "X-Goog-Upload-Command": "upload, finalize",
+      },
+      body: bytes,
     },
-    body: bytes,
-  });
+    60000
+  );
+
   const uploadJson = await uploadRes.json().catch(() => null);
   if (!uploadRes.ok || !uploadJson?.file) {
     throw new Error(uploadJson?.error?.message || `Upload failed: ${uploadRes.status}`);
   }
 
+  // Poll until ACTIVE
   let file = uploadJson.file;
   for (let i = 0; i < 20; i++) {
     const state = file?.state || "";
     if (state === "ACTIVE" || state === "FILE_STATE_ACTIVE") return file;
     if (state === "FAILED" || state === "FILE_STATE_FAILED") throw new Error("File processing failed");
     await sleep(1500);
-    const pollRes = await fetch(`${FILE_API_BASE}/v1beta/${file.name}?key=${apiKey}`);
+    const pollRes = await fetchWithTimeout(
+      `${FILE_API_BASE}/v1beta/${file.name}?key=${apiKey}`,
+      {},
+      15000
+    );
     file = await pollRes.json().catch(() => file);
   }
   throw new Error("File did not become ACTIVE in time");
@@ -246,20 +294,25 @@ async function uploadFile(bytes, mimeType, displayName, apiKey) {
 async function deleteFile(name, apiKey) {
   if (!name) return;
   try {
-    await fetch(`${FILE_API_BASE}/v1beta/${name}?key=${apiKey}`, { method: "DELETE" });
+    await fetchWithTimeout(
+      `${FILE_API_BASE}/v1beta/${name}?key=${apiKey}`,
+      { method: "DELETE" },
+      10000
+    );
   } catch {}
 }
 
-/* ─────────────────────────────────────────────────────────
-   callGemini — two-shot strategy for list mode
-   
-   Shot 1: Use responseSchema (structured output) — most reliable
-   Shot 2: If shot 1 returns empty/null, fall back to plain text
-           generation with a very explicit prompt, then parse manually
-───────────────────────────────────────────────────────── */
+/* ── GEMINI CALL ─────────────────────────────────────────── */
+/**
+ * callGemini — two-shot strategy with per-key penalization on 429.
+ *
+ * Shot 1: responseSchema (structured output) — most reliable
+ * Shot 2: plain JSON fallback if shot 1 returns empty/null
+ */
 async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, listMode = false) {
 
-  async function makeRequest(useSchema) {
+  async function makeRequest(useSchema, keyOverride) {
+    const key = keyOverride || apiKey;
     const body = {
       system_instruction: { parts: [{ text: systemPrompt }] },
       contents: [{
@@ -283,18 +336,43 @@ async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, listMode
     };
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      const res = await fetch(
-        `${FILE_API_BASE}/v1beta/models/${MODEL}:generateContent?key=${apiKey}`,
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-      );
+      let res;
+      try {
+        res = await fetchWithTimeout(
+          `${FILE_API_BASE}/v1beta/models/${MODEL}:generateContent?key=${key}`,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+          120000 // 2 min per generation call
+        );
+      } catch (fetchErr) {
+        // Timeout or network error — retry with backoff
+        const waitMs = 5000 * Math.pow(2, attempt);
+        console.warn(`[${fileName}] Fetch error attempt ${attempt + 1}: ${fetchErr.message}. Waiting ${Math.round(waitMs / 1000)}s…`);
+        if (attempt < MAX_RETRIES - 1) { await sleep(waitMs); continue; }
+        throw fetchErr;
+      }
 
-      if (res.status === 429 || res.status === 503 || res.status === 500) {
+      // Rate limited — penalize this key and try a fresh one
+      if (res.status === 429) {
+        penalizeKey(key, 60000 * (attempt + 1));
         const retryAfter = parseInt(res.headers.get("retry-after") || "0") * 1000;
-        const baseWait = res.status === 429 ? EFFECTIVE_DELAY_MS : 15000;
-        const waitMs = Math.max(retryAfter, baseWait * Math.pow(2, attempt));
-        console.log(`Gemini ${res.status} attempt ${attempt + 1}/${MAX_RETRIES}. Waiting ${Math.round(waitMs / 1000)}s...`);
+        const waitMs = Math.max(retryAfter, EFFECTIVE_DELAY_MS * Math.pow(2, attempt));
+        console.log(`[${fileName}] 429 attempt ${attempt + 1}/${MAX_RETRIES}. Waiting ${Math.round(waitMs / 1000)}s…`);
         await sleep(waitMs);
+
+        // Switch to a different key for next attempt
+        const freshKey = await nextKey();
+        if (freshKey !== key) {
+          console.log(`[${fileName}] Switching to fresh key for retry.`);
+          return makeRequest(useSchema, freshKey);
+        }
         continue;
+      }
+
+      // Transient server errors
+      if (res.status === 503 || res.status === 500) {
+        const waitMs = 15000 * Math.pow(2, attempt);
+        console.log(`[${fileName}] ${res.status} attempt ${attempt + 1}/${MAX_RETRIES}. Waiting ${Math.round(waitMs / 1000)}s…`);
+        if (attempt < MAX_RETRIES - 1) { await sleep(waitMs); continue; }
       }
 
       const json = await res.json().catch(() => null);
@@ -305,16 +383,20 @@ async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, listMode
         throw new Error(`Gemini blocked: ${finishReason}`);
       }
       if (finishReason === "MAX_TOKENS") {
-        // Response was truncated — log but continue; extractJsonFromPayload will do its best
         console.warn(`[${fileName}] Response truncated (MAX_TOKENS). JSON may be incomplete.`);
       }
 
-      // Check for overload message in 200 response
-      const textCheck = (json?.candidates?.[0]?.content?.parts || []).map(p => p?.text || "").join("");
-      if (textCheck.toLowerCase().includes("experiencing high demand") || textCheck.toLowerCase().includes("try again later")) {
+      // Detect overload messages in 200 responses
+      const textCheck = (json?.candidates?.[0]?.content?.parts || [])
+        .map(p => p?.text || "").join("").toLowerCase();
+      if (
+        textCheck.includes("experiencing high demand") ||
+        textCheck.includes("try again later") ||
+        textCheck.includes("temporarily unavailable")
+      ) {
         if (attempt < MAX_RETRIES - 1) {
           const waitMs = 20000 * (attempt + 1);
-          console.log(`Gemini overload in 200. Waiting ${waitMs / 1000}s...`);
+          console.log(`[${fileName}] Gemini overload in 200. Waiting ${Math.round(waitMs / 1000)}s…`);
           await sleep(waitMs);
           continue;
         }
@@ -325,75 +407,80 @@ async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, listMode
     throw new Error("Gemini is overloaded after all retries.");
   }
 
-  // Count meaningful fields in a parsed document result
-  function countDocFields(parsed) {
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return 0;
-    return Object.values(parsed).filter(v => v != null && String(v).trim() !== "").length;
-  }
-
-  // Shot 1: with schema
-  const json1 = await makeRequest(true);
+  // ── Shot 1: with schema ──────────────────────────────────
+  const json1 = await makeRequest(true, null);
   const parsed1 = extractJsonFromPayload(json1);
 
   if (listMode) {
     const normalized1 = normalizeListResult(parsed1);
     if (normalized1 && normalized1.items.length > 0) {
-      console.log(`[${fileName}] Schema shot: ${normalized1.items.length} items extracted ✓`);
+      console.log(`[${fileName}] Schema shot: ${normalized1.items.length} items ✓`);
       return { payload: json1, parsed: normalized1 };
     }
 
-    // Shot 2: no schema, plain JSON output — sometimes more reliable for messy handwriting
-    console.log(`[${fileName}] Schema shot returned 0 items. Trying plain JSON fallback...`);
-    const json2 = await makeRequest(false);
+    // Shot 2: plain JSON — better for messy handwriting
+    console.log(`[${fileName}] Schema shot 0 items. Trying plain JSON fallback…`);
+    await sleep(EFFECTIVE_DELAY_MS);
+    const json2 = await makeRequest(false, await nextKey());
     const parsed2 = extractJsonFromPayload(json2);
     const normalized2 = normalizeListResult(parsed2);
 
     if (normalized2 && normalized2.items.length > 0) {
-      console.log(`[${fileName}] Plain JSON fallback: ${normalized2.items.length} items extracted ✓`);
+      console.log(`[${fileName}] Plain JSON fallback: ${normalized2.items.length} items ✓`);
       return { payload: json2, parsed: normalized2 };
     }
 
-    // Both shots returned 0 items — return whatever we have (even empty)
     console.warn(`[${fileName}] Both shots returned 0 items.`);
     return { payload: json1, parsed: normalized1 || { items: [] } };
   }
 
-  // ── Document mode: two-shot with fallback ────────────────────────────────
-  // Shot 1 result check: schema can force empty strings for all fields,
-  // giving a technically valid but useless {} object. Detect this.
+  // ── Document mode two-shot ───────────────────────────────
   const fields1 = countDocFields(parsed1);
   if (fields1 >= 2) {
-    // Good result — has meaningful data
-    console.log(`[${fileName}] Doc schema shot: ${fields1} fields extracted ✓`);
+    console.log(`[${fileName}] Doc schema shot: ${fields1} fields ✓`);
     return { payload: json1, parsed: parsed1 };
   }
 
-  // Shot 1 returned empty or near-empty — try without schema
-  console.log(`[${fileName}] Doc schema shot returned ${fields1} fields. Trying plain JSON fallback...`);
-  const json2 = await makeRequest(false);
+  console.log(`[${fileName}] Doc schema shot ${fields1} fields. Trying plain JSON fallback…`);
+  await sleep(EFFECTIVE_DELAY_MS);
+  const json2 = await makeRequest(false, await nextKey());
   const parsed2 = extractJsonFromPayload(json2);
   const fields2 = countDocFields(parsed2);
 
   if (fields2 >= fields1) {
-    console.log(`[${fileName}] Doc plain JSON fallback: ${fields2} fields extracted ✓`);
+    console.log(`[${fileName}] Doc plain JSON fallback: ${fields2} fields ✓`);
     return { payload: json2, parsed: parsed2 };
   }
 
-  // Fallback was worse — return whichever had more fields
-  console.warn(`[${fileName}] Both doc shots weak (${fields1} vs ${fields2} fields). Using best.`);
+  console.warn(`[${fileName}] Both doc shots weak (${fields1} vs ${fields2}). Using best.`);
   return { payload: json1, parsed: parsed1 };
 }
 
+/* ── PROCESS ONE FILE ────────────────────────────────────── */
 async function processOneFile(fileData, systemPrompt, listMode = false) {
   const { fileName, mimeType, base64Data } = fileData;
   let uploadedFile = null;
-  const apiKey = nextKey();
+  const apiKey = await nextKey();
 
   try {
     const bytes = Buffer.from(base64Data, "base64");
+
+    // Validate file size (Gemini File API limit: 20MB)
+    const sizeMB = bytes.byteLength / (1024 * 1024);
+    if (sizeMB > 20) {
+      return {
+        fileName,
+        ok: false,
+        error: `File too large (${sizeMB.toFixed(1)}MB). Maximum is 20MB. Please compress the image or PDF.`,
+      };
+    }
+
+    console.log(`[${fileName}] Uploading ${sizeMB.toFixed(2)}MB as ${mimeType}…`);
     uploadedFile = await uploadFile(bytes, mimeType, fileName, apiKey);
 
-    const { payload, parsed } = await callGemini(uploadedFile, fileName, systemPrompt, apiKey, listMode);
+    const { payload, parsed } = await callGemini(
+      uploadedFile, fileName, systemPrompt, apiKey, listMode
+    );
 
     if (!parsed || typeof parsed !== "object") {
       return {
@@ -403,6 +490,7 @@ async function processOneFile(fileData, systemPrompt, listMode = false) {
       };
     }
 
+    // ── LIST MODE ────────────────────────────────────────
     if (listMode) {
       const itemCount = parsed.items?.length || 0;
       console.log(`[${fileName}] list mode: ${itemCount} items`);
@@ -411,11 +499,10 @@ async function processOneFile(fileData, systemPrompt, listMode = false) {
         return {
           fileName,
           ok: false,
-          error: `No items could be extracted. Got 0 items from model. Try a higher-resolution photo with good lighting.`,
+          error: "No items could be extracted. Try a higher-resolution photo with good lighting.",
         };
       }
 
-      // Sanitize each item
       const sanitizedItems = (parsed.items || []).map(item => ({
         equipment_type:        sanitize(item.equipment_type) || "Other",
         serial_number:         sanitize(item.serial_number),
@@ -433,24 +520,23 @@ async function processOneFile(fileData, systemPrompt, listMode = false) {
       };
     }
 
-    // Document mode
+    // ── DOCUMENT MODE ────────────────────────────────────
     const data = {};
     for (const [k, v] of Object.entries(parsed)) {
       data[k] = sanitize(v);
     }
     data.result = normalizeResult(data.result);
 
-    // Surface a proper error if the model returned essentially nothing
     const meaningfulFields = Object.values(data).filter(v => v && String(v).trim()).length;
     if (meaningfulFields < 2) {
       return {
         fileName,
         ok: false,
-        error: `AI extracted 0 usable fields from this file. The document may be encrypted, image-only, or too low resolution. Try a clearer scan or a text-based PDF.`,
+        error: "AI extracted 0 usable fields. The document may be encrypted, image-only, or too low resolution. Try a clearer scan or text-based PDF.",
       };
     }
 
-    console.log(`[${fileName}] doc mode: ${meaningfulFields} fields extracted ✓`);
+    console.log(`[${fileName}] doc mode: ${meaningfulFields} fields ✓`);
     return { fileName, ok: true, data, usage: payload?.usageMetadata || null };
 
   } catch (err) {
@@ -461,6 +547,7 @@ async function processOneFile(fileData, systemPrompt, listMode = false) {
   }
 }
 
+/* ── ROUTE HANDLER ───────────────────────────────────────── */
 export async function POST(request) {
   try {
     if (KEY_POOL.length === 0) {
@@ -478,26 +565,46 @@ export async function POST(request) {
       );
     }
 
+    // Guard: cap batch size to avoid 300s timeout
+    const MAX_BATCH = 20;
+    if (body.files.length > MAX_BATCH) {
+      return NextResponse.json(
+        { error: `Batch too large. Maximum ${MAX_BATCH} files per request.` },
+        { status: 400 }
+      );
+    }
+
     const systemPrompt =
       body.systemPrompt ||
       "Extract structured JSON from the provided inspection certificate document. Return only valid JSON.";
 
     const results = [];
+    const isListMode = body.listMode === true;
 
     for (let i = 0; i < body.files.length; i++) {
       const file = body.files[i];
-      const isListMode = body.listMode === true;
       console.log(`Processing ${i + 1}/${body.files.length}: ${file.fileName} (listMode: ${isListMode})`);
 
       const result = await processOneFile(file, systemPrompt, isListMode);
       results.push(result);
 
+      // Delay between files to respect rate limits (skip after last)
       if (i < body.files.length - 1) {
         await sleep(EFFECTIVE_DELAY_MS);
       }
     }
 
-    return NextResponse.json({ results, model: MODEL, processed: results.length });
+    const successCount = results.filter(r => r.ok).length;
+    console.log(`Batch complete: ${successCount}/${results.length} succeeded.`);
+
+    return NextResponse.json({
+      results,
+      model: MODEL,
+      processed: results.length,
+      succeeded: successCount,
+      failed: results.length - successCount,
+    });
+
   } catch (err) {
     console.error("AI extract error:", err);
     return NextResponse.json(
