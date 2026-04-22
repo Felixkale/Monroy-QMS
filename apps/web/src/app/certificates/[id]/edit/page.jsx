@@ -26,6 +26,12 @@ function normalizeId(v){ return Array.isArray(v) ? v[0] : v; }
 function toDate(v){ if(!v) return ""; const d = new Date(v); return isNaN(d.getTime()) ? "" : d.toISOString().slice(0,10); }
 
 /* ─────────────────────────────────────────────────────────────
+   EQUIPMENT TYPE DETECTORS
+───────────────────────────────────────────────────────────── */
+function isCherryPicker(t) { return /cherry.picker|aerial.work.platform|boom.lift|awp/i.test(t || ""); }
+function isWireRopeSling(t) { return /wire.rope.sling|wire rope sling/i.test(t || ""); }
+
+/* ─────────────────────────────────────────────────────────────
    INSPECTION DATA HELPERS
 ───────────────────────────────────────────────────────────── */
 
@@ -44,6 +50,8 @@ function getSectionLabel(key) {
     forks: "Fork Arms",
     horse: "Horse / Prime Mover",
     trailer: "Trailer",
+    sling_details: "Sling Details",
+    condition_assessment: "Condition Assessment",
   };
   return map[key] || formatFieldLabel(key);
 }
@@ -75,6 +83,10 @@ function normalizeSectionPathKey(section) {
     "horse / prime mover": "horse",
     "prime mover": "horse",
     trailer: "trailer",
+    "sling details": "sling_details",
+    sling_details: "sling_details",
+    "condition assessment": "condition_assessment",
+    condition_assessment: "condition_assessment",
   };
   return aliasMap[raw] || raw.replace(/\s+/g, "_");
 }
@@ -392,6 +404,84 @@ function parseCherryPickerNotes(notesStr) {
   };
 }
 
+/* ── Wire Rope Sling helpers ── */
+function buildWireRopeSlingNotes(wrs) {
+  const sling_details = {};
+  const condition_assessment = {};
+
+  const detailKeys = ["type","diameter_mm","length_m","num_legs","construction","core_type","swl"];
+  detailKeys.forEach(k => { if (wrs[k] !== undefined && wrs[k] !== "") sling_details[k] = wrs[k]; });
+
+  const conditionKeys = [
+    "corrosion","broken_wires","rope_kinks_deforming","reduction_in_diameter",
+    "condition_of_end_fittings","bird_caging_core_protrusion","serviceability","overall_assessment",
+  ];
+  conditionKeys.forEach(k => { if (wrs[k] !== undefined && wrs[k] !== "") condition_assessment[k] = wrs[k]; });
+
+  if (wrs.notes) condition_assessment.notes = wrs.notes;
+
+  const out = {};
+  if (Object.keys(sling_details).length)      out.sling_details      = sling_details;
+  if (Object.keys(condition_assessment).length) out.condition_assessment = condition_assessment;
+  return JSON.stringify(out);
+}
+
+function parseWireRopeSlingNotes(notesStr) {
+  const def = {
+    // Sling Details
+    type:"Wire Rope Sling",
+    diameter_mm:"",
+    length_m:"",
+    num_legs:"",
+    construction:"",
+    core_type:"",
+    swl:"",
+    // Condition Assessment
+    corrosion:"none",
+    broken_wires:"none",
+    rope_kinks_deforming:"none",
+    reduction_in_diameter:"none",
+    condition_of_end_fittings:"Good",
+    bird_caging_core_protrusion:"None",
+    serviceability:"Serviceable",
+    overall_assessment:"PASS",
+    notes:"",
+  };
+  if (!notesStr) return def;
+  let parsed = {};
+  try { parsed = JSON.parse(notesStr); } catch(e) { return def; }
+
+  const sd = parsed.sling_details || {};
+  const ca = parsed.condition_assessment || {};
+
+  // Also support flat structure or legacy keys
+  const g = (obj, ...keys) => {
+    for (const k of keys) {
+      if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== "") return String(obj[k]);
+    }
+    return "";
+  };
+
+  return {
+    type:                      g(sd,"type") || g(parsed,"type") || "Wire Rope Sling",
+    diameter_mm:               g(sd,"diameter_mm","diameter") || g(parsed,"diameter_mm","diameter"),
+    length_m:                  g(sd,"length_m","length") || g(parsed,"length_m","length"),
+    num_legs:                  g(sd,"num_legs","number_of_legs","legs") || g(parsed,"num_legs","number_of_legs"),
+    construction:              g(sd,"construction") || g(parsed,"construction"),
+    core_type:                 g(sd,"core_type","core") || g(parsed,"core_type","core"),
+    swl:                       g(sd,"swl","capacity","capacity_volume") || g(parsed,"swl","capacity"),
+    corrosion:                 g(ca,"corrosion") || g(parsed,"corrosion") || "none",
+    broken_wires:              g(ca,"broken_wires") || g(parsed,"broken_wires") || "none",
+    rope_kinks_deforming:      g(ca,"rope_kinks_deforming","rope_kinks","kinks") || g(parsed,"rope_kinks_deforming") || "none",
+    reduction_in_diameter:     g(ca,"reduction_in_diameter","diameter_reduction") || g(parsed,"reduction_in_diameter") || "none",
+    condition_of_end_fittings: g(ca,"condition_of_end_fittings","end_fittings","ferrule") || g(parsed,"condition_of_end_fittings") || "Good",
+    bird_caging_core_protrusion: g(ca,"bird_caging_core_protrusion","bird_caging","core_protrusion") || g(parsed,"bird_caging_core_protrusion") || "None",
+    serviceability:            g(ca,"serviceability") || g(parsed,"serviceability") || "Serviceable",
+    overall_assessment:        g(ca,"overall_assessment","result") || g(parsed,"overall_assessment") || "PASS",
+    notes:                     g(ca,"notes","comments","remarks") || g(parsed,"notes","comments") || "",
+  };
+}
+
 function parseNotesPipe(str) {
   if (!str) return [];
   return str.split("|").map(part => {
@@ -425,7 +515,7 @@ function getEditableInspectionSource(data) {
 function mergeInspectionData(baseExtractedData, notesString, notesMode) {
   const base = safeJsonParse(baseExtractedData, {});
   if (!notesString) return base;
-  if ((notesMode === "json" || notesMode === "cherry") && isJsonNotes(notesString)) {
+  if ((notesMode === "json" || notesMode === "cherry" || notesMode === "wrs") && isJsonNotes(notesString)) {
     const parsed = safeJsonParse(notesString, {});
     return {
       ...base, ...parsed,
@@ -434,6 +524,8 @@ function mergeInspectionData(baseExtractedData, notesString, notesMode) {
       bucket:    { ...(base.bucket||{}),    ...(parsed.bucket||{}) },
       horse:     { ...(base.horse||{}),     ...(parsed.horse||{}) },
       trailer:   { ...(base.trailer||{}),   ...(parsed.trailer||{}) },
+      sling_details:       { ...(base.sling_details||{}),       ...(parsed.sling_details||{}) },
+      condition_assessment:{ ...(base.condition_assessment||{}), ...(parsed.condition_assessment||{}) },
       forks: Array.isArray(parsed.forks) ? parsed.forks : (Array.isArray(base.forks) ? base.forks : []),
     };
   }
@@ -442,8 +534,6 @@ function mergeInspectionData(baseExtractedData, notesString, notesMode) {
   pipePairs.forEach(({ key, value }) => { if (key) flat[key] = value; });
   return { ...base, ...flat };
 }
-
-function isCherryPicker(t) { return /cherry.picker|aerial.work.platform|boom.lift|awp/i.test(t || ""); }
 
 /* ─────────────────────────────────────────────────────────────
    SMALL SHARED COMPONENTS
@@ -533,6 +623,190 @@ const JsonInspectionRow = memo(function JsonInspectionRow({ row, rowIndex, onCha
     </tr>
   );
 });
+
+/* ─────────────────────────────────────────────────────────────
+   WIRE ROPE SLING STRUCTURED EDITOR
+───────────────────────────────────────────────────────────── */
+const CONDITION_OPTIONS_CORROSION   = ["none","light","moderate","severe"];
+const CONDITION_OPTIONS_BROKEN      = ["none","1-2 wires","3-5 wires",">5 wires (reject)"];
+const CONDITION_OPTIONS_KINKS       = ["none","slight","moderate","severe (reject)"];
+const CONDITION_OPTIONS_REDUCTION   = ["none","<5%","5-10%",">10% (reject)"];
+const CONDITION_OPTIONS_END         = ["Good","Fair","Poor","Damaged (replace)"];
+const CONDITION_OPTIONS_BIRDCAGE    = ["None","Slight","Moderate","Severe (reject)"];
+const CONDITION_OPTIONS_SERVICE     = ["Serviceable","Conditionally Serviceable","Unserviceable"];
+const CONDITION_OPTIONS_OVERALL     = ["PASS","FAIL","CONDITIONAL"];
+
+function SelectChips({ value, onChange, options, color = T.accent }) {
+  return (
+    <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+      {options.map(opt => {
+        const isActive = value === opt;
+        const isNeg = /reject|fail|severe|poor|damaged|unservice/i.test(opt);
+        const isMid = /conditional|moderate|fair|slight|>5|5-10|3-5/i.test(opt);
+        const c = isNeg ? T.red : isMid ? T.amber : isActive ? color : T.border;
+        return (
+          <button key={opt} type="button" onClick={() => onChange(opt)}
+            style={{
+              padding:"5px 11px", borderRadius:7,
+              border:`1px solid ${isActive ? c : T.border}`,
+              background: isActive ? `${c}22` : T.card,
+              color: isActive ? c : T.textDim,
+              fontWeight: isActive ? 800 : 500,
+              fontSize:11, cursor:"pointer", fontFamily:"inherit",
+              WebkitTapHighlightColor:"transparent", minHeight:32,
+            }}>
+            {opt}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function WireRopeSlingEditor({ wrs, onChange }) {
+  const set = (key, val) => onChange({ ...wrs, [key]: val });
+  const inp = (key, placeholder = "") => (
+    <input
+      value={wrs[key] || ""}
+      onChange={e => set(key, e.target.value)}
+      placeholder={placeholder || "—"}
+      style={{ ...IS, minHeight:40, fontSize:12 }}
+    />
+  );
+
+  const accentBlue = T.blue;
+  const sectionHdr = (label, color = T.accent) => (
+    <div style={{
+      fontSize:10, fontWeight:800, letterSpacing:"0.12em", textTransform:"uppercase",
+      color, borderLeft:`3px solid ${color}`, paddingLeft:8,
+      marginTop:18, marginBottom:10, gridColumn:"1/-1",
+    }}>{label}</div>
+  );
+
+  return (
+    <div>
+      {/* ── SLING DETAILS TABLE ── */}
+      <div style={{ marginBottom:4, overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
+        <div style={{
+          fontSize:10, fontWeight:800, letterSpacing:"0.12em", textTransform:"uppercase",
+          color:T.accent, borderLeft:`3px solid ${T.accent}`, paddingLeft:8, marginBottom:12,
+        }}>Sling Details</div>
+        <table style={{ width:"100%", borderCollapse:"collapse", minWidth:560 }}>
+          <thead>
+            <tr style={{ background:"rgba(11,29,58,0.8)", borderBottom:`1px solid ${T.accentBrd}` }}>
+              {["Type","Diameter (mm)","Length (m)","No. of Legs","Construction","Core Type","SWL / Capacity"].map(h => (
+                <th key={h} style={{ padding:"8px 10px", fontSize:10, fontWeight:800, color:T.accent,
+                  letterSpacing:"0.08em", textTransform:"uppercase", textAlign:"left", whiteSpace:"nowrap" }}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              {[
+                ["type","Wire Rope Sling"],
+                ["diameter_mm","e.g. 16"],
+                ["length_m","e.g. 2"],
+                ["num_legs","e.g. 2"],
+                ["construction","e.g. 6x19"],
+                ["core_type","e.g. IWRC"],
+                ["swl","e.g. 3.6T"],
+              ].map(([key, ph]) => (
+                <td key={key} style={{ padding:"6px 8px", verticalAlign:"middle" }}>
+                  <input
+                    value={wrs[key] || ""}
+                    onChange={e => set(key, e.target.value)}
+                    placeholder={ph}
+                    style={{
+                      width:"100%", padding:"7px 9px", borderRadius:7,
+                      border:`1px solid ${T.border}`, background:"rgba(18,30,50,0.70)",
+                      color: key === "swl" ? T.accent : T.text,
+                      fontWeight: key === "swl" ? 800 : 500,
+                      fontSize:12, fontFamily:"'IBM Plex Sans',sans-serif",
+                      outline:"none", minHeight:38, boxSizing:"border-box",
+                    }}
+                  />
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── CONDITION ASSESSMENT ── */}
+      <div style={{
+        fontSize:10, fontWeight:800, letterSpacing:"0.12em", textTransform:"uppercase",
+        color:accentBlue, borderLeft:`3px solid ${accentBlue}`, paddingLeft:8,
+        marginTop:22, marginBottom:14,
+      }}>Condition Assessment</div>
+
+      <div style={{ display:"grid", gap:14 }}>
+        {[
+          { key:"corrosion",                  label:"Corrosion",                          opts:CONDITION_OPTIONS_CORROSION },
+          { key:"broken_wires",               label:"Broken Wires",                       opts:CONDITION_OPTIONS_BROKEN },
+          { key:"rope_kinks_deforming",        label:"Rope Kinks / Deforming",             opts:CONDITION_OPTIONS_KINKS },
+          { key:"reduction_in_diameter",       label:"Reduction in Diameter (max 10%)",    opts:CONDITION_OPTIONS_REDUCTION },
+          { key:"condition_of_end_fittings",   label:"Condition of End Fittings / Ferrule",opts:CONDITION_OPTIONS_END },
+          { key:"bird_caging_core_protrusion", label:"Bird-Caging / Core Protrusion",      opts:CONDITION_OPTIONS_BIRDCAGE },
+          { key:"serviceability",              label:"Serviceability",                     opts:CONDITION_OPTIONS_SERVICE },
+        ].map(({ key, label, opts }) => (
+          <div key={key} style={{
+            display:"flex", alignItems:"flex-start", justifyContent:"space-between",
+            gap:12, padding:"10px 14px", borderRadius:10,
+            border:`1px solid ${T.border}`, background:"rgba(18,30,50,0.40)",
+            flexWrap:"wrap",
+          }}>
+            <div style={{ fontSize:12, fontWeight:700, color:T.textMid, minWidth:210, paddingTop:2 }}>
+              {label}
+            </div>
+            <div style={{ flex:1, minWidth:200 }}>
+              <SelectChips value={wrs[key] || ""} onChange={v => set(key, v)} options={opts}/>
+              {/* also allow free text override */}
+              <input
+                value={wrs[key] || ""}
+                onChange={e => set(key, e.target.value)}
+                placeholder="or type custom value…"
+                style={{
+                  marginTop:6, width:"100%", padding:"5px 9px", borderRadius:7,
+                  border:`1px solid ${T.border}`, background:"rgba(18,30,50,0.50)",
+                  color:T.textMid, fontSize:11, fontFamily:"'IBM Plex Sans',sans-serif",
+                  outline:"none", minHeight:32, boxSizing:"border-box",
+                }}
+              />
+            </div>
+          </div>
+        ))}
+
+        {/* Overall Assessment */}
+        <div style={{
+          padding:"12px 14px", borderRadius:10,
+          border:`1px solid ${T.greenBrd}`, background:T.greenDim,
+        }}>
+          <div style={{ fontSize:12, fontWeight:800, color:T.green, marginBottom:10 }}>Overall Assessment</div>
+          <SelectChips
+            value={wrs.overall_assessment || "PASS"}
+            onChange={v => set("overall_assessment", v)}
+            options={CONDITION_OPTIONS_OVERALL}
+            color={T.green}
+          />
+        </div>
+
+        {/* Notes */}
+        <div>
+          <label style={{ ...LS }}>Notes / Remarks</label>
+          <textarea
+            value={wrs.notes || ""}
+            onChange={e => set("notes", e.target.value)}
+            rows={3}
+            placeholder="Any additional observations about the sling condition…"
+            style={{ ...IS, minHeight:80, resize:"vertical" }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ─────────────────────────────────────────────────────────────
    CHERRY PICKER STRUCTURED EDITOR
@@ -826,6 +1100,7 @@ function CertificateEditInner() {
   const [jsonRows,     setJsonRows]     = useState([]);
   const [notePairs,    setNotePairs]    = useState([]);
   const [cpData,       setCpData]       = useState(parseCherryPickerNotes(""));
+  const [wrsData,      setWrsData]      = useState(parseWireRopeSlingNotes(""));
   const [addSection,   setAddSection]   = useState("");
   const [addKey,       setAddKey]       = useState("");
   const [addValue,     setAddValue]     = useState("");
@@ -849,6 +1124,7 @@ function CertificateEditInner() {
   });
 
   const equipIsCherryPicker = isCherryPicker(form.equipment_type);
+  const equipIsWireRopeSling = isWireRopeSling(form.equipment_type);
 
   useEffect(() => { if (id) load(); }, [id]);
   useEffect(() => {
@@ -906,9 +1182,14 @@ function CertificateEditInner() {
     setBaseExtractedData(data.extracted_data || {});
     const rawNotes = getEditableInspectionSource(data);
     const equipType = data.equipment_type || data.asset_type || "";
+
     if (isCherryPicker(equipType)) {
       setNotesMode("cherry");
       setCpData(parseCherryPickerNotes(rawNotes));
+      setJsonRows([]); setNotePairs([]);
+    } else if (isWireRopeSling(equipType)) {
+      setNotesMode("wrs");
+      setWrsData(parseWireRopeSlingNotes(rawNotes));
       setJsonRows([]); setNotePairs([]);
     } else if (isJsonNotes(rawNotes)) {
       setNotesMode("json");
@@ -933,13 +1214,27 @@ function CertificateEditInner() {
   const hcEquipType = e => {
     const newType = e.target.value;
     setForm(p => ({ ...p, equipment_type: newType }));
+
     if (isCherryPicker(newType) && notesMode !== "cherry") {
-      const built = notesMode === "json" ? rebuildNotesJson(jsonRows) : buildNotesPipe(notePairs);
+      const built = notesMode === "json" ? rebuildNotesJson(jsonRows)
+        : notesMode === "wrs" ? buildWireRopeSlingNotes(wrsData)
+        : buildNotesPipe(notePairs);
       setCpData(parseCherryPickerNotes(built));
       setNotesMode("cherry");
-    } else if (!isCherryPicker(newType) && notesMode === "cherry") {
-      setJsonRows(flattenNotesJson(buildCherryPickerNotes(cpData)));
-      setNotesMode("json");
+    } else if (isWireRopeSling(newType) && notesMode !== "wrs") {
+      const built = notesMode === "json" ? rebuildNotesJson(jsonRows)
+        : notesMode === "cherry" ? buildCherryPickerNotes(cpData)
+        : buildNotesPipe(notePairs);
+      setWrsData(parseWireRopeSlingNotes(built));
+      setNotesMode("wrs");
+    } else if (!isCherryPicker(newType) && !isWireRopeSling(newType)) {
+      if (notesMode === "cherry") {
+        setJsonRows(flattenNotesJson(buildCherryPickerNotes(cpData)));
+        setNotesMode("json");
+      } else if (notesMode === "wrs") {
+        setJsonRows(flattenNotesJson(buildWireRopeSlingNotes(wrsData)));
+        setNotesMode("json");
+      }
     }
   };
 
@@ -970,6 +1265,7 @@ function CertificateEditInner() {
 
   function buildFinalNotes() {
     if (notesMode === "cherry") return buildCherryPickerNotes(cpData);
+    if (notesMode === "wrs")    return buildWireRopeSlingNotes(wrsData);
     if (notesMode === "json")   return rebuildNotesJson(jsonRows);
     return buildNotesPipe(notePairs);
   }
@@ -1086,6 +1382,8 @@ function CertificateEditInner() {
 
   const inspFieldCount = notesMode === "cherry"
     ? Object.values(cpData).filter(v => v && String(v).trim() && v !== "PASS" && v !== "Satisfactory").length
+    : notesMode === "wrs"
+    ? Object.values(wrsData).filter(v => v && String(v).trim()).length
     : notesMode === "json" ? jsonRows.length : notePairs.length;
 
   const SaveBtn = () => (
@@ -1097,6 +1395,37 @@ function CertificateEditInner() {
       {saving ? "Saving…" : "💾 Save Changes"}
     </button>
   );
+
+  // Build the mode toggle buttons for Inspection Data tab
+  function getModeButtons() {
+    if (equipIsCherryPicker) return [["cherry","🚡 AWP"],["json","Grouped"],["pipe","Simple"]];
+    if (equipIsWireRopeSling) return [["wrs","🪢 Sling"],["json","Grouped"],["pipe","Simple"]];
+    return [["json","Grouped"],["pipe","Simple"]];
+  }
+
+  function switchMode(m) {
+    if (m === notesMode) return;
+    // convert current data before switching
+    if (m === "cherry") {
+      const built = notesMode==="json" ? rebuildNotesJson(jsonRows)
+        : notesMode==="wrs" ? buildWireRopeSlingNotes(wrsData)
+        : buildNotesPipe(notePairs);
+      setCpData(parseCherryPickerNotes(built));
+    } else if (m === "wrs") {
+      const built = notesMode==="json" ? rebuildNotesJson(jsonRows)
+        : notesMode==="cherry" ? buildCherryPickerNotes(cpData)
+        : buildNotesPipe(notePairs);
+      setWrsData(parseWireRopeSlingNotes(built));
+    } else if (m === "json") {
+      if (notesMode === "cherry") setJsonRows(flattenNotesJson(buildCherryPickerNotes(cpData)));
+      else if (notesMode === "wrs") setJsonRows(flattenNotesJson(buildWireRopeSlingNotes(wrsData)));
+    }
+    setNotesMode(m);
+  }
+
+  const modeColor = notesMode === "cherry" ? T.orange : notesMode === "wrs" ? T.blue : T.accent;
+  const modeDim   = notesMode === "cherry" ? T.orangeDim : notesMode === "wrs" ? T.blueDim : T.accentDim;
+  const modeBrd   = notesMode === "cherry" ? T.orangeBrd : notesMode === "wrs" ? T.blueBrd : T.accentBrd;
 
   return (
     <AppLayout title="Edit Certificate">
@@ -1142,6 +1471,7 @@ function CertificateEditInner() {
                 <p style={{ margin:0,color:T.textDim,fontSize:12 }}>
                   {form.certificate_type}{form.equipment_type ? ` · ${form.equipment_type}` : ""}
                   {equipIsCherryPicker && <span style={{ marginLeft:8,color:T.orange,fontWeight:800 }}>🚡 AWP</span>}
+                  {equipIsWireRopeSling && <span style={{ marginLeft:8,color:T.blue,fontWeight:800 }}>🪢 WRS</span>}
                   {isLinked && <span style={{ marginLeft:10,color:T.purple }}>📁 {bundle.length} in folder</span>}
                 </p>
               </div>
@@ -1173,10 +1503,8 @@ function CertificateEditInner() {
                     {t}
                     {i === 4 && inspFieldCount > 0 && (
                       <span style={{ marginLeft:5,fontSize:9,padding:"1px 6px",borderRadius:99,
-                        background:notesMode==="cherry"?T.orangeDim:T.accentDim,
-                        color:notesMode==="cherry"?T.orange:T.accent,
-                        border:`1px solid ${notesMode==="cherry"?T.orangeBrd:T.accentBrd}` }}>
-                        {notesMode==="cherry"?"AWP":inspFieldCount}
+                        background:modeDim, color:modeColor, border:`1px solid ${modeBrd}` }}>
+                        {notesMode==="cherry"?"AWP":notesMode==="wrs"?"WRS":inspFieldCount}
                       </span>
                     )}
                     {i === 5 && isLinked && (
@@ -1271,25 +1599,18 @@ function CertificateEditInner() {
                       <div style={{ fontSize:14,fontWeight:800,color:T.text }}>Inspection Data</div>
                       <div style={{ fontSize:11,color:T.textDim,marginTop:2 }}>
                         {notesMode==="cherry" ? "Cherry Picker / AWP — boom & platform structured fields"
+                          : notesMode==="wrs" ? "Wire Rope Sling — sling details & condition assessment"
                           : notesMode==="json" ? `${jsonRows.length} fields · ${sectionCount} sections`
                           : `${notePairs.length} fields`}
                       </div>
                     </div>
                     <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
                       <div style={{ display:"flex",border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden" }}>
-                        {(equipIsCherryPicker
-                          ? [["cherry","🚡 AWP"],["json","Grouped"],["pipe","Simple"]]
-                          : [["json","Grouped"],["pipe","Simple"]]
-                        ).map(([m, lbl]) => (
-                          <button key={m} type="button" onClick={() => {
-                            if (m === notesMode) return;
-                            if (m === "cherry") { const built = notesMode==="json"?rebuildNotesJson(jsonRows):buildNotesPipe(notePairs); setCpData(parseCherryPickerNotes(built)); }
-                            else if (m === "json" && notesMode==="cherry") { setJsonRows(flattenNotesJson(buildCherryPickerNotes(cpData))); }
-                            setNotesMode(m);
-                          }}
+                        {getModeButtons().map(([m, lbl]) => (
+                          <button key={m} type="button" onClick={() => switchMode(m)}
                             style={{ padding:"6px 12px",border:"none",
-                              background:notesMode===m?(m==="cherry"?T.orangeDim:T.accentDim):"transparent",
-                              color:notesMode===m?(m==="cherry"?T.orange:T.accent):T.textDim,
+                              background:notesMode===m ? (m==="cherry"?T.orangeDim:m==="wrs"?T.blueDim:T.accentDim) : "transparent",
+                              color:notesMode===m ? (m==="cherry"?T.orange:m==="wrs"?T.blue:T.accent) : T.textDim,
                               fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit" }}>
                             {lbl}
                           </button>
@@ -1303,6 +1624,22 @@ function CertificateEditInner() {
                       )}
                     </div>
                   </div>
+
+                  {/* WRS MODE */}
+                  {notesMode === "wrs" && (
+                    <div style={{ border:`1px solid ${T.blueBrd}`,borderRadius:10,padding:16,background:"rgba(96,165,250,0.04)" }}>
+                      <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:14,paddingBottom:12,borderBottom:`1px solid ${T.blueBrd}` }}>
+                        <span style={{ fontSize:18 }}>🪢</span>
+                        <div>
+                          <div style={{ fontSize:13,fontWeight:800,color:T.blue }}>Wire Rope Sling Inspector</div>
+                          <div style={{ fontSize:11,color:T.textDim,marginTop:1 }}>
+                            Edit sling details and condition assessment — maps directly to the certificate print view.
+                          </div>
+                        </div>
+                      </div>
+                      <WireRopeSlingEditor wrs={wrsData} onChange={setWrsData}/>
+                    </div>
+                  )}
 
                   {/* CHERRY MODE */}
                   {notesMode === "cherry" && (
@@ -1329,7 +1666,7 @@ function CertificateEditInner() {
                       )}
                       {jsonRows.length === 0 ? (
                         <div style={{ padding:"32px 20px",textAlign:"center",border:`1px dashed ${T.border}`,borderRadius:12,color:T.textDim,fontSize:13 }}>
-                          No inspection data found.{equipIsCherryPicker?" Switch to 🚡 AWP mode to edit Cherry Picker fields.":""}
+                          No inspection data found.{equipIsCherryPicker?" Switch to 🚡 AWP mode to edit Cherry Picker fields.":equipIsWireRopeSling?" Switch to 🪢 Sling mode to edit Wire Rope Sling fields.":""}
                         </div>
                       ) : (
                         <div style={{ border:`1px solid ${T.border}`,borderRadius:10,overflow:"hidden" }}>
