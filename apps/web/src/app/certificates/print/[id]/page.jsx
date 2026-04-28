@@ -60,7 +60,6 @@ const CSS = `
   }
   @keyframes spin{to{transform:rotate(360deg)}}
 
-  /* Light grey preview area */
   .pt-content{
     min-height:100vh;
     background:#d8dde3;
@@ -69,24 +68,14 @@ const CSS = `
     flex-direction:column;
     align-items:center;
   }
-
-  /*
-   * KEY FIX: certRef wrapper is pure white, exact A4 width, zero padding.
-   * html2canvas only captures this element — no dark UI leaks into the PDF.
-   */
   .pt-cert-wrap{
     background:#ffffff;
-    padding:0;
-    margin:0;
-    display:block;
-    width:794px;
-    max-width:100%;
+    padding:0;margin:0;display:block;
+    width:794px;max-width:100%;
   }
   .pt-cert-page{
-    display:block;
-    background:#ffffff;
-    width:794px;
-    max-width:100%;
+    display:block;background:#ffffff;
+    width:794px;max-width:100%;
   }
 
   @media print{
@@ -97,56 +86,36 @@ const CSS = `
     body{background:white!important}
     @page{size:A4;margin:0}
   }
-  @media(max-width:840px){
-    .pt-cert-wrap{width:100%}
-    .pt-cert-page{width:100%}
-    .pt-content{padding:12px}
-  }
-  @media(max-width:768px){
-    .pt-toolbar{padding:10px 14px}
-    .pt-btn{padding:10px 14px;font-size:12px}
-    .pt-title{max-width:160px;font-size:11px}
-  }
-  @media(max-width:480px){
-    .pt-btn-row{width:100%}.pt-btn{flex:1}
-    .pt-title{display:none}
-    .pt-content{padding:8px}
-  }
+  @media(max-width:840px){.pt-cert-wrap{width:100%}.pt-cert-page{width:100%}.pt-content{padding:12px}}
+  @media(max-width:768px){.pt-toolbar{padding:10px 14px}.pt-btn{padding:10px 14px;font-size:12px}.pt-title{max-width:160px;font-size:11px}}
+  @media(max-width:480px){.pt-btn-row{width:100%}.pt-btn{flex:1}.pt-title{display:none}.pt-content{padding:8px}}
 `;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-/**
- * html2pdf options — backgroundColor forces white, windowHeight matches
- * actual content height so no extra dark page is appended.
- */
 function pdfOpt(filename, el) {
   const h = el ? el.scrollHeight : 1122;
   return {
-    margin: 0,
-    filename,
+    margin: 0, filename,
     image: { type: "jpeg", quality: 0.97 },
     html2canvas: {
-      scale: 2,
-      useCORS: true,
-      allowTaint: true,
-      logging: false,
-      letterRendering: true,
-      backgroundColor: "#ffffff",   // ← kills dark bleed
-      windowWidth: 794,
-      windowHeight: h,              // ← exact content height, no extra page
-      scrollX: 0,
-      scrollY: 0,
-      imageTimeout: 15000,
+      scale: 2, useCORS: true, allowTaint: true, logging: false,
+      letterRendering: true, backgroundColor: "#ffffff",
+      windowWidth: 794, windowHeight: h, scrollX: 0, scrollY: 0, imageTimeout: 15000,
     },
-    jsPDF: {
-      unit: "mm",
-      format: "a4",
-      orientation: "portrait",
-      compress: true,
-    },
+    jsPDF: { unit: "mm", format: "a4", orientation: "portrait", compress: true },
     pagebreak: { mode: ["css", "legacy"] },
   };
+}
+
+// ── helper: derive pass/fail counts from a cert array ────────────────────────
+function getCounts(certList) {
+  const failed = certList.filter(c => {
+    const r = (c.result || c.equipment_status || "").toUpperCase();
+    return r === "FAIL" || r === "REPAIR_REQUIRED" || r === "OUT_OF_SERVICE";
+  }).length;
+  const passed = certList.length - failed;
+  return { passed, failed };
 }
 
 export default function CertificatePrintPage() {
@@ -155,15 +124,14 @@ export default function CertificatePrintPage() {
   const id      = params?.id;
   const certRef = useRef(null);
 
-  const [certs,           setCerts]           = useState([]);
-  const [loading,         setLoading]         = useState(true);
-  const [error,           setError]           = useState("");
-  const [saving,          setSaving]          = useState(false);
-  const [saveMsg,         setSaveMsg]         = useState("");
-  const [html2pdfReady,   setHtml2pdfReady]   = useState(false);
-  const [uploadStatus,    setUploadStatus]    = useState("");
+  const [certs,         setCerts]         = useState([]);
+  const [loading,       setLoading]       = useState(true);
+  const [error,         setError]         = useState("");
+  const [saving,        setSaving]        = useState(false);
+  const [saveMsg,       setSaveMsg]       = useState("");
+  const [html2pdfReady, setHtml2pdfReady] = useState(false);
+  const [uploadStatus,  setUploadStatus]  = useState("");
 
-  // Load html2pdf from CDN
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (window.html2pdf) { setHtml2pdfReady(true); return; }
@@ -174,7 +142,6 @@ export default function CertificatePrintPage() {
     document.head.appendChild(s);
   }, []);
 
-  // Load cert data
   useEffect(() => {
     if (!id) return;
     (async () => {
@@ -195,15 +162,12 @@ export default function CertificatePrintPage() {
     })();
   }, [id]);
 
-  // Auto-upload to storage after render (certs missing pdf_url only)
   useEffect(() => {
     if (!certs.length || loading) return;
     const timer = setTimeout(async () => {
       if (!window.html2pdf || !certRef.current) return;
-
       const missing = certs.filter(c => !c.pdf_url);
       if (!missing.length) return;
-
       try {
         await document.fonts.ready;
         const imgs = Array.from(certRef.current.querySelectorAll("img"));
@@ -212,53 +176,34 @@ export default function CertificatePrintPage() {
           new Promise(r => { img.onload = r; img.onerror = r; })
         ));
         await sleep(1200);
-
         const el = certRef.current;
         if (!el || el.scrollHeight < 200) return;
-
         setUploadStatus("uploading");
-
-        // Force white before capture
         const prevBg = el.style.background;
         el.style.background = "#ffffff";
         await sleep(80);
-
         const blob = await window.html2pdf()
-          .set(pdfOpt("cert.pdf", el))
-          .from(el)
-          .outputPdf("blob");
-
+          .set(pdfOpt("cert.pdf", el)).from(el).outputPdf("blob");
         el.style.background = prevBg;
-
         if (!blob || blob.size < 5000) return;
-
-        const uploadPromises = certs.map(async cert => {
+        await Promise.all(certs.map(async cert => {
           if (cert.pdf_url) return;
           const safeName = (cert.certificate_number || cert.id)
             .toString().replace(/[^a-zA-Z0-9_-]/g, "_");
           const path = `generated/${safeName}.pdf`;
-
           const { data: sd, error: se } = await supabase.storage
-            .from("certificates")
-            .upload(path, blob, { contentType: "application/pdf", upsert: true });
-
+            .from("certificates").upload(path, blob, { contentType: "application/pdf", upsert: true });
           if (se) { console.warn("Storage upload failed:", se.message); return; }
-
           const { data: ud } = supabase.storage.from("certificates").getPublicUrl(sd.path);
-          if (ud?.publicUrl) {
+          if (ud?.publicUrl)
             await supabase.from("certificates").update({ pdf_url: ud.publicUrl }).eq("id", cert.id);
-          }
-        });
-
-        await Promise.all(uploadPromises);
+        }));
         setUploadStatus("done");
-        console.log("✓ PDFs auto-uploaded");
       } catch (err) {
         console.warn("Auto-upload failed:", err.message);
         setUploadStatus("");
       }
     }, 3000);
-
     return () => clearTimeout(timer);
   }, [certs, loading, html2pdfReady]);
 
@@ -268,24 +213,32 @@ export default function CertificatePrintPage() {
   const isFolder     = certs.length > 1;
   const fileName     = `${certNumber.replace(/[^a-zA-Z0-9-]/g, "_")}.pdf`;
 
+  // ── open cover with correct pass/fail counts ──────────────────────────────
+  function openCover() {
+    const { passed, failed } = getCounts(certs);
+    const p = new URLSearchParams({
+      client:   clientName,
+      title:    "Statutory Inspection",
+      year:     new Date().getFullYear().toString(),
+      location: siteLocation,
+      period:   new Date().toLocaleString("en-GB", { month: "long", year: "numeric" }),
+      certs:    String(certs.length),
+      passed:   String(passed),
+      failed:   String(failed),
+    });
+    window.open(`/certificates/cover-print?${p.toString()}`, "_blank");
+  }
+
   async function handleSavePDF() {
     if (!certRef.current || !window.html2pdf) return;
     setSaving(true); setSaveMsg("Generating PDF…");
     try {
       const el = certRef.current;
-
-      // Force white before capture — eliminates the dark extra page
       const prevBg = el.style.background;
       el.style.background = "#ffffff";
       await sleep(80);
-
-      await window.html2pdf()
-        .set(pdfOpt(fileName, el))
-        .from(el)
-        .save();
-
+      await window.html2pdf().set(pdfOpt(fileName, el)).from(el).save();
       el.style.background = prevBg;
-
       setSaveMsg("Saved!");
       setTimeout(() => setSaveMsg(""), 3000);
     } catch (err) {
@@ -310,13 +263,13 @@ export default function CertificatePrintPage() {
   if (error) return (
     <>
       <style>{CSS}</style>
-      <div style={{ minHeight: "100vh", background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "'IBM Plex Sans',sans-serif" }}>
-        <div style={{ background: T.redDim, border: `1px solid ${T.redBrd}`, borderRadius: 14, padding: "20px 24px", color: T.red, fontSize: 14, fontWeight: 700, maxWidth: 400, textAlign: "center" }}>
-          <div style={{ fontSize: 24, marginBottom: 10 }}>⚠</div>
+      <div style={{ minHeight:"100vh", background:T.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:24, fontFamily:"'IBM Plex Sans',sans-serif" }}>
+        <div style={{ background:T.redDim, border:`1px solid ${T.redBrd}`, borderRadius:14, padding:"20px 24px", color:T.red, fontSize:14, fontWeight:700, maxWidth:400, textAlign:"center" }}>
+          <div style={{ fontSize:24, marginBottom:10 }}>⚠</div>
           {error}
           <br/>
-          <button onClick={() => router.push("/certificates")}
-            style={{ marginTop: 14, padding: "9px 18px", borderRadius: 10, border: "none", background: T.redDim, color: T.red, cursor: "pointer", fontWeight: 700, fontFamily: "'IBM Plex Sans',sans-serif" }}>
+          <button onClick={() => router.push(`/certificates/${id}`)}
+            style={{ marginTop:14, padding:"9px 18px", borderRadius:10, border:"none", background:T.redDim, color:T.red, cursor:"pointer", fontWeight:700, fontFamily:"'IBM Plex Sans',sans-serif" }}>
             ← Back to Certificates
           </button>
         </div>
@@ -329,51 +282,41 @@ export default function CertificatePrintPage() {
       <style>{CSS}</style>
 
       {saving && (
-        <div className="pt-progress" style={{ position: "fixed", zIndex: 300 }}>
+        <div className="pt-progress" style={{ position:"fixed", zIndex:300 }}>
           <div className="pt-spinner"/>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>{saveMsg || "Generating PDF…"}</div>
-          <div style={{ fontSize: 12, color: "rgba(240,246,255,0.45)" }}>Please wait…</div>
+          <div style={{ fontSize:15, fontWeight:700 }}>{saveMsg || "Generating PDF…"}</div>
+          <div style={{ fontSize:12, color:"rgba(240,246,255,0.45)" }}>Please wait…</div>
         </div>
       )}
 
       {/* TOOLBAR */}
       <div className="pt-toolbar">
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
           <div className="pt-title">
             {isFolder ? `${clientName} — ${certs.length} Certificates` : certNumber}
           </div>
           {uploadStatus === "uploading" && (
-            <span style={{ fontSize: 10, color: T.textDim, display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", border: "1.5px solid rgba(34,211,238,0.4)", borderTopColor: T.accent, animation: "spin 0.7s linear infinite", display: "inline-block" }}/>
+            <span style={{ fontSize:10, color:T.textDim, display:"flex", alignItems:"center", gap:5 }}>
+              <span style={{ width:8, height:8, borderRadius:"50%", border:"1.5px solid rgba(34,211,238,0.4)", borderTopColor:T.accent, animation:"spin 0.7s linear infinite", display:"inline-block" }}/>
               Storing…
             </span>
           )}
           {uploadStatus === "done" && (
-            <span style={{ fontSize: 10, color: T.green }}>✓ Stored</span>
+            <span style={{ fontSize:10, color:T.green }}>✓ Stored</span>
           )}
         </div>
         <div className="pt-btn-row">
           <button type="button" className="pt-btn pt-btn-back"
             onClick={() => router.push(`/certificates/${id}`)}
-            style={{ border: "1px solid rgba(148,163,184,0.18)" }}>
+            style={{ border:"1px solid rgba(148,163,184,0.18)" }}>
             ← Back
           </button>
           <button type="button" className="pt-btn pt-btn-print" onClick={() => window.print()}>
             🖨 Print
           </button>
           {isFolder && (
-            <button type="button" className="pt-btn"
-              onClick={() => {
-                const p = new URLSearchParams({
-                  client: clientName, title: "Statutory Inspection",
-                  year: new Date().getFullYear().toString(),
-                  location: siteLocation,
-                  period: new Date().toLocaleString("en-GB", { month: "long", year: "numeric" }),
-                  certs: String(certs.length),
-                });
-                window.open(`/certificates/cover-print?${p.toString()}`, "_blank");
-              }}
-              style={{ background: "linear-gradient(135deg,#a78bfa,#7c3aed)", color: "#fff", border: "none" }}>
+            <button type="button" className="pt-btn" onClick={openCover}
+              style={{ background:"linear-gradient(135deg,#a78bfa,#7c3aed)", color:"#fff", border:"none" }}>
               📄 Print Cover
             </button>
           )}
@@ -381,30 +324,22 @@ export default function CertificatePrintPage() {
             onClick={handleSavePDF}
             disabled={saving || !html2pdfReady}
             title={!html2pdfReady ? "Loading PDF engine…" : "Save as PDF"}>
-            {saving ? (
-              <><span style={{ width: 14, height: 14, borderRadius: "50%", border: "2px solid rgba(0,16,24,0.3)", borderTopColor: "#001018", animation: "spin 0.8s linear infinite", display: "inline-block" }}/> Saving…</>
-            ) : saveMsg || "⬇ Save as PDF"}
+            {saving
+              ? <><span style={{ width:14, height:14, borderRadius:"50%", border:"2px solid rgba(0,16,24,0.3)", borderTopColor:"#001018", animation:"spin 0.8s linear infinite", display:"inline-block" }}/> Saving…</>
+              : saveMsg || "⬇ Save as PDF"}
           </button>
         </div>
       </div>
 
       {/* CERTIFICATE CONTENT */}
       <div className="pt-content">
-        {/*
-          certRef wraps ONLY the cert pages — pure white, no padding.
-          html2canvas captures this element only, so no dark UI chrome
-          bleeds into the PDF as an extra black/dark page.
-        */}
         <div ref={certRef} className="pt-cert-wrap">
           {certs.map((cert, i) => (
-            <div
-              key={cert.id}
-              className="pt-cert-page"
+            <div key={cert.id} className="pt-cert-page"
               style={{
                 pageBreakAfter: i < certs.length - 1 ? "always" : "avoid",
                 breakAfter:     i < certs.length - 1 ? "page"   : "avoid",
-              }}
-            >
+              }}>
               <CertificateSheet certificate={cert} index={i} total={certs.length} printMode/>
             </div>
           ))}
