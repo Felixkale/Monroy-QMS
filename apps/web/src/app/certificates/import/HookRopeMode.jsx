@@ -198,6 +198,7 @@ export function HookRopeMode() {
         body: JSON.stringify({
           files: [{ fileName:file.name, mimeType:file.type||"application/pdf", base64Data:base64 }],
           systemPrompt: HOOK_ROPE_PROMPT,
+          mode: "hookrope",  // uses HOOK_ROPE_SCHEMA — all 60 fields returned reliably
         }),
       });
       setProgress(80, "Parsing fields…");
