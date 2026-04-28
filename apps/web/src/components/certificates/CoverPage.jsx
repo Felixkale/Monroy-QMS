@@ -181,11 +181,22 @@ export default function CoverPage({
               {/* Title */}
               <div className="cv-title-sub">Inspection Documentation</div>
               <div className="cv-title">
-                {words.map((word, i) => (
-                  <span key={i} style={{ color: i === words.length - 1 ? "#22d3ee" : "#0b1d3a" }}>
-                    {word}{i < words.length - 1 ? " " : ""}
-                  </span>
-                ))}
+                {(failed ?? 0) > 0 ? (
+                  <>
+                    {words.map((word, i) => (
+                      <span key={i} style={{ color: "#0b1d3a" }}>
+                        {word}{" "}
+                      </span>
+                    ))}
+                    <span style={{ color: "#ef4444" }}>Discarded</span>
+                  </>
+                ) : (
+                  words.map((word, i) => (
+                    <span key={i} style={{ color: i === words.length - 1 ? "#22d3ee" : "#0b1d3a" }}>
+                      {word}{i < words.length - 1 ? " " : ""}
+                    </span>
+                  ))
+                )}
               </div>
               <div className="cv-title-line"/>
 
