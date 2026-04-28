@@ -5,15 +5,24 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const MODEL = "gemini-2.5-flash";
-const FILE_API_BASE = "https://generativelanguage.googleapis.com";
-const MAX_RETRIES = 5;
+const GEMINI_MODEL    = "gemini-2.5-flash";
+const FILE_API_BASE   = "https://generativelanguage.googleapis.com";
+const MAX_RETRIES     = 5;
 
-// ── GROQ ─────────────────────────────────────────────────────────────────────
-const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
-const GROQ_MODEL   = process.env.GROQ_MODEL   || "llama-3.3-70b-versatile";
-const GROQ_BASE    = "https://api.groq.com/openai/v1";
-const GROQ_ENABLED = Boolean(GROQ_API_KEY);
+// ── GROQ (text-only fallback — shot 2) ───────────────────────────────────────
+const GROQ_API_KEY  = process.env.GROQ_API_KEY || "";
+const GROQ_MODEL    = process.env.GROQ_MODEL   || "llama-3.3-70b-versatile";
+const GROQ_BASE     = "https://api.groq.com/openai/v1";
+const GROQ_ENABLED  = Boolean(GROQ_API_KEY);
+
+// ── OPENROUTER (vision-capable parallel shot 1) ───────────────────────────────
+// Free models with vision: meta-llama/llama-4-maverick:free  (20 RPM)
+//                          meta-llama/llama-4-scout:free
+//                          google/gemini-2.0-flash-exp:free
+const OR_API_KEY    = process.env.OPENROUTER_API_KEY || "";
+const OR_MODEL      = process.env.OPENROUTER_MODEL   || "meta-llama/llama-4-maverick:free";
+const OR_BASE       = "https://openrouter.ai/api/v1";
+const OR_ENABLED    = Boolean(OR_API_KEY);
 
 /* ── GEMINI KEY POOL ─────────────────────────────────────── */
 const KEY_POOL = [
@@ -26,11 +35,11 @@ const KEY_POOL = [
 
 if (KEY_POOL.length === 0) throw new Error("No GEMINI_API_KEY set in environment.");
 
-const keyCooldowns = new Map(KEY_POOL.map(k => [k, 0]));
-const PER_KEY_DELAY_MS   = 6000;
+const keyCooldowns      = new Map(KEY_POOL.map(k => [k, 0]));
+const PER_KEY_DELAY_MS  = 6000;
 const EFFECTIVE_DELAY_MS = Math.max(300, Math.ceil(PER_KEY_DELAY_MS / KEY_POOL.length));
 
-console.log(`Gemini keys: ${KEY_POOL.length} | Groq: ${GROQ_ENABLED ? GROQ_MODEL : "disabled"} | delay: ${EFFECTIVE_DELAY_MS}ms`);
+console.log(`Gemini: ${KEY_POOL.length} key(s) | Groq: ${GROQ_ENABLED ? GROQ_MODEL : "off"} | OpenRouter: ${OR_ENABLED ? OR_MODEL : "off"} | delay: ${EFFECTIVE_DELAY_MS}ms`);
 
 let keyIndex = 0;
 
@@ -63,7 +72,7 @@ async function nextKey() {
 function penalizeKey(key, extraMs = 60000) {
   const current = keyCooldowns.get(key) || Date.now();
   keyCooldowns.set(key, Math.max(current, Date.now() + extraMs));
-  console.warn(`Key penalized for ${Math.round(extraMs / 1000)}s.`);
+  console.warn(`Gemini key penalized ${Math.round(extraMs / 1000)}s.`);
 }
 
 /* ── SCHEMAS ─────────────────────────────────────────────── */
@@ -161,7 +170,7 @@ async function fetchWithTimeout(url, options, timeoutMs = 90000) {
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (err) {
-    if (err.name === "AbortError") throw new Error(`Request timed out after ${timeoutMs / 1000}s`);
+    if (err.name === "AbortError") throw new Error(`Timed out after ${timeoutMs / 1000}s`);
     throw err;
   } finally {
     clearTimeout(timer);
@@ -179,7 +188,20 @@ function extractJsonFromPayload(payload) {
   if (oi >= 0 && oj > oi) { try { return JSON.parse(stripped.slice(oi, oj + 1)); } catch {} }
   const ai = stripped.indexOf("["); const aj = stripped.lastIndexOf("]");
   if (ai >= 0 && aj > ai) { try { return JSON.parse(stripped.slice(ai, aj + 1)); } catch {} }
-  console.error("JSON extraction failed. Sample:", allText.slice(0, 500));
+  return null;
+}
+
+// Parse JSON from OpenAI-format chat completion response
+function extractJsonFromChatResponse(json) {
+  const text = json?.choices?.[0]?.message?.content || "";
+  if (!text) return null;
+  try { return JSON.parse(text); } catch {}
+  const stripped = text.replace(/^```json\s*/im,"").replace(/^```\s*/im,"").replace(/\s*```\s*$/im,"").trim();
+  try { return JSON.parse(stripped); } catch {}
+  const oi = stripped.indexOf("{"); const oj = stripped.lastIndexOf("}");
+  if (oi >= 0 && oj > oi) { try { return JSON.parse(stripped.slice(oi, oj + 1)); } catch {} }
+  const ai = stripped.indexOf("["); const aj = stripped.lastIndexOf("]");
+  if (ai >= 0 && aj > ai) { try { return JSON.parse(stripped.slice(ai, aj + 1)); } catch {} }
   return null;
 }
 
@@ -199,9 +221,90 @@ function countDocFields(parsed) {
   return Object.values(parsed).filter(v => v != null && String(v).trim() !== "").length;
 }
 
-/* ── GROQ CALL ───────────────────────────────────────────────────────────────
-   Text-only. Receives whatever text Gemini extracted and re-structures it
-   into clean JSON. No file upload. No cooldown delay. Near-instant response.
+function buildGroqPrompt(geminiPayload, mode) {
+  const parts = geminiPayload?.candidates?.[0]?.content?.parts || [];
+  const rawText = parts.map(p => p?.text || "").join("").trim();
+  const modeHint = mode === "list"
+    ? "Extract every equipment line item into a JSON object with key 'items' (array). Each item needs: equipment_type, serial_number, swl, result, defects_found, equipment_description."
+    : mode === "hookrope"
+      ? "Re-structure all Hook & Rope inspection fields from this text into the required JSON object."
+      : "Re-structure this inspection certificate text into the required JSON object. Extract every visible field.";
+  return `The following is raw text extracted from an inspection certificate.
+${modeHint}
+Return ONLY valid JSON. No markdown, no explanation.
+
+RAW TEXT:
+${rawText || "(empty — fill all fields with empty strings)"}`;
+}
+
+/* ── OPENROUTER VISION CALL ──────────────────────────────────────────────────
+   Sends base64 image directly — no file upload needed.
+   Used in parallel with Gemini shot-1 for document/hookrope mode.
+   Returns parsed JSON object or null on failure.
+────────────────────────────────────────────────────────────────────────────── */
+async function callOpenRouter(base64Data, mimeType, systemPrompt, fileName, mode) {
+  if (!OR_ENABLED) return null;
+
+  const userText = mode === "list"
+    ? `Read EVERY line of this handwritten list. Extract each item into the items array. File: ${fileName}`
+    : mode === "hookrope"
+      ? `Extract all Hook & Rope inspection data from this certificate. Read every field. File: ${fileName}`
+      : `Extract all inspection certificate data from this document. File: ${fileName}`;
+
+  const body = {
+    model: OR_MODEL,
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: userText },
+          {
+            type: "image_url",
+            image_url: { url: `data:${mimeType};base64,${base64Data}` },
+          },
+        ],
+      },
+    ],
+    temperature: 0.1,
+    max_tokens: mode === "list" ? 16384 : 8192,
+    response_format: { type: "json_object" },
+  };
+
+  try {
+    const res = await fetchWithTimeout(
+      `${OR_BASE}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${OR_API_KEY}`,
+          "HTTP-Referer": "https://monroyqms.onrender.com",
+          "X-Title": "Monroy QMS",
+        },
+        body: JSON.stringify(body),
+      },
+      90000
+    );
+
+    if (res.status === 429) { console.warn(`[${fileName}] OpenRouter rate limited.`); return null; }
+    if (!res.ok) { console.warn(`[${fileName}] OpenRouter error ${res.status}`); return null; }
+
+    const json = await res.json().catch(() => null);
+    if (!json) return null;
+
+    const parsed = extractJsonFromChatResponse(json);
+    console.log(`[${fileName}] OpenRouter: ${countDocFields(parsed)} fields`);
+    return parsed;
+  } catch (err) {
+    console.warn(`[${fileName}] OpenRouter failed:`, err.message);
+    return null;
+  }
+}
+
+/* ── GROQ TEXT CALL ──────────────────────────────────────────────────────────
+   Text-only shot-2 fallback. Receives Gemini's raw extracted text,
+   re-structures into clean JSON. No file upload, no rate limit wait.
 ────────────────────────────────────────────────────────────────────────────── */
 async function callGroq(systemPrompt, userText) {
   if (!GROQ_ENABLED) return null;
@@ -227,48 +330,22 @@ async function callGroq(systemPrompt, userText) {
       },
       60000
     );
-
-    if (res.status === 429) { console.warn("Groq rate limited — skipping."); return null; }
-
+    if (res.status === 429) { console.warn("Groq rate limited."); return null; }
     const json = await res.json().catch(() => null);
     if (!res.ok || !json) { console.warn(`Groq error ${res.status}`); return null; }
-
     const text = json.choices?.[0]?.message?.content || "";
     if (!text) return null;
     try { return JSON.parse(text); } catch {}
     const stripped = text.replace(/^```json\s*/im,"").replace(/\s*```\s*$/im,"").trim();
     try { return JSON.parse(stripped); } catch {}
-    console.warn("Groq returned unparseable JSON.");
     return null;
   } catch (err) {
-    console.warn("Groq call failed:", err.message);
+    console.warn("Groq failed:", err.message);
     return null;
   }
 }
 
-/* ── BUILD GROQ PROMPT from Gemini raw text ──────────────────────────────────
-   Extracts whatever Gemini returned (even partial text) and asks Groq
-   to restructure it into the required JSON schema.
-────────────────────────────────────────────────────────────────────────────── */
-function buildGroqPrompt(geminiPayload, mode) {
-  const parts = geminiPayload?.candidates?.[0]?.content?.parts || [];
-  const rawText = parts.map(p => p?.text || "").join("").trim();
-
-  const modeHint = mode === "list"
-    ? "Extract every equipment line item into a JSON object with key 'items' (array). Each item: equipment_type, serial_number, swl, result, defects_found, equipment_description."
-    : mode === "hookrope"
-      ? "Re-structure all Hook & Rope inspection fields from this text into the required JSON object."
-      : "Re-structure this inspection certificate text into the required JSON object. Extract every field visible.";
-
-  return `The following is raw text extracted from an inspection certificate document.
-${modeHint}
-Return ONLY valid JSON. No markdown, no explanation, no extra text.
-
-RAW EXTRACTED TEXT:
-${rawText || "(empty — fill all fields with empty strings)"}`;
-}
-
-/* ── FILE UPLOAD ─────────────────────────────────────────── */
+/* ── GEMINI FILE UPLOAD ──────────────────────────────────── */
 async function uploadFile(bytes, mimeType, displayName, apiKey) {
   const startRes = await fetchWithTimeout(
     `${FILE_API_BASE}/upload/v1beta/files?key=${apiKey}`,
@@ -303,9 +380,7 @@ async function uploadFile(bytes, mimeType, displayName, apiKey) {
     60000
   );
   const uploadJson = await uploadRes.json().catch(() => null);
-  if (!uploadRes.ok || !uploadJson?.file) {
-    throw new Error(uploadJson?.error?.message || `Upload failed: ${uploadRes.status}`);
-  }
+  if (!uploadRes.ok || !uploadJson?.file) throw new Error(uploadJson?.error?.message || `Upload failed: ${uploadRes.status}`);
 
   let file = uploadJson.file;
   for (let i = 0; i < 20; i++) {
@@ -324,175 +399,98 @@ async function deleteFile(name, apiKey) {
   try { await fetchWithTimeout(`${FILE_API_BASE}/v1beta/${name}?key=${apiKey}`, { method: "DELETE" }, 10000); } catch {}
 }
 
-/* ── GEMINI CALL ─────────────────────────────────────────── */
-async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, mode = "document") {
-  async function makeRequest(useSchema, keyOverride) {
-    const key = keyOverride || apiKey;
-    let responseSchema = null;
-    if (useSchema) {
-      if (mode === "list")          responseSchema = LIST_RESPONSE_SCHEMA;
-      else if (mode === "hookrope") responseSchema = HOOK_ROPE_SCHEMA;
-      else                          responseSchema = RESPONSE_SCHEMA;
-    }
-
-    const body = {
-      system_instruction: { parts: [{ text: systemPrompt }] },
-      contents: [{
-        role: "user",
-        parts: [
-          {
-            text: mode === "list"
-              ? `Read EVERY line carefully. Extract each item into the items array. File: ${fileName}`
-              : mode === "hookrope"
-                ? `Extract all Hook & Rope inspection data. Read every field carefully. File: ${fileName}`
-                : `Extract inspection certificate data from this file. Filename: ${fileName}`,
-          },
-          { file_data: { mime_type: uploadedFile.mimeType, file_uri: uploadedFile.uri } },
-        ],
-      }],
-      generationConfig: {
-        temperature: 0.1,
-        topP: 0.95,
-        maxOutputTokens: mode === "list" ? 16384 : 8192,
-        responseMimeType: "application/json",
-        ...(responseSchema ? { responseSchema } : {}),
-      },
-    };
-
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      let res;
-      try {
-        res = await fetchWithTimeout(
-          `${FILE_API_BASE}/v1beta/models/${MODEL}:generateContent?key=${key}`,
-          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
-          120000
-        );
-      } catch (fetchErr) {
-        const waitMs = 5000 * Math.pow(2, attempt);
-        console.warn(`[${fileName}] fetch error attempt ${attempt + 1}. Waiting ${Math.round(waitMs/1000)}s…`);
-        if (attempt < MAX_RETRIES - 1) { await sleep(waitMs); continue; }
-        throw fetchErr;
-      }
-
-      if (res.status === 429) {
-        penalizeKey(key, 60000 * (attempt + 1));
-        const retryAfter = parseInt(res.headers.get("retry-after") || "0") * 1000;
-        const waitMs = Math.max(retryAfter, EFFECTIVE_DELAY_MS * Math.pow(2, attempt));
-        console.log(`[${fileName}] 429 attempt ${attempt + 1}. Waiting ${Math.round(waitMs/1000)}s…`);
-        await sleep(waitMs);
-        const freshKey = await nextKey();
-        if (freshKey !== key) return makeRequest(useSchema, freshKey);
-        continue;
-      }
-
-      if (res.status === 503 || res.status === 500) {
-        const waitMs = 15000 * Math.pow(2, attempt);
-        if (attempt < MAX_RETRIES - 1) { await sleep(waitMs); continue; }
-      }
-
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json) throw new Error(json?.error?.message || `Gemini error ${res.status}`);
-
-      const finishReason = json?.candidates?.[0]?.finishReason;
-      if (finishReason === "SAFETY" || finishReason === "RECITATION") throw new Error(`Gemini blocked: ${finishReason}`);
-
-      const textCheck = (json?.candidates?.[0]?.content?.parts || []).map(p => p?.text || "").join("").toLowerCase();
-      if (textCheck.includes("experiencing high demand") || textCheck.includes("try again later")) {
-        if (attempt < MAX_RETRIES - 1) { await sleep(20000 * (attempt + 1)); continue; }
-      }
-
-      return json;
-    }
-    throw new Error("Gemini overloaded after all retries.");
+/* ── GEMINI GENERATE CALL ────────────────────────────────── */
+async function geminiGenerate(uploadedFile, fileName, systemPrompt, apiKey, mode, useSchema) {
+  let responseSchema = null;
+  if (useSchema) {
+    if (mode === "list")          responseSchema = LIST_RESPONSE_SCHEMA;
+    else if (mode === "hookrope") responseSchema = HOOK_ROPE_SCHEMA;
+    else                          responseSchema = RESPONSE_SCHEMA;
   }
 
-  // ── LIST MODE ──────────────────────────────────────────────────────────────
-  if (mode === "list") {
-    const json1 = await makeRequest(true, null);
-    const parsed1 = extractJsonFromPayload(json1);
-    const norm1 = normalizeListResult(parsed1);
-    if (norm1 && norm1.items.length > 0) {
-      console.log(`[${fileName}] list Gemini: ${norm1.items.length} items ✓`);
-      return { payload: json1, parsed: norm1 };
+  const body = {
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    contents: [{
+      role: "user",
+      parts: [
+        {
+          text: mode === "list"
+            ? `Read EVERY line carefully. Extract each item into the items array. File: ${fileName}`
+            : mode === "hookrope"
+              ? `Extract all Hook & Rope inspection data. File: ${fileName}`
+              : `Extract inspection certificate data. Filename: ${fileName}`,
+        },
+        { file_data: { mime_type: uploadedFile.mimeType, file_uri: uploadedFile.uri } },
+      ],
+    }],
+    generationConfig: {
+      temperature: 0.1, topP: 0.95,
+      maxOutputTokens: mode === "list" ? 16384 : 8192,
+      responseMimeType: "application/json",
+      ...(responseSchema ? { responseSchema } : {}),
+    },
+  };
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    let res;
+    try {
+      res = await fetchWithTimeout(
+        `${FILE_API_BASE}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+        120000
+      );
+    } catch (fetchErr) {
+      const waitMs = 5000 * Math.pow(2, attempt);
+      if (attempt < MAX_RETRIES - 1) { await sleep(waitMs); continue; }
+      throw fetchErr;
     }
-    // Groq fallback — no cooldown wait
-    if (GROQ_ENABLED) {
-      console.log(`[${fileName}] list Gemini weak → Groq (instant)…`);
-      const groqParsed = await callGroq(systemPrompt, buildGroqPrompt(json1, "list"));
-      const groqNorm = normalizeListResult(groqParsed);
-      if (groqNorm && groqNorm.items.length > 0) {
-        console.log(`[${fileName}] list Groq: ${groqNorm.items.length} items ✓`);
-        return { payload: json1, parsed: groqNorm };
-      }
-    } else {
-      await sleep(EFFECTIVE_DELAY_MS);
-      const json2 = await makeRequest(false, await nextKey());
-      const norm2 = normalizeListResult(extractJsonFromPayload(json2));
-      if (norm2 && norm2.items.length > 0) return { payload: json2, parsed: norm2 };
+
+    if (res.status === 429) {
+      penalizeKey(apiKey, 60000 * (attempt + 1));
+      const retryAfter = parseInt(res.headers.get("retry-after") || "0") * 1000;
+      const waitMs = Math.max(retryAfter, EFFECTIVE_DELAY_MS * Math.pow(2, attempt));
+      await sleep(waitMs);
+      const freshKey = await nextKey();
+      if (freshKey !== apiKey) return geminiGenerate(uploadedFile, fileName, systemPrompt, freshKey, mode, useSchema);
+      continue;
     }
-    return { payload: json1, parsed: norm1 || { items: [] } };
-  }
 
-  // ── HOOK & ROPE MODE ────────────────────────────────────────────────────────
-  if (mode === "hookrope") {
-    const json1 = await makeRequest(true, null);
-    const parsed1 = extractJsonFromPayload(json1);
-    const fields1 = countDocFields(parsed1);
-    if (fields1 >= 3) {
-      console.log(`[${fileName}] hookrope Gemini: ${fields1} fields ✓`);
-      return { payload: json1, parsed: parsed1 };
+    if (res.status === 503 || res.status === 500) {
+      if (attempt < MAX_RETRIES - 1) { await sleep(15000 * Math.pow(2, attempt)); continue; }
     }
-    if (GROQ_ENABLED) {
-      console.log(`[${fileName}] hookrope Gemini weak (${fields1}) → Groq (instant)…`);
-      const groqParsed = await callGroq(systemPrompt, buildGroqPrompt(json1, "hookrope"));
-      const groqFields = countDocFields(groqParsed);
-      if (groqFields > fields1) {
-        console.log(`[${fileName}] hookrope Groq: ${groqFields} fields ✓`);
-        return { payload: json1, parsed: groqParsed };
-      }
-    } else {
-      await sleep(EFFECTIVE_DELAY_MS);
-      const json2 = await makeRequest(false, await nextKey());
-      const parsed2 = extractJsonFromPayload(json2);
-      return countDocFields(parsed2) >= fields1
-        ? { payload: json2, parsed: parsed2 }
-        : { payload: json1, parsed: parsed1 };
+
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json) throw new Error(json?.error?.message || `Gemini error ${res.status}`);
+
+    const finishReason = json?.candidates?.[0]?.finishReason;
+    if (finishReason === "SAFETY" || finishReason === "RECITATION") throw new Error(`Gemini blocked: ${finishReason}`);
+
+    const textCheck = (json?.candidates?.[0]?.content?.parts || []).map(p => p?.text || "").join("").toLowerCase();
+    if (textCheck.includes("experiencing high demand") || textCheck.includes("try again later")) {
+      if (attempt < MAX_RETRIES - 1) { await sleep(20000 * (attempt + 1)); continue; }
     }
-    return { payload: json1, parsed: parsed1 };
+
+    return json;
   }
-
-  // ── DOCUMENT MODE ───────────────────────────────────────────────────────────
-  const json1 = await makeRequest(true, null);
-  const parsed1 = extractJsonFromPayload(json1);
-  const fields1 = countDocFields(parsed1);
-
-  if (fields1 >= 4) {
-    console.log(`[${fileName}] doc Gemini: ${fields1} fields ✓`);
-    return { payload: json1, parsed: parsed1 };
-  }
-
-  // Shot 2 — Groq: no cooldown, no file upload, instant
-  if (GROQ_ENABLED) {
-    console.log(`[${fileName}] doc Gemini weak (${fields1}) → Groq (instant, no wait)…`);
-    const groqParsed = await callGroq(systemPrompt, buildGroqPrompt(json1, "document"));
-    const groqFields = countDocFields(groqParsed);
-    console.log(`[${fileName}] doc Groq: ${groqFields} fields`);
-    if (groqFields > fields1) return { payload: json1, parsed: groqParsed };
-    return { payload: json1, parsed: fields1 >= groqFields ? parsed1 : groqParsed };
-  }
-
-  // No Groq — second Gemini call
-  console.log(`[${fileName}] doc Gemini weak (${fields1}), no Groq → second Gemini call…`);
-  await sleep(EFFECTIVE_DELAY_MS);
-  const json2 = await makeRequest(false, await nextKey());
-  const parsed2 = extractJsonFromPayload(json2);
-  const fields2 = countDocFields(parsed2);
-  return fields2 >= fields1
-    ? { payload: json2, parsed: parsed2 }
-    : { payload: json1, parsed: parsed1 };
+  throw new Error("Gemini overloaded after all retries.");
 }
 
-/* ── PROCESS ONE FILE ────────────────────────────────────── */
+/* ── PROCESS ONE FILE ────────────────────────────────────────────────────────
+   Strategy per mode:
+
+   DOCUMENT / HOOKROPE:
+     Shot 1 — Gemini (file upload + vision) AND OpenRouter (base64 vision)
+              run IN PARALLEL via Promise.race.
+              Winner is whoever returns ≥4 fields first.
+              Loser is cancelled (we just ignore its result).
+     Shot 2 — Only if shot-1 winner is weak: Groq (text restructure, instant).
+
+   LIST:
+     Shot 1 — Gemini with LIST schema (best for handwriting).
+     Shot 2 — If Gemini weak: Groq fallback (instant).
+              OpenRouter not used for list — handwriting OCR quality
+              is significantly better on Gemini.
+────────────────────────────────────────────────────────────────────────────── */
 async function processOneFile(fileData, systemPrompt, mode = "document") {
   const { fileName, mimeType, base64Data } = fileData;
   let uploadedFile = null;
@@ -501,50 +499,118 @@ async function processOneFile(fileData, systemPrompt, mode = "document") {
   try {
     const bytes = Buffer.from(base64Data, "base64");
     const sizeMB = bytes.byteLength / (1024 * 1024);
-    if (sizeMB > 20) return { fileName, ok: false, error: `File too large (${sizeMB.toFixed(1)}MB). Maximum 20MB.` };
+    if (sizeMB > 20) return { fileName, ok: false, error: `File too large (${sizeMB.toFixed(1)}MB). Max 20MB.` };
 
-    console.log(`[${fileName}] uploading ${sizeMB.toFixed(2)}MB (mode: ${mode})…`);
-    uploadedFile = await uploadFile(bytes, mimeType, fileName, apiKey);
-    const { payload, parsed } = await callGemini(uploadedFile, fileName, systemPrompt, apiKey, mode);
+    console.log(`[${fileName}] ${sizeMB.toFixed(2)}MB mode=${mode} gemini+${OR_ENABLED?"openrouter":"groq-fallback"}`);
 
-    if (!parsed || typeof parsed !== "object") {
-      return { fileName, ok: false, error: "Model returned invalid JSON. Try a clearer image." };
-    }
-
+    // ── LIST MODE — Gemini only for shot 1 (best handwriting OCR) ────────────
     if (mode === "list") {
-      const itemCount = parsed.items?.length || 0;
-      if (itemCount === 0) return { fileName, ok: false, error: "No items extracted. Try a higher-resolution photo." };
-      return {
-        fileName, ok: true,
-        data: {
-          items: (parsed.items || []).map(item => ({
-            equipment_type:        sanitize(item.equipment_type) || "Other",
-            serial_number:         sanitize(item.serial_number),
-            swl:                   sanitize(item.swl),
-            result:                normalizeResult(item.result) || "PASS",
-            defects_found:         sanitize(item.defects_found),
-            equipment_description: sanitize(item.equipment_description),
-          })),
-        },
-        usage: payload?.usageMetadata || null,
-      };
+      uploadedFile = await uploadFile(bytes, mimeType, fileName, apiKey);
+      const json1 = await geminiGenerate(uploadedFile, fileName, systemPrompt, apiKey, "list", true);
+      const parsed1 = extractJsonFromPayload(json1);
+      const norm1 = normalizeListResult(parsed1);
+
+      if (norm1 && norm1.items.length > 0) {
+        console.log(`[${fileName}] list Gemini: ${norm1.items.length} items ✓`);
+        return buildListResult(fileName, norm1, json1);
+      }
+
+      // Groq fallback
+      if (GROQ_ENABLED) {
+        console.log(`[${fileName}] list Gemini weak → Groq…`);
+        const groqParsed = await callGroq(systemPrompt, buildGroqPrompt(json1, "list"));
+        const groqNorm = normalizeListResult(groqParsed);
+        if (groqNorm && groqNorm.items.length > 0) {
+          console.log(`[${fileName}] list Groq: ${groqNorm.items.length} items ✓`);
+          return buildListResult(fileName, groqNorm, json1);
+        }
+      } else {
+        // Second Gemini call
+        await sleep(EFFECTIVE_DELAY_MS);
+        const json2 = await geminiGenerate(uploadedFile, fileName, systemPrompt, apiKey, "list", false);
+        const norm2 = normalizeListResult(extractJsonFromPayload(json2));
+        if (norm2 && norm2.items.length > 0) return buildListResult(fileName, norm2, json2);
+      }
+
+      return { fileName, ok: false, error: "No items extracted. Try a higher-resolution photo." };
     }
 
+    // ── DOCUMENT / HOOKROPE — Parallel Gemini + OpenRouter ───────────────────
+    // Start Gemini file upload and OpenRouter call simultaneously
+    const [geminiUploadResult, orResult] = await Promise.allSettled([
+      // Gemini: upload then generate
+      (async () => {
+        uploadedFile = await uploadFile(bytes, mimeType, fileName, apiKey);
+        const json = await geminiGenerate(uploadedFile, fileName, systemPrompt, apiKey, mode, true);
+        return { source: "gemini", json, parsed: extractJsonFromPayload(json) };
+      })(),
+      // OpenRouter: base64 direct (no upload needed)
+      OR_ENABLED
+        ? (async () => {
+            const parsed = await callOpenRouter(base64Data, mimeType, systemPrompt, fileName, mode);
+            return { source: "openrouter", json: null, parsed };
+          })()
+        : Promise.resolve(null),
+    ]);
+
+    // Evaluate both results
+    const geminiResult = geminiUploadResult.status === "fulfilled" ? geminiUploadResult.value : null;
+    const orParsed     = orResult.status === "fulfilled" ? orResult.value?.parsed : null;
+
+    const geminiFields = countDocFields(geminiResult?.parsed);
+    const orFields     = countDocFields(orParsed);
+
+    console.log(`[${fileName}] gemini=${geminiFields} fields | openrouter=${orFields} fields`);
+
+    // Use whichever got more fields
+    let bestParsed = null;
+    let bestSource = "none";
+
+    if (geminiFields >= orFields && geminiFields >= 4) {
+      bestParsed = geminiResult.parsed; bestSource = "gemini";
+    } else if (orFields > geminiFields && orFields >= 4) {
+      bestParsed = orParsed; bestSource = "openrouter";
+    } else if (geminiFields > 0 || orFields > 0) {
+      // Both weak — use whichever has more
+      bestParsed = geminiFields >= orFields ? geminiResult?.parsed : orParsed;
+      bestSource = geminiFields >= orFields ? "gemini" : "openrouter";
+    }
+
+    // Shot 2 — Groq if best is still weak
+    if (countDocFields(bestParsed) < 4 && GROQ_ENABLED) {
+      console.log(`[${fileName}] both providers weak → Groq fallback (instant)…`);
+      const geminiPayload = geminiResult?.json || null;
+      const groqParsed = await callGroq(systemPrompt, buildGroqPrompt(geminiPayload, mode));
+      const groqFields = countDocFields(groqParsed);
+      if (groqFields > countDocFields(bestParsed)) {
+        bestParsed = groqParsed; bestSource = "groq";
+      }
+    }
+
+    console.log(`[${fileName}] winner: ${bestSource} (${countDocFields(bestParsed)} fields)`);
+
+    if (!bestParsed || typeof bestParsed !== "object") {
+      return { fileName, ok: false, error: "All providers returned invalid JSON. Try a clearer image." };
+    }
+
+    // ── HOOKROPE result ───────────────────────────────────────────────────────
     if (mode === "hookrope") {
-      if (countDocFields(parsed) < 2) return { fileName, ok: false, error: "AI extracted 0 usable fields. Try a clearer scan." };
+      if (countDocFields(bestParsed) < 2) {
+        return { fileName, ok: false, error: "AI extracted 0 usable fields. Try a clearer scan." };
+      }
       const data = {};
-      for (const [k, v] of Object.entries(parsed)) data[k] = sanitize(v);
-      return { fileName, ok: true, data, usage: payload?.usageMetadata || null };
+      for (const [k, v] of Object.entries(bestParsed)) data[k] = sanitize(v);
+      return { fileName, ok: true, data, source: bestSource };
     }
 
-    // document
+    // ── DOCUMENT result ───────────────────────────────────────────────────────
     const data = {};
-    for (const [k, v] of Object.entries(parsed)) data[k] = sanitize(v);
+    for (const [k, v] of Object.entries(bestParsed)) data[k] = sanitize(v);
     data.result = normalizeResult(data.result);
     const mf = Object.values(data).filter(v => v && String(v).trim()).length;
-    if (mf < 2) return { fileName, ok: false, error: "AI extracted 0 usable fields. Try a clearer scan or text-based PDF." };
-    console.log(`[${fileName}] doc: ${mf} fields ✓`);
-    return { fileName, ok: true, data, usage: payload?.usageMetadata || null };
+    if (mf < 2) return { fileName, ok: false, error: "AI extracted 0 usable fields. Try a clearer scan." };
+
+    return { fileName, ok: true, data, source: bestSource };
 
   } catch (err) {
     console.error(`[${fileName}] error:`, err?.message);
@@ -552,6 +618,55 @@ async function processOneFile(fileData, systemPrompt, mode = "document") {
   } finally {
     if (uploadedFile?.name) await deleteFile(uploadedFile.name, apiKey);
   }
+}
+
+function buildListResult(fileName, normalized, payload) {
+  const items = (normalized.items || []).map(item => ({
+    equipment_type:        sanitize(item.equipment_type) || "Other",
+    serial_number:         sanitize(item.serial_number),
+    swl:                   sanitize(item.swl),
+    result:                normalizeResult(item.result) || "PASS",
+    defects_found:         sanitize(item.defects_found),
+    equipment_description: sanitize(item.equipment_description),
+  }));
+  return { fileName, ok: true, data: { items }, usage: payload?.usageMetadata || null };
+}
+
+/* ── PARALLEL BATCH PROCESSING ───────────────────────────────────────────────
+   Files are processed in parallel, capped at MAX_CONCURRENT to avoid
+   exhausting all Gemini keys simultaneously.
+   With 5 Gemini keys: up to 5 files in flight at once.
+   With 1 key: up to 2 files (second starts while first is generating).
+────────────────────────────────────────────────────────────────────────────── */
+async function processBatch(files, systemPrompt, mode) {
+  const MAX_CONCURRENT = Math.max(2, KEY_POOL.length);
+  const results = new Array(files.length);
+  const queue   = files.map((f, i) => ({ file: f, idx: i }));
+  const active  = new Set();
+
+  await new Promise((resolve) => {
+    function startNext() {
+      while (active.size < MAX_CONCURRENT && queue.length > 0) {
+        const { file, idx } = queue.shift();
+        const promise = processOneFile(file, systemPrompt, mode).then(result => {
+          results[idx] = result;
+          active.delete(promise);
+          if (queue.length > 0) startNext();
+          else if (active.size === 0) resolve();
+        }).catch(err => {
+          results[idx] = { fileName: file.fileName, ok: false, error: err?.message || "Failed" };
+          active.delete(promise);
+          if (queue.length > 0) startNext();
+          else if (active.size === 0) resolve();
+        });
+        active.add(promise);
+      }
+      if (active.size === 0 && queue.length === 0) resolve();
+    }
+    startNext();
+  });
+
+  return results;
 }
 
 /* ── ROUTE HANDLER ───────────────────────────────────────── */
@@ -574,29 +689,22 @@ export async function POST(request) {
     if      (body.mode === "hookrope" || body.hookRopeMode === true) mode = "hookrope";
     else if (body.mode === "list"     || body.listMode     === true) mode = "list";
 
-    console.log(`extract: ${body.files.length} file(s) | mode="${mode}" | groq=${GROQ_ENABLED}`);
+    console.log(`extract: ${body.files.length} file(s) | mode="${mode}" | gemini=${KEY_POOL.length} | groq=${GROQ_ENABLED} | openrouter=${OR_ENABLED}`);
 
-    const results = [];
-    for (let i = 0; i < body.files.length; i++) {
-      console.log(`file ${i + 1}/${body.files.length}: ${body.files[i].fileName}`);
-      results.push(await processOneFile(body.files[i], systemPrompt, mode));
-      if (i < body.files.length - 1) {
-        const now = Date.now();
-        const anyFree = KEY_POOL.some(k => (keyCooldowns.get(k) || 0) <= now);
-        if (!anyFree) await sleep(EFFECTIVE_DELAY_MS);
-      }
-    }
+    // Process all files in parallel (capped at MAX_CONCURRENT)
+    const results = await processBatch(body.files, systemPrompt, mode);
 
     const successCount = results.filter(r => r.ok).length;
     console.log(`done: ${successCount}/${results.length} succeeded`);
 
     return NextResponse.json({
       results,
-      model: MODEL,
-      groq_model: GROQ_ENABLED ? GROQ_MODEL : null,
-      processed: results.length,
-      succeeded: successCount,
-      failed: results.length - successCount,
+      model:            GEMINI_MODEL,
+      groq_model:       GROQ_ENABLED  ? GROQ_MODEL : null,
+      openrouter_model: OR_ENABLED    ? OR_MODEL   : null,
+      processed:        results.length,
+      succeeded:        successCount,
+      failed:           results.length - successCount,
     });
 
   } catch (err) {
