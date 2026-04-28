@@ -21,8 +21,8 @@ const KEY_POOL = [
 if (KEY_POOL.length === 0) throw new Error("No GEMINI_API_KEY set in environment.");
 
 const keyCooldowns = new Map(KEY_POOL.map(k => [k, 0]));
-const PER_KEY_DELAY_MS = 12000;
-const EFFECTIVE_DELAY_MS = Math.ceil(PER_KEY_DELAY_MS / KEY_POOL.length);
+const PER_KEY_DELAY_MS = 6000;  // 10 RPM = 6s minimum gap per key
+const EFFECTIVE_DELAY_MS = Math.max(300, Math.ceil(PER_KEY_DELAY_MS / KEY_POOL.length));
 
 console.log(`Gemini key pool: ${KEY_POOL.length} key(s), effective delay: ${EFFECTIVE_DELAY_MS}ms`);
 
@@ -495,7 +495,7 @@ async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, mode = "
   const json1 = await makeRequest(true, null);
   const parsed1 = extractJsonFromPayload(json1);
   const fields1 = countDocFields(parsed1);
-  if (fields1 >= 2) {
+  if (fields1 >= 4) {  // skip shot 2 if we already have 4+ fields
     console.log(`[${fileName}] Doc schema shot: ${fields1} fields ✓`);
     return { payload: json1, parsed: parsed1 };
   }
@@ -652,7 +652,12 @@ export async function POST(request) {
       console.log(`Processing ${i + 1}/${body.files.length}: ${file.fileName}`);
       const result = await processOneFile(file, systemPrompt, mode);
       results.push(result);
-      if (i < body.files.length - 1) await sleep(EFFECTIVE_DELAY_MS);
+      // Only sleep between files if all keys are still on cooldown
+      if (i < body.files.length - 1) {
+        const now = Date.now();
+        const anyFree = KEY_POOL.some(k => (keyCooldowns.get(k) || 0) <= now);
+        if (!anyFree) await sleep(EFFECTIVE_DELAY_MS);
+      }
     }
 
     const successCount = results.filter(r => r.ok).length;
