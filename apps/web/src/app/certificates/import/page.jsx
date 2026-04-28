@@ -86,6 +86,7 @@ ${expiryDate ? `Expiry date: ${expiryDate}` : ""}`;
 
 const MAX_FILES = 20;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const PARALLEL_LIMIT = 4;
 
 const EQUIPMENT_TYPES = [
   "Chain Block","Manual Chain Hoist","Electric Chain Hoist","Lever Hoist / Tirfor","Chain Pulley Block",
@@ -111,6 +112,34 @@ function pillClass(r) { const v=String(r||"").toUpperCase(); return v==="PASS"?"
 function slugify(v) { return String(v||"").trim().toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,16)||"UNKNOWN"; }
 function fileSizeLabel(f) { if(!f)return""; return f.size>1048576?`${(f.size/1048576).toFixed(1)} MB`:`${Math.round(f.size/1024)} KB`; }
 function toBase64(file) { return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(",")[1]); r.onerror=rej; r.readAsDataURL(file); }); }
+
+async function runWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const workerCount = Math.min(limit, items.length);
+
+  async function runner() {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await worker(items[index], index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, runner));
+  return results;
+}
+
+function readApiError(json, fallback) {
+  return json?.error || json?.message || fallback || "Request failed";
+}
+
+async function safeJson(res) {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
 
 function normalizeDate(raw) {
   if(!raw)return"";
@@ -335,6 +364,7 @@ function DocumentMode() {
   const [results, setResults] = useState([]);
   const [dragActive, setDragActive] = useState(false);
   const [extracting, setExtracting] = useState(false);
+  const [savingAll, setSavingAll] = useState(false);
   const [progress, setProgressState] = useState({visible:false,pct:0,label:""});
   const [overrides, setOverrides] = useState({client_name:"",location:"",inspection_date:"",expiry_date:""});
   const fileInputRef = useRef(null);
@@ -344,9 +374,10 @@ function DocumentMode() {
   const overrideCount = useMemo(()=>Object.values(overrides).filter(v=>String(v||"").trim()).length,[overrides]);
   const stats = useMemo(()=>{
     const ok=results.filter(x=>x.ok).length;
-    const err=results.filter(x=>!x.ok).length;
+    const pending=results.filter(x=>x.pending).length;
+    const err=results.filter(x=>x.ok===false&&!x.pending).length;
     const pass=results.filter(x=>x.ok&&(x.manualResult||x.data?.result)==="PASS").length;
-    return{total:results.length,ok,err,pass,canSaveAll:results.some(x=>x.ok&&!x.saved&&!x.saving)};
+    return{total:results.length,ok,pending,err,pass,canSaveAll:results.some(x=>x.ok&&!x.saved&&!x.saving)};
   },[results]);
 
   function setProgress(pct,label){setProgressState({visible:true,pct:Math.round(pct),label});}
@@ -355,7 +386,7 @@ function DocumentMode() {
     setFiles(prev=>{const next=[...prev];list.filter(isAllowedFile).forEach(f=>{if(!next.find(x=>x.file.name===f.name&&x.file.size===f.size)&&next.length<MAX_FILES)next.push({id:uid(),file:f});});return next;});
     resetInputs();
   }
-  function clearAll(){setFiles([]);setResults([]);setProgressState({visible:false,pct:0,label:""});resetInputs();}
+  function clearAll(){setFiles([]);setResults([]);setSavingAll(false);setProgressState({visible:false,pct:0,label:""});resetInputs();}
   function setOverride(k,v){setOverrides(p=>({...p,[k]:v}));}
   function clearOverrides(){setOverrides({client_name:"",location:"",inspection_date:"",expiry_date:""});}
   function applyOverrides(data){
@@ -371,30 +402,132 @@ function DocumentMode() {
     return`CERT-${base}-${String(certSeqRef.current++).padStart(2,"0")}`;
   }
 
+  function normalizeExtractedData(item, fileEntry) {
+    const raw = item?.data || item || {};
+    const rawData = {
+      ...raw,
+      inspection_date: normalizeDate(raw.inspection_date || raw.issue_date),
+      expiry_date: normalizeDate(raw.expiry_date),
+      next_inspection_due: normalizeDate(raw.next_inspection_due),
+      result: raw.result || "PASS",
+    };
+    const data = applyOverrides(rawData);
+    return {
+      fileId: fileEntry.id,
+      fileName: fileEntry.file.name,
+      ok: true,
+      pending: false,
+      data,
+      saved: false,
+      saving: false,
+      saveError: null,
+      savedId: null,
+      expanded: false,
+      certNumber: null,
+      manualResult: data.result || "PASS",
+      manualDefects: data.defects_found || "",
+    };
+  }
+
+  async function extractSingleFile(fileEntry) {
+    const file = fileEntry.file;
+    const basePayload = {
+      fileName: file.name,
+      mimeType: file.type || "application/pdf",
+      base64Data: await toBase64(file),
+    };
+
+    const jsonRes = await fetch("/api/ai/extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ files: [basePayload], systemPrompt: DOC_PROMPT }),
+    });
+    const json = await safeJson(jsonRes);
+
+    if (jsonRes.ok) {
+      const first = Array.isArray(json?.results) ? json.results[0] : json;
+      if (first?.ok === false) throw new Error(first?.error || "Extraction failed");
+      const data = first?.data || json?.data || first;
+      if (!data || typeof data !== "object") throw new Error("No extracted data returned");
+      return normalizeExtractedData({ data }, fileEntry);
+    }
+
+    // Fallback for the Document 2 route shape, where /api/ai/extract accepts FormData
+    // and returns { success: true, data: {...} } for one file.
+    const fd = new FormData();
+    fd.append("files", file);
+    fd.append("mode", "extract");
+    fd.append("systemPrompt", DOC_PROMPT);
+
+    const formRes = await fetch("/api/ai/extract", { method: "POST", body: fd });
+    const formJson = await safeJson(formRes);
+    if (!formRes.ok || formJson?.success === false) {
+      throw new Error(readApiError(formJson || json, `Server error ${formRes.status || jsonRes.status}`));
+    }
+
+    const data = formJson?.data || (Array.isArray(formJson?.results) ? formJson.results[0]?.data : null);
+    if (!data || typeof data !== "object") throw new Error("No extracted data returned");
+    return normalizeExtractedData({ data }, fileEntry);
+  }
+
   async function handleExtract(){
     if(!files.length||extracting)return;
-    setExtracting(true);setResults([]);setProgress(5,"Preparing files...");
+    setExtracting(true);
+    setSavingAll(false);
+
+    const initial = files.map((entry)=>({
+      fileId:entry.id,
+      fileName:entry.file.name,
+      ok:false,
+      pending:true,
+      error:null,
+      saved:false,
+      saving:false,
+      saveError:null,
+      expanded:false,
+      certNumber:null,
+      savedId:null,
+      manualResult:"PASS",
+      manualDefects:"",
+    }));
+    setResults(initial);
+    setProgress(2,`Starting parallel extraction: ${files.length} file${files.length===1?"":"s"}`);
+
+    let completed = 0;
     try{
-      const payloads=[];
-      for(let i=0;i<files.length;i++){
-        setProgress(5+(i/files.length)*30,`Reading ${i+1}/${files.length}: ${files[i].file.name}`);
-        payloads.push({fileName:files[i].file.name,mimeType:files[i].file.type||"application/pdf",base64Data:await toBase64(files[i].file)});
-      }
-      setProgress(42,"Sending to Gemini 2.5 Flash...");
-      const res=await fetch("/api/ai/extract",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({files:payloads,systemPrompt:DOC_PROMPT})});
-      setProgress(85,"Parsing results...");
-      const json=await res.json();
-      if(!res.ok)throw new Error(json?.error||`Server error ${res.status}`);
-      if(!Array.isArray(json?.results))throw new Error("Unexpected response");
-      const mapped=json.results.map(item=>{
-        if(!item.ok||!item.data)return{...item,saved:false,saving:false,saveError:null,expanded:false,certNumber:null,savedId:null,manualResult:"PASS",manualDefects:""};
-        const rawData={...item.data,inspection_date:normalizeDate(item.data.inspection_date),expiry_date:normalizeDate(item.data.expiry_date),next_inspection_due:normalizeDate(item.data.next_inspection_due)};
-        const data=applyOverrides(rawData);
-        return{...item,data,saved:false,saving:false,saveError:null,savedId:null,expanded:false,certNumber:null,manualResult:data.result||"PASS",manualDefects:data.defects_found||""};
+      await runWithConcurrency(files, PARALLEL_LIMIT, async (fileEntry, index)=>{
+        setResults(prev=>prev.map((it,i)=>i===index?{...it,pending:true,error:null}:it));
+        try{
+          const item = await extractSingleFile(fileEntry);
+          completed += 1;
+          setResults(prev=>prev.map((it,i)=>i===index?item:it));
+          setProgress(5+(completed/files.length)*90,`Extracted ${completed}/${files.length}: ${fileEntry.file.name}`);
+          return item;
+        }catch(e){
+          completed += 1;
+          const failed={
+            fileId:fileEntry.id,
+            fileName:fileEntry.file.name,
+            ok:false,
+            pending:false,
+            error:e.message||"Extraction failed",
+            saved:false,
+            saving:false,
+            saveError:null,
+            expanded:false,
+            certNumber:null,
+            savedId:null,
+            manualResult:"PASS",
+            manualDefects:"",
+          };
+          setResults(prev=>prev.map((it,i)=>i===index?failed:it));
+          setProgress(5+(completed/files.length)*90,`Processed ${completed}/${files.length}: ${fileEntry.file.name}`);
+          return failed;
+        }
       });
-      setResults(mapped);setProgress(100,"Extraction complete");
+      setProgress(100,"Extraction complete");
     }catch(e){
-      setResults([{fileName:"Request failed",ok:false,error:e.message||"Unexpected error",saved:false,saving:false,saveError:null,expanded:false,certNumber:null,savedId:null,manualResult:"PASS",manualDefects:""}]);
+      setResults([{fileName:"Request failed",ok:false,pending:false,error:e.message||"Unexpected error",saved:false,saving:false,saveError:null,expanded:false,certNumber:null,savedId:null,manualResult:"PASS",manualDefects:""}]);
       setProgress(100,"Extraction failed");
     }finally{setExtracting(false);}
   }
@@ -436,7 +569,17 @@ function DocumentMode() {
 
   async function saveAll(){
     const indexes=results.map((_,i)=>i).filter(i=>results[i].ok&&!results[i].saved&&!results[i].saving);
-    for(const idx of indexes)await saveOne(idx);
+    if(!indexes.length||savingAll)return;
+    setSavingAll(true);
+    let completed=0;
+    setProgress(2,`Saving ${indexes.length} certificate${indexes.length===1?"":"s"}...`);
+    await runWithConcurrency(indexes, PARALLEL_LIMIT, async (idx)=>{
+      await saveOne(idx);
+      completed+=1;
+      setProgress(5+(completed/indexes.length)*90,`Saved ${completed}/${indexes.length}`);
+    });
+    setProgress(100,"Save complete");
+    setSavingAll(false);
   }
 
   return(
@@ -464,7 +607,7 @@ function DocumentMode() {
               </div>
               <div className="action-row">
                 <button className="btn btn-ghost" type="button" onClick={clearAll}>Clear all</button>
-                <button className="btn btn-primary" type="button" onClick={handleExtract} disabled={!files.length||extracting}>{extracting?"Extracting...":"⚡ Extract with AI"}</button>
+                <button className="btn btn-primary" type="button" onClick={handleExtract} disabled={!files.length||extracting||savingAll}>{extracting?`Extracting ${stats.pending}...`:"⚡ Extract fast with AI"}</button>
               </div>
               {progress.visible&&<div className="prog-wrap"><div className="prog-meta"><span>{progress.label}</span><span className="prog-pct">{progress.pct}%</span></div><div className="prog-track"><div className="prog-fill" style={{width:`${progress.pct}%`}}/></div></div>}
             </div>
@@ -496,7 +639,7 @@ function DocumentMode() {
         <div className="card" style={{borderRadius:"var(--rxl)"}}>
           <div className="card-header">
             <div><div className="card-title">Extracted results</div><div className="card-sub">Review, set result and defects, then save to register</div></div>
-            <button className="btn-saveall" type="button" onClick={saveAll} disabled={!stats.canSaveAll}>Save all successful</button>
+            <button className="btn-saveall" type="button" onClick={saveAll} disabled={!stats.canSaveAll||savingAll}>{savingAll?"Saving...":"Save all successful"}</button>
           </div>
           <div className="card-body">
             <div className="result-list">
@@ -506,18 +649,20 @@ function DocumentMode() {
                 const rv=item.manualResult||d.result||"UNKNOWN";
                 const disabled=item.saved||item.saving;
                 return(
-                  <div key={`${item.fileName}-${idx}`} className={`rcard${item.ok?(item.saved?" is-saved":""):" is-err"}`}>
+                  <div key={`${item.fileName}-${idx}`} className={`rcard${item.ok?(item.saved?" is-saved":""):(item.pending?"":" is-err")}`}>
                     <div className="rhead">
-                      <div className="rnum" style={item.ok?{background:"var(--green-bg)",color:"var(--green-t)"}:{background:"var(--red-bg)",color:"var(--red-t)"}}>{idx+1}</div>
+                      <div className="rnum" style={item.ok?{background:"var(--green-bg)",color:"var(--green-t)"}:item.pending?{background:"var(--blue-dim)",color:"var(--blue-t)"}:{background:"var(--red-bg)",color:"var(--red-t)"}}>{idx+1}</div>
                       <div className="rfname" title={item.fileName}>{item.fileName}</div>
                       {item.ok&&<span className="pill p-info">{nonEmpty(d)} fields</span>}
                       {item.ok&&d.equipment_type&&<span className="pill p-neutral">{d.equipment_type}</span>}
                       {item.ok&&<span className={`pill ${pillClass(rv)}`}>{rv}</span>}
                       {item.saved&&item.certNumber&&<span className="cert-num">{item.certNumber}</span>}
                       {item.saved&&item.pdfUrl&&<span className="pill p-pass">📎 PDF</span>}
-                      <span className={`pill ${item.ok?"p-ok":"p-err"}`}>{item.ok?"OK":"Error"}</span>
+                      <span className={`pill ${item.ok?"p-ok":item.pending?"p-info":"p-err"}`}>{item.ok?"OK":item.pending?"Extracting":"Error"}</span>
                     </div>
-                    {!item.ok?(
+                    {item.pending?(
+                      <div className="rbody"><div className="raw-sum"><span className="spinner"/> Reading file and extracting data with AI...</div></div>
+                    ):!item.ok?(
                       <div className="rbody"><div className="err-box"><div className="err-title">{item.error||"Extraction failed."}</div><div className="err-detail">Check /api/ai/extract is deployed and your API key is set.</div></div></div>
                     ):(
                       <>
@@ -789,7 +934,20 @@ function ListMode() {
     }catch(e){setItems(prev=>prev.map(it=>it.id===id?{...it,saving:false,saved:false,saveError:e.message}:it));}
   }
 
-  async function saveAll(){setSavingAll(true);const unsaved=items.filter(x=>!x.saved&&!x.saving).map(x=>x.id);for(const id of unsaved)await saveOne(id);setSavingAll(false);}
+  async function saveAll(){
+    const unsaved=items.filter(x=>!x.saved&&!x.saving).map(x=>x.id);
+    if(!unsaved.length||savingAll)return;
+    setSavingAll(true);
+    let completed=0;
+    setProgress(2,`Saving ${unsaved.length} item${unsaved.length===1?"":"s"}...`);
+    await runWithConcurrency(unsaved, PARALLEL_LIMIT, async (id)=>{
+      await saveOne(id);
+      completed+=1;
+      setProgress(5+(completed/unsaved.length)*90,`Saved ${completed}/${unsaved.length}`);
+    });
+    setProgress(100,"Save complete");
+    setSavingAll(false);
+  }
 
   return(
     <div style={{display:"grid",gap:14}}>
