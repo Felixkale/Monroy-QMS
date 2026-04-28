@@ -258,22 +258,48 @@ function BulkPrintInner() {
     }
   }
 
-  // ── open cover with correct pass/fail counts ────────────────────────────
+  // ── open cover(s) — separate tab per batch (passed / failed) ───────────
   function openCover() {
     const clientName   = certs[0]?.client_name || certs[0]?.company || "";
     const siteLocation = certs[0]?.location || "";
-    const { passed, failed } = getCounts(certs);
-    const p = new URLSearchParams({
-      client:   clientName,
-      title:    "Statutory Inspection",
-      year:     new Date().getFullYear().toString(),
-      location: siteLocation,
-      period:   new Date().toLocaleString("en-GB", { month: "long", year: "numeric" }),
-      certs:    String(certs.length),
-      passed:   String(passed),
-      failed:   String(failed),
+    const year         = new Date().getFullYear().toString();
+    const period       = new Date().toLocaleString("en-GB", { month: "long", year: "numeric" });
+
+    const failedCerts = certs.filter(c => {
+      const r = (c.result || c.equipment_status || "").toUpperCase();
+      return r === "FAIL" || r === "REPAIR_REQUIRED" || r === "OUT_OF_SERVICE";
     });
-    window.open(`/certificates/cover-print?${p.toString()}`, "_blank");
+    const passedCerts = certs.filter(c => !failedCerts.includes(c));
+
+    // PASSED cover — only open if there are passed certs
+    if (passedCerts.length > 0) {
+      const p = new URLSearchParams({
+        client:   clientName,
+        title:    "Statutory Inspection",
+        year,
+        location: siteLocation,
+        period,
+        certs:    String(passedCerts.length),
+        passed:   String(passedCerts.length),
+        failed:   "0",
+      });
+      window.open(`/certificates/cover-print?${p.toString()}`, "_blank");
+    }
+
+    // FAILED cover — only open if there are failed certs
+    if (failedCerts.length > 0) {
+      const p = new URLSearchParams({
+        client:   clientName,
+        title:    "Statutory Inspection",
+        year,
+        location: siteLocation,
+        period,
+        certs:    String(failedCerts.length),
+        passed:   "0",
+        failed:   String(failedCerts.length),
+      });
+      window.open(`/certificates/cover-print?${p.toString()}`, "_blank");
+    }
   }
 
   const clientName = certs[0]?.client_name || certs[0]?.company || "";
