@@ -213,20 +213,46 @@ export default function CertificatePrintPage() {
   const isFolder     = certs.length > 1;
   const fileName     = `${certNumber.replace(/[^a-zA-Z0-9-]/g, "_")}.pdf`;
 
-  // ── open cover with correct pass/fail counts ──────────────────────────────
+  // ── open cover(s) — separate tab per batch (passed / failed) ────────────
   function openCover() {
-    const { passed, failed } = getCounts(certs);
-    const p = new URLSearchParams({
-      client:   clientName,
-      title:    "Statutory Inspection",
-      year:     new Date().getFullYear().toString(),
-      location: siteLocation,
-      period:   new Date().toLocaleString("en-GB", { month: "long", year: "numeric" }),
-      certs:    String(certs.length),
-      passed:   String(passed),
-      failed:   String(failed),
+    const year   = new Date().getFullYear().toString();
+    const period = new Date().toLocaleString("en-GB", { month: "long", year: "numeric" });
+
+    const failedCerts = certs.filter(c => {
+      const r = (c.result || c.equipment_status || "").toUpperCase();
+      return r === "FAIL" || r === "REPAIR_REQUIRED" || r === "OUT_OF_SERVICE";
     });
-    window.open(`/certificates/cover-print?${p.toString()}`, "_blank");
+    const passedCerts = certs.filter(c => !failedCerts.includes(c));
+
+    // PASSED cover — green, normal title
+    if (passedCerts.length > 0) {
+      const p = new URLSearchParams({
+        client:   clientName,
+        title:    "Statutory Inspection",
+        year,
+        location: siteLocation,
+        period,
+        certs:    String(passedCerts.length),
+        passed:   String(passedCerts.length),
+        failed:   "0",
+      });
+      window.open(`/certificates/cover-print?${p.toString()}`, "_blank");
+    }
+
+    // FAILED cover — red, "Statutory Inspection Discarded" title
+    if (failedCerts.length > 0) {
+      const p = new URLSearchParams({
+        client:   clientName,
+        title:    "Statutory Inspection",
+        year,
+        location: siteLocation,
+        period,
+        certs:    String(failedCerts.length),
+        passed:   "0",
+        failed:   String(failedCerts.length),
+      });
+      window.open(`/certificates/cover-print?${p.toString()}`, "_blank");
+    }
   }
 
   async function handleSavePDF() {
