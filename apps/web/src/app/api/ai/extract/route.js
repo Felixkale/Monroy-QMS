@@ -1,47 +1,209 @@
+// apps/web/src/app/api/ai/extract/route.js
+
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const FILE_API_BASE = "https://generativelanguage.googleapis.com/upload/v1beta/files";
 const GENERATE_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const OPENROUTER_BASE = "https://openrouter.ai/api/v1/chat/completions";
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+const MAX_FILES = 20;
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_CONCURRENCY = Number(process.env.GEMINI_EXTRACT_CONCURRENCY || 4);
 
-function isImage(mimeType) {
-  return ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(mimeType);
+const DEFAULT_PROMPT = `You are a senior industrial inspection AI for a QMS system. Extract ALL visible data from the image or document with maximum precision.
+
+NAMEPLATE READING RULES:
+- Read brand/manufacturer name exactly as printed
+- Equipment type: identify precisely
+- SWL/WLL/Capacity: read the large number with unit, put in swl field
+- Serial number: read S/No., Serial No., S/N exactly
+- Asset tag written in marker/paint, put in asset_tag field
+- CE, TUV, SABS marks, put in standard_code
+
+DATE FIELD RULES — CRITICAL:
+- "Date:" on equipment nameplate = MANUFACTURE DATE, put ONLY in year_built. NEVER in inspection_date or expiry_date.
+- inspection_date = date inspection was performed from certificate document only
+- expiry_date = date certificate expires from certificate document only
+- For nameplate photos only: leave inspection_date, expiry_date, next_inspection_due as ""
+
+Return ONLY valid JSON, no markdown:
+{"equipment_type":"","equipment_description":"","manufacturer":"","model":"","serial_number":"","asset_tag":"","year_built":"","capacity_volume":"","swl":"","working_pressure":"","design_pressure":"","test_pressure":"","pressure_unit":"","material":"","standard_code":"","inspection_number":"","certificate_number":"","certificate_type":"","client_name":"","owner":"","location":"","inspection_date":"","issue_date":"","expiry_date":"","next_inspection_due":"","inspector_name":"","inspector_id":"","inspection_body":"","result":"","defects_found":"","recommendations":"","comments":"","notes":"","nameplate_data":"","raw_text_summary":"","inspection_data":{}}`;
+
+function getGeminiKey() {
+  return (
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_GEMINI_API_KEY ||
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
+    ""
+  ).trim();
 }
 
-/**
- * Upload a file to Gemini File API and wait until ACTIVE.
- * Only used for PDFs (images go inline).
- */
-async function uploadToGeminiFileAPI(fileBuffer, mimeType, apiKey) {
-  // 1. Initiate resumable upload
+function jsonError(message, status = 500, extra = {}) {
+  return NextResponse.json(
+    {
+      success: false,
+      ok: false,
+      error: message,
+      ...extra,
+    },
+    { status }
+  );
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isImage(mimeType = "") {
+  return ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"].includes(
+    String(mimeType).toLowerCase()
+  );
+}
+
+function isPdf(mimeType = "") {
+  return String(mimeType).toLowerCase() === "application/pdf";
+}
+
+function isAllowedMime(mimeType = "") {
+  return isPdf(mimeType) || isImage(mimeType);
+}
+
+function stripJsonText(text) {
+  let clean = String(text || "").trim();
+
+  clean = clean
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+
+  return clean;
+}
+
+function parseAIJson(text) {
+  const clean = stripJsonText(text);
+
+  try {
+    return JSON.parse(clean);
+  } catch (_) {
+    const objectStart = clean.indexOf("{");
+    const objectEnd = clean.lastIndexOf("}");
+    const arrayStart = clean.indexOf("[");
+    const arrayEnd = clean.lastIndexOf("]");
+
+    if (arrayStart >= 0 && arrayEnd > arrayStart) {
+      return JSON.parse(clean.slice(arrayStart, arrayEnd + 1));
+    }
+
+    if (objectStart >= 0 && objectEnd > objectStart) {
+      return JSON.parse(clean.slice(objectStart, objectEnd + 1));
+    }
+
+    throw new Error("Could not parse JSON from AI response.");
+  }
+}
+
+function normalizeExtractedData(input) {
+  if (Array.isArray(input)) {
+    return { items: input };
+  }
+
+  const d = input && typeof input === "object" ? input : {};
+
+  if (Array.isArray(d.items)) {
+    return d;
+  }
+
+  return {
+    equipment_type: String(d.equipment_type || ""),
+    equipment_description: String(d.equipment_description || ""),
+    manufacturer: String(d.manufacturer || d.make || ""),
+    make: String(d.make || d.manufacturer || ""),
+    model: String(d.model || ""),
+    serial_number: String(d.serial_number || ""),
+    asset_tag: String(d.asset_tag || ""),
+    year_built: String(d.year_built || ""),
+    capacity_volume: String(d.capacity_volume || ""),
+    swl: String(d.swl || d.wll || d.capacity || ""),
+    working_pressure: String(d.working_pressure || ""),
+    design_pressure: String(d.design_pressure || ""),
+    test_pressure: String(d.test_pressure || ""),
+    pressure_unit: String(d.pressure_unit || ""),
+    material: String(d.material || ""),
+    standard_code: String(d.standard_code || ""),
+    inspection_number: String(d.inspection_number || ""),
+    certificate_number: String(d.certificate_number || ""),
+    certificate_type: String(d.certificate_type || ""),
+    client_name: String(d.client_name || d.owner || ""),
+    owner: String(d.owner || d.client_name || ""),
+    location: String(d.location || ""),
+    inspection_date: String(d.inspection_date || d.issue_date || ""),
+    issue_date: String(d.issue_date || d.inspection_date || ""),
+    expiry_date: String(d.expiry_date || ""),
+    next_inspection_due: String(d.next_inspection_due || ""),
+    inspector_name: String(d.inspector_name || ""),
+    inspector_id: String(d.inspector_id || ""),
+    inspection_body: String(d.inspection_body || ""),
+    result: String(d.result || "PASS").toUpperCase(),
+    defects_found: String(d.defects_found || ""),
+    recommendations: String(d.recommendations || ""),
+    comments: String(d.comments || ""),
+    notes: String(d.notes || d.comments || d.defects_found || ""),
+    nameplate_data: String(d.nameplate_data || ""),
+    raw_text_summary: String(d.raw_text_summary || ""),
+    inspection_data: d.inspection_data || d,
+  };
+}
+
+async function mapLimit(items, limit, worker) {
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 1, items.length || 1));
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function run() {
+    while (nextIndex < items.length) {
+      const current = nextIndex;
+      nextIndex += 1;
+      results[current] = await worker(items[current], current);
+    }
+  }
+
+  await Promise.all(Array.from({ length: safeLimit }, run));
+  return results;
+}
+
+async function uploadToGeminiFileAPI(fileBuffer, mimeType, apiKey, fileName = "upload.pdf") {
   const initRes = await fetch(`${FILE_API_BASE}?uploadType=resumable&key=${apiKey}`, {
     method: "POST",
     headers: {
       "X-Goog-Upload-Protocol": "resumable",
       "X-Goog-Upload-Command": "start",
-      "X-Goog-Upload-Header-Content-Length": fileBuffer.byteLength,
+      "X-Goog-Upload-Header-Content-Length": String(fileBuffer.byteLength),
       "X-Goog-Upload-Header-Content-Type": mimeType,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ file: { display_name: "upload" } }),
+    body: JSON.stringify({
+      file: {
+        display_name: fileName,
+      },
+    }),
   });
 
   if (!initRes.ok) {
-    const t = await initRes.text();
-    throw new Error(`File API init failed: ${initRes.status} ${t}`);
+    const text = await initRes.text();
+    throw new Error(`Gemini File API init failed: ${initRes.status} ${text}`);
   }
 
   const uploadUrl = initRes.headers.get("x-goog-upload-url");
-  if (!uploadUrl) throw new Error("No upload URL returned from File API");
 
-  // 2. Upload bytes
+  if (!uploadUrl) {
+    throw new Error("Gemini File API did not return an upload URL.");
+  }
+
   const uploadRes = await fetch(uploadUrl, {
     method: "POST",
     headers: {
@@ -53,306 +215,340 @@ async function uploadToGeminiFileAPI(fileBuffer, mimeType, apiKey) {
   });
 
   if (!uploadRes.ok) {
-    const t = await uploadRes.text();
-    throw new Error(`File upload failed: ${uploadRes.status} ${t}`);
+    const text = await uploadRes.text();
+    throw new Error(`Gemini file upload failed: ${uploadRes.status} ${text}`);
   }
 
-  const fileData = await uploadRes.json();
-  const fileName = fileData?.file?.name;
-  if (!fileName) throw new Error("No file name in upload response");
+  const uploadJson = await uploadRes.json();
+  const uploadedFile = uploadJson?.file;
 
-  // 3. Poll until ACTIVE
-  for (let i = 0; i < 30; i++) {
+  if (!uploadedFile?.name) {
+    throw new Error("Gemini file upload response did not include file name.");
+  }
+
+  for (let i = 0; i < 40; i += 1) {
     const stateRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${apiKey}`
+      `https://generativelanguage.googleapis.com/v1beta/${uploadedFile.name}?key=${apiKey}`
     );
-    if (!stateRes.ok) {
-      await new Promise((r) => setTimeout(r, 1500));
-      continue;
+
+    if (stateRes.ok) {
+      const stateJson = await stateRes.json();
+
+      if (stateJson?.state === "ACTIVE") {
+        return stateJson;
+      }
+
+      if (stateJson?.state === "FAILED") {
+        throw new Error("Gemini file processing failed.");
+      }
     }
-    const stateData = await stateRes.json();
-    if (stateData?.state === "ACTIVE") return stateData;
-    if (stateData?.state === "FAILED") throw new Error("Gemini file processing FAILED");
-    await new Promise((r) => setTimeout(r, 1500));
+
+    await sleep(1500);
   }
 
-  throw new Error("Gemini file never became ACTIVE");
+  throw new Error("Gemini file did not become ACTIVE in time.");
 }
 
-/** Delete a Gemini file (best-effort, don't block on failure) */
 async function deleteGeminiFile(fileName, apiKey) {
   try {
-    await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${apiKey}`,
-      { method: "DELETE" }
-    );
+    if (!fileName) return;
+
+    await fetch(`https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${apiKey}`, {
+      method: "DELETE",
+    });
   } catch (_) {
-    // ignore
+    // Best effort cleanup only.
   }
 }
 
-/**
- * Build Gemini content parts for a file.
- * Images → inline base64 (no upload, no polling, ~20-30s faster per file).
- * PDFs  → File API upload (required for PDFs).
- */
-async function buildGeminiFilePart(fileBuffer, mimeType, apiKey) {
-  if (isImage(mimeType)) {
-    // Inline base64 — zero upload latency
-    const b64 = Buffer.from(fileBuffer).toString("base64");
-    return { inlinePart: { inline_data: { mime_type: mimeType, data: b64 } }, fileNameToDelete: null };
+async function buildGeminiPart({ base64Data, mimeType, fileName }, apiKey) {
+  if (!base64Data) {
+    throw new Error(`Missing base64 data for ${fileName || "uploaded file"}.`);
   }
 
-  // PDF → File API
-  const fileData = await uploadToGeminiFileAPI(fileBuffer, mimeType, apiKey);
+  if (!isAllowedMime(mimeType)) {
+    throw new Error(`Unsupported file type: ${mimeType || "unknown"}. Use PDF or image.`);
+  }
+
+  const buffer = Buffer.from(base64Data, "base64");
+
+  if (buffer.byteLength > MAX_FILE_SIZE) {
+    throw new Error(`${fileName || "File"} is too large. Maximum size is 10 MB.`);
+  }
+
+  if (isImage(mimeType)) {
+    return {
+      part: {
+        inline_data: {
+          mime_type: mimeType,
+          data: base64Data,
+        },
+      },
+      fileNameToDelete: null,
+    };
+  }
+
+  const uploaded = await uploadToGeminiFileAPI(buffer, mimeType, apiKey, fileName);
+
   return {
-    inlinePart: { file_data: { mime_type: mimeType, file_uri: fileData.uri } },
-    fileNameToDelete: fileData.name,
+    part: {
+      file_data: {
+        mime_type: mimeType,
+        file_uri: uploaded.uri,
+      },
+    },
+    fileNameToDelete: uploaded.name,
   };
 }
 
-/** Call Gemini generate endpoint */
-async function callGemini(parts, systemPrompt, apiKey) {
-  const res = await fetch(
-    `${GENERATE_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemPrompt }] },
-        contents: [{ role: "user", parts }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
-      }),
-    }
-  );
+async function callGeminiForFile(filePayload, systemPrompt) {
+  const apiKey = getGeminiKey();
 
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`Gemini generate failed: ${res.status} ${t}`);
+  if (!apiKey) {
+    throw new Error("Missing GEMINI_API_KEY in Render environment variables.");
   }
 
-  const data = await res.json();
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-}
-
-/** Call OpenRouter (for fallback / race) */
-async function callOpenRouter(base64Files, mimeTypes, systemPrompt, userPrompt, apiKey) {
-  const imageContents = base64Files
-    .map((b64, i) => ({
-      type: "image_url",
-      image_url: { url: `data:${mimeTypes[i]};base64,${b64}` },
-    }));
-
-  const res = await fetch(OPENROUTER_BASE, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "google/gemini-2.5-flash-preview",
-      messages: [
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: [
-            ...imageContents,
-            { type: "text", text: userPrompt },
-          ],
-        },
-      ],
-      temperature: 0.1,
-      max_tokens: 8192,
-    }),
-  });
-
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`OpenRouter failed: ${res.status} ${t}`);
-  }
-
-  const data = await res.json();
-  return data?.choices?.[0]?.message?.content ?? "";
-}
-
-// ── System prompts ────────────────────────────────────────────────────────────
-
-const EXTRACT_SYSTEM = `You are an expert OCR and data extraction assistant specializing in industrial inspection certificates, particularly for lifting equipment used in Botswana's mining and industrial sectors.
-
-Extract ALL information from the certificate image/document and return ONLY valid JSON — no markdown fences, no preamble.
-
-Required JSON structure:
-{
-  "certificate_number": "string",
-  "certificate_type": "string (Load Test | Pressure Test | NDT | Cherry Picker/AWP | Forklift | General)",
-  "issue_date": "YYYY-MM-DD",
-  "expiry_date": "YYYY-MM-DD",
-  "equipment_type": "string",
-  "make": "string",
-  "model": "string",
-  "serial_number": "string",
-  "swl": "string (Safe Working Load with unit)",
-  "owner": "string (company/owner name)",
-  "location": "string",
-  "inspector_name": "string",
-  "inspector_id": "string",
-  "notes": "string (any additional data as JSON string or plain text)",
-  "inspection_data": {} 
-}
-
-Rules:
-- Dates must be ISO format YYYY-MM-DD
-- If a field is not found, use null
-- For inspection_data, include ALL structured checklist items, test results, measurements
-- For notes, include bucket serial numbers, MAWP values, test pressures, and any other data
-- Return ONLY the JSON object`;
-
-const LIST_SYSTEM = `You are an expert at identifying inspection certificates in document images.
-
-List all certificates found. Return ONLY valid JSON array — no markdown, no preamble:
-[
-  {
-    "certificate_number": "string or null",
-    "certificate_type": "string",
-    "equipment_type": "string",
-    "issue_date": "YYYY-MM-DD or null",
-    "expiry_date": "YYYY-MM-DD or null",
-    "page_reference": "string describing where in document"
-  }
-]`;
-
-// ── Route handler ─────────────────────────────────────────────────────────────
-
-export async function POST(request) {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  const openRouterKey = process.env.OPENROUTER_API_KEY;
-
-  if (!geminiKey) {
-    return NextResponse.json({ error: "GEMINI_API_KEY not configured" }, { status: 500 });
-  }
+  const { part, fileNameToDelete } = await buildGeminiPart(filePayload, apiKey);
 
   try {
-    const formData = await request.formData();
-    const mode = formData.get("mode") || "extract"; // "extract" | "list"
-    const files = formData.getAll("files");
+    const res = await fetch(`${GENERATE_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        system_instruction: {
+          parts: [
+            {
+              text: systemPrompt || DEFAULT_PROMPT,
+            },
+          ],
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [
+              part,
+              {
+                text: `Extract all visible data from this file and return ONLY valid JSON. File name: ${
+                  filePayload.fileName || "uploaded-file"
+                }`,
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          topP: 0.9,
+          maxOutputTokens: 8192,
+          responseMimeType: "application/json",
+        },
+      }),
+    });
 
-    if (!files.length) {
-      return NextResponse.json({ error: "No files provided" }, { status: 400 });
+    const raw = await res.text();
+
+    let responseJson = null;
+
+    try {
+      responseJson = raw ? JSON.parse(raw) : null;
+    } catch (_) {
+      throw new Error(`Gemini returned non-JSON API response: ${raw.slice(0, 250)}`);
     }
 
-    // ── Read all files in parallel ────────────────────────────────────────────
-    const fileBuffers = await Promise.all(
-      files.map((f) => f.arrayBuffer())
-    );
-    const mimeTypes = files.map((f) => f.type || "application/pdf");
+    if (!res.ok) {
+      throw new Error(
+        responseJson?.error?.message || `Gemini generate failed with status ${res.status}`
+      );
+    }
 
-    // ── EXTRACT mode ──────────────────────────────────────────────────────────
-    if (mode === "extract") {
-      // Build file parts in parallel (images are instant; PDFs upload concurrently)
-      const partResults = await Promise.all(
-        fileBuffers.map((buf, i) => buildGeminiFilePart(buf, mimeTypes[i], geminiKey))
+    const text =
+      responseJson?.candidates?.[0]?.content?.parts
+        ?.map((p) => p.text || "")
+        .join("\n")
+        .trim() || "";
+
+    const parsed = parseAIJson(text);
+
+    return normalizeExtractedData(parsed);
+  } finally {
+    if (fileNameToDelete) {
+      deleteGeminiFile(fileNameToDelete, apiKey);
+    }
+  }
+}
+
+async function fileToPayload(file) {
+  if (!file || typeof file.arrayBuffer !== "function") {
+    throw new Error("Invalid uploaded file.");
+  }
+
+  const mimeType = file.type || "application/octet-stream";
+  const fileName = file.name || "uploaded-file";
+
+  if (!isAllowedMime(mimeType)) {
+    throw new Error(`${fileName} is not supported. Upload PDF, PNG, JPG, WEBP, or GIF.`);
+  }
+
+  if (file.size > MAX_FILE_SIZE) {
+    throw new Error(`${fileName} is too large. Maximum size is 10 MB.`);
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  return {
+    fileName,
+    mimeType,
+    base64Data: buffer.toString("base64"),
+  };
+}
+
+async function handleJsonRequest(request) {
+  const body = await request.json();
+
+  const files = Array.isArray(body?.files) ? body.files.slice(0, MAX_FILES) : [];
+  const systemPrompt = body?.systemPrompt || DEFAULT_PROMPT;
+
+  if (!files.length) {
+    return jsonError("No files received. Expected JSON body with a files array.", 400);
+  }
+
+  const results = await mapLimit(files, MAX_CONCURRENCY, async (file) => {
+    const fileName = file?.fileName || "uploaded-file";
+
+    try {
+      const data = await callGeminiForFile(
+        {
+          fileName,
+          mimeType: file?.mimeType || "application/pdf",
+          base64Data: file?.base64Data,
+        },
+        systemPrompt
       );
 
-      const filesToDelete = partResults
-        .map((r) => r.fileNameToDelete)
-        .filter(Boolean);
-
-      const parts = [
-        ...partResults.map((r) => r.inlinePart),
-        { text: "Extract all certificate information from this document. Return only JSON." },
-      ];
-
-      let text = "";
-      try {
-        text = await callGemini(parts, EXTRACT_SYSTEM, geminiKey);
-      } finally {
-        // Clean up uploaded PDF files (best-effort, non-blocking)
-        filesToDelete.forEach((name) => deleteGeminiFile(name, geminiKey));
-      }
-
-      // Parse JSON
-      const clean = text.replace(/```json\n?|\n?```/g, "").trim();
-      let extracted;
-      try {
-        extracted = JSON.parse(clean);
-      } catch {
-        // Try to extract JSON object from response
-        const match = clean.match(/\{[\s\S]*\}/);
-        if (match) {
-          extracted = JSON.parse(match[0]);
-        } else {
-          throw new Error("Could not parse JSON from AI response");
-        }
-      }
-
-      return NextResponse.json({ success: true, data: extracted });
-    }
-
-    // ── LIST mode ─────────────────────────────────────────────────────────────
-    if (mode === "list") {
-      // For list mode, race Gemini vs OpenRouter (if available) for speed
-      const base64s = fileBuffers.map((buf) => Buffer.from(buf).toString("base64"));
-
-      const geminiTask = async () => {
-        const partResults = await Promise.all(
-          fileBuffers.map((buf, i) => buildGeminiFilePart(buf, mimeTypes[i], geminiKey))
-        );
-        const filesToDelete = partResults.map((r) => r.fileNameToDelete).filter(Boolean);
-
-        const parts = [
-          ...partResults.map((r) => r.inlinePart),
-          { text: "List all inspection certificates found in this document." },
-        ];
-
-        let text = "";
-        try {
-          text = await callGemini(parts, LIST_SYSTEM, geminiKey);
-        } finally {
-          filesToDelete.forEach((name) => deleteGeminiFile(name, geminiKey));
-        }
-        return text;
+      return {
+        fileName,
+        ok: true,
+        success: true,
+        data,
       };
+    } catch (error) {
+      return {
+        fileName,
+        ok: false,
+        success: false,
+        error: error?.message || "Extraction failed.",
+      };
+    }
+  });
 
-      let text = "";
+  return NextResponse.json({
+    success: true,
+    ok: true,
+    results,
+  });
+}
 
-      if (openRouterKey && mimeTypes.every(isImage)) {
-        // Race both providers — first valid JSON array wins
-        try {
-          text = await Promise.any([
-            geminiTask(),
-            callOpenRouter(
-              base64s,
-              mimeTypes,
-              LIST_SYSTEM,
-              "List all inspection certificates found in this document.",
-              openRouterKey
-            ),
-          ]);
-        } catch {
-          text = await geminiTask();
-        }
-      } else {
-        text = await geminiTask();
-      }
+async function handleFormDataRequest(request) {
+  const formData = await request.formData();
 
-      const clean = text.replace(/```json\n?|\n?```/g, "").trim();
-      let items;
-      try {
-        items = JSON.parse(clean);
-      } catch {
-        const match = clean.match(/\[[\s\S]*\]/);
-        items = match ? JSON.parse(match[0]) : [];
-      }
+  const uploadedFiles = [...formData.getAll("files"), ...formData.getAll("file")]
+    .filter((file) => file && typeof file.arrayBuffer === "function")
+    .slice(0, MAX_FILES);
 
-      return NextResponse.json({ success: true, items });
+  const systemPrompt = String(
+    formData.get("systemPrompt") || formData.get("prompt") || DEFAULT_PROMPT
+  );
+
+  if (!uploadedFiles.length) {
+    return jsonError("No files received. Expected multipart/form-data with files.", 400);
+  }
+
+  const payloads = await mapLimit(uploadedFiles, MAX_CONCURRENCY, async (file) => {
+    return fileToPayload(file);
+  });
+
+  const results = await mapLimit(payloads, MAX_CONCURRENCY, async (payload) => {
+    try {
+      const data = await callGeminiForFile(payload, systemPrompt);
+
+      return {
+        fileName: payload.fileName,
+        ok: true,
+        success: true,
+        data,
+      };
+    } catch (error) {
+      return {
+        fileName: payload.fileName,
+        ok: false,
+        success: false,
+        error: error?.message || "Extraction failed.",
+      };
+    }
+  });
+
+  const first = results[0];
+
+  if (results.length === 1) {
+    if (!first?.ok) {
+      return jsonError(first?.error || "Extraction failed.", 500, {
+        fileName: first?.fileName || uploadedFiles[0]?.name || "uploaded-file",
+        results,
+      });
     }
 
-    return NextResponse.json({ error: "Invalid mode" }, { status: 400 });
-  } catch (err) {
-    console.error("[ai/extract] error:", err);
-    return NextResponse.json(
-      { error: err.message || "Extraction failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      success: true,
+      ok: true,
+      fileName: first.fileName,
+      data: first.data,
+      results,
+    });
   }
+
+  return NextResponse.json({
+    success: true,
+    ok: true,
+    results,
+  });
+}
+
+export async function POST(request) {
+  try {
+    const contentType = request.headers.get("content-type") || "";
+
+    if (contentType.includes("application/json")) {
+      return await handleJsonRequest(request);
+    }
+
+    if (
+      contentType.includes("multipart/form-data") ||
+      contentType.includes("application/x-www-form-urlencoded")
+    ) {
+      return await handleFormDataRequest(request);
+    }
+
+    return jsonError(
+      `Unsupported Content-Type: ${contentType || "empty"}. Send application/json or multipart/form-data.`,
+      415
+    );
+  } catch (error) {
+    console.error("[api/ai/extract] error:", error);
+
+    return jsonError(error?.message || "AI extraction route failed.", 500);
+  }
+}
+
+export async function GET() {
+  return NextResponse.json({
+    success: true,
+    ok: true,
+    route: "/api/ai/extract",
+    model: GEMINI_MODEL,
+    hasGeminiApiKey: Boolean(getGeminiKey()),
+    maxFiles: MAX_FILES,
+    maxFileSizeMB: MAX_FILE_SIZE / 1024 / 1024,
+    maxConcurrency: MAX_CONCURRENCY,
+  });
 }
