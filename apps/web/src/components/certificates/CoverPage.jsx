@@ -2,9 +2,9 @@
 "use client";
 
 const COVER_CSS = `
-  .cv-wrap{background:rgba(10,18,32,0.92);border:1px solid rgba(148,163,184,0.12);border-radius:16px;padding:20px;display:flex;justify-content:center;align-items:center}
-  .cv-page{background:#fff;width:210mm;height:297mm;max-height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28);overflow:hidden;position:relative}
-  .cv-page.pm{box-shadow:none;width:100%;height:297mm}
+  .cv-wrap{background:rgba(10,18,32,0.92);border:1px solid rgba(148,163,184,0.12);border-radius:16px;padding:20px;display:flex;justify-content:center;align-items:flex-start}
+  .cv-page{background:#fff;width:210mm;min-height:297mm;height:297mm;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#0f1923;box-shadow:0 8px 40px rgba(0,0,0,0.28);overflow:hidden;position:relative;box-sizing:border-box}
+  .cv-page.pm{box-shadow:none!important;width:210mm!important;height:297mm!important}
   .cv-hdr{background:#0b1d3a;position:relative;overflow:hidden;flex-shrink:0}
   .cv-geo{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
   .cv-hdr-inner{position:relative;z-index:2;display:flex;align-items:stretch;min-height:100px}
@@ -17,39 +17,79 @@ const COVER_CSS = `
   .cv-hdr-contact{padding:14px 18px;display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:4px;flex-shrink:0}
   .cv-cr{font-size:7.5px;color:rgba(255,255,255,0.65)}
   .cv-accent{height:4px;background:linear-gradient(90deg,#22d3ee 0%,#3b82f6 55%,#a78bfa 100%);flex-shrink:0}
+
   .cv-body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 36px;position:relative;overflow:hidden}
   .cv-bg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0}
-  .cv-center{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;width:100%}
-  .cv-client-badge{background:#0b1d3a;border:1.5px solid #22d3ee;border-radius:6px;padding:8px 28px;display:inline-flex;flex-direction:column;align-items:center;margin-bottom:20px}
+  .cv-center{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;width:100%;gap:0}
+
+  .cv-client-badge{background:#0b1d3a;border:1.5px solid #22d3ee;border-radius:6px;padding:8px 28px;display:inline-flex;flex-direction:column;align-items:center;margin-bottom:18px}
   .cv-client-label{font-size:7px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#4fc3f7;margin-bottom:3px}
   .cv-client-name{font-size:16px;font-weight:900;color:#fff;letter-spacing:.1em}
-  .cv-year{width:96px;height:96px;border-radius:50%;background:#0b1d3a;display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto 20px;box-shadow:0 0 0 6px rgba(34,211,238,0.12),0 0 0 12px rgba(34,211,238,0.05)}
+
+  .cv-year{width:88px;height:88px;border-radius:50%;background:#0b1d3a;display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto 18px;box-shadow:0 0 0 6px rgba(34,211,238,0.12),0 0 0 12px rgba(34,211,238,0.05)}
   .cv-year-label{font-size:6.5px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:#4fc3f7;margin-bottom:1px}
-  .cv-year-num{font-size:28px;font-weight:900;color:#fff;line-height:1;font-family:'IBM Plex Mono',monospace}
+  .cv-year-num{font-size:26px;font-weight:900;color:#fff;line-height:1;font-family:'IBM Plex Mono',monospace}
+
   .cv-title-sub{font-size:9px;font-weight:700;letter-spacing:.26em;text-transform:uppercase;color:#3b6ea5;margin-bottom:8px}
-  .cv-title{font-size:36px;font-weight:900;letter-spacing:-0.03em;color:#0b1d3a;line-height:1.05;margin-bottom:10px}
-  .cv-title-line{width:70px;height:4px;background:linear-gradient(90deg,#22d3ee,#3b82f6);border-radius:2px;margin:0 auto 20px}
+  .cv-title{font-size:34px;font-weight:900;letter-spacing:-0.03em;color:#0b1d3a;line-height:1.05;margin-bottom:10px}
+  .cv-title-line{width:70px;height:4px;background:linear-gradient(90deg,#22d3ee,#3b82f6);border-radius:2px;margin:0 auto 18px}
+
   .cv-info-strip{display:flex;gap:0;border:1px solid #1e3a5f;border-radius:7px;overflow:hidden;width:100%;margin-bottom:12px}
-  .cv-info-cell{flex:1;padding:10px 14px;border-right:1px solid #1e3a5f;background:#f4f8ff}
+  .cv-info-cell{flex:1;padding:9px 14px;border-right:1px solid #1e3a5f;background:#f4f8ff}
   .cv-info-cell:last-child{border-right:none}
   .cv-info-cell:nth-child(even){background:#eef4ff}
   .cv-info-label{font-size:7px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#3b6ea5;margin-bottom:3px}
-  .cv-info-value{font-size:10.5px;font-weight:700;color:#0b1d3a}
-  .cv-prepared{border:1px solid #1e3a5f;border-radius:7px;background:#fff;display:grid;grid-template-columns:1fr 1px 1fr;width:100%;overflow:hidden}
-  .cv-prep-cell{padding:11px 18px;display:flex;align-items:center;justify-content:space-between;gap:10px;background:#fff}
-  .cv-prep-divider{background:#1e3a5f}
-  .cv-prep-label{font-size:7px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#3b6ea5;margin-bottom:2px}
-  .cv-prep-name{font-size:12px;font-weight:900;color:#0b1d3a}
-  .cv-prep-role{font-size:8.5px;color:#64748b;margin-top:1px}
-  .cv-prep-sig{height:34px;display:flex;align-items:center}
-  .cv-prep-sig img{max-height:34px;max-width:88px;object-fit:contain}
+  .cv-info-value{font-size:10px;font-weight:700;color:#0b1d3a}
+
+  /* ── PASSED / FAILED STRIP ───────────────────────────── */
+  .cv-status-strip{display:flex;gap:0;border-radius:7px;overflow:hidden;width:100%;margin-bottom:12px;border:1px solid #1e3a5f}
+  .cv-status-pass{flex:1;background:#f0fdf4;border-right:1px solid #1e3a5f;padding:10px 16px;display:flex;align-items:center;gap:10px}
+  .cv-status-fail{flex:1;background:#fff5f5;padding:10px 16px;display:flex;align-items:center;gap:10px}
+  .cv-status-icon{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;flex-shrink:0}
+  .cv-status-icon-pass{background:#dcfce7;color:#15803d;border:1.5px solid #86efac}
+  .cv-status-icon-fail{background:#fee2e2;color:#b91c1c;border:1.5px solid #fca5a5}
+  .cv-status-text-label{font-size:7px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;margin-bottom:2px}
+  .cv-status-pass .cv-status-text-label{color:#15803d}
+  .cv-status-fail .cv-status-text-label{color:#b91c1c}
+  .cv-status-count{font-size:20px;font-weight:900;line-height:1;font-family:'IBM Plex Mono',monospace}
+  .cv-status-pass .cv-status-count{color:#15803d}
+  .cv-status-fail .cv-status-count{color:#b91c1c}
+  .cv-status-desc{font-size:8px;margin-top:1px;font-weight:600}
+  .cv-status-pass .cv-status-desc{color:#166534}
+  .cv-status-fail .cv-status-desc{color:#991b1b}
+
+  /* ── BOTTOM ROW ──────────────────────────────────────── */
+  .cv-bottom-row{border:1px solid #1e3a5f;border-radius:7px;background:#fff;display:grid;grid-template-columns:1fr 1px 1fr;width:100%;overflow:hidden}
+  .cv-bottom-divider{background:#1e3a5f}
+
+  /* Overall status cell */
+  .cv-overall-cell-pass{background:#f0fdf4;border-left:5px solid #22c55e;padding:14px 20px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+  .cv-overall-cell-fail{background:#fff5f5;border-left:5px solid #ef4444;padding:14px 20px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+  .cv-overall-sub{font-size:7px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;margin-bottom:1px}
+  .cv-overall-cell-pass .cv-overall-sub{color:#15803d}
+  .cv-overall-cell-fail .cv-overall-sub{color:#b91c1c}
+  .cv-overall-emoji{font-size:30px;line-height:1}
+  .cv-overall-word{font-size:24px;font-weight:900;letter-spacing:.08em;font-family:'IBM Plex Mono',monospace;line-height:1}
+  .cv-overall-cell-pass .cv-overall-word{color:#15803d}
+  .cv-overall-cell-fail .cv-overall-word{color:#b91c1c}
+  .cv-overall-note{font-size:7.5px;font-weight:700;margin-top:3px}
+  .cv-overall-cell-pass .cv-overall-note{color:#166534}
+  .cv-overall-cell-fail .cv-overall-note{color:#991b1b}
+
+  /* Competent person cell */
+  .cv-comp-cell{padding:10px 18px;display:flex;align-items:center;justify-content:space-between;gap:10px;background:#fff}
+  .cv-comp-label{font-size:7px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#3b6ea5;margin-bottom:2px}
+  .cv-comp-name{font-size:11px;font-weight:900;color:#0b1d3a}
+  .cv-comp-role{font-size:8px;color:#64748b;margin-top:1px}
+
   .cv-services{background:#c41e3a;padding:6px 24px;flex-shrink:0}
   .cv-services p{font-size:7.5px;color:#fff;margin:0;line-height:1.5;text-align:center;font-weight:600;letter-spacing:.02em}
   .cv-footer{background:#0b1d3a;border-top:2px solid #22d3ee;padding:6px 24px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
   .cv-footer span{font-size:8px;color:rgba(255,255,255,0.35);font-weight:600;letter-spacing:.05em}
+
   @media print{
-    .cv-wrap{background:none!important;padding:0!important;border:none!important}
-    .cv-page{box-shadow:none!important;width:100%!important;height:297mm!important}
+    .cv-wrap{background:none!important;padding:0!important;border:none!important;display:block!important}
+    .cv-page{box-shadow:none!important;width:210mm!important;height:297mm!important;min-height:unset!important}
   }
 `;
 
@@ -58,16 +98,27 @@ export default function CoverPage({
   title            = "Statutory Inspection",
   year             = "2026",
   location         = "KHOEMACAU MINE",
-  preparedBy       = "Andrew Kale",
-  preparedRole     = "Inspector",
   approvedBy       = "Moemedi Masupe",
   approvedRole     = "Competent Person · ID: 700117910",
   inspectionPeriod = "March 2026",
+  totalCerts       = "",
+  passedCount      = null,
+  failedCount      = null,
   printMode        = false,
   logoUrl          = "/logo.png",
 }) {
   const pm = printMode;
   const words = title.split(" ");
+
+  const passed     = passedCount !== null && passedCount !== "" ? parseInt(passedCount, 10) : null;
+  const failed     = failedCount  !== null && failedCount  !== "" ? parseInt(failedCount,  10) : null;
+  const showStatus = passed !== null || failed !== null;
+  const total      = totalCerts !== "" && totalCerts != null
+    ? parseInt(totalCerts, 10)
+    : ((passed ?? 0) + (failed ?? 0)) || null;
+
+  // Overall: PASS only if zero failures (or no status data at all defaults to PASS)
+  const overallIsPass = (failed ?? 0) === 0;
 
   return (
     <>
@@ -75,7 +126,7 @@ export default function CoverPage({
       <div className={pm ? "" : "cv-wrap"}>
         <div className={`cv-page${pm ? " pm" : ""}`}>
 
-          {/* HEADER */}
+          {/* ── HEADER ─────────────────────────────────────── */}
           <div className="cv-hdr">
             <svg className="cv-geo" viewBox="0 0 600 130" preserveAspectRatio="xMidYMid slice">
               <circle cx="540" cy="-20" r="140" fill="rgba(34,211,238,0.06)"/>
@@ -84,7 +135,7 @@ export default function CoverPage({
             </svg>
             <div className="cv-hdr-inner">
               <div className="cv-logo-box">
-                <img src={logoUrl} alt="Monroy" onError={e => { e.target.style.display="none"; }}/>
+                <img src={logoUrl} alt="Monroy" onError={e => { e.target.style.display = "none"; }}/>
               </div>
               <div className="cv-hdr-text">
                 <div className="cv-brand">Monroy (Pty) Ltd · Process Control &amp; Cranes</div>
@@ -99,10 +150,9 @@ export default function CoverPage({
           </div>
           <div className="cv-accent"/>
 
-          {/* BODY */}
+          {/* ── BODY ───────────────────────────────────────── */}
           <div className="cv-body">
 
-            {/* Background decoration */}
             <svg className="cv-bg" viewBox="0 0 595 750" preserveAspectRatio="xMidYMid slice">
               <circle cx="520" cy="660" r="290" fill="#0b1d3a" opacity="0.03"/>
               <circle cx="520" cy="660" r="190" fill="#0b1d3a" opacity="0.03"/>
@@ -128,7 +178,7 @@ export default function CoverPage({
                 <div className="cv-year-num">{year}</div>
               </div>
 
-              {/* Main title */}
+              {/* Title */}
               <div className="cv-title-sub">Inspection Documentation</div>
               <div className="cv-title">
                 {words.map((word, i) => (
@@ -153,36 +203,103 @@ export default function CoverPage({
                   <div className="cv-info-label">Inspection Period</div>
                   <div className="cv-info-value">{inspectionPeriod}</div>
                 </div>
-
+                {total ? (
+                  <div className="cv-info-cell">
+                    <div className="cv-info-label">Total Certificates</div>
+                    <div className="cv-info-value">{total}</div>
+                  </div>
+                ) : null}
               </div>
 
-              {/* Prepared by / Approved by */}
-              <div className="cv-prepared">
-                <div className="cv-prep-cell">
-                  <div style={{flex:1}}>
-                    <div className="cv-prep-label">Prepared by</div>
-                    <div className="cv-prep-name">{preparedBy}</div>
-                    <div className="cv-prep-role">{preparedRole}</div>
+              {/* Passed / Failed counts strip */}
+              {showStatus && (
+                <div className="cv-status-strip">
+                  <div className="cv-status-pass">
+                    <div className="cv-status-icon cv-status-icon-pass">✓</div>
+                    <div style={{ flex: 1 }}>
+                      <div className="cv-status-text-label">Equipment Passed</div>
+                      <div className="cv-status-count">{passed ?? 0}</div>
+                      <div className="cv-status-desc">
+                        {(passed ?? 0) === 1 ? "1 unit cleared for service" : `${passed ?? 0} units cleared for service`}
+                      </div>
+                    </div>
+                    <div style={{ alignSelf: "stretch", width: 4, background: "#86efac", borderRadius: 2, flexShrink: 0 }}/>
                   </div>
-                  <div style={{background:"#fff",border:"1px solid #1e3a5f",borderRadius:5,minWidth:100,height:44,display:"flex",alignItems:"flex-end",padding:"4px 8px"}}/>
+                  <div className="cv-status-fail">
+                    <div className="cv-status-icon cv-status-icon-fail">✗</div>
+                    <div style={{ flex: 1 }}>
+                      <div className="cv-status-text-label">Equipment Failed</div>
+                      <div className="cv-status-count">{failed ?? 0}</div>
+                      <div className="cv-status-desc">
+                        {(failed ?? 0) === 0
+                          ? "No defects requiring withdrawal"
+                          : (failed ?? 0) === 1
+                            ? "1 unit requires attention"
+                            : `${failed} units require attention`}
+                      </div>
+                    </div>
+                    <div style={{
+                      alignSelf: "stretch",
+                      width: 4,
+                      background: (failed ?? 0) > 0 ? "#fca5a5" : "#d1fae5",
+                      borderRadius: 2,
+                      flexShrink: 0,
+                    }}/>
+                  </div>
                 </div>
-                <div className="cv-prep-divider"/>
-                <div className="cv-prep-cell">
-                  <div style={{flex:1}}>
-                    <div className="cv-prep-label">Approved by</div>
-                    <div className="cv-prep-name">{approvedBy}</div>
-                    <div className="cv-prep-role">{approvedRole}</div>
+              )}
+
+              {/* ── BOTTOM ROW ──────────────────────────────── */}
+              <div className="cv-bottom-row">
+
+                {/* LEFT — Overall Status (green = PASS, red = FAIL) */}
+                <div className={overallIsPass ? "cv-overall-cell-pass" : "cv-overall-cell-fail"}>
+                  <div className="cv-overall-sub">Overall Status</div>
+                  <div className="cv-overall-emoji">{overallIsPass ? "✅" : "❌"}</div>
+                  <div className="cv-overall-word">{overallIsPass ? "PASS" : "FAIL"}</div>
+                  {showStatus && (
+                    <div className="cv-overall-note">
+                      {overallIsPass
+                        ? `All ${passed ?? total ?? ""} units serviceable`
+                        : `${failed} unit${(failed ?? 0) !== 1 ? "s" : ""} require attention`}
+                    </div>
+                  )}
+                </div>
+
+                <div className="cv-bottom-divider"/>
+
+                {/* RIGHT — Competent Person + signature (no "Approved by" label) */}
+                <div className="cv-comp-cell">
+                  <div style={{ flex: 1 }}>
+                    <div className="cv-comp-label">Competent Person</div>
+                    <div className="cv-comp-name">{approvedBy}</div>
+                    <div className="cv-comp-role">{approvedRole}</div>
                   </div>
-                  <div style={{background:"#fff",border:"1px solid #1e3a5f",borderRadius:5,minWidth:100,height:44,display:"flex",alignItems:"flex-end",padding:"4px 8px"}}>
-                    <img src="/Signature" alt="sig" style={{maxHeight:34,maxWidth:90,objectFit:"contain"}} onError={e=>{e.target.style.display="none";}}/>
+                  <div style={{
+                    background: "#fff",
+                    border: "1px solid #1e3a5f",
+                    borderRadius: 5,
+                    minWidth: 96,
+                    height: 40,
+                    display: "flex",
+                    alignItems: "flex-end",
+                    padding: "4px 8px",
+                  }}>
+                    <img
+                      src="/Signature"
+                      alt="sig"
+                      style={{ maxHeight: 32, maxWidth: 88, objectFit: "contain" }}
+                      onError={e => { e.target.style.display = "none"; }}
+                    />
                   </div>
                 </div>
+
               </div>
 
             </div>
           </div>
 
-          {/* FOOTER */}
+          {/* ── PAGE FOOTER ────────────────────────────────── */}
           <div className="cv-services">
             <p><b>Mobile Crane Hire</b> | <b>Rigging</b> | <b>NDT Test</b> | <b>Scaffolding</b> | <b>Painting</b> | <b>Inspection of Lifting Equipment and Machinery, Pressure Vessels &amp; Air Receiver</b> | <b>Steel Fabricating and Structural</b> | <b>Mechanical Engineering</b> | <b>Fencing</b> | <b>Maintenance</b></p>
           </div>
