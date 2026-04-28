@@ -20,9 +20,7 @@ const KEY_POOL = [
 
 if (KEY_POOL.length === 0) throw new Error("No GEMINI_API_KEY set in environment.");
 
-// Per-key cooldown: tracks when each key is next available
 const keyCooldowns = new Map(KEY_POOL.map(k => [k, 0]));
-
 const PER_KEY_DELAY_MS = 12000;
 const EFFECTIVE_DELAY_MS = Math.ceil(PER_KEY_DELAY_MS / KEY_POOL.length);
 
@@ -30,14 +28,8 @@ console.log(`Gemini key pool: ${KEY_POOL.length} key(s), effective delay: ${EFFE
 
 let keyIndex = 0;
 
-/**
- * Returns the next available key, respecting per-key cooldowns.
- * If all keys are on cooldown, waits for the soonest-available one.
- */
 async function nextKey() {
   const now = Date.now();
-
-  // Find a key that's already available
   for (let i = 0; i < KEY_POOL.length; i++) {
     const idx = (keyIndex + i) % KEY_POOL.length;
     const key = KEY_POOL[idx];
@@ -47,28 +39,21 @@ async function nextKey() {
       return key;
     }
   }
-
-  // All keys on cooldown — wait for the soonest available
   let soonestKey = KEY_POOL[0];
   let soonestTime = keyCooldowns.get(KEY_POOL[0]) || 0;
   for (const k of KEY_POOL) {
     const t = keyCooldowns.get(k) || 0;
     if (t < soonestTime) { soonestTime = t; soonestKey = k; }
   }
-
   const wait = soonestTime - now;
   if (wait > 0) {
-    console.log(`All keys on cooldown. Waiting ${Math.round(wait / 1000)}s for next available key…`);
+    console.log(`All keys on cooldown. Waiting ${Math.round(wait / 1000)}s…`);
     await sleep(wait);
   }
-
   keyCooldowns.set(soonestKey, Date.now() + PER_KEY_DELAY_MS);
   return soonestKey;
 }
 
-/**
- * Mark a key as rate-limited for an extended cooldown.
- */
 function penalizeKey(key, extraMs = 60000) {
   const current = keyCooldowns.get(key) || Date.now();
   keyCooldowns.set(key, Math.max(current, Date.now() + extraMs));
@@ -133,6 +118,79 @@ const LIST_RESPONSE_SCHEMA = {
   required: ["items"],
 };
 
+// ── HOOK & ROPE SCHEMA — all fields the HookRopePage reads ───────────────────
+// We use a schema here so Gemini's structured output fills every field reliably.
+// Fields not present in the document are returned as empty strings.
+const HOOK_ROPE_SCHEMA = {
+  type: "object",
+  properties: {
+    client_name:              { type: "string" },
+    location:                 { type: "string" },
+    crane_make:               { type: "string" },
+    crane_serial:             { type: "string" },
+    crane_fleet:              { type: "string" },
+    crane_swl:                { type: "string" },
+    machine_hours:            { type: "string" },
+    inspection_date:          { type: "string" },
+    expiry_date:              { type: "string" },
+    report_number:            { type: "string" },
+    drum_main_condition:      { type: "string" },
+    drum_aux_condition:       { type: "string" },
+    rope_lay_main:            { type: "string" },
+    rope_lay_aux:             { type: "string" },
+    rope_diameter_main:       { type: "string" },
+    rope_diameter_aux:        { type: "string" },
+    rope_length_3x_main:      { type: "string" },
+    rope_length_3x_aux:       { type: "string" },
+    reduction_dia_main:       { type: "string" },
+    reduction_dia_aux:        { type: "string" },
+    core_protrusion_main:     { type: "string" },
+    core_protrusion_aux:      { type: "string" },
+    corrosion_main:           { type: "string" },
+    corrosion_aux:            { type: "string" },
+    broken_wires_main:        { type: "string" },
+    broken_wires_aux:         { type: "string" },
+    rope_kinks_main:          { type: "string" },
+    rope_kinks_aux:           { type: "string" },
+    other_defects_main:       { type: "string" },
+    other_defects_aux:        { type: "string" },
+    end_fittings_main:        { type: "string" },
+    end_fittings_aux:         { type: "string" },
+    serviceability_main:      { type: "string" },
+    serviceability_aux:       { type: "string" },
+    lower_limit_main:         { type: "string" },
+    lower_limit_aux:          { type: "string" },
+    damaged_strands_main:     { type: "string" },
+    damaged_strands_aux:      { type: "string" },
+    hook1_sn:                 { type: "string" },
+    hook1_swl:                { type: "string" },
+    hook1_swl_marked:         { type: "string" },
+    hook1_safety_catch:       { type: "string" },
+    hook1_cracks:             { type: "string" },
+    hook1_swivel:             { type: "string" },
+    hook1_corrosion:          { type: "string" },
+    hook1_side_bending:       { type: "string" },
+    hook1_ab:                 { type: "string" },
+    hook1_ac:                 { type: "string" },
+    hook2_sn:                 { type: "string" },
+    hook2_swl:                { type: "string" },
+    hook2_swl_marked:         { type: "string" },
+    hook2_safety_catch:       { type: "string" },
+    hook2_cracks:             { type: "string" },
+    hook2_swivel:             { type: "string" },
+    hook2_corrosion:          { type: "string" },
+    hook2_side_bending:       { type: "string" },
+    hook2_ab:                 { type: "string" },
+    hook2_ac:                 { type: "string" },
+    hook3_sn:                 { type: "string" },
+    hook3_swl:                { type: "string" },
+    overall_result:           { type: "string" },
+    defects_found:            { type: "string" },
+    comments:                 { type: "string" },
+  },
+  required: ["client_name", "overall_result"],
+};
+
 /* ── UTILITIES ───────────────────────────────────────────── */
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function sanitize(v) { return v == null ? "" : String(v).trim(); }
@@ -144,10 +202,6 @@ function normalizeResult(v) {
   return "UNKNOWN";
 }
 
-/**
- * fetchWithTimeout — wraps fetch with an AbortController timeout.
- * Prevents individual Gemini calls from hanging indefinitely.
- */
 async function fetchWithTimeout(url, options, timeoutMs = 90000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -161,13 +215,6 @@ async function fetchWithTimeout(url, options, timeoutMs = 90000) {
   }
 }
 
-/**
- * extractJsonFromPayload — handles all Gemini response formats:
- * a) Raw JSON string (schema mode)
- * b) Markdown-fenced JSON
- * c) First { } block in text
- * d) First [ ] block in text
- */
 function extractJsonFromPayload(payload) {
   const parts = payload?.candidates?.[0]?.content?.parts || [];
   const allText = parts
@@ -177,10 +224,8 @@ function extractJsonFromPayload(payload) {
 
   if (!allText) return null;
 
-  // a) Direct parse
   try { return JSON.parse(allText); } catch {}
 
-  // b) Strip markdown fences
   const stripped = allText
     .replace(/^```json\s*/im, "")
     .replace(/^```\s*/im, "")
@@ -188,14 +233,12 @@ function extractJsonFromPayload(payload) {
     .trim();
   try { return JSON.parse(stripped); } catch {}
 
-  // c) First complete JSON object
   const oi = stripped.indexOf("{");
   const oj = stripped.lastIndexOf("}");
   if (oi >= 0 && oj > oi) {
     try { return JSON.parse(stripped.slice(oi, oj + 1)); } catch {}
   }
 
-  // d) First JSON array
   const ai = stripped.indexOf("[");
   const aj = stripped.lastIndexOf("]");
   if (ai >= 0 && aj > ai) {
@@ -206,9 +249,6 @@ function extractJsonFromPayload(payload) {
   return null;
 }
 
-/**
- * normalizeListResult — ensures { items: [...] } regardless of model shape.
- */
 function normalizeListResult(parsed) {
   if (!parsed) return null;
   if (parsed.items && Array.isArray(parsed.items)) return parsed;
@@ -274,7 +314,6 @@ async function uploadFile(bytes, mimeType, displayName, apiKey) {
     throw new Error(uploadJson?.error?.message || `Upload failed: ${uploadRes.status}`);
   }
 
-  // Poll until ACTIVE
   let file = uploadJson.file;
   for (let i = 0; i < 20; i++) {
     const state = file?.state || "";
@@ -303,25 +342,31 @@ async function deleteFile(name, apiKey) {
 }
 
 /* ── GEMINI CALL ─────────────────────────────────────────── */
-/**
- * callGemini — two-shot strategy with per-key penalization on 429.
- *
- * Shot 1: responseSchema (structured output) — most reliable
- * Shot 2: plain JSON fallback if shot 1 returns empty/null
- */
-async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, listMode = false) {
+async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, mode = "document") {
+  // mode: "document" | "list" | "hookrope"
 
   async function makeRequest(useSchema, keyOverride) {
     const key = keyOverride || apiKey;
+
+    // Choose schema based on mode
+    let responseSchema = null;
+    if (useSchema) {
+      if (mode === "list")     responseSchema = LIST_RESPONSE_SCHEMA;
+      else if (mode === "hookrope") responseSchema = HOOK_ROPE_SCHEMA;
+      else                    responseSchema = RESPONSE_SCHEMA;
+    }
+
     const body = {
       system_instruction: { parts: [{ text: systemPrompt }] },
       contents: [{
         role: "user",
         parts: [
           {
-            text: listMode
+            text: mode === "list"
               ? `Read EVERY line of this handwritten list carefully. Extract each equipment item into the items array. File: ${fileName}`
-              : `Extract inspection certificate data from this file. Filename: ${fileName}`,
+              : mode === "hookrope"
+                ? `Extract all Hook & Rope inspection data from this certificate. Read every field carefully. File: ${fileName}`
+                : `Extract inspection certificate data from this file. Filename: ${fileName}`,
           },
           { file_data: { mime_type: uploadedFile.mimeType, file_uri: uploadedFile.uri } },
         ],
@@ -329,9 +374,9 @@ async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, listMode
       generationConfig: {
         temperature: 0.1,
         topP: 0.95,
-        maxOutputTokens: listMode ? 16384 : 8192,
+        maxOutputTokens: mode === "list" ? 16384 : 8192,
         responseMimeType: "application/json",
-        ...(useSchema ? { responseSchema: listMode ? LIST_RESPONSE_SCHEMA : RESPONSE_SCHEMA } : {}),
+        ...(responseSchema ? { responseSchema } : {}),
       },
     };
 
@@ -341,25 +386,21 @@ async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, listMode
         res = await fetchWithTimeout(
           `${FILE_API_BASE}/v1beta/models/${MODEL}:generateContent?key=${key}`,
           { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
-          120000 // 2 min per generation call
+          120000
         );
       } catch (fetchErr) {
-        // Timeout or network error — retry with backoff
         const waitMs = 5000 * Math.pow(2, attempt);
         console.warn(`[${fileName}] Fetch error attempt ${attempt + 1}: ${fetchErr.message}. Waiting ${Math.round(waitMs / 1000)}s…`);
         if (attempt < MAX_RETRIES - 1) { await sleep(waitMs); continue; }
         throw fetchErr;
       }
 
-      // Rate limited — penalize this key and try a fresh one
       if (res.status === 429) {
         penalizeKey(key, 60000 * (attempt + 1));
         const retryAfter = parseInt(res.headers.get("retry-after") || "0") * 1000;
         const waitMs = Math.max(retryAfter, EFFECTIVE_DELAY_MS * Math.pow(2, attempt));
         console.log(`[${fileName}] 429 attempt ${attempt + 1}/${MAX_RETRIES}. Waiting ${Math.round(waitMs / 1000)}s…`);
         await sleep(waitMs);
-
-        // Switch to a different key for next attempt
         const freshKey = await nextKey();
         if (freshKey !== key) {
           console.log(`[${fileName}] Switching to fresh key for retry.`);
@@ -368,7 +409,6 @@ async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, listMode
         continue;
       }
 
-      // Transient server errors
       if (res.status === 503 || res.status === 500) {
         const waitMs = 15000 * Math.pow(2, attempt);
         console.log(`[${fileName}] ${res.status} attempt ${attempt + 1}/${MAX_RETRIES}. Waiting ${Math.round(waitMs / 1000)}s…`);
@@ -386,7 +426,6 @@ async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, listMode
         console.warn(`[${fileName}] Response truncated (MAX_TOKENS). JSON may be incomplete.`);
       }
 
-      // Detect overload messages in 200 responses
       const textCheck = (json?.candidates?.[0]?.content?.parts || [])
         .map(p => p?.text || "").join("").toLowerCase();
       if (
@@ -407,102 +446,110 @@ async function callGemini(uploadedFile, fileName, systemPrompt, apiKey, listMode
     throw new Error("Gemini is overloaded after all retries.");
   }
 
-  // ── Shot 1: with schema ──────────────────────────────────
-  const json1 = await makeRequest(true, null);
-  const parsed1 = extractJsonFromPayload(json1);
-
-  if (listMode) {
+  // ── LIST MODE ────────────────────────────────────────────
+  if (mode === "list") {
+    const json1 = await makeRequest(true, null);
+    const parsed1 = extractJsonFromPayload(json1);
     const normalized1 = normalizeListResult(parsed1);
     if (normalized1 && normalized1.items.length > 0) {
-      console.log(`[${fileName}] Schema shot: ${normalized1.items.length} items ✓`);
+      console.log(`[${fileName}] List schema shot: ${normalized1.items.length} items ✓`);
       return { payload: json1, parsed: normalized1 };
     }
-
-    // Shot 2: plain JSON — better for messy handwriting
-    console.log(`[${fileName}] Schema shot 0 items. Trying plain JSON fallback…`);
+    console.log(`[${fileName}] List schema 0 items. Trying plain JSON fallback…`);
     await sleep(EFFECTIVE_DELAY_MS);
     const json2 = await makeRequest(false, await nextKey());
     const parsed2 = extractJsonFromPayload(json2);
     const normalized2 = normalizeListResult(parsed2);
-
     if (normalized2 && normalized2.items.length > 0) {
-      console.log(`[${fileName}] Plain JSON fallback: ${normalized2.items.length} items ✓`);
+      console.log(`[${fileName}] List plain fallback: ${normalized2.items.length} items ✓`);
       return { payload: json2, parsed: normalized2 };
     }
-
-    console.warn(`[${fileName}] Both shots returned 0 items.`);
+    console.warn(`[${fileName}] Both list shots returned 0 items.`);
     return { payload: json1, parsed: normalized1 || { items: [] } };
   }
 
-  // ── Document mode two-shot ───────────────────────────────
+  // ── HOOK & ROPE MODE ────────────────────────────────────
+  // Shot 1: with HOOK_ROPE_SCHEMA (structured — all fields guaranteed in output)
+  // Shot 2: plain JSON fallback if shot 1 returns fewer than 3 fields
+  if (mode === "hookrope") {
+    const json1 = await makeRequest(true, null);
+    const parsed1 = extractJsonFromPayload(json1);
+    const fields1 = countDocFields(parsed1);
+    if (fields1 >= 3) {
+      console.log(`[${fileName}] Hook & Rope schema shot: ${fields1} fields ✓`);
+      return { payload: json1, parsed: parsed1 };
+    }
+    console.log(`[${fileName}] Hook & Rope schema weak (${fields1} fields). Trying plain JSON fallback…`);
+    await sleep(EFFECTIVE_DELAY_MS);
+    const json2 = await makeRequest(false, await nextKey());
+    const parsed2 = extractJsonFromPayload(json2);
+    const fields2 = countDocFields(parsed2);
+    console.log(`[${fileName}] Hook & Rope plain fallback: ${fields2} fields`);
+    // Use whichever shot returned more data
+    return fields2 >= fields1
+      ? { payload: json2, parsed: parsed2 }
+      : { payload: json1, parsed: parsed1 };
+  }
+
+  // ── DOCUMENT MODE ────────────────────────────────────────
+  const json1 = await makeRequest(true, null);
+  const parsed1 = extractJsonFromPayload(json1);
   const fields1 = countDocFields(parsed1);
   if (fields1 >= 2) {
     console.log(`[${fileName}] Doc schema shot: ${fields1} fields ✓`);
     return { payload: json1, parsed: parsed1 };
   }
-
   console.log(`[${fileName}] Doc schema shot ${fields1} fields. Trying plain JSON fallback…`);
   await sleep(EFFECTIVE_DELAY_MS);
   const json2 = await makeRequest(false, await nextKey());
   const parsed2 = extractJsonFromPayload(json2);
   const fields2 = countDocFields(parsed2);
-
   if (fields2 >= fields1) {
-    console.log(`[${fileName}] Doc plain JSON fallback: ${fields2} fields ✓`);
+    console.log(`[${fileName}] Doc plain fallback: ${fields2} fields ✓`);
     return { payload: json2, parsed: parsed2 };
   }
-
   console.warn(`[${fileName}] Both doc shots weak (${fields1} vs ${fields2}). Using best.`);
   return { payload: json1, parsed: parsed1 };
 }
 
 /* ── PROCESS ONE FILE ────────────────────────────────────── */
-async function processOneFile(fileData, systemPrompt, listMode = false) {
+async function processOneFile(fileData, systemPrompt, mode = "document") {
   const { fileName, mimeType, base64Data } = fileData;
   let uploadedFile = null;
   const apiKey = await nextKey();
 
   try {
     const bytes = Buffer.from(base64Data, "base64");
-
-    // Validate file size (Gemini File API limit: 20MB)
     const sizeMB = bytes.byteLength / (1024 * 1024);
     if (sizeMB > 20) {
       return {
         fileName,
         ok: false,
-        error: `File too large (${sizeMB.toFixed(1)}MB). Maximum is 20MB. Please compress the image or PDF.`,
+        error: `File too large (${sizeMB.toFixed(1)}MB). Maximum is 20MB.`,
       };
     }
 
-    console.log(`[${fileName}] Uploading ${sizeMB.toFixed(2)}MB as ${mimeType}…`);
+    console.log(`[${fileName}] Uploading ${sizeMB.toFixed(2)}MB as ${mimeType} (mode: ${mode})…`);
     uploadedFile = await uploadFile(bytes, mimeType, fileName, apiKey);
 
     const { payload, parsed } = await callGemini(
-      uploadedFile, fileName, systemPrompt, apiKey, listMode
+      uploadedFile, fileName, systemPrompt, apiKey, mode
     );
 
     if (!parsed || typeof parsed !== "object") {
-      return {
-        fileName,
-        ok: false,
-        error: "Model returned invalid JSON. Try a clearer image.",
-      };
+      return { fileName, ok: false, error: "Model returned invalid JSON. Try a clearer image." };
     }
 
     // ── LIST MODE ────────────────────────────────────────
-    if (listMode) {
+    if (mode === "list") {
       const itemCount = parsed.items?.length || 0;
       console.log(`[${fileName}] list mode: ${itemCount} items`);
-
       if (itemCount === 0) {
         return {
-          fileName,
-          ok: false,
+          fileName, ok: false,
           error: "No items could be extracted. Try a higher-resolution photo with good lighting.",
         };
       }
-
       const sanitizedItems = (parsed.items || []).map(item => ({
         equipment_type:        sanitize(item.equipment_type) || "Other",
         serial_number:         sanitize(item.serial_number),
@@ -511,13 +558,26 @@ async function processOneFile(fileData, systemPrompt, listMode = false) {
         defects_found:         sanitize(item.defects_found),
         equipment_description: sanitize(item.equipment_description),
       }));
+      return { fileName, ok: true, data: { items: sanitizedItems }, usage: payload?.usageMetadata || null };
+    }
 
-      return {
-        fileName,
-        ok: true,
-        data: { items: sanitizedItems },
-        usage: payload?.usageMetadata || null,
-      };
+    // ── HOOK & ROPE MODE ─────────────────────────────────
+    // Return parsed as-is — HookRopeMode handles field mapping
+    if (mode === "hookrope") {
+      const meaningfulFields = countDocFields(parsed);
+      console.log(`[${fileName}] hook & rope mode: ${meaningfulFields} fields ✓`);
+      if (meaningfulFields < 2) {
+        return {
+          fileName, ok: false,
+          error: "AI extracted 0 usable fields. Try a clearer scan or higher-resolution image.",
+        };
+      }
+      // Sanitize all string fields
+      const data = {};
+      for (const [k, v] of Object.entries(parsed)) {
+        data[k] = sanitize(v);
+      }
+      return { fileName, ok: true, data, usage: payload?.usageMetadata || null };
     }
 
     // ── DOCUMENT MODE ────────────────────────────────────
@@ -530,9 +590,8 @@ async function processOneFile(fileData, systemPrompt, listMode = false) {
     const meaningfulFields = Object.values(data).filter(v => v && String(v).trim()).length;
     if (meaningfulFields < 2) {
       return {
-        fileName,
-        ok: false,
-        error: "AI extracted 0 usable fields. The document may be encrypted, image-only, or too low resolution. Try a clearer scan or text-based PDF.",
+        fileName, ok: false,
+        error: "AI extracted 0 usable fields. The document may be encrypted, image-only, or too low resolution.",
       };
     }
 
@@ -565,7 +624,6 @@ export async function POST(request) {
       );
     }
 
-    // Guard: cap batch size to avoid 300s timeout
     const MAX_BATCH = 20;
     if (body.files.length > MAX_BATCH) {
       return NextResponse.json(
@@ -578,20 +636,23 @@ export async function POST(request) {
       body.systemPrompt ||
       "Extract structured JSON from the provided inspection certificate document. Return only valid JSON.";
 
+    // ── Resolve mode ────────────────────────────────────────────────────────
+    // Supports both old boolean flags and new string mode for forward compat.
+    // Priority: body.mode (string) > body.hookRopeMode > body.listMode > "document"
+    let mode = "document";
+    if (body.mode === "hookrope" || body.hookRopeMode === true) mode = "hookrope";
+    else if (body.mode === "list"     || body.listMode     === true) mode = "list";
+
+    console.log(`AI extract: ${body.files.length} file(s), mode="${mode}"`);
+
     const results = [];
-    const isListMode = body.listMode === true;
 
     for (let i = 0; i < body.files.length; i++) {
       const file = body.files[i];
-      console.log(`Processing ${i + 1}/${body.files.length}: ${file.fileName} (listMode: ${isListMode})`);
-
-      const result = await processOneFile(file, systemPrompt, isListMode);
+      console.log(`Processing ${i + 1}/${body.files.length}: ${file.fileName}`);
+      const result = await processOneFile(file, systemPrompt, mode);
       results.push(result);
-
-      // Delay between files to respect rate limits (skip after last)
-      if (i < body.files.length - 1) {
-        await sleep(EFFECTIVE_DELAY_MS);
-      }
+      if (i < body.files.length - 1) await sleep(EFFECTIVE_DELAY_MS);
     }
 
     const successCount = results.filter(r => r.ok).length;
