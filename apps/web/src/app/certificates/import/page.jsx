@@ -28,7 +28,7 @@ DATE FORMAT: Return dates as MM/YYYY or DD/MM/YYYY or YYYY only.
 Return ONLY valid JSON, no markdown:
 {"equipment_type":"","equipment_description":"","manufacturer":"","model":"","serial_number":"","asset_tag":"","year_built":"","capacity_volume":"","swl":"","working_pressure":"","design_pressure":"","test_pressure":"","pressure_unit":"","material":"","standard_code":"","inspection_number":"","client_name":"","location":"","inspection_date":"","expiry_date":"","next_inspection_due":"","inspector_name":"","inspection_body":"","result":"","defects_found":"","recommendations":"","comments":"","nameplate_data":"","raw_text_summary":""}`;
 
-// ── LIST MODE SYSTEM PROMPT — much stronger and more explicit ──────────────
+// ── LIST MODE SYSTEM PROMPT ───────────────────────────────────────────────
 function buildListPrompt(client, inspDate, expiryDate) {
   return `You are an expert OCR and data extraction AI specializing in industrial inspection lists.
 
@@ -117,14 +117,12 @@ async function runWithConcurrency(items, limit, worker) {
   const results = new Array(items.length);
   let cursor = 0;
   const workerCount = Math.min(limit, items.length);
-
   async function runner() {
     while (cursor < items.length) {
       const index = cursor++;
       results[index] = await worker(items[index], index);
     }
   }
-
   await Promise.all(Array.from({ length: workerCount }, runner));
   return results;
 }
@@ -134,11 +132,7 @@ function readApiError(json, fallback) {
 }
 
 async function safeJson(res) {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
+  try { return await res.json(); } catch { return null; }
 }
 
 function normalizeDate(raw) {
@@ -429,44 +423,56 @@ function DocumentMode() {
     };
   }
 
+  // ── FIXED: no FormData fallback, proper mimeType guard, base64 guard ────
   async function extractSingleFile(fileEntry) {
     const file = fileEntry.file;
-    const basePayload = {
-      fileName: file.name,
-      mimeType: file.type || "application/pdf",
-      base64Data: await toBase64(file),
-    };
 
-    const jsonRes = await fetch("/api/ai/extract", {
+    // file.type can be empty string on some PDFs in Chrome/Android
+    const mimeType =
+      file.type ||
+      (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/jpeg");
+
+    const base64Data = await toBase64(file);
+
+    // Guard: toBase64 must return a real string
+    if (!base64Data || typeof base64Data !== "string" || base64Data.length < 10) {
+      throw new Error(`Failed to read file "${file.name}". Try re-uploading.`);
+    }
+
+    const res = await fetch("/api/ai/extract", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ files: [basePayload], systemPrompt: DOC_PROMPT }),
+      body: JSON.stringify({
+        files: [{ fileName: file.name, mimeType, base64Data }],
+        systemPrompt: DOC_PROMPT,
+      }),
     });
-    const json = await safeJson(jsonRes);
 
-    if (jsonRes.ok) {
-      const first = Array.isArray(json?.results) ? json.results[0] : json;
-      if (first?.ok === false) throw new Error(first?.error || "Extraction failed");
-      const data = first?.data || json?.data || first;
-      if (!data || typeof data !== "object") throw new Error("No extracted data returned");
-      return normalizeExtractedData({ data }, fileEntry);
+    const json = await safeJson(res);
+
+    if (!res.ok) {
+      throw new Error(
+        json?.error ||
+        json?.message ||
+        `Extraction failed (HTTP ${res.status}). Check your API keys are set in Render.`
+      );
     }
 
-    // Fallback for the Document 2 route shape, where /api/ai/extract accepts FormData
-    // and returns { success: true, data: {...} } for one file.
-    const fd = new FormData();
-    fd.append("files", file);
-    fd.append("mode", "extract");
-    fd.append("systemPrompt", DOC_PROMPT);
+    // Route always returns { results: [...], succeeded, failed }
+    const first = Array.isArray(json?.results) ? json.results[0] : null;
 
-    const formRes = await fetch("/api/ai/extract", { method: "POST", body: fd });
-    const formJson = await safeJson(formRes);
-    if (!formRes.ok || formJson?.success === false) {
-      throw new Error(readApiError(formJson || json, `Server error ${formRes.status || jsonRes.status}`));
+    if (!first) {
+      throw new Error("No results returned from the extraction route.");
+    }
+    if (first.ok === false) {
+      throw new Error(first.error || "AI could not extract data from this file.");
     }
 
-    const data = formJson?.data || (Array.isArray(formJson?.results) ? formJson.results[0]?.data : null);
-    if (!data || typeof data !== "object") throw new Error("No extracted data returned");
+    const data = first?.data;
+    if (!data || typeof data !== "object") {
+      throw new Error("Extraction returned an unexpected data format.");
+    }
+
     return normalizeExtractedData({ data }, fileEntry);
   }
 
@@ -663,7 +669,7 @@ function DocumentMode() {
                     {item.pending?(
                       <div className="rbody"><div className="raw-sum"><span className="spinner"/> Reading file and extracting data with AI...</div></div>
                     ):!item.ok?(
-                      <div className="rbody"><div className="err-box"><div className="err-title">{item.error||"Extraction failed."}</div><div className="err-detail">Check /api/ai/extract is deployed and your API key is set.</div></div></div>
+                      <div className="rbody"><div className="err-box"><div className="err-title">{item.error||"Extraction failed."}</div><div className="err-detail">Check GEMINI_API_KEY and GROQ_API_KEY are set in Render environment variables.</div></div></div>
                     ):(
                       <>
                         <div className="rbody">
@@ -807,7 +813,7 @@ function BackfillMode() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// LIST MODE — fixed extraction and error surfacing
+// LIST MODE
 // ══════════════════════════════════════════════════════════════
 function ListMode() {
   const [files, setFiles] = useState([]);
@@ -818,7 +824,6 @@ function ListMode() {
   const [overrides, setOverrides] = useState({client_name:"",location:"",inspection_date:"",expiry_date:""});
   const [savingAll, setSavingAll] = useState(false);
   const [error, setError] = useState("");
-  const [rawDebug, setRawDebug] = useState(""); // show raw AI response on failure
   const fileInputRef = useRef(null);
   const certSeqRef = useRef(1);
 
@@ -830,17 +835,20 @@ function ListMode() {
     setFiles(prev=>{const next=[...prev];Array.from(list).filter(isAllowedFile).forEach(f=>{if(!next.find(x=>x.file.name===f.name&&x.file.size===f.size)&&next.length<5)next.push({id:uid(),file:f});});return next;});
     if(fileInputRef.current)fileInputRef.current.value="";
   }
-  function clearAll(){setFiles([]);setItems([]);setError("");setRawDebug("");setProgressState({visible:false,pct:0,label:""});}
+  function clearAll(){setFiles([]);setItems([]);setError("");setProgressState({visible:false,pct:0,label:""});}
 
   async function handleExtract(){
     if(!files.length||extracting)return;
-    setExtracting(true);setError("");setRawDebug("");setItems([]);
+    setExtracting(true);setError("");setItems([]);
     setProgress(10,"Reading list photos...");
     try{
       const payloads=[];
       for(let i=0;i<files.length;i++){
         setProgress(10+(i/files.length)*35,`Reading page ${i+1}/${files.length}...`);
-        payloads.push({fileName:files[i].file.name,mimeType:files[i].file.type||"image/jpeg",base64Data:await toBase64(files[i].file)});
+        const mimeType = files[i].file.type || "image/jpeg";
+        const base64Data = await toBase64(files[i].file);
+        if(!base64Data||base64Data.length<10)throw new Error(`Failed to read image ${files[i].file.name}`);
+        payloads.push({fileName:files[i].file.name,mimeType,base64Data});
       }
       setProgress(50,"AI reading list...");
 
@@ -855,28 +863,20 @@ function ListMode() {
       });
 
       setProgress(80,"Parsing items...");
-      const json=await res.json();
+      const json=await safeJson(res);
 
       if(!res.ok){
         throw new Error(json?.error||`Server error ${res.status}`);
       }
 
-      // Collect ALL items from ALL file results
       let allItems=[];
       const errors=[];
 
       for(const result of(json.results||[])){
-        if(!result.ok){
-          errors.push(result.error||"File extraction failed");
-          continue;
-        }
-        // result.data should now always be { items: [...] } from the fixed route
+        if(!result.ok){errors.push(result.error||"File extraction failed");continue;}
         const items=result.data?.items;
-        if(Array.isArray(items)&&items.length>0){
-          allItems=[...allItems,...items];
-        } else {
-          errors.push(`${result.fileName}: AI returned 0 items`);
-        }
+        if(Array.isArray(items)&&items.length>0){allItems=[...allItems,...items];}
+        else{errors.push(`${result.fileName}: AI returned 0 items`);}
       }
 
       setProgress(100,allItems.length>0?`Found ${allItems.length} items`:"Failed");
@@ -888,9 +888,7 @@ function ListMode() {
         return;
       }
 
-      if(errors.length>0){
-        setError(`Warning: Some pages had issues — ${errors.join(" | ")}`);
-      }
+      if(errors.length>0){setError(`Warning: Some pages had issues — ${errors.join(" | ")}`);}
 
       setItems(allItems.map((item,i)=>({
         id:uid(),
@@ -906,9 +904,7 @@ function ListMode() {
     }catch(e){
       setError(e.message||"Extraction failed. Check your API key and try again.");
       setProgress(100,"Failed");
-    }finally{
-      setExtracting(false);
-    }
+    }finally{setExtracting(false);}
   }
 
   function updateItem(id,key,value){setItems(prev=>prev.map(it=>it.id===id?{...it,[key]:value}:it));}
@@ -962,11 +958,9 @@ function ListMode() {
           <label className="browse-label">Browse<input ref={fileInputRef} type="file" multiple accept="image/*" style={{display:"none"}} onChange={e=>addFiles(e.target.files)}/></label>
         </div>
         <div className="card-body">
-          {/* Tips banner */}
           <div style={{background:"rgba(0,212,255,0.05)",border:"1px solid rgba(0,212,255,0.15)",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:11,color:"var(--sub)",lineHeight:1.7}}>
             <strong style={{color:"var(--accent)"}}>Tips for best results:</strong> Take photo in good light · Keep camera parallel to page · Avoid shadows · Full resolution · Each column clearly visible
           </div>
-
           <div className={`drop-area${dragActive?" drag":""}`} style={{padding:"20px 16px"}}
             onDragOver={e=>{e.preventDefault();setDragActive(true);}}
             onDragLeave={()=>setDragActive(false)}
@@ -976,7 +970,6 @@ function ListMode() {
             <div className="drop-h">Drop list photos here</div>
             <div className="drop-p">Multiple pages OK — max 5 images</div>
           </div>
-
           {files.length>0&&(
             <div style={{display:"grid",gap:6,marginBottom:12}}>
               {files.map(item=>(
@@ -988,21 +981,18 @@ function ListMode() {
               ))}
             </div>
           )}
-
           <div className="action-row">
             <button className="btn btn-ghost" type="button" onClick={clearAll}>Clear</button>
             <button className="btn btn-primary" type="button" onClick={handleExtract} disabled={!files.length||extracting}>
               {extracting?<><span className="spinner"/>Reading list...</>:"⚡ Read List with AI"}
             </button>
           </div>
-
           {progress.visible&&(
             <div className="prog-wrap">
               <div className="prog-meta"><span>{progress.label}</span><span className="prog-pct">{progress.pct}%</span></div>
               <div className="prog-track"><div className="prog-fill" style={{width:`${progress.pct}%`}}/></div>
             </div>
           )}
-
           {error&&(
             <div className="err-box" style={{marginTop:12}}>
               <div className="err-title">⚠ {error}</div>
@@ -1075,7 +1065,6 @@ function ListMode() {
         </div>
       )}
 
-      {/* Allow adding items manually even when extraction fails */}
       {items.length===0&&!extracting&&(
         <div style={{textAlign:"center",padding:"8px 0"}}>
           <button className="btn" type="button" onClick={addBlankItem} style={{fontSize:12,padding:"8px 16px"}}>
