@@ -220,7 +220,7 @@ async function extractPdfText(bytes) {
     const data = await pdfParse(bytes, { max: 0 });
     const text = (data?.text || "").trim();
     // Need at least 50 chars of real content to be useful
-    return text.length >= 50 ? text : "";
+    return text.length >= 20 ? text : "";
   } catch (err) {
     console.warn("pdf-parse failed:", err.message);
     return "";
@@ -470,17 +470,15 @@ async function callGeminiVision(uploadedFile, fileName, systemPrompt, apiKey, mo
 
 /* ── PROCESS ONE FILE ────────────────────────────────────────────────────────
 
-   DECISION TREE:
-   ┌─ Is it a PDF?
-   │  ├─ YES → extract text with pdf-parse
-   │  │   ├─ text found (≥50 chars) → TEXT PATH
-   │  │   │     Groq (primary, instant) → if weak → Gemini vision fallback
-   │  │   └─ no text (scanned PDF) → VISION PATH
-   │  │         Gemini + OpenRouter in parallel → if both weak → Groq on whatever text exists
-   │  └─ NO (image file) → VISION PATH
-   │        Gemini + OpenRouter in parallel → if both weak → Groq
-   │
-   └─ LIST MODE: always Gemini vision (best handwriting OCR) → Groq fallback
+   STRATEGY (all modes except list):
+   1. If PDF → try pdf-parse for text (threshold: 20 chars)
+   2. If text found → Groq PRIMARY (instant, reliable on clean text)
+      If Groq gets ≥2 fields → done. If weak → also run Gemini vision.
+   3. If no text (scanned) OR image file → Gemini + OpenRouter PARALLEL
+   4. Always: if best result < 2 fields → Groq gets Gemini raw text as last resort
+   5. Accept ANY non-empty result rather than returning an error.
+
+   LIST MODE: Gemini vision always (best handwriting OCR) → Groq fallback.
 
 ────────────────────────────────────────────────────────────────────────────── */
 async function processOneFile(fileData, systemPrompt, mode = "document") {
@@ -493,20 +491,17 @@ async function processOneFile(fileData, systemPrompt, mode = "document") {
     const sizeMB = bytes.byteLength / (1024 * 1024);
     if (sizeMB > 20) return { fileName, ok: false, error: `File too large (${sizeMB.toFixed(1)}MB). Max 20MB.` };
 
-    // ── LIST MODE — always Gemini vision (best for handwriting) ──────────────
+    // ── LIST MODE ─────────────────────────────────────────────────────────────
     if (mode === "list") {
       const apiKey = await nextKey();
       uploadedFile = await uploadFile(bytes, mimeType, fileName, apiKey);
       const json1 = await callGeminiVision(uploadedFile, fileName, systemPrompt, apiKey, "list");
       const norm1 = normalizeListResult(extractJsonFromPayload(json1));
-
       if (norm1 && norm1.items.length > 0) {
         console.log(`[${fileName}] list Gemini: ${norm1.items.length} items ✓`);
         return buildListResult(fileName, norm1);
       }
-
       if (GROQ_ENABLED) {
-        // Send whatever text Gemini extracted to Groq
         const rawText = (json1?.candidates?.[0]?.content?.parts||[]).map(p=>p?.text||"").join("").trim();
         if (rawText) {
           const groqParsed = await callGroq(systemPrompt, buildGroqPrompt(rawText, systemPrompt, "list"));
@@ -517,55 +512,47 @@ async function processOneFile(fileData, systemPrompt, mode = "document") {
           }
         }
       }
-
       return { fileName, ok: false, error: "No items extracted. Try a higher-resolution photo." };
     }
 
-    // ── TEXT PATH — PDF with extractable text ────────────────────────────────
+    // ── STEP 1: Try pdf-parse text extraction (PDFs only) ─────────────────────
+    let pdfText = "";
     if (isPdf) {
-      const pdfText = await extractPdfText(bytes);
-
-      if (pdfText) {
-        console.log(`[${fileName}] text PDF (${pdfText.length} chars) → Groq primary`);
-        const groqPrompt = buildGroqPrompt(pdfText, systemPrompt, mode);
-
-        // Groq is primary — fast and reliable on clean text
-        const groqParsed = await callGroq(systemPrompt, groqPrompt);
-        const groqFields = countDocFields(groqParsed);
-        console.log(`[${fileName}] Groq text: ${groqFields} fields`);
-
-        if (groqFields >= 4) {
-          return buildDocResult(fileName, groqParsed, "groq", mode);
-        }
-
-        // Groq weak — add Gemini vision as fallback
-        console.log(`[${fileName}] Groq weak (${groqFields}) → Gemini vision fallback…`);
-        const apiKey = await nextKey();
-        uploadedFile = await uploadFile(bytes, mimeType, fileName, apiKey);
-        const gemJson = await callGeminiVision(uploadedFile, fileName, systemPrompt, apiKey, mode);
-        const gemParsed = extractJsonFromPayload(gemJson);
-        const gemFields = countDocFields(gemParsed);
-        console.log(`[${fileName}] Gemini vision: ${gemFields} fields`);
-
-        const bestParsed = gemFields >= groqFields ? gemParsed : groqParsed;
-        const bestSource = gemFields >= groqFields ? "gemini" : "groq";
-        console.log(`[${fileName}] winner: ${bestSource} (${countDocFields(bestParsed)} fields)`);
-
-        if (countDocFields(bestParsed) < 1) {
-          return { fileName, ok: false, error: "Could not extract data. Check the PDF is not encrypted." };
-        }
-        return buildDocResult(fileName, bestParsed, bestSource, mode);
-      }
+      pdfText = await extractPdfText(bytes);
+      console.log(`[${fileName}] pdf-parse: ${pdfText.length} chars extracted`);
     }
 
-    // ── VISION PATH — scanned PDF or image file ───────────────────────────────
-    console.log(`[${fileName}] vision path (scanned/image) → Gemini + OpenRouter parallel`);
+    let bestParsed = null;
+    let bestSource = "none";
+    let geminiJson = null; // keep for Groq fallback raw text
+
+    // ── STEP 2: TEXT PATH — Groq primary when pdf-parse got usable text ───────
+    if (pdfText.length >= 20) {
+      console.log(`[${fileName}] text path → Groq primary (${pdfText.length} chars)`);
+      const groqParsed = await callGroq(systemPrompt, buildGroqPrompt(pdfText, systemPrompt, mode));
+      const groqFields = countDocFields(groqParsed);
+      console.log(`[${fileName}] Groq text: ${groqFields} fields`);
+
+      if (groqFields >= 2) {
+        // Good enough — return immediately, no Gemini needed
+        console.log(`[${fileName}] winner: groq (${groqFields} fields) ✓`);
+        return buildDocResult(fileName, groqParsed, "groq", mode);
+      }
+
+      // Groq weak on text — keep result, also try Gemini vision in parallel
+      if (groqFields > 0) { bestParsed = groqParsed; bestSource = "groq"; }
+    }
+
+    // ── STEP 3: VISION PATH — Gemini + OpenRouter parallel ────────────────────
+    // Runs when: no pdf text, OR groq got < 2 fields from text
+    console.log(`[${fileName}] vision path → Gemini + OpenRouter parallel`);
     const apiKey = await nextKey();
 
     const [geminiResult, orResult] = await Promise.allSettled([
       (async () => {
         uploadedFile = await uploadFile(bytes, mimeType, fileName, apiKey);
         const json = await callGeminiVision(uploadedFile, fileName, systemPrompt, apiKey, mode);
+        geminiJson = json;
         return { json, parsed: extractJsonFromPayload(json) };
       })(),
       OR_ENABLED
@@ -574,36 +561,41 @@ async function processOneFile(fileData, systemPrompt, mode = "document") {
     ]);
 
     const gemParsed = geminiResult.status === "fulfilled" ? geminiResult.value?.parsed : null;
-    const orParsed  = orResult.status  === "fulfilled" ? orResult.value  : null;
+    const orParsed  = orResult.status === "fulfilled" ? orResult.value : null;
     const gemFields = countDocFields(gemParsed);
     const orFields  = countDocFields(orParsed);
-
     console.log(`[${fileName}] Gemini=${gemFields} | OpenRouter=${orFields}`);
 
-    let bestParsed = null;
-    let bestSource = "none";
+    // Pick best vision result
+    if (gemFields >= orFields && gemFields > countDocFields(bestParsed)) {
+      bestParsed = gemParsed; bestSource = "gemini";
+    } else if (orFields > gemFields && orFields > countDocFields(bestParsed)) {
+      bestParsed = orParsed; bestSource = "openrouter";
+    }
 
-    if (gemFields >= orFields && gemFields >= 1) { bestParsed = gemParsed; bestSource = "gemini"; }
-    else if (orFields > gemFields && orFields >= 1) { bestParsed = orParsed; bestSource = "openrouter"; }
-
-    // Groq text fallback — use whatever Gemini extracted as raw text
+    // ── STEP 4: Groq last resort on Gemini raw text ───────────────────────────
     if (countDocFields(bestParsed) < 2 && GROQ_ENABLED) {
-      const gemJson = geminiResult.status === "fulfilled" ? geminiResult.value?.json : null;
-      const rawText = (gemJson?.candidates?.[0]?.content?.parts||[]).map(p=>p?.text||"").join("").trim();
-      if (rawText) {
-        console.log(`[${fileName}] vision weak → Groq on extracted text…`);
+      // Use Gemini's raw extracted text even if it couldn't parse it as JSON
+      const rawText = (geminiJson?.candidates?.[0]?.content?.parts||[]).map(p=>p?.text||"").join("").trim();
+      if (rawText && rawText.length >= 10) {
+        console.log(`[${fileName}] all vision weak → Groq on Gemini raw text (${rawText.length} chars)…`);
         const groqParsed = await callGroq(systemPrompt, buildGroqPrompt(rawText, systemPrompt, mode));
         const groqFields = countDocFields(groqParsed);
+        console.log(`[${fileName}] Groq last resort: ${groqFields} fields`);
         if (groqFields > countDocFields(bestParsed)) {
-          bestParsed = groqParsed; bestSource = "groq";
+          bestParsed = groqParsed; bestSource = "groq-vision-text";
         }
       }
     }
 
     console.log(`[${fileName}] winner: ${bestSource} (${countDocFields(bestParsed)} fields)`);
 
-    if (countDocFields(bestParsed) < 1) {
-      return { fileName, ok: false, error: "Could not extract data from this file. Try a higher-resolution scan." };
+    // ── STEP 5: Accept anything non-empty rather than failing ─────────────────
+    if (!bestParsed || countDocFields(bestParsed) < 1) {
+      return {
+        fileName, ok: false,
+        error: "Could not extract any data. The PDF may be encrypted, password-protected, or purely image-based with no readable text.",
+      };
     }
 
     return buildDocResult(fileName, bestParsed, bestSource, mode);
