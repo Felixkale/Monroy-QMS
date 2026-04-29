@@ -12,7 +12,7 @@ const OAI_MODEL = process.env.OPENAI_MODEL   || "gpt-4o-mini";
 const OAI_BASE  = "https://api.openai.com/v1";
 const OAI_ON    = Boolean(OAI_KEY);
 
-// OPTIONAL: Groq — only used as a last-resort text restructure if OpenAI returns 0 fields
+// OPTIONAL: Groq — only used as last-resort text restructure if OpenAI returns 0 fields
 const GROQ_KEY   = process.env.GROQ_API_KEY || "";
 const GROQ_MODEL = process.env.GROQ_MODEL   || "llama-3.3-70b-versatile";
 const GROQ_BASE  = "https://api.groq.com/openai/v1";
@@ -67,12 +67,80 @@ function normList(parsed) {
   return null;
 }
 
+/* ── PDF: UPLOAD TO OPENAI FILES API ─────────────────────────────────────────
+   GPT-4o-mini vision only accepts images inline.
+   PDFs must be uploaded to the Files API (purpose:"user_data") and
+   referenced by file_id in the message content.
+   We delete the file after extraction to keep OpenAI storage clean.
+────────────────────────────────────────────────────────────────────────────── */
+async function uploadPdfToOpenAI(b64, fileName) {
+  const bytes = Buffer.from(b64, "base64");
+  const blob  = new Blob([bytes], { type: "application/pdf" });
+
+  const form = new FormData();
+  form.append("purpose", "user_data");
+  form.append("file", blob, fileName.endsWith(".pdf") ? fileName : `${fileName}.pdf`);
+
+  const res = await timed(`${OAI_BASE}/files`, {
+    method:  "POST",
+    headers: { "Authorization": `Bearer ${OAI_KEY}` },
+    body:    form,
+  }, 60000);
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(`PDF upload to OpenAI failed: ${err?.error?.message || res.status}`);
+  }
+
+  const j = await res.json();
+  console.log(`PDF uploaded to OpenAI Files: ${j.id} (${fileName})`);
+  return j.id; // "file-abc123..."
+}
+
+async function deletePdfFromOpenAI(fileId) {
+  if (!fileId) return;
+  try {
+    await timed(`${OAI_BASE}/files/${fileId}`, {
+      method:  "DELETE",
+      headers: { "Authorization": `Bearer ${OAI_KEY}` },
+    }, 15000);
+    console.log(`Deleted OpenAI file: ${fileId}`);
+  } catch (e) {
+    console.warn(`Failed to delete OpenAI file ${fileId}:`, e.message);
+  }
+}
+
+/* ── BUILD MESSAGE CONTENT ───────────────────────────────────────────────────
+   Images  → inline base64 vision (detail:high)
+   PDFs    → file_id reference (already uploaded)
+────────────────────────────────────────────────────────────────────────────── */
+function buildUserContent(userText, mime, b64, fileId) {
+  if (fileId) {
+    // PDF path — use file_id
+    return [
+      { type: "text", text: userText },
+      { type: "file", file: { file_id: fileId } },
+    ];
+  }
+  // Image path — inline base64
+  const safeType = mime && mime.startsWith("image/") ? mime : "image/jpeg";
+  return [
+    { type: "text", text: userText },
+    {
+      type: "image_url",
+      image_url: { url: `data:${safeType};base64,${b64}`, detail: "high" },
+    },
+  ];
+}
+
 /* ── OPENAI CALL ─────────────────────────────────────────────────────────────
-   Sends image/PDF as base64 directly. No file upload, no polling.
-   detail:"high" ensures small text on certificates is read at full resolution.
+   Handles both images (inline) and PDFs (file_id).
+   Cleans up uploaded PDF file in finally block.
 ────────────────────────────────────────────────────────────────────────────── */
 async function callOpenAI(b64, mime, sysPrompt, fileName, mode) {
   if (!OAI_ON) throw new Error("OPENAI_API_KEY is not set. Add it to Render environment variables.");
+
+  const isPdf = mime === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
 
   const userText = mode === "list"
     ? `Read EVERY line. Extract each item into the items array. Return ONLY valid JSON. File: ${fileName}`
@@ -86,61 +154,82 @@ async function callOpenAI(b64, mime, sysPrompt, fileName, mode) {
       ? `Return a flat JSON object with all hook and rope inspection fields.`
       : `Return JSON with these fields: equipment_type, equipment_description, manufacturer, model, serial_number, asset_tag, year_built, swl, working_pressure, inspection_date, expiry_date, client_name, location, inspector_name, result, defects_found, recommendations, comments, raw_text_summary.`;
 
-  const res = await timed(`${OAI_BASE}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type":  "application/json",
-      "Authorization": `Bearer ${OAI_KEY}`,
-    },
-    body: JSON.stringify({
-      model: OAI_MODEL,
-      temperature: 0.1,
-      max_tokens: mode === "list" ? 16384 : 4096,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: `${sysPrompt}\n\n${schemaHint}\nReturn ONLY valid JSON. No markdown, no explanation.`,
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: userText },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:${mime};base64,${b64}`,
-                detail: "high",
-              },
-            },
+  const systemContent = `${sysPrompt}\n\n${schemaHint}\nReturn ONLY valid JSON. No markdown, no explanation.`;
+
+  // Upload PDF if needed
+  let fileId = null;
+  if (isPdf) {
+    fileId = await uploadPdfToOpenAI(b64, fileName);
+  }
+
+  try {
+    const content = buildUserContent(userText, mime, b64, fileId);
+
+    const res = await timed(`${OAI_BASE}/chat/completions`, {
+      method:  "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${OAI_KEY}`,
+      },
+      body: JSON.stringify({
+        model:           OAI_MODEL,
+        temperature:     0.1,
+        max_tokens:      mode === "list" ? 16384 : 4096,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemContent },
+          { role: "user",   content },
+        ],
+      }),
+    }, 90000);
+
+    if (res.status === 429) {
+      const retryAfter = res.headers.get("retry-after");
+      const wait = retryAfter ? parseInt(retryAfter) * 1000 : 5000;
+      console.warn(`[${fileName}] OpenAI 429 — waiting ${wait/1000}s and retrying once`);
+      await sleep(wait);
+      // Retry with same fileId (PDF already uploaded)
+      const retryContent = buildUserContent(userText, mime, b64, fileId);
+      const retryRes = await timed(`${OAI_BASE}/chat/completions`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OAI_KEY}` },
+        body: JSON.stringify({
+          model: OAI_MODEL, temperature: 0.1,
+          max_tokens: mode === "list" ? 16384 : 4096,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: systemContent },
+            { role: "user",   content: retryContent },
           ],
-        },
-      ],
-    }),
-  }, 60000);
+        }),
+      }, 90000);
+      if (!retryRes.ok) {
+        const err = await retryRes.json().catch(() => null);
+        throw new Error(err?.error?.message || `OpenAI error ${retryRes.status}`);
+      }
+      const rj = await retryRes.json().catch(() => null);
+      if (!rj) throw new Error("OpenAI returned an empty response on retry.");
+      return parseJson(rj.choices?.[0]?.message?.content || "");
+    }
 
-  if (res.status === 429) {
-    const retryAfter = res.headers.get("retry-after");
-    const wait = retryAfter ? parseInt(retryAfter) * 1000 : 5000;
-    console.warn(`[${fileName}] OpenAI 429 — waiting ${wait/1000}s and retrying once`);
-    await sleep(wait);
-    return callOpenAI(b64, mime, sysPrompt, fileName, mode); // single retry
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error?.message || `OpenAI error ${res.status}`);
+    }
+
+    const j = await res.json().catch(() => null);
+    if (!j) throw new Error("OpenAI returned an empty response.");
+
+    const text   = j.choices?.[0]?.message?.content || "";
+    const parsed = parseJson(text);
+    const fields = mode === "list" ? (normList(parsed)?.items?.length || 0) : countFields(parsed);
+    console.log(`[${fileName}] OpenAI ${OAI_MODEL} (${isPdf ? "pdf" : "image"}): ${fields} ${mode === "list" ? "items" : "fields"} ✓`);
+    return parsed;
+
+  } finally {
+    // Always delete the uploaded PDF to keep OpenAI storage clean
+    if (fileId) deletePdfFromOpenAI(fileId).catch(() => {});
   }
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => null);
-    const msg = err?.error?.message || `OpenAI error ${res.status}`;
-    throw new Error(msg);
-  }
-
-  const j = await res.json().catch(() => null);
-  if (!j) throw new Error("OpenAI returned an empty response.");
-
-  const text   = j.choices?.[0]?.message?.content || "";
-  const parsed = parseJson(text);
-  const fields = mode === "list" ? (normList(parsed)?.items?.length || 0) : countFields(parsed);
-  console.log(`[${fileName}] OpenAI ${OAI_MODEL}: ${fields} ${mode === "list" ? "items" : "fields"} ✓`);
-  return parsed;
 }
 
 /* ── GROQ CALL (optional last-resort text restructure only) ─────────────── */
@@ -151,9 +240,7 @@ async function callGroq(sysPrompt, rawText) {
       method: "POST",
       headers: { "Content-Type":"application/json", "Authorization":`Bearer ${GROQ_KEY}` },
       body: JSON.stringify({
-        model: GROQ_MODEL,
-        temperature: 0.1,
-        max_tokens: 8192,
+        model: GROQ_MODEL, temperature: 0.1, max_tokens: 8192,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: sysPrompt },
@@ -169,10 +256,9 @@ async function callGroq(sysPrompt, rawText) {
 
 /* ── PROCESS ONE FILE ────────────────────────────────────────────────────────
    Flow:
-   1. OpenAI (primary) — base64 direct, ~1-2s, no upload needed
-      ✓ any fields extracted → return immediately
-   2. If OpenAI returned 0 fields AND Groq is configured → try Groq text restructure
-   3. If still 0 → return whatever OpenAI gave us (partial data is better than error)
+   1. If image → send base64 inline to GPT-4o-mini vision
+   2. If PDF   → upload to OpenAI Files API, reference by file_id, delete after
+   3. If 0 fields AND Groq configured → Groq text restructure as last resort
 ────────────────────────────────────────────────────────────────────────────── */
 async function processOne(fileData, sysPrompt, mode) {
   const { fileName, mimeType, base64Data } = fileData;
@@ -182,7 +268,6 @@ async function processOne(fileData, sysPrompt, mode) {
     const mb    = bytes.byteLength / 1048576;
     if (mb > 20) return fail(fileName, `File too large (${mb.toFixed(1)} MB). Max 20 MB.`);
 
-    // ── OpenAI extraction ─────────────────────────────────────────────────
     let parsed;
     try {
       parsed = await callOpenAI(base64Data, mimeType, sysPrompt, fileName, mode);
@@ -194,42 +279,32 @@ async function processOne(fileData, sysPrompt, mode) {
     if (mode === "list") {
       const norm = normList(parsed);
       if (norm?.items?.length) return okList(fileName, norm);
-
-      // Try Groq restructure if OpenAI returned something but normList found nothing
       if (GROQ_ON && parsed) {
-        const groqParsed = await callGroq(sysPrompt, JSON.stringify(parsed));
-        const groqNorm   = normList(groqParsed);
+        const groqNorm = normList(await callGroq(sysPrompt, JSON.stringify(parsed)));
         if (groqNorm?.items?.length) return okList(fileName, groqNorm);
       }
-
-      return fail(fileName, "AI could not extract any items. Try a higher-resolution photo with better lighting.");
+      return fail(fileName, "AI could not extract any items. Try a higher-resolution photo.");
     }
 
     // ── Hook & rope mode ──────────────────────────────────────────────────
     if (mode === "hookrope") {
       if (countFields(parsed) >= 1) return okDoc(fileName, parsed, mode);
-
       if (GROQ_ON && parsed) {
         const groqParsed = await callGroq(sysPrompt, JSON.stringify(parsed));
         if (countFields(groqParsed) > 0) return okDoc(fileName, groqParsed, mode);
       }
-
       return fail(fileName, "AI extracted 0 fields. Try a clearer scan.");
     }
 
-    // ── Document mode (default) ───────────────────────────────────────────
-    const fields = countFields(parsed);
+    // ── Document mode ─────────────────────────────────────────────────────
+    if (countFields(parsed) >= 1) return okDoc(fileName, parsed, mode);
 
-    // Return whatever we got — even 1 field is useful (user can fill the rest)
-    if (fields >= 1) return okDoc(fileName, parsed, mode);
-
-    // OpenAI returned 0 fields — try Groq restructure as last resort
     if (GROQ_ON && parsed) {
       const groqParsed = await callGroq(sysPrompt, JSON.stringify(parsed));
       if (countFields(groqParsed) >= 1) return okDoc(fileName, groqParsed, mode);
     }
 
-    // Still 0 — return empty doc rather than an error so UI can still show the card
+    // Still 0 fields — return empty doc so the UI card still renders
     return okDoc(fileName, parsed || {}, mode);
 
   } catch (e) {
@@ -266,7 +341,6 @@ function okDoc(fileName, parsed, mode) {
 
 /* ── PARALLEL BATCH ──────────────────────────────────────── */
 async function runBatch(files, sysPrompt, mode) {
-  // OpenAI paid tier has no meaningful rate limit — run all files fully parallel
   const results = new Array(files.length);
   const queue   = files.map((f, i) => ({ f, i }));
   const active  = new Set();
