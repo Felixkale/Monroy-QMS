@@ -29,7 +29,7 @@ const KEYS = [
 
 if (!KEYS.length) throw new Error("No GEMINI_API_KEY set.");
 
-const PER_KEY_MS   = 6000;
+const PER_KEY_MS   = 10000; // 10 RPM = 6s minimum, 10s gives headroom to avoid 429s
 const EFF_MS       = Math.max(300, Math.ceil(PER_KEY_MS / KEYS.length));
 const cooldowns    = new Map(KEYS.map(k => [k, 0]));
 let   ki           = 0;
