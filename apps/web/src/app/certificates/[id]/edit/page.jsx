@@ -32,11 +32,11 @@ function isCherryPicker(t)    { return /cherry.picker|aerial.work.platform|boom.
 function isWireRopeSling(t)   { return /wire.rope.sling|wire rope sling/i.test(t || ""); }
 function isSandblastingPot(t) { return /sandblast|blasting.pot|blast.pot|sbp|sand.blast/i.test(t || ""); }
 function isHookRopeEquipment(t) {
-  const s = String(t || "").trim();
+  const s = String(t || "").replace(/&amp;/gi, "&").trim();
   if (!s) return false;
   // IMPORTANT: Wire Rope Sling has its own editor. This mode is for crane hook + crane wire rope certs.
   if (/wire\s*rope\s*sling/i.test(s)) return false;
-  return /crane\s*hook|hook\s*[&/]?\s*rope|wire\s*rope(?!\s*sling)|rope\s*[&/]?\s*hook/i.test(s);
+  return /crane\s*hook|hook\s*(?:&|and|\/)?\s*rope|wire\s*rope(?!\s*sling)|rope\s*(?:&|and|\/)?\s*hook|hookrope|hr\s*\d+/i.test(s);
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -1289,10 +1289,18 @@ function CertificateEditInner() {
     folder_id:"",folder_name:"",folder_position:"",
   });
 
-  const equipIsCherryPicker    = isCherryPicker(form.equipment_type);
-  const equipIsWireRopeSling   = isWireRopeSling(form.equipment_type);
-  const equipIsSandblastingPot = isSandblastingPot(form.equipment_type);
-  const equipIsHookRope        = isHookRopeEquipment(form.equipment_type);
+  const equipmentDetectText = [
+    form.equipment_type,
+    form.equipment_description,
+    form.asset_name,
+    form.certificate_type,
+    form.certificate_number,
+  ].filter(Boolean).join(" ");
+
+  const equipIsCherryPicker    = isCherryPicker(equipmentDetectText);
+  const equipIsWireRopeSling   = isWireRopeSling(equipmentDetectText);
+  const equipIsSandblastingPot = isSandblastingPot(equipmentDetectText);
+  const equipIsHookRope        = notesMode === "hookrope" || isHookRopeEquipment(equipmentDetectText);
 
   useEffect(() => { if (id) load(); }, [id]);
   useEffect(() => { const t=setTimeout(()=>searchLink(linkSearch),300); return ()=>clearTimeout(t); }, [linkSearch]);
@@ -1346,7 +1354,19 @@ function CertificateEditInner() {
     });
     const storedExtracted = data.extracted_data || {};
     setBaseExtractedData(storedExtracted);
-    const equipType = data.equipment_type||data.asset_type||"";
+
+    // Detect special editors from all available certificate text, not only equipment_type.
+    // Hook & Rope imports sometimes keep equipment_type as "Crane Hook" / "Wire Rope",
+    // but older records can expose "Hook & Rope" only in description, cert number HR..., or notes.
+    const equipType = [
+      data.equipment_type,
+      data.asset_type,
+      data.equipment_description,
+      data.asset_name,
+      data.certificate_type,
+      data.certificate_number,
+      data.notes,
+    ].filter(Boolean).join(" ");
     const rawNotes = isHookRopeEquipment(equipType) ? (data.notes || getEditableInspectionSource(data)) : getEditableInspectionSource(data);
 
     if (isSandblastingPot(equipType)) {
