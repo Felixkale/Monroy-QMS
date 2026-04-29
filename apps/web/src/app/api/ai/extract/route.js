@@ -1,725 +1,714 @@
-// apps/web/src/app/api/ai/extract/route.js
-
+// src/app/api/ai/extract/route.js
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-/**
- * IMPORTANT SPEED / QUOTA SETTINGS
- *
- * Free Gemini can easily hit quota when many files run in parallel.
- * This route is now safer:
- * - Default concurrency = 1
- * - Adds delay between AI calls
- * - Retries when Gemini says quota/rate limit
- *
- * Recommended Render Environment Variables:
- * GEMINI_API_KEY=your_key_here
- * GEMINI_EXTRACT_CONCURRENCY=1
- * GEMINI_REQUEST_DELAY_MS=5000
- * GEMINI_MAX_RETRIES=3
- */
+const GEMINI_MODEL    = "gemini-2.5-flash";
+const FILE_API_BASE   = "https://generativelanguage.googleapis.com";
+const MAX_RETRIES     = 5;
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-const FILE_API_BASE = "https://generativelanguage.googleapis.com/upload/v1beta/files";
-const GENERATE_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+// ── GROQ (text-only fallback — shot 2) ───────────────────────────────────────
+const GROQ_API_KEY  = process.env.GROQ_API_KEY || "";
+const GROQ_MODEL    = process.env.GROQ_MODEL   || "llama-3.3-70b-versatile";
+const GROQ_BASE     = "https://api.groq.com/openai/v1";
+const GROQ_ENABLED  = Boolean(GROQ_API_KEY);
 
-const MAX_FILES = 20;
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+// ── OPENROUTER (vision-capable parallel shot 1) ───────────────────────────────
+// Free models with vision: meta-llama/llama-4-maverick:free  (20 RPM)
+//                          meta-llama/llama-4-scout:free
+//                          google/gemini-2.0-flash-exp:free
+const OR_API_KEY    = process.env.OPENROUTER_API_KEY || "";
+const OR_MODEL      = process.env.OPENROUTER_MODEL   || "meta-llama/llama-4-maverick:free";
+const OR_BASE       = "https://openrouter.ai/api/v1";
+const OR_ENABLED    = Boolean(OR_API_KEY);
 
-// SAFER DEFAULTS FOR FREE GEMINI
-const MAX_CONCURRENCY = Math.max(
-  1,
-  Math.min(Number(process.env.GEMINI_EXTRACT_CONCURRENCY || 1), 4)
-);
+/* ── GEMINI KEY POOL ─────────────────────────────────────── */
+const KEY_POOL = [
+  process.env.GEMINI_API_KEY,
+  process.env.GEMINI_API_KEY_2,
+  process.env.GEMINI_API_KEY_3,
+  process.env.GEMINI_API_KEY_4,
+  process.env.GEMINI_API_KEY_5,
+].filter(Boolean);
 
-const GEMINI_REQUEST_DELAY_MS = Number(process.env.GEMINI_REQUEST_DELAY_MS || 5000);
-const GEMINI_MAX_RETRIES = Number(process.env.GEMINI_MAX_RETRIES || 3);
+if (KEY_POOL.length === 0) throw new Error("No GEMINI_API_KEY set in environment.");
 
-const DEFAULT_PROMPT = `You are a senior industrial inspection AI for a QMS system. Extract ALL visible data from the image or document with maximum precision.
+const keyCooldowns      = new Map(KEY_POOL.map(k => [k, 0]));
+const PER_KEY_DELAY_MS  = 6000;
+const EFFECTIVE_DELAY_MS = Math.max(300, Math.ceil(PER_KEY_DELAY_MS / KEY_POOL.length));
 
-NAMEPLATE READING RULES:
-- Read brand/manufacturer name exactly as printed
-- Equipment type: identify precisely — "Chain Block", "Manual Chain Hoist", "Electric Chain Hoist", "Lever Hoist / Tirfor", "Wire Rope Sling", "Chain Sling", "Web Sling / Flat Sling", "Shackle — Bow / Anchor", "Shackle — D / Dee", "Hook — Swivel", "Safety Harness — Full Body", "Lanyard — Energy Absorbing", "Self-Retracting Lifeline (SRL)", "Spreader Beam", "Lifting Beam", "Beam Clamp", "Electric Winch", "Mobile Crane", "Overhead Crane / EOT Crane", "Pressure Vessel", "Air Receiver", etc.
-- SWL/WLL/Capacity: read the large number with unit, put in swl field
-- Serial number: read S/No., Serial No., S/N exactly
-- Asset tag written in marker/paint, put in asset_tag field
-- CE, TUV, SABS marks, put in standard_code
+console.log(`Gemini: ${KEY_POOL.length} key(s) | Groq: ${GROQ_ENABLED ? GROQ_MODEL : "off"} | OpenRouter: ${OR_ENABLED ? OR_MODEL : "off"} | delay: ${EFFECTIVE_DELAY_MS}ms`);
 
-DATE FIELD RULES — CRITICAL:
-- "Date:" on equipment nameplate = MANUFACTURE DATE, put ONLY in year_built. NEVER in inspection_date or expiry_date.
-- inspection_date = date inspection was performed from certificate document only
-- expiry_date = date certificate expires from certificate document only
-- For nameplate photos only: leave inspection_date, expiry_date, next_inspection_due as ""
+let keyIndex = 0;
 
-DATE FORMAT:
-- Return dates as YYYY-MM-DD where possible.
-- If only month/year is visible, return MM/YYYY.
-- If only year is visible, return YYYY.
-
-Return ONLY valid JSON, no markdown:
-{"equipment_type":"","equipment_description":"","manufacturer":"","make":"","model":"","serial_number":"","asset_tag":"","year_built":"","capacity_volume":"","swl":"","working_pressure":"","design_pressure":"","test_pressure":"","pressure_unit":"","material":"","standard_code":"","inspection_number":"","certificate_number":"","certificate_type":"","client_name":"","owner":"","location":"","inspection_date":"","issue_date":"","expiry_date":"","next_inspection_due":"","inspector_name":"","inspector_id":"","inspection_body":"","result":"","defects_found":"","recommendations":"","comments":"","notes":"","nameplate_data":"","raw_text_summary":"","inspection_data":{}}`;
-
-function getGeminiKey() {
-  return (
-    process.env.GEMINI_API_KEY ||
-    process.env.GOOGLE_GEMINI_API_KEY ||
-    process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
-    ""
-  ).trim();
+async function nextKey() {
+  const now = Date.now();
+  for (let i = 0; i < KEY_POOL.length; i++) {
+    const idx = (keyIndex + i) % KEY_POOL.length;
+    const key = KEY_POOL[idx];
+    if ((keyCooldowns.get(key) || 0) <= now) {
+      keyIndex = (idx + 1) % KEY_POOL.length;
+      keyCooldowns.set(key, now + PER_KEY_DELAY_MS);
+      return key;
+    }
+  }
+  let soonestKey = KEY_POOL[0];
+  let soonestTime = keyCooldowns.get(KEY_POOL[0]) || 0;
+  for (const k of KEY_POOL) {
+    const t = keyCooldowns.get(k) || 0;
+    if (t < soonestTime) { soonestTime = t; soonestKey = k; }
+  }
+  const wait = soonestTime - now;
+  if (wait > 0) {
+    console.log(`All Gemini keys on cooldown. Waiting ${Math.round(wait / 1000)}s…`);
+    await sleep(wait);
+  }
+  keyCooldowns.set(soonestKey, Date.now() + PER_KEY_DELAY_MS);
+  return soonestKey;
 }
 
-function jsonError(message, status = 500, extra = {}) {
-  return NextResponse.json(
-    {
-      success: false,
-      ok: false,
-      error: message,
-      ...extra,
-    },
-    { status }
-  );
+function penalizeKey(key, extraMs = 60000) {
+  const current = keyCooldowns.get(key) || Date.now();
+  keyCooldowns.set(key, Math.max(current, Date.now() + extraMs));
+  console.warn(`Gemini key penalized ${Math.round(extraMs / 1000)}s.`);
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/* ── SCHEMAS ─────────────────────────────────────────────── */
+const RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    equipment_type: { type: "string" }, equipment_description: { type: "string" },
+    manufacturer: { type: "string" }, model: { type: "string" },
+    serial_number: { type: "string" }, asset_tag: { type: "string" },
+    year_built: { type: "string" }, capacity_volume: { type: "string" },
+    swl: { type: "string" }, working_pressure: { type: "string" },
+    design_pressure: { type: "string" }, test_pressure: { type: "string" },
+    pressure_unit: { type: "string" }, material: { type: "string" },
+    standard_code: { type: "string" }, inspection_number: { type: "string" },
+    client_name: { type: "string" }, location: { type: "string" },
+    inspection_date: { type: "string" }, expiry_date: { type: "string" },
+    next_inspection_due: { type: "string" }, inspector_name: { type: "string" },
+    inspection_body: { type: "string" }, result: { type: "string" },
+    defects_found: { type: "string" }, recommendations: { type: "string" },
+    comments: { type: "string" }, nameplate_data: { type: "string" },
+    raw_text_summary: { type: "string" },
+  },
+  required: ["equipment_type", "result"],
+};
+
+const LIST_ITEM_SCHEMA = {
+  type: "object",
+  properties: {
+    equipment_type: { type: "string" }, serial_number: { type: "string" },
+    swl: { type: "string" }, result: { type: "string" },
+    defects_found: { type: "string" }, equipment_description: { type: "string" },
+  },
+  required: ["equipment_type"],
+};
+
+const LIST_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: { items: { type: "array", items: LIST_ITEM_SCHEMA } },
+  required: ["items"],
+};
+
+const HOOK_ROPE_SCHEMA = {
+  type: "object",
+  properties: {
+    client_name: { type: "string" }, location: { type: "string" },
+    crane_make: { type: "string" }, crane_serial: { type: "string" },
+    crane_fleet: { type: "string" }, crane_swl: { type: "string" },
+    machine_hours: { type: "string" }, inspection_date: { type: "string" },
+    expiry_date: { type: "string" }, report_number: { type: "string" },
+    drum_main_condition: { type: "string" }, drum_aux_condition: { type: "string" },
+    rope_lay_main: { type: "string" }, rope_lay_aux: { type: "string" },
+    rope_diameter_main: { type: "string" }, rope_diameter_aux: { type: "string" },
+    rope_length_3x_main: { type: "string" }, rope_length_3x_aux: { type: "string" },
+    reduction_dia_main: { type: "string" }, reduction_dia_aux: { type: "string" },
+    core_protrusion_main: { type: "string" }, core_protrusion_aux: { type: "string" },
+    corrosion_main: { type: "string" }, corrosion_aux: { type: "string" },
+    broken_wires_main: { type: "string" }, broken_wires_aux: { type: "string" },
+    rope_kinks_main: { type: "string" }, rope_kinks_aux: { type: "string" },
+    other_defects_main: { type: "string" }, other_defects_aux: { type: "string" },
+    end_fittings_main: { type: "string" }, end_fittings_aux: { type: "string" },
+    serviceability_main: { type: "string" }, serviceability_aux: { type: "string" },
+    lower_limit_main: { type: "string" }, lower_limit_aux: { type: "string" },
+    damaged_strands_main: { type: "string" }, damaged_strands_aux: { type: "string" },
+    hook1_sn: { type: "string" }, hook1_swl: { type: "string" },
+    hook1_swl_marked: { type: "string" }, hook1_safety_catch: { type: "string" },
+    hook1_cracks: { type: "string" }, hook1_swivel: { type: "string" },
+    hook1_corrosion: { type: "string" }, hook1_side_bending: { type: "string" },
+    hook1_ab: { type: "string" }, hook1_ac: { type: "string" },
+    hook2_sn: { type: "string" }, hook2_swl: { type: "string" },
+    hook2_swl_marked: { type: "string" }, hook2_safety_catch: { type: "string" },
+    hook2_cracks: { type: "string" }, hook2_swivel: { type: "string" },
+    hook2_corrosion: { type: "string" }, hook2_side_bending: { type: "string" },
+    hook2_ab: { type: "string" }, hook2_ac: { type: "string" },
+    hook3_sn: { type: "string" }, hook3_swl: { type: "string" },
+    overall_result: { type: "string" }, defects_found: { type: "string" },
+    comments: { type: "string" },
+  },
+  required: ["client_name", "overall_result"],
+};
+
+/* ── UTILITIES ───────────────────────────────────────────── */
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function sanitize(v) { return v == null ? "" : String(v).trim(); }
+
+function normalizeResult(v) {
+  const n = sanitize(v).toUpperCase().replace(/\s+/g, "_");
+  if (["PASS","FAIL","CONDITIONAL","REPAIR_REQUIRED","OUT_OF_SERVICE"].includes(n)) return n;
+  if (n === "REPAIR REQUIRED") return "REPAIR_REQUIRED";
+  return "UNKNOWN";
 }
 
-function isImage(mimeType = "") {
-  return ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"].includes(
-    String(mimeType).toLowerCase()
-  );
+async function fetchWithTimeout(url, options, timeoutMs = 90000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err.name === "AbortError") throw new Error(`Timed out after ${timeoutMs / 1000}s`);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-function isPdf(mimeType = "") {
-  return String(mimeType).toLowerCase() === "application/pdf";
+function extractJsonFromPayload(payload) {
+  const parts = payload?.candidates?.[0]?.content?.parts || [];
+  const allText = parts.map(p => (typeof p?.text === "string" ? p.text : "")).join("").trim();
+  if (!allText) return null;
+  try { return JSON.parse(allText); } catch {}
+  const stripped = allText.replace(/^```json\s*/im,"").replace(/^```\s*/im,"").replace(/\s*```\s*$/im,"").trim();
+  try { return JSON.parse(stripped); } catch {}
+  const oi = stripped.indexOf("{"); const oj = stripped.lastIndexOf("}");
+  if (oi >= 0 && oj > oi) { try { return JSON.parse(stripped.slice(oi, oj + 1)); } catch {} }
+  const ai = stripped.indexOf("["); const aj = stripped.lastIndexOf("]");
+  if (ai >= 0 && aj > ai) { try { return JSON.parse(stripped.slice(ai, aj + 1)); } catch {} }
+  return null;
 }
 
-function isAllowedMime(mimeType = "") {
-  return isPdf(mimeType) || isImage(mimeType);
+// Parse JSON from OpenAI-format chat completion response
+function extractJsonFromChatResponse(json) {
+  const text = json?.choices?.[0]?.message?.content || "";
+  if (!text) return null;
+  try { return JSON.parse(text); } catch {}
+  const stripped = text.replace(/^```json\s*/im,"").replace(/^```\s*/im,"").replace(/\s*```\s*$/im,"").trim();
+  try { return JSON.parse(stripped); } catch {}
+  const oi = stripped.indexOf("{"); const oj = stripped.lastIndexOf("}");
+  if (oi >= 0 && oj > oi) { try { return JSON.parse(stripped.slice(oi, oj + 1)); } catch {} }
+  const ai = stripped.indexOf("["); const aj = stripped.lastIndexOf("]");
+  if (ai >= 0 && aj > ai) { try { return JSON.parse(stripped.slice(ai, aj + 1)); } catch {} }
+  return null;
 }
 
-function safeFileName(name = "uploaded-file") {
-  return String(name || "uploaded-file")
-    .replace(/[^\w.\-() ]+/g, "_")
-    .slice(0, 120);
+function normalizeListResult(parsed) {
+  if (!parsed) return null;
+  if (parsed.items && Array.isArray(parsed.items)) return parsed;
+  if (Array.isArray(parsed)) return { items: parsed };
+  const altKeys = ["certificates","equipment","results","data","list","records","entries"];
+  for (const key of altKeys) { if (Array.isArray(parsed[key])) return { items: parsed[key] }; }
+  if (parsed.equipment_type || parsed.serial_number) return { items: [parsed] };
+  for (const val of Object.values(parsed)) { if (Array.isArray(val) && val.length > 0) return { items: val }; }
+  return null;
 }
 
-function stripJsonText(text) {
-  let clean = String(text || "").trim();
-
-  clean = clean
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```$/i, "")
-    .trim();
-
-  return clean;
+function countDocFields(parsed) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return 0;
+  return Object.values(parsed).filter(v => v != null && String(v).trim() !== "").length;
 }
 
-function parseAIJson(text) {
-  const clean = stripJsonText(text);
+function buildGroqPrompt(geminiPayload, mode) {
+  const parts = geminiPayload?.candidates?.[0]?.content?.parts || [];
+  const rawText = parts.map(p => p?.text || "").join("").trim();
+  const modeHint = mode === "list"
+    ? "Extract every equipment line item into a JSON object with key 'items' (array). Each item needs: equipment_type, serial_number, swl, result, defects_found, equipment_description."
+    : mode === "hookrope"
+      ? "Re-structure all Hook & Rope inspection fields from this text into the required JSON object."
+      : "Re-structure this inspection certificate text into the required JSON object. Extract every visible field.";
+  return `The following is raw text extracted from an inspection certificate.
+${modeHint}
+Return ONLY valid JSON. No markdown, no explanation.
+
+RAW TEXT:
+${rawText || "(empty — fill all fields with empty strings)"}`;
+}
+
+/* ── OPENROUTER VISION CALL ──────────────────────────────────────────────────
+   Sends base64 image directly — no file upload needed.
+   Used in parallel with Gemini shot-1 for document/hookrope mode.
+   Returns parsed JSON object or null on failure.
+────────────────────────────────────────────────────────────────────────────── */
+async function callOpenRouter(base64Data, mimeType, systemPrompt, fileName, mode) {
+  if (!OR_ENABLED) return null;
+
+  const userText = mode === "list"
+    ? `Read EVERY line of this handwritten list. Extract each item into the items array. File: ${fileName}`
+    : mode === "hookrope"
+      ? `Extract all Hook & Rope inspection data from this certificate. Read every field. File: ${fileName}`
+      : `Extract all inspection certificate data from this document. File: ${fileName}`;
+
+  const body = {
+    model: OR_MODEL,
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: userText },
+          {
+            type: "image_url",
+            image_url: { url: `data:${mimeType};base64,${base64Data}` },
+          },
+        ],
+      },
+    ],
+    temperature: 0.1,
+    max_tokens: mode === "list" ? 16384 : 8192,
+    response_format: { type: "json_object" },
+  };
 
   try {
-    return JSON.parse(clean);
-  } catch (_) {
-    const objectStart = clean.indexOf("{");
-    const objectEnd = clean.lastIndexOf("}");
-    const arrayStart = clean.indexOf("[");
-    const arrayEnd = clean.lastIndexOf("]");
+    const res = await fetchWithTimeout(
+      `${OR_BASE}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${OR_API_KEY}`,
+          "HTTP-Referer": "https://monroyqms.onrender.com",
+          "X-Title": "Monroy QMS",
+        },
+        body: JSON.stringify(body),
+      },
+      90000
+    );
 
-    if (arrayStart >= 0 && arrayEnd > arrayStart) {
-      return JSON.parse(clean.slice(arrayStart, arrayEnd + 1));
-    }
+    if (res.status === 429) { console.warn(`[${fileName}] OpenRouter rate limited.`); return null; }
+    if (!res.ok) { console.warn(`[${fileName}] OpenRouter error ${res.status}`); return null; }
 
-    if (objectStart >= 0 && objectEnd > objectStart) {
-      return JSON.parse(clean.slice(objectStart, objectEnd + 1));
-    }
+    const json = await res.json().catch(() => null);
+    if (!json) return null;
 
-    throw new Error("Could not parse JSON from AI response.");
+    const parsed = extractJsonFromChatResponse(json);
+    console.log(`[${fileName}] OpenRouter: ${countDocFields(parsed)} fields`);
+    return parsed;
+  } catch (err) {
+    console.warn(`[${fileName}] OpenRouter failed:`, err.message);
+    return null;
   }
 }
 
-function normalizeValue(value) {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return JSON.stringify(value);
+/* ── GROQ TEXT CALL ──────────────────────────────────────────────────────────
+   Text-only shot-2 fallback. Receives Gemini's raw extracted text,
+   re-structures into clean JSON. No file upload, no rate limit wait.
+────────────────────────────────────────────────────────────────────────────── */
+async function callGroq(systemPrompt, userText) {
+  if (!GROQ_ENABLED) return null;
+  try {
+    const res = await fetchWithTimeout(
+      `${GROQ_BASE}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: GROQ_MODEL,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user",   content: userText },
+          ],
+          temperature: 0.1,
+          max_tokens: 8192,
+          response_format: { type: "json_object" },
+        }),
+      },
+      60000
+    );
+    if (res.status === 429) { console.warn("Groq rate limited."); return null; }
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json) { console.warn(`Groq error ${res.status}`); return null; }
+    const text = json.choices?.[0]?.message?.content || "";
+    if (!text) return null;
+    try { return JSON.parse(text); } catch {}
+    const stripped = text.replace(/^```json\s*/im,"").replace(/\s*```\s*$/im,"").trim();
+    try { return JSON.parse(stripped); } catch {}
+    return null;
+  } catch (err) {
+    console.warn("Groq failed:", err.message);
+    return null;
+  }
 }
 
-function normalizeExtractedData(input) {
-  if (Array.isArray(input)) {
-    return { items: input };
-  }
-
-  const d = input && typeof input === "object" ? input : {};
-
-  if (Array.isArray(d.items)) {
-    return {
-      ...d,
-      items: d.items.map((item) => ({
-        equipment_type: normalizeValue(item?.equipment_type),
-        equipment_description: normalizeValue(item?.equipment_description),
-        manufacturer: normalizeValue(item?.manufacturer || item?.make),
-        make: normalizeValue(item?.make || item?.manufacturer),
-        model: normalizeValue(item?.model),
-        serial_number: normalizeValue(item?.serial_number),
-        asset_tag: normalizeValue(item?.asset_tag),
-        year_built: normalizeValue(item?.year_built),
-        capacity_volume: normalizeValue(item?.capacity_volume),
-        swl: normalizeValue(item?.swl || item?.wll || item?.capacity),
-        working_pressure: normalizeValue(item?.working_pressure),
-        design_pressure: normalizeValue(item?.design_pressure),
-        test_pressure: normalizeValue(item?.test_pressure),
-        pressure_unit: normalizeValue(item?.pressure_unit),
-        material: normalizeValue(item?.material),
-        standard_code: normalizeValue(item?.standard_code),
-        inspection_number: normalizeValue(item?.inspection_number),
-        certificate_number: normalizeValue(item?.certificate_number),
-        certificate_type: normalizeValue(item?.certificate_type),
-        client_name: normalizeValue(item?.client_name || item?.owner),
-        owner: normalizeValue(item?.owner || item?.client_name),
-        location: normalizeValue(item?.location),
-        inspection_date: normalizeValue(item?.inspection_date || item?.issue_date),
-        issue_date: normalizeValue(item?.issue_date || item?.inspection_date),
-        expiry_date: normalizeValue(item?.expiry_date),
-        next_inspection_due: normalizeValue(item?.next_inspection_due),
-        inspector_name: normalizeValue(item?.inspector_name),
-        inspector_id: normalizeValue(item?.inspector_id),
-        inspection_body: normalizeValue(item?.inspection_body),
-        result: normalizeValue(item?.result || "PASS").toUpperCase(),
-        defects_found: normalizeValue(item?.defects_found),
-        recommendations: normalizeValue(item?.recommendations),
-        comments: normalizeValue(item?.comments),
-        notes: normalizeValue(item?.notes || item?.comments || item?.defects_found),
-        nameplate_data: normalizeValue(item?.nameplate_data),
-        raw_text_summary: normalizeValue(item?.raw_text_summary),
-        inspection_data: item?.inspection_data || item || {},
-      })),
-    };
-  }
-
-  return {
-    equipment_type: normalizeValue(d.equipment_type),
-    equipment_description: normalizeValue(d.equipment_description),
-    manufacturer: normalizeValue(d.manufacturer || d.make),
-    make: normalizeValue(d.make || d.manufacturer),
-    model: normalizeValue(d.model),
-    serial_number: normalizeValue(d.serial_number),
-    asset_tag: normalizeValue(d.asset_tag),
-    year_built: normalizeValue(d.year_built),
-    capacity_volume: normalizeValue(d.capacity_volume),
-    swl: normalizeValue(d.swl || d.wll || d.capacity),
-    working_pressure: normalizeValue(d.working_pressure),
-    design_pressure: normalizeValue(d.design_pressure),
-    test_pressure: normalizeValue(d.test_pressure),
-    pressure_unit: normalizeValue(d.pressure_unit),
-    material: normalizeValue(d.material),
-    standard_code: normalizeValue(d.standard_code),
-    inspection_number: normalizeValue(d.inspection_number),
-    certificate_number: normalizeValue(d.certificate_number),
-    certificate_type: normalizeValue(d.certificate_type),
-    client_name: normalizeValue(d.client_name || d.owner),
-    owner: normalizeValue(d.owner || d.client_name),
-    location: normalizeValue(d.location),
-    inspection_date: normalizeValue(d.inspection_date || d.issue_date),
-    issue_date: normalizeValue(d.issue_date || d.inspection_date),
-    expiry_date: normalizeValue(d.expiry_date),
-    next_inspection_due: normalizeValue(d.next_inspection_due),
-    inspector_name: normalizeValue(d.inspector_name),
-    inspector_id: normalizeValue(d.inspector_id),
-    inspection_body: normalizeValue(d.inspection_body),
-    result: normalizeValue(d.result || "PASS").toUpperCase(),
-    defects_found: normalizeValue(d.defects_found),
-    recommendations: normalizeValue(d.recommendations),
-    comments: normalizeValue(d.comments),
-    notes: normalizeValue(d.notes || d.comments || d.defects_found),
-    nameplate_data: normalizeValue(d.nameplate_data),
-    raw_text_summary: normalizeValue(d.raw_text_summary),
-    inspection_data: d.inspection_data || d || {},
-  };
-}
-
-async function mapLimit(items, limit, worker) {
-  const safeLimit = Math.max(1, Math.min(Number(limit) || 1, items.length || 1));
-  const results = new Array(items.length);
-  let nextIndex = 0;
-
-  async function run() {
-    while (nextIndex < items.length) {
-      const current = nextIndex;
-      nextIndex += 1;
-      results[current] = await worker(items[current], current);
-    }
-  }
-
-  await Promise.all(Array.from({ length: safeLimit }, run));
-  return results;
-}
-
-function getRetryDelayFromGeminiError(errorJson, fallbackMs) {
-  const details = Array.isArray(errorJson?.error?.details) ? errorJson.error.details : [];
-
-  for (const detail of details) {
-    const retryDelay = detail?.retryDelay;
-
-    if (typeof retryDelay === "string") {
-      const seconds = Number(retryDelay.replace("s", ""));
-      if (!Number.isNaN(seconds) && seconds > 0) {
-        return Math.ceil(seconds * 1000) + 1000;
-      }
-    }
-  }
-
-  const message = String(errorJson?.error?.message || "");
-  const retryMatch = message.match(/retry\s+in\s+([\d.]+)s/i);
-
-  if (retryMatch?.[1]) {
-    const seconds = Number(retryMatch[1]);
-    if (!Number.isNaN(seconds) && seconds > 0) {
-      return Math.ceil(seconds * 1000) + 1000;
-    }
-  }
-
-  return fallbackMs;
-}
-
-function isQuotaOrRateLimitError(error) {
-  const message = String(error?.message || "").toLowerCase();
-
-  return (
-    message.includes("quota") ||
-    message.includes("rate limit") ||
-    message.includes("429") ||
-    message.includes("resource_exhausted") ||
-    message.includes("too many requests")
-  );
-}
-
-async function withRetry(label, worker) {
-  let lastError = null;
-
-  for (let attempt = 0; attempt <= GEMINI_MAX_RETRIES; attempt += 1) {
-    try {
-      if (attempt > 0) {
-        const waitMs = GEMINI_REQUEST_DELAY_MS * attempt;
-        console.warn(`[ai/extract] retrying ${label}, attempt ${attempt + 1}, waiting ${waitMs}ms`);
-        await sleep(waitMs);
-      }
-
-      return await worker();
-    } catch (error) {
-      lastError = error;
-
-      if (!isQuotaOrRateLimitError(error) || attempt >= GEMINI_MAX_RETRIES) {
-        throw error;
-      }
-    }
-  }
-
-  throw lastError || new Error(`${label} failed.`);
-}
-
-async function uploadToGeminiFileAPI(fileBuffer, mimeType, apiKey, fileName = "upload.pdf") {
-  return withRetry(`Gemini file upload ${fileName}`, async () => {
-    const initRes = await fetch(`${FILE_API_BASE}?uploadType=resumable&key=${apiKey}`, {
+/* ── GEMINI FILE UPLOAD ──────────────────────────────────── */
+async function uploadFile(bytes, mimeType, displayName, apiKey) {
+  const startRes = await fetchWithTimeout(
+    `${FILE_API_BASE}/upload/v1beta/files?key=${apiKey}`,
+    {
       method: "POST",
       headers: {
         "X-Goog-Upload-Protocol": "resumable",
         "X-Goog-Upload-Command": "start",
-        "X-Goog-Upload-Header-Content-Length": String(fileBuffer.byteLength),
+        "X-Goog-Upload-Header-Content-Length": String(bytes.byteLength),
         "X-Goog-Upload-Header-Content-Type": mimeType,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        file: {
-          display_name: safeFileName(fileName),
-        },
-      }),
-    });
+      body: JSON.stringify({ file: { display_name: displayName } }),
+    },
+    30000
+  );
+  if (!startRes.ok) throw new Error(`Upload start failed: ${startRes.status}`);
+  const uploadUrl = startRes.headers.get("x-goog-upload-url");
+  if (!uploadUrl) throw new Error("No upload URL returned");
 
-    if (!initRes.ok) {
-      const text = await initRes.text();
-      throw new Error(`Gemini File API init failed: ${initRes.status} ${text}`);
-    }
-
-    const uploadUrl = initRes.headers.get("x-goog-upload-url");
-
-    if (!uploadUrl) {
-      throw new Error("Gemini File API did not return an upload URL.");
-    }
-
-    const uploadRes = await fetch(uploadUrl, {
+  const uploadRes = await fetchWithTimeout(
+    uploadUrl,
+    {
       method: "POST",
       headers: {
-        "X-Goog-Upload-Command": "upload, finalize",
+        "Content-Length": String(bytes.byteLength),
         "X-Goog-Upload-Offset": "0",
-        "Content-Type": mimeType,
+        "X-Goog-Upload-Command": "upload, finalize",
       },
-      body: fileBuffer,
-    });
-
-    if (!uploadRes.ok) {
-      const text = await uploadRes.text();
-      throw new Error(`Gemini file upload failed: ${uploadRes.status} ${text}`);
-    }
-
-    const uploadJson = await uploadRes.json();
-    const uploadedFile = uploadJson?.file;
-
-    if (!uploadedFile?.name) {
-      throw new Error("Gemini file upload response did not include file name.");
-    }
-
-    for (let i = 0; i < 40; i += 1) {
-      const stateRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/${uploadedFile.name}?key=${apiKey}`
-      );
-
-      if (stateRes.ok) {
-        const stateJson = await stateRes.json();
-
-        if (stateJson?.state === "ACTIVE") {
-          return stateJson;
-        }
-
-        if (stateJson?.state === "FAILED") {
-          throw new Error("Gemini file processing failed.");
-        }
-      }
-
-      await sleep(1500);
-    }
-
-    throw new Error("Gemini file did not become ACTIVE in time.");
-  });
-}
-
-async function deleteGeminiFile(fileName, apiKey) {
-  try {
-    if (!fileName) return;
-
-    await fetch(`https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${apiKey}`, {
-      method: "DELETE",
-    });
-  } catch (_) {
-    // Best-effort cleanup only.
-  }
-}
-
-async function buildGeminiPart({ base64Data, mimeType, fileName }, apiKey) {
-  if (!base64Data) {
-    throw new Error(`Missing base64 data for ${fileName || "uploaded file"}.`);
-  }
-
-  if (!isAllowedMime(mimeType)) {
-    throw new Error(`Unsupported file type: ${mimeType || "unknown"}. Use PDF or image.`);
-  }
-
-  const buffer = Buffer.from(base64Data, "base64");
-
-  if (buffer.byteLength > MAX_FILE_SIZE) {
-    throw new Error(`${fileName || "File"} is too large. Maximum size is 10 MB.`);
-  }
-
-  if (isImage(mimeType)) {
-    return {
-      part: {
-        inline_data: {
-          mime_type: mimeType,
-          data: base64Data,
-        },
-      },
-      fileNameToDelete: null,
-    };
-  }
-
-  const uploaded = await uploadToGeminiFileAPI(buffer, mimeType, apiKey, fileName);
-
-  return {
-    part: {
-      file_data: {
-        mime_type: mimeType,
-        file_uri: uploaded.uri,
-      },
+      body: bytes,
     },
-    fileNameToDelete: uploaded.name,
-  };
+    60000
+  );
+  const uploadJson = await uploadRes.json().catch(() => null);
+  if (!uploadRes.ok || !uploadJson?.file) throw new Error(uploadJson?.error?.message || `Upload failed: ${uploadRes.status}`);
+
+  let file = uploadJson.file;
+  for (let i = 0; i < 20; i++) {
+    const state = file?.state || "";
+    if (state === "ACTIVE" || state === "FILE_STATE_ACTIVE") return file;
+    if (state === "FAILED" || state === "FILE_STATE_FAILED") throw new Error("File processing failed");
+    await sleep(1500);
+    const pollRes = await fetchWithTimeout(`${FILE_API_BASE}/v1beta/${file.name}?key=${apiKey}`, {}, 15000);
+    file = await pollRes.json().catch(() => file);
+  }
+  throw new Error("File did not become ACTIVE in time");
 }
 
-async function callGeminiForFile(filePayload, systemPrompt) {
-  const apiKey = getGeminiKey();
+async function deleteFile(name, apiKey) {
+  if (!name) return;
+  try { await fetchWithTimeout(`${FILE_API_BASE}/v1beta/${name}?key=${apiKey}`, { method: "DELETE" }, 10000); } catch {}
+}
 
-  if (!apiKey) {
-    throw new Error("Missing GEMINI_API_KEY in Render environment variables.");
+/* ── GEMINI GENERATE CALL ────────────────────────────────── */
+async function geminiGenerate(uploadedFile, fileName, systemPrompt, apiKey, mode, useSchema) {
+  let responseSchema = null;
+  if (useSchema) {
+    if (mode === "list")          responseSchema = LIST_RESPONSE_SCHEMA;
+    else if (mode === "hookrope") responseSchema = HOOK_ROPE_SCHEMA;
+    else                          responseSchema = RESPONSE_SCHEMA;
   }
 
-  const { part, fileNameToDelete } = await buildGeminiPart(filePayload, apiKey);
+  const body = {
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    contents: [{
+      role: "user",
+      parts: [
+        {
+          text: mode === "list"
+            ? `Read EVERY line carefully. Extract each item into the items array. File: ${fileName}`
+            : mode === "hookrope"
+              ? `Extract all Hook & Rope inspection data. File: ${fileName}`
+              : `Extract inspection certificate data. Filename: ${fileName}`,
+        },
+        { file_data: { mime_type: uploadedFile.mimeType, file_uri: uploadedFile.uri } },
+      ],
+    }],
+    generationConfig: {
+      temperature: 0.1, topP: 0.95,
+      maxOutputTokens: mode === "list" ? 16384 : 8192,
+      responseMimeType: "application/json",
+      ...(responseSchema ? { responseSchema } : {}),
+    },
+  };
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    let res;
+    try {
+      res = await fetchWithTimeout(
+        `${FILE_API_BASE}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+        120000
+      );
+    } catch (fetchErr) {
+      const waitMs = 5000 * Math.pow(2, attempt);
+      if (attempt < MAX_RETRIES - 1) { await sleep(waitMs); continue; }
+      throw fetchErr;
+    }
+
+    if (res.status === 429) {
+      penalizeKey(apiKey, 60000 * (attempt + 1));
+      const retryAfter = parseInt(res.headers.get("retry-after") || "0") * 1000;
+      const waitMs = Math.max(retryAfter, EFFECTIVE_DELAY_MS * Math.pow(2, attempt));
+      await sleep(waitMs);
+      const freshKey = await nextKey();
+      if (freshKey !== apiKey) return geminiGenerate(uploadedFile, fileName, systemPrompt, freshKey, mode, useSchema);
+      continue;
+    }
+
+    if (res.status === 503 || res.status === 500) {
+      if (attempt < MAX_RETRIES - 1) { await sleep(15000 * Math.pow(2, attempt)); continue; }
+    }
+
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json) throw new Error(json?.error?.message || `Gemini error ${res.status}`);
+
+    const finishReason = json?.candidates?.[0]?.finishReason;
+    if (finishReason === "SAFETY" || finishReason === "RECITATION") throw new Error(`Gemini blocked: ${finishReason}`);
+
+    const textCheck = (json?.candidates?.[0]?.content?.parts || []).map(p => p?.text || "").join("").toLowerCase();
+    if (textCheck.includes("experiencing high demand") || textCheck.includes("try again later")) {
+      if (attempt < MAX_RETRIES - 1) { await sleep(20000 * (attempt + 1)); continue; }
+    }
+
+    return json;
+  }
+  throw new Error("Gemini overloaded after all retries.");
+}
+
+/* ── PROCESS ONE FILE ────────────────────────────────────────────────────────
+   Strategy per mode:
+
+   DOCUMENT / HOOKROPE:
+     Shot 1 — Gemini (file upload + vision) AND OpenRouter (base64 vision)
+              run IN PARALLEL via Promise.race.
+              Winner is whoever returns ≥4 fields first.
+              Loser is cancelled (we just ignore its result).
+     Shot 2 — Only if shot-1 winner is weak: Groq (text restructure, instant).
+
+   LIST:
+     Shot 1 — Gemini with LIST schema (best for handwriting).
+     Shot 2 — If Gemini weak: Groq fallback (instant).
+              OpenRouter not used for list — handwriting OCR quality
+              is significantly better on Gemini.
+────────────────────────────────────────────────────────────────────────────── */
+async function processOneFile(fileData, systemPrompt, mode = "document") {
+  const { fileName, mimeType, base64Data } = fileData;
+  let uploadedFile = null;
+  const apiKey = await nextKey();
 
   try {
-    return await withRetry(`Gemini generate ${filePayload.fileName || "uploaded-file"}`, async () => {
-      const res = await fetch(`${GENERATE_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          system_instruction: {
-            parts: [
-              {
-                text: systemPrompt || DEFAULT_PROMPT,
-              },
-            ],
-          },
-          contents: [
-            {
-              role: "user",
-              parts: [
-                part,
-                {
-                  text: `Extract all visible data from this file and return ONLY valid JSON. File name: ${
-                    filePayload.fileName || "uploaded-file"
-                  }`,
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            topP: 0.9,
-            maxOutputTokens: 8192,
-            responseMimeType: "application/json",
-          },
-        }),
-      });
+    const bytes = Buffer.from(base64Data, "base64");
+    const sizeMB = bytes.byteLength / (1024 * 1024);
+    if (sizeMB > 20) return { fileName, ok: false, error: `File too large (${sizeMB.toFixed(1)}MB). Max 20MB.` };
 
-      const raw = await res.text();
+    console.log(`[${fileName}] ${sizeMB.toFixed(2)}MB mode=${mode} gemini+${OR_ENABLED?"openrouter":"groq-fallback"}`);
 
-      let responseJson = null;
+    // ── LIST MODE — Gemini only for shot 1 (best handwriting OCR) ────────────
+    if (mode === "list") {
+      uploadedFile = await uploadFile(bytes, mimeType, fileName, apiKey);
+      const json1 = await geminiGenerate(uploadedFile, fileName, systemPrompt, apiKey, "list", true);
+      const parsed1 = extractJsonFromPayload(json1);
+      const norm1 = normalizeListResult(parsed1);
 
-      try {
-        responseJson = raw ? JSON.parse(raw) : null;
-      } catch (_) {
-        throw new Error(`Gemini returned non-JSON API response: ${raw.slice(0, 250)}`);
+      if (norm1 && norm1.items.length > 0) {
+        console.log(`[${fileName}] list Gemini: ${norm1.items.length} items ✓`);
+        return buildListResult(fileName, norm1, json1);
       }
 
-      if (!res.ok) {
-        const retryDelayMs = getRetryDelayFromGeminiError(
-          responseJson,
-          GEMINI_REQUEST_DELAY_MS
-        );
-
-        const error = new Error(
-          responseJson?.error?.message ||
-            `Gemini generate failed with status ${res.status}`
-        );
-
-        error.status = res.status;
-        error.retryDelayMs = retryDelayMs;
-        throw error;
+      // Groq fallback
+      if (GROQ_ENABLED) {
+        console.log(`[${fileName}] list Gemini weak → Groq…`);
+        const groqParsed = await callGroq(systemPrompt, buildGroqPrompt(json1, "list"));
+        const groqNorm = normalizeListResult(groqParsed);
+        if (groqNorm && groqNorm.items.length > 0) {
+          console.log(`[${fileName}] list Groq: ${groqNorm.items.length} items ✓`);
+          return buildListResult(fileName, groqNorm, json1);
+        }
+      } else {
+        // Second Gemini call
+        await sleep(EFFECTIVE_DELAY_MS);
+        const json2 = await geminiGenerate(uploadedFile, fileName, systemPrompt, apiKey, "list", false);
+        const norm2 = normalizeListResult(extractJsonFromPayload(json2));
+        if (norm2 && norm2.items.length > 0) return buildListResult(fileName, norm2, json2);
       }
 
-      const text =
-        responseJson?.candidates?.[0]?.content?.parts
-          ?.map((p) => p.text || "")
-          .join("\n")
-          .trim() || "";
+      return { fileName, ok: false, error: "No items extracted. Try a higher-resolution photo." };
+    }
 
-      const parsed = parseAIJson(text);
+    // ── DOCUMENT / HOOKROPE — Parallel Gemini + OpenRouter ───────────────────
+    // Start Gemini file upload and OpenRouter call simultaneously
+    const [geminiUploadResult, orResult] = await Promise.allSettled([
+      // Gemini: upload then generate
+      (async () => {
+        uploadedFile = await uploadFile(bytes, mimeType, fileName, apiKey);
+        const json = await geminiGenerate(uploadedFile, fileName, systemPrompt, apiKey, mode, true);
+        return { source: "gemini", json, parsed: extractJsonFromPayload(json) };
+      })(),
+      // OpenRouter: base64 direct (no upload needed)
+      OR_ENABLED
+        ? (async () => {
+            const parsed = await callOpenRouter(base64Data, mimeType, systemPrompt, fileName, mode);
+            return { source: "openrouter", json: null, parsed };
+          })()
+        : Promise.resolve(null),
+    ]);
 
-      return normalizeExtractedData(parsed);
-    });
+    // Evaluate both results
+    const geminiResult = geminiUploadResult.status === "fulfilled" ? geminiUploadResult.value : null;
+    const orParsed     = orResult.status === "fulfilled" ? orResult.value?.parsed : null;
+
+    const geminiFields = countDocFields(geminiResult?.parsed);
+    const orFields     = countDocFields(orParsed);
+
+    console.log(`[${fileName}] gemini=${geminiFields} fields | openrouter=${orFields} fields`);
+
+    // Use whichever got more fields
+    let bestParsed = null;
+    let bestSource = "none";
+
+    if (geminiFields >= orFields && geminiFields >= 4) {
+      bestParsed = geminiResult.parsed; bestSource = "gemini";
+    } else if (orFields > geminiFields && orFields >= 4) {
+      bestParsed = orParsed; bestSource = "openrouter";
+    } else if (geminiFields > 0 || orFields > 0) {
+      // Both weak — use whichever has more
+      bestParsed = geminiFields >= orFields ? geminiResult?.parsed : orParsed;
+      bestSource = geminiFields >= orFields ? "gemini" : "openrouter";
+    }
+
+    // Shot 2 — Groq if best is still weak
+    if (countDocFields(bestParsed) < 4 && GROQ_ENABLED) {
+      console.log(`[${fileName}] both providers weak → Groq fallback (instant)…`);
+      const geminiPayload = geminiResult?.json || null;
+      const groqParsed = await callGroq(systemPrompt, buildGroqPrompt(geminiPayload, mode));
+      const groqFields = countDocFields(groqParsed);
+      if (groqFields > countDocFields(bestParsed)) {
+        bestParsed = groqParsed; bestSource = "groq";
+      }
+    }
+
+    console.log(`[${fileName}] winner: ${bestSource} (${countDocFields(bestParsed)} fields)`);
+
+    if (!bestParsed || typeof bestParsed !== "object") {
+      return { fileName, ok: false, error: "All providers returned invalid JSON. Try a clearer image." };
+    }
+
+    // ── HOOKROPE result ───────────────────────────────────────────────────────
+    if (mode === "hookrope") {
+      if (countDocFields(bestParsed) < 2) {
+        return { fileName, ok: false, error: "AI extracted 0 usable fields. Try a clearer scan." };
+      }
+      const data = {};
+      for (const [k, v] of Object.entries(bestParsed)) data[k] = sanitize(v);
+      return { fileName, ok: true, data, source: bestSource };
+    }
+
+    // ── DOCUMENT result ───────────────────────────────────────────────────────
+    const data = {};
+    for (const [k, v] of Object.entries(bestParsed)) data[k] = sanitize(v);
+    data.result = normalizeResult(data.result);
+    const mf = Object.values(data).filter(v => v && String(v).trim()).length;
+    if (mf < 2) return { fileName, ok: false, error: "AI extracted 0 usable fields. Try a clearer scan." };
+
+    return { fileName, ok: true, data, source: bestSource };
+
+  } catch (err) {
+    console.error(`[${fileName}] error:`, err?.message);
+    return { fileName, ok: false, error: err?.message || "Extraction failed." };
   } finally {
-    if (fileNameToDelete) {
-      deleteGeminiFile(fileNameToDelete, apiKey);
-    }
+    if (uploadedFile?.name) await deleteFile(uploadedFile.name, apiKey);
   }
 }
 
-async function fileToPayload(file) {
-  if (!file || typeof file.arrayBuffer !== "function") {
-    throw new Error("Invalid uploaded file.");
-  }
-
-  const mimeType = file.type || "application/octet-stream";
-  const fileName = safeFileName(file.name || "uploaded-file");
-
-  if (!isAllowedMime(mimeType)) {
-    throw new Error(`${fileName} is not supported. Upload PDF, PNG, JPG, WEBP, or GIF.`);
-  }
-
-  if (file.size > MAX_FILE_SIZE) {
-    throw new Error(`${fileName} is too large. Maximum size is 10 MB.`);
-  }
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-
-  return {
-    fileName,
-    mimeType,
-    base64Data: buffer.toString("base64"),
-  };
-}
-
-async function processPayloads(payloads, systemPrompt) {
-  return mapLimit(payloads, MAX_CONCURRENCY, async (payload, index) => {
-    const fileName = payload?.fileName || `uploaded-file-${index + 1}`;
-
-    try {
-      /**
-       * Delay before each file except first one.
-       * This protects the free Gemini quota.
-       */
-      if (index > 0) {
-        await sleep(GEMINI_REQUEST_DELAY_MS * index);
-      }
-
-      const data = await callGeminiForFile(
-        {
-          fileName,
-          mimeType: payload?.mimeType || "application/pdf",
-          base64Data: payload?.base64Data,
-        },
-        systemPrompt
-      );
-
-      return {
-        fileName,
-        ok: true,
-        success: true,
-        data,
-      };
-    } catch (error) {
-      let message = error?.message || "Extraction failed.";
-
-      if (isQuotaOrRateLimitError(error)) {
-        message =
-          "Gemini quota/rate limit reached. Wait 1 minute and try again, or reduce files. " +
-          message;
-      }
-
-      return {
-        fileName,
-        ok: false,
-        success: false,
-        error: message,
-      };
-    }
-  });
-}
-
-async function handleJsonRequest(request) {
-  const body = await request.json();
-
-  const files = Array.isArray(body?.files) ? body.files.slice(0, MAX_FILES) : [];
-  const systemPrompt = body?.systemPrompt || DEFAULT_PROMPT;
-
-  if (!files.length) {
-    return jsonError("No files received. Expected JSON body with a files array.", 400);
-  }
-
-  const payloads = files.map((file, index) => ({
-    fileName: safeFileName(file?.fileName || `uploaded-file-${index + 1}`),
-    mimeType: file?.mimeType || "application/pdf",
-    base64Data: file?.base64Data || "",
+function buildListResult(fileName, normalized, payload) {
+  const items = (normalized.items || []).map(item => ({
+    equipment_type:        sanitize(item.equipment_type) || "Other",
+    serial_number:         sanitize(item.serial_number),
+    swl:                   sanitize(item.swl),
+    result:                normalizeResult(item.result) || "PASS",
+    defects_found:         sanitize(item.defects_found),
+    equipment_description: sanitize(item.equipment_description),
   }));
-
-  const results = await processPayloads(payloads, systemPrompt);
-
-  return NextResponse.json({
-    success: true,
-    ok: true,
-    results,
-  });
+  return { fileName, ok: true, data: { items }, usage: payload?.usageMetadata || null };
 }
 
-async function handleFormDataRequest(request) {
-  const formData = await request.formData();
+/* ── PARALLEL BATCH PROCESSING ───────────────────────────────────────────────
+   Files are processed in parallel, capped at MAX_CONCURRENT to avoid
+   exhausting all Gemini keys simultaneously.
+   With 5 Gemini keys: up to 5 files in flight at once.
+   With 1 key: up to 2 files (second starts while first is generating).
+────────────────────────────────────────────────────────────────────────────── */
+async function processBatch(files, systemPrompt, mode) {
+  const MAX_CONCURRENT = Math.max(2, KEY_POOL.length);
+  const results = new Array(files.length);
+  const queue   = files.map((f, i) => ({ file: f, idx: i }));
+  const active  = new Set();
 
-  const uploadedFiles = [...formData.getAll("files"), ...formData.getAll("file")]
-    .filter((file) => file && typeof file.arrayBuffer === "function")
-    .slice(0, MAX_FILES);
-
-  const systemPrompt = String(
-    formData.get("systemPrompt") || formData.get("prompt") || DEFAULT_PROMPT
-  );
-
-  if (!uploadedFiles.length) {
-    return jsonError("No files received. Expected multipart/form-data with files.", 400);
-  }
-
-  const payloads = await mapLimit(uploadedFiles, 2, async (file) => fileToPayload(file));
-  const results = await processPayloads(payloads, systemPrompt);
-
-  const first = results[0];
-
-  /**
-   * Keep old frontend compatibility:
-   * Old page expects { success:true, data:{...} } when one file is uploaded.
-   */
-  if (results.length === 1) {
-    if (!first?.ok) {
-      return jsonError(first?.error || "Extraction failed.", 500, {
-        fileName: first?.fileName || uploadedFiles[0]?.name || "uploaded-file",
-        results,
-      });
+  await new Promise((resolve) => {
+    function startNext() {
+      while (active.size < MAX_CONCURRENT && queue.length > 0) {
+        const { file, idx } = queue.shift();
+        const promise = processOneFile(file, systemPrompt, mode).then(result => {
+          results[idx] = result;
+          active.delete(promise);
+          if (queue.length > 0) startNext();
+          else if (active.size === 0) resolve();
+        }).catch(err => {
+          results[idx] = { fileName: file.fileName, ok: false, error: err?.message || "Failed" };
+          active.delete(promise);
+          if (queue.length > 0) startNext();
+          else if (active.size === 0) resolve();
+        });
+        active.add(promise);
+      }
+      if (active.size === 0 && queue.length === 0) resolve();
     }
-
-    return NextResponse.json({
-      success: true,
-      ok: true,
-      fileName: first.fileName,
-      data: first.data,
-      results,
-    });
-  }
-
-  return NextResponse.json({
-    success: true,
-    ok: true,
-    results,
+    startNext();
   });
+
+  return results;
 }
 
+/* ── ROUTE HANDLER ───────────────────────────────────────── */
 export async function POST(request) {
   try {
-    const contentType = request.headers.get("content-type") || "";
+    if (KEY_POOL.length === 0) return NextResponse.json({ error: "No GEMINI_API_KEY set." }, { status: 500 });
 
-    if (contentType.includes("application/json")) {
-      return await handleJsonRequest(request);
+    const body = await request.json().catch(() => null);
+    if (!body || !Array.isArray(body.files) || body.files.length === 0) {
+      return NextResponse.json({ error: "Request must include a non-empty files array." }, { status: 400 });
+    }
+    if (body.files.length > 20) {
+      return NextResponse.json({ error: "Batch too large. Maximum 20 files per request." }, { status: 400 });
     }
 
-    if (
-      contentType.includes("multipart/form-data") ||
-      contentType.includes("application/x-www-form-urlencoded")
-    ) {
-      return await handleFormDataRequest(request);
-    }
+    const systemPrompt = body.systemPrompt ||
+      "Extract structured JSON from the provided inspection certificate document. Return only valid JSON.";
 
-    return jsonError(
-      `Unsupported Content-Type: ${contentType || "empty"}. Send application/json or multipart/form-data.`,
-      415
-    );
-  } catch (error) {
-    console.error("[api/ai/extract] error:", error);
+    let mode = "document";
+    if      (body.mode === "hookrope" || body.hookRopeMode === true) mode = "hookrope";
+    else if (body.mode === "list"     || body.listMode     === true) mode = "list";
 
-    return jsonError(error?.message || "AI extraction route failed.", 500);
+    console.log(`extract: ${body.files.length} file(s) | mode="${mode}" | gemini=${KEY_POOL.length} | groq=${GROQ_ENABLED} | openrouter=${OR_ENABLED}`);
+
+    // Process all files in parallel (capped at MAX_CONCURRENT)
+    const results = await processBatch(body.files, systemPrompt, mode);
+
+    const successCount = results.filter(r => r.ok).length;
+    console.log(`done: ${successCount}/${results.length} succeeded`);
+
+    return NextResponse.json({
+      results,
+      model:            GEMINI_MODEL,
+      groq_model:       GROQ_ENABLED  ? GROQ_MODEL : null,
+      openrouter_model: OR_ENABLED    ? OR_MODEL   : null,
+      processed:        results.length,
+      succeeded:        successCount,
+      failed:           results.length - successCount,
+    });
+
+  } catch (err) {
+    console.error("extract error:", err);
+    return NextResponse.json({ error: err?.message || "Unexpected server error." }, { status: 500 });
   }
-}
-
-export async function GET() {
-  return NextResponse.json({
-    success: true,
-    ok: true,
-    route: "/api/ai/extract",
-    model: GEMINI_MODEL,
-    hasGeminiApiKey: Boolean(getGeminiKey()),
-    maxFiles: MAX_FILES,
-    maxFileSizeMB: MAX_FILE_SIZE / 1024 / 1024,
-    maxConcurrency: MAX_CONCURRENCY,
-    requestDelayMs: GEMINI_REQUEST_DELAY_MS,
-    maxRetries: GEMINI_MAX_RETRIES,
-  });
 }
