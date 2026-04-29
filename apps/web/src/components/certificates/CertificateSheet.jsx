@@ -1137,213 +1137,515 @@ function CraneChecklistPage({c,pn,pm,logo}){
 /* ══════════════════════════════════════════════════════════
    HOOK & ROPE
 ══════════════════════════════════════════════════════════ */
-function HookRopePage({c,pn,tone,pm,logo,isRope}){
-  const certNumber=val(c.certificate_number);
-  const ex=c.extracted_data&&typeof c.extracted_data==="object"?c.extracted_data:{};
-  const hr=(ex.hookrope&&typeof ex.hookrope==="object"?ex.hookrope:null)||
-           (ex.hook_rope&&typeof ex.hook_rope==="object"?ex.hook_rope:null)||
-           (ex.hookRope&&typeof ex.hookRope==="object"?ex.hookRope:null)||{};
+function HookRopePage({ c, pn, tone, pm, logo, isRope }) {
+  const certNumber = val(c.certificate_number);
 
-  const clean=v=>v===null||v===undefined?"":String(v).trim();
-  const nice=v=>clean(v)||"—";
-  const keyNorm=k=>String(k||"").toLowerCase().replace(/&amp;/g,"&").replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"");
-  const pick=(...keys)=>{
-    for(const k of keys){
-      const candidates=[k,keyNorm(k)];
-      for(const ck of candidates){
-        const v1=pn?.[ck];
-        if(clean(v1))return clean(v1);
-        const v2=hr?.[ck];
-        if(clean(v2))return clean(v2);
-        const v3=ex?.[ck];
-        if(clean(v3))return clean(v3);
+  const ex = c.extracted_data && typeof c.extracted_data === "object" ? c.extracted_data : {};
+  const hr =
+    (ex.hookrope && typeof ex.hookrope === "object" ? ex.hookrope : null) ||
+    (ex.hook_rope && typeof ex.hook_rope === "object" ? ex.hook_rope : null) ||
+    (ex.hookRope && typeof ex.hookRope === "object" ? ex.hookRope : null) ||
+    {};
+
+  const clean = (v) => (v === null || v === undefined ? "" : String(v).trim());
+  const nice = (v) => clean(v) || "—";
+  const keyNorm = (k) =>
+    String(k || "")
+      .toLowerCase()
+      .replace(/&amp;/g, "&")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+
+  // IMPORTANT: structured data from the edit page wins over old pipe notes.
+  // This stops stale/default pipe values from forcing YES on the printed certificate.
+  const pick = (...keys) => {
+    for (const k of keys) {
+      const candidates = [k, keyNorm(k)];
+      for (const ck of candidates) {
+        const v1 = hr?.[ck];
+        if (clean(v1)) return clean(v1);
+        const v2 = ex?.[ck];
+        if (clean(v2)) return clean(v2);
+        const v3 = pn?.[ck];
+        if (clean(v3)) return clean(v3);
       }
     }
     return "";
   };
-  const stripMm=v=>clean(v).replace(/[Øø]/g,"").replace(/\s*mm\s*$/i,"");
-  const cap=s=>clean(s).replace(/_/g," ").replace(/\b\w/g,m=>m.toUpperCase());
-  const ynText=(v,mode="plain")=>{
-    const s=clean(v).toLowerCase();
-    if(!s)return "—";
-    if(mode==="passMeansYes"){
-      if(s==="pass"||s==="yes"||s==="ok")return "Yes";
-      if(s==="fail"||s==="no")return "No";
-    }
-    if(mode==="passMeansNo"){
-      if(s==="pass"||s==="no"||s==="none"||s==="ok")return "No";
-      if(s==="fail"||s==="yes")return "Yes";
-    }
-    if(s==="pass")return "Yes";
-    if(s==="fail")return "No";
-    if(s==="yes")return "Yes";
-    if(s==="no")return "No";
-    return clean(v);
+
+  const stripMm = (v) => clean(v).replace(/[Øø]/g, "").replace(/\s*mm\s*$/i, "");
+  const cap = (s) => clean(s).replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+
+  // For normal good/positive questions:
+  // yes/pass/ok/good = YES, no/fail = NO.
+  const asPositiveYN = (v) => {
+    const s = clean(v).toLowerCase();
+    if (!s || s === "—" || s === "n/a" || s === "na") return "";
+    if (["yes", "y", "true", "pass", "passed", "ok", "okay", "good", "serviceable", "satisfactory"].includes(s)) return "yes";
+    if (["no", "n", "false", "fail", "failed", "poor", "bad", "unserviceable", "not serviceable"].includes(s)) return "no";
+    return s;
   };
-  const stateColor=(text,badWhenYes=false)=>{
-    const s=clean(text).toLowerCase();
-    if(!s||s==="—"||s==="n/a")return "#9ca3af";
-    const yes=s==="yes"||s==="pass"||s==="good"||s==="serviceable"||s==="ok";
-    const no=s==="no"||s==="fail"||s==="poor"||s==="unserviceable";
-    if(badWhenYes){
-      if(s==="yes"||s==="fail"||s.includes("severe")||s.includes("poor")||s.includes("unservice"))return "#b91c1c";
-      if(s==="no"||s==="pass"||s==="none"||s==="ok"||s==="good")return "#15803d";
+
+  // For defect questions:
+  // yes/fail means defect is present = YES.
+  // no/pass/none/ok means defect is not present = NO.
+  const asDefectYN = (v) => {
+    const s = clean(v).toLowerCase();
+    if (!s || s === "—" || s === "n/a" || s === "na") return "";
+    if (["yes", "y", "true", "fail", "failed", "bad", "poor", "severe", "defective", "present"].includes(s)) return "yes";
+    if (["no", "n", "false", "pass", "passed", "none", "nil", "ok", "okay", "good", "serviceable", "satisfactory", "not present"].includes(s)) return "no";
+    if (s.includes("none") || s.includes("nil") || s.includes("no ")) return "no";
+    if (s.includes("severe") || s.includes("fail") || s.includes("poor")) return "yes";
+    return s;
+  };
+
+  const stateColor = (v, badWhenYes = false) => {
+    const s = clean(v).toLowerCase();
+    if (!s || s === "—" || s === "n/a" || s === "na") return "#9ca3af";
+
+    const yes = ["yes", "pass", "passed", "good", "serviceable", "ok", "okay", "satisfactory"].includes(s);
+    const no = ["no", "fail", "failed", "poor", "unserviceable", "bad"].includes(s);
+
+    if (badWhenYes) {
+      if (["yes", "fail", "failed", "poor", "bad", "severe", "defective", "present"].includes(s)) return "#b91c1c";
+      if (["no", "pass", "passed", "none", "nil", "ok", "okay", "good", "serviceable", "satisfactory"].includes(s)) return "#15803d";
     }
-    if(yes)return "#15803d";
-    if(no)return "#b91c1c";
+
+    if (yes) return "#15803d";
+    if (no) return "#b91c1c";
+    if (s.includes("none") || s.includes("nil")) return "#15803d";
+    if (s.includes("severe") || s.includes("poor") || s.includes("fail")) return "#b91c1c";
     return "#0b1d3a";
   };
-  const Cell=({children,badWhenYes=false})=><span style={{color:stateColor(children,badWhenYes),fontWeight:800}}>{nice(children)}</span>;
 
-  const company=val(c.client_name||c.company||pick("client_name"))||"—";
-  const location=val(c.location||pick("location"))||"—";
-  const issueDate=formatDate(c.issue_date||c.issued_at||c.inspection_date||pick("inspection_date"));
-  const expiryDate=formatDate(c.expiry_date||c.valid_to||pick("expiry_date"));
-  const equipMake=val(c.manufacturer||c.model||pick("crane_make")||c.equipment_type)||"—";
-  const serialNo=val(c.serial_number||pick("crane_serial"))||"—";
-  const fleetNo=val(c.fleet_number||pick("crane_fleet"))||"—";
-  const swl=val(c.swl||pick("crane_swl")||pick("hook1_swl","Hook 1 SWL"))||"—";
-  const machineHours=val(c.machine_hours||pick("machine_hours","Machine hours","Machine Hours"));
-  const defects=val(c.defects_found||pick("defects_found","Defects"));
-  const recommendations=val(c.recommendations);
-  const comments=val(c.comments||c.remarks||pick("comments","Notes"));
-  const inspName=val(c.inspector_name)||"Moemedi Masupe";
-  const inspId=val(c.inspector_id)||"700117910";
-  const photos=parsePhotoEvidence(c.photo_evidence);
-  const reportNo=val(pick("report_number","Report No","Report Number")||c.inspection_number||c.inspection_no)||certNumber?.replace("CERT-","HR ")||"HR 0001";
+  const Cell = ({ children, badWhenYes = false }) => (
+    <span style={{ color: stateColor(children, badWhenYes), fontWeight: 800 }}>{nice(children)}</span>
+  );
 
-  const drumMain=pick("drum_main_condition","Drum main","Drum")||"Good";
-  const drumAux=pick("drum_aux_condition","Drum aux","Aux drum")||"Good";
-  const layMain=pick("rope_lay_main","Lay main","Rope lay")||"Good";
-  const layAux=pick("rope_lay_aux","Lay aux")||"Good";
+  const Tick = ({ on }) => (
+    <span
+      style={{
+        display: "inline-flex",
+        width: 14,
+        height: 14,
+        alignItems: "center",
+        justifyContent: "center",
+        border: "1px solid #1e3a5f",
+        borderRadius: 2,
+        fontSize: 10,
+        lineHeight: 1,
+        fontWeight: 900,
+        color: on ? "#15803d" : "transparent",
+        background: on ? "#dcfce7" : "#fff",
+      }}
+    >
+      ✓
+    </span>
+  );
 
-  const ropeDiameterMain=pick("rope_diameter_main","Rope dia","Main rope diameter")||val(c.capacity_volume)||"";
-  const ropeDiameterAux=pick("rope_diameter_aux","Aux dia","Aux rope diameter")||"";
-  const ropeLengthMain=pick("rope_length_3x_main","Rope length 3x main")||"Yes";
-  const ropeLengthAux=pick("rope_length_3x_aux","Rope length 3x aux")||"Yes";
-  const reductionMain=pick("reduction_dia_main","Reduction")||"none";
-  const reductionAux=pick("reduction_dia_aux","Reduction aux")||"none";
-  const coreMain=pick("core_protrusion_main","Core protrusion")||"None";
-  const coreAux=pick("core_protrusion_aux","Core protrusion aux")||"None";
-  const corrosionMain=pick("corrosion_main","Corrosion")||"none";
-  const corrosionAux=pick("corrosion_aux","Corrosion aux")||"none";
-  const brokenMain=pick("broken_wires_main","Broken wires")||"none";
-  const brokenAux=pick("broken_wires_aux","Broken wires aux")||"none";
-  const kinksMain=pick("rope_kinks_main","Kinks")||"none";
-  const kinksAux=pick("rope_kinks_aux","Kinks aux")||"none";
-  const otherDefectsMain=pick("other_defects_main","Other defects")||"none";
-  const otherDefectsAux=pick("other_defects_aux","Other defects aux")||"none";
-  const endFittingsMain=pick("end_fittings_main","End fittings")||"Good";
-  const endFittingsAux=pick("end_fittings_aux","End fittings aux")||"Good";
-  const serviceMain=pick("serviceability_main","Serviceability")||"Good";
-  const serviceAux=pick("serviceability_aux","Serviceability aux")||"Good";
-  const lowerLimitMain=pick("lower_limit_main","Lower limit")||"Yes";
-  const lowerLimitAux=pick("lower_limit_aux","Lower limit aux")||"Yes";
-  const damagedMain=pick("damaged_strands_main","Damaged strands")||"none";
-  const damagedAux=pick("damaged_strands_aux","Damaged strands aux")||"none";
+  const YesNoCells = ({ value, defect = false }) => {
+    const yn = defect ? asDefectYN(value) : asPositiveYN(value);
+    const isYes = yn === "yes";
+    const isNo = yn === "no";
+    return (
+      <>
+        <td style={{ textAlign: "center" }}>
+          <Tick on={isYes} />
+        </td>
+        <td style={{ textAlign: "center" }}>
+          <Tick on={isNo} />
+        </td>
+      </>
+    );
+  };
 
-  const hook=(n)=>({
-    sn:pick(`hook${n}_sn`,`Hook ${n} SN`, n===1?"Hook SN":""),
-    swl:pick(`hook${n}_swl`,`Hook ${n} SWL`)||(n===1?swl:""),
-    swlMarked:pick(`hook${n}_swl_marked`,`Hook ${n} SWL marked`)||"yes",
-    safety:pick(`hook${n}_safety_catch`,`Hook ${n} safety catch`, n===1?"Latch":"")||"yes",
-    cracks:pick(`hook${n}_cracks`,`Hook ${n} cracks`, n===1?"Structural":"")||(n===1?"PASS":"no"),
-    swivel:pick(`hook${n}_swivel`,`Hook ${n} swivel`)||"yes",
-    corrosion:pick(`hook${n}_corrosion`,`Hook ${n} corrosion`)||"no",
-    bending:pick(`hook${n}_side_bending`,`Hook ${n} side bending`)||"OK",
-    ab:pick(`hook${n}_ab`,`Hook ${n} AB`, n===1?"Hook AB":""),
-    ac:pick(`hook${n}_ac`,`Hook ${n} AC`, n===1?"Hook AC":""),
+  const company = val(c.client_name || c.company || pick("client_name")) || "—";
+  const location = val(c.location || pick("location")) || "—";
+  const issueDate = formatDate(c.issue_date || c.issued_at || c.inspection_date || pick("inspection_date"));
+  const expiryDate = formatDate(c.expiry_date || c.valid_to || pick("expiry_date"));
+  const equipMake = val(c.manufacturer || c.model || pick("crane_make") || c.equipment_type) || "—";
+  const serialNo = val(c.serial_number || pick("crane_serial")) || "—";
+  const fleetNo = val(c.fleet_number || pick("crane_fleet")) || "—";
+  const swl = val(c.swl || pick("crane_swl") || pick("hook1_swl", "Hook 1 SWL")) || "—";
+  const machineHours = val(c.machine_hours || pick("machine_hours", "Machine hours", "Machine Hours"));
+  const defects = val(c.defects_found || pick("defects_found", "Defects"));
+  const recommendations = val(c.recommendations);
+  const comments = val(c.comments || c.remarks || pick("comments", "Notes"));
+  const inspName = val(c.inspector_name) || "Moemedi Masupe";
+  const inspId = val(c.inspector_id) || "700117910";
+  const photos = parsePhotoEvidence(c.photo_evidence);
+  const reportNo =
+    val(pick("report_number", "Report No", "Report Number") || c.inspection_number || c.inspection_no) ||
+    certNumber?.replace("CERT-", "HR ") ||
+    "HR 0001";
+
+  const drumMain = pick("drum_main_condition", "Drum main", "Drum") || "Good";
+  const drumAux = pick("drum_aux_condition", "Drum aux", "Aux drum") || "Good";
+  const layMain = pick("rope_lay_main", "Lay main", "Rope lay") || "Good";
+  const layAux = pick("rope_lay_aux", "Lay aux") || "Good";
+
+  const ropeDiameterMain = pick("rope_diameter_main", "Rope dia", "Main rope diameter") || val(c.capacity_volume) || "";
+  const ropeDiameterAux = pick("rope_diameter_aux", "Aux dia", "Aux rope diameter") || "";
+  const ropeLengthMain = pick("rope_length_3x_main", "Rope length 3x main") || "Yes";
+  const ropeLengthAux = pick("rope_length_3x_aux", "Rope length 3x aux") || "Yes";
+  const reductionMain = pick("reduction_dia_main", "Reduction") || "none";
+  const reductionAux = pick("reduction_dia_aux", "Reduction aux") || "none";
+  const coreMain = pick("core_protrusion_main", "Core protrusion") || "None";
+  const coreAux = pick("core_protrusion_aux", "Core protrusion aux") || "None";
+  const corrosionMain = pick("corrosion_main", "Corrosion") || "none";
+  const corrosionAux = pick("corrosion_aux", "Corrosion aux") || "none";
+  const brokenMain = pick("broken_wires_main", "Broken wires") || "none";
+  const brokenAux = pick("broken_wires_aux", "Broken wires aux") || "none";
+  const kinksMain = pick("rope_kinks_main", "Kinks") || "none";
+  const kinksAux = pick("rope_kinks_aux", "Kinks aux") || "none";
+  const otherDefectsMain = pick("other_defects_main", "Other defects") || "none";
+  const otherDefectsAux = pick("other_defects_aux", "Other defects aux") || "none";
+  const endFittingsMain = pick("end_fittings_main", "End fittings") || "Good";
+  const endFittingsAux = pick("end_fittings_aux", "End fittings aux") || "Good";
+  const serviceMain = pick("serviceability_main", "Serviceability") || "Good";
+  const serviceAux = pick("serviceability_aux", "Serviceability aux") || "Good";
+  const lowerLimitMain = pick("lower_limit_main", "Lower limit") || "Yes";
+  const lowerLimitAux = pick("lower_limit_aux", "Lower limit aux") || "Yes";
+  const damagedMain = pick("damaged_strands_main", "Damaged strands") || "none";
+  const damagedAux = pick("damaged_strands_aux", "Damaged strands aux") || "none";
+
+  const hook = (n) => ({
+    sn: pick(`hook${n}_sn`, `Hook ${n} SN`, n === 1 ? "Hook SN" : ""),
+    swl: pick(`hook${n}_swl`, `Hook ${n} SWL`) || (n === 1 ? swl : ""),
+    swlMarked: pick(`hook${n}_swl_marked`, `Hook ${n} SWL marked`) || "yes",
+    safety: pick(`hook${n}_safety_catch`, `Hook ${n} safety catch`, n === 1 ? "Latch" : "") || "yes",
+    // Structural PASS in old pipe notes means NO cracks.
+    cracks: pick(`hook${n}_cracks`, `Hook ${n} cracks`, n === 1 ? "Structural" : "") || (n === 1 ? "PASS" : "no"),
+    swivel: pick(`hook${n}_swivel`, `Hook ${n} swivel`) || "yes",
+    corrosion: pick(`hook${n}_corrosion`, `Hook ${n} corrosion`) || "no",
+    bending: pick(`hook${n}_side_bending`, `Hook ${n} side bending`) || "OK",
+    ab: pick(`hook${n}_ab`, `Hook ${n} AB`, n === 1 ? "Hook AB" : ""),
+    ac: pick(`hook${n}_ac`, `Hook ${n} AC`, n === 1 ? "Hook AC" : ""),
   });
-  const h1=hook(1), h2=hook(2), h3=hook(3);
-  const hookHas=(h)=>clean(h.sn)||clean(h.swl)||clean(h.ab)||clean(h.ac);
-  const h3Active=hookHas(h3);
-  const hookVal=(h,field,mode="plain",bad=false)=>h3Active||h!==h3?<Cell badWhenYes={bad}>{ynText(h[field],mode)}</Cell>:<span style={{color:"#9ca3af",fontWeight:700}}>N/A</span>;
-  const hookRaw=(h,field)=>h3Active||h!==h3?nice(h[field]):<span style={{color:"#9ca3af",fontWeight:700}}>N/A</span>;
 
-  const known=new Set([
-    "latch","structural","wear","broken_wires","corrosion","kinks","rope_dia","drum","aux_drum","drum_main","drum_aux","rope_lay","lay_main","lay_aux",
-    "rope_length_3x_main","rope_length_3x_aux","reduction","reduction_aux","core_protrusion","core_protrusion_aux","corrosion_aux","broken_wires_aux","kinks_aux","other_defects","other_defects_aux","end_fittings","end_fittings_aux","serviceability","serviceability_aux","lower_limit","lower_limit_aux","damaged_strands","damaged_strands_aux","notes","defects",
-    "hook_1_swl","hook_1_sn","hook_ab","hook_ac","hook_1_ab","hook_1_ac","hook_2_swl","hook_2_sn","hook_2_ab","hook_2_ac","hook_3_swl","hook_3_sn"
+  const h1 = hook(1);
+  const h2 = hook(2);
+  const h3 = hook(3);
+
+  const hookHas = (h) => clean(h.sn) || clean(h.swl) || clean(h.ab) || clean(h.ac);
+  const h3Active = hookHas(h3);
+  const hookRaw = (h, field) => (h3Active || h !== h3 ? nice(h[field]) : <span style={{ color: "#9ca3af", fontWeight: 700 }}>N/A</span>);
+
+  const known = new Set([
+    "latch",
+    "structural",
+    "wear",
+    "broken_wires",
+    "corrosion",
+    "kinks",
+    "rope_dia",
+    "drum",
+    "aux_drum",
+    "drum_main",
+    "drum_aux",
+    "rope_lay",
+    "lay_main",
+    "lay_aux",
+    "rope_length_3x_main",
+    "rope_length_3x_aux",
+    "reduction",
+    "reduction_aux",
+    "core_protrusion",
+    "core_protrusion_aux",
+    "corrosion_aux",
+    "broken_wires_aux",
+    "kinks_aux",
+    "other_defects",
+    "other_defects_aux",
+    "end_fittings",
+    "end_fittings_aux",
+    "serviceability",
+    "serviceability_aux",
+    "lower_limit",
+    "lower_limit_aux",
+    "damaged_strands",
+    "damaged_strands_aux",
+    "notes",
+    "defects",
+    "hook_1_swl",
+    "hook_1_sn",
+    "hook_ab",
+    "hook_ac",
+    "hook_1_ab",
+    "hook_1_ac",
+    "hook_2_swl",
+    "hook_2_sn",
+    "hook_2_ab",
+    "hook_2_ac",
+    "hook_3_swl",
+    "hook_3_sn",
   ]);
-  const extras=Object.entries(pn||{}).filter(([k,v])=>clean(v)&&!known.has(keyNorm(k))).slice(0,12);
 
-  return(
-    <div className={"pro-page"+(pm?" pm":"")}>
-      <ProHdr logoUrl={logo}/>
-      <div className="pro-body" style={{gap:4,padding:"7px 12px 0"}}>
-        <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl} machineHours={machineHours}/>
+  const extras = Object.entries(pn || {})
+    .filter(([k, v]) => clean(v) && !known.has(keyNorm(k)))
+    .slice(0, 12);
 
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:4,flexShrink:0}}>
-          <div style={{border:"1px solid #1e3a5f",borderRadius:5,padding:"7px 10px",background:"#f4f8ff"}}>
-            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Hook &amp; Rope Inspection Report</div>
-            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#0e7490",marginTop:2}}>{reportNo}</div>
-            {expiryDate&&<div style={{marginTop:5,display:"inline-block",border:"1px solid #1e3a5f",borderRadius:4,padding:"3px 9px",fontSize:8,fontWeight:800}}>Expiry date: {expiryDate}</div>}
+  return (
+    <div className={"pro-page" + (pm ? " pm" : "")}>
+      <ProHdr logoUrl={logo} />
+
+      <div className="pro-body" style={{ gap: 4, padding: "7px 12px 0" }}>
+        <ProCT
+          company={company}
+          location={location}
+          issueDate={issueDate}
+          equipMake={equipMake}
+          serialNo={serialNo}
+          fleetNo={fleetNo}
+          swl={swl}
+          machineHours={machineHours}
+        />
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 4, flexShrink: 0 }}>
+          <div style={{ border: "1px solid #1e3a5f", borderRadius: 5, padding: "7px 10px", background: "#f4f8ff" }}>
+            <div style={{ fontSize: 12, fontWeight: 900, color: "#0b1d3a" }}>Hook &amp; Rope Inspection Report</div>
+            <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, fontWeight: 800, color: "#0e7490", marginTop: 2 }}>
+              {reportNo}
+            </div>
+            {expiryDate && (
+              <div style={{ marginTop: 5, display: "inline-block", border: "1px solid #1e3a5f", borderRadius: 4, padding: "3px 9px", fontSize: 8, fontWeight: 800 }}>
+                Expiry date: {expiryDate}
+              </div>
+            )}
           </div>
-          <div className="pro-compbox" style={{padding:"6px 10px"}}>
-            <div><div style={{fontSize:10,fontWeight:900,color:"#0b1d3a"}}>Compliance Certificate</div><div style={{fontSize:8,color:"#64748b"}}>{pickResult(c)==="FAIL"?"not to be issued":"to be issued"}</div></div>
-            <div style={{fontSize:28,color:pickResult(c)==="FAIL"?"#b91c1c":"#15803d",fontWeight:900}}>{pickResult(c)==="FAIL"?"✗":"✓"}</div>
+
+          <div className="pro-compbox" style={{ padding: "6px 10px" }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 900, color: "#0b1d3a" }}>Compliance Certificate</div>
+              <div style={{ fontSize: 8, color: "#64748b" }}>{pickResult(c) === "FAIL" ? "not to be issued" : "to be issued"}</div>
+            </div>
+            <div style={{ fontSize: 28, color: pickResult(c) === "FAIL" ? "#b91c1c" : "#15803d", fontWeight: 900 }}>
+              {pickResult(c) === "FAIL" ? "✗" : "✓"}
+            </div>
           </div>
         </div>
 
         <div className="pro-stl">Hoist Drum &amp; Rope Condition</div>
-        <table className="pro-hrt"><thead><tr><th>Item</th><th>Main Hoist</th><th>Auxiliary Hoist</th></tr></thead>
+        <table className="pro-hrt">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Main Hoist</th>
+              <th>Auxiliary Hoist</th>
+            </tr>
+          </thead>
           <tbody>
-            <tr><td>Hoist Drum Condition</td><td><Cell>{drumMain}</Cell></td><td><Cell>{drumAux}</Cell></td></tr>
-            <tr><td>Hoist Rope Lay on Drum</td><td><Cell>{layMain}</Cell></td><td><Cell>{layAux}</Cell></td></tr>
+            <tr>
+              <td>Hoist Drum Condition</td>
+              <td><Cell>{drumMain}</Cell></td>
+              <td><Cell>{drumAux}</Cell></td>
+            </tr>
+            <tr>
+              <td>Hoist Rope Lay on Drum</td>
+              <td><Cell>{layMain}</Cell></td>
+              <td><Cell>{layAux}</Cell></td>
+            </tr>
           </tbody>
         </table>
 
         <div className="pro-stl">Steel Wire Rope Inspection</div>
         <table className="pro-hrt">
-          <thead><tr><th style={{textAlign:"left"}}>Inspection Item</th><th>Main</th><th>Aux</th><th>Inspection Item</th><th>Main</th><th>Aux</th></tr></thead>
+          <thead>
+            <tr>
+              <th style={{ textAlign: "left" }}>Inspection Item</th>
+              <th>Main</th>
+              <th>Aux</th>
+              <th>Inspection Item</th>
+              <th>Main</th>
+              <th>Aux</th>
+            </tr>
+          </thead>
           <tbody>
-            <tr><td>Rope Diameter (mm)</td><td>{stripMm(ropeDiameterMain)||"—"}</td><td>{stripMm(ropeDiameterAux)||"—"}</td><td>Rope length (3x windings)</td><td><Cell>{ropeLengthMain}</Cell></td><td><Cell>{ropeLengthAux}</Cell></td></tr>
-            <tr><td>Reduction in rope Dia. (max 10%)</td><td><Cell badWhenYes>{reductionMain}</Cell></td><td><Cell badWhenYes>{reductionAux}</Cell></td><td>Core Protrusion</td><td><Cell badWhenYes>{coreMain}</Cell></td><td><Cell badWhenYes>{coreAux}</Cell></td></tr>
-            <tr><td>Corrosion</td><td><Cell badWhenYes>{corrosionMain}</Cell></td><td><Cell badWhenYes>{corrosionAux}</Cell></td><td>Broken wires</td><td><Cell badWhenYes>{brokenMain}</Cell></td><td><Cell badWhenYes>{brokenAux}</Cell></td></tr>
-            <tr><td>Rope kinks / deforming</td><td><Cell badWhenYes>{kinksMain}</Cell></td><td><Cell badWhenYes>{kinksAux}</Cell></td><td>Other defects</td><td><Cell badWhenYes>{otherDefectsMain}</Cell></td><td><Cell badWhenYes>{otherDefectsAux}</Cell></td></tr>
-            <tr><td>End fitting / attachments</td><td><Cell>{endFittingsMain}</Cell></td><td><Cell>{endFittingsAux}</Cell></td><td>Serviceability</td><td><Cell>{serviceMain}</Cell></td><td><Cell>{serviceAux}</Cell></td></tr>
-            <tr><td>Damaged strands</td><td><Cell badWhenYes>{damagedMain}</Cell></td><td><Cell badWhenYes>{damagedAux}</Cell></td><td>Hoist lower limit cut off</td><td><Cell>{lowerLimitMain}</Cell></td><td><Cell>{lowerLimitAux}</Cell></td></tr>
+            <tr>
+              <td>Rope Diameter (mm)</td>
+              <td>{stripMm(ropeDiameterMain) || "—"}</td>
+              <td>{stripMm(ropeDiameterAux) || "—"}</td>
+              <td>Rope length (3x windings)</td>
+              <td><Cell>{ropeLengthMain}</Cell></td>
+              <td><Cell>{ropeLengthAux}</Cell></td>
+            </tr>
+            <tr>
+              <td>Reduction in rope Dia. (max 10%)</td>
+              <td><Cell badWhenYes>{reductionMain}</Cell></td>
+              <td><Cell badWhenYes>{reductionAux}</Cell></td>
+              <td>Core Protrusion</td>
+              <td><Cell badWhenYes>{coreMain}</Cell></td>
+              <td><Cell badWhenYes>{coreAux}</Cell></td>
+            </tr>
+            <tr>
+              <td>Corrosion</td>
+              <td><Cell badWhenYes>{corrosionMain}</Cell></td>
+              <td><Cell badWhenYes>{corrosionAux}</Cell></td>
+              <td>Broken wires</td>
+              <td><Cell badWhenYes>{brokenMain}</Cell></td>
+              <td><Cell badWhenYes>{brokenAux}</Cell></td>
+            </tr>
+            <tr>
+              <td>Rope kinks / deforming</td>
+              <td><Cell badWhenYes>{kinksMain}</Cell></td>
+              <td><Cell badWhenYes>{kinksAux}</Cell></td>
+              <td>Other defects</td>
+              <td><Cell badWhenYes>{otherDefectsMain}</Cell></td>
+              <td><Cell badWhenYes>{otherDefectsAux}</Cell></td>
+            </tr>
+            <tr>
+              <td>End fitting / attachments</td>
+              <td><Cell>{endFittingsMain}</Cell></td>
+              <td><Cell>{endFittingsAux}</Cell></td>
+              <td>Serviceability</td>
+              <td><Cell>{serviceMain}</Cell></td>
+              <td><Cell>{serviceAux}</Cell></td>
+            </tr>
+            <tr>
+              <td>Damaged strands</td>
+              <td><Cell badWhenYes>{damagedMain}</Cell></td>
+              <td><Cell badWhenYes>{damagedAux}</Cell></td>
+              <td>Hoist lower limit cut off</td>
+              <td><Cell>{lowerLimitMain}</Cell></td>
+              <td><Cell>{lowerLimitAux}</Cell></td>
+            </tr>
           </tbody>
         </table>
 
-        {!isRope&&(
+        {!isRope && (
           <>
             <div className="pro-stl">Hook Inspection Criteria</div>
             <table className="pro-hrt">
-              <thead><tr><th style={{textAlign:"left",width:"34%"}}>Hook inspection criteria</th><th>Hook 1 (Main)</th><th>Hook 2 (Aux)</th><th>Hook 3</th></tr></thead>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", width: "34%" }}>Hook inspection criteria</th>
+                  <th colSpan="2">Hook 1 (Main)</th>
+                  <th colSpan="2">Hook 2 (Aux)</th>
+                  <th colSpan="2">Hook 3</th>
+                </tr>
+                <tr>
+                  <th></th>
+                  <th>Yes</th>
+                  <th>No</th>
+                  <th>Yes</th>
+                  <th>No</th>
+                  <th>Yes</th>
+                  <th>No</th>
+                </tr>
+              </thead>
               <tbody>
-                <tr><td>Hook block SN</td><td>{hookRaw(h1,"sn")}</td><td>{hookRaw(h2,"sn")}</td><td>{hookRaw(h3,"sn")}</td></tr>
-                <tr><td>Hook block SWL</td><td>{hookRaw(h1,"swl")}</td><td>{hookRaw(h2,"swl")}</td><td>{hookRaw(h3,"swl")}</td></tr>
-                <tr><td>SWL marked on hook</td><td>{hookVal(h1,"swlMarked","plain")}</td><td>{hookVal(h2,"swlMarked","plain")}</td><td>{hookVal(h3,"swlMarked","plain")}</td></tr>
-                <tr><td>Safety catch fitted &amp; good condition</td><td>{hookVal(h1,"safety","passMeansYes")}</td><td>{hookVal(h2,"safety","passMeansYes")}</td><td>{hookVal(h3,"safety","passMeansYes")}</td></tr>
-                <tr><td>Signs of cracks</td><td>{hookVal(h1,"cracks","passMeansNo",true)}</td><td>{hookVal(h2,"cracks","passMeansNo",true)}</td><td>{hookVal(h3,"cracks","passMeansNo",true)}</td></tr>
-                <tr><td>Swivel free under load</td><td>{hookVal(h1,"swivel","plain")}</td><td>{hookVal(h2,"swivel","plain")}</td><td>{hookVal(h3,"swivel","plain")}</td></tr>
-                <tr><td>Excessive corrosion on hook block</td><td>{hookVal(h1,"corrosion","plain",true)}</td><td>{hookVal(h2,"corrosion","plain",true)}</td><td>{hookVal(h3,"corrosion","plain",true)}</td></tr>
-                <tr><td>Hook side bending (max 5%)</td><td>{hookVal(h1,"bending","plain",true)}</td><td>{hookVal(h2,"bending","plain",true)}</td><td>{hookVal(h3,"bending","plain",true)}</td></tr>
-                <tr><td>Distance between hook points A-B</td><td>{hookRaw(h1,"ab")}</td><td>{hookRaw(h2,"ab")}</td><td>{hookRaw(h3,"ab")}</td></tr>
-                <tr><td>Distance between hook points A-C</td><td>{hookRaw(h1,"ac")}</td><td>{hookRaw(h2,"ac")}</td><td>{hookRaw(h3,"ac")}</td></tr>
+                <tr>
+                  <td>Hook block SN</td>
+                  <td colSpan="2">{hookRaw(h1, "sn")}</td>
+                  <td colSpan="2">{hookRaw(h2, "sn")}</td>
+                  <td colSpan="2">{hookRaw(h3, "sn")}</td>
+                </tr>
+                <tr>
+                  <td>Hook block SWL</td>
+                  <td colSpan="2">{hookRaw(h1, "swl")}</td>
+                  <td colSpan="2">{hookRaw(h2, "swl")}</td>
+                  <td colSpan="2">{hookRaw(h3, "swl")}</td>
+                </tr>
+                <tr>
+                  <td>SWL marked on hook</td>
+                  <YesNoCells value={h1.swlMarked} />
+                  <YesNoCells value={h2.swlMarked} />
+                  <YesNoCells value={h3.swlMarked} />
+                </tr>
+                <tr>
+                  <td>Safety catch fitted &amp; good condition</td>
+                  <YesNoCells value={h1.safety} />
+                  <YesNoCells value={h2.safety} />
+                  <YesNoCells value={h3.safety} />
+                </tr>
+                <tr>
+                  <td>Signs of cracks</td>
+                  <YesNoCells value={h1.cracks} defect />
+                  <YesNoCells value={h2.cracks} defect />
+                  <YesNoCells value={h3.cracks} defect />
+                </tr>
+                <tr>
+                  <td>Swivel free under load</td>
+                  <YesNoCells value={h1.swivel} />
+                  <YesNoCells value={h2.swivel} />
+                  <YesNoCells value={h3.swivel} />
+                </tr>
+                <tr>
+                  <td>Excessive corrosion on hook block</td>
+                  <YesNoCells value={h1.corrosion} defect />
+                  <YesNoCells value={h2.corrosion} defect />
+                  <YesNoCells value={h3.corrosion} defect />
+                </tr>
+                <tr>
+                  <td>Hook side bending (max 5%)</td>
+                  <YesNoCells value={h1.bending} defect />
+                  <YesNoCells value={h2.bending} defect />
+                  <YesNoCells value={h3.bending} defect />
+                </tr>
+                <tr>
+                  <td>Distance between hook points A-B</td>
+                  <td colSpan="2">{hookRaw(h1, "ab")}</td>
+                  <td colSpan="2">{hookRaw(h2, "ab")}</td>
+                  <td colSpan="2">{hookRaw(h3, "ab")}</td>
+                </tr>
+                <tr>
+                  <td>Distance between hook points A-C</td>
+                  <td colSpan="2">{hookRaw(h1, "ac")}</td>
+                  <td colSpan="2">{hookRaw(h2, "ac")}</td>
+                  <td colSpan="2">{hookRaw(h3, "ac")}</td>
+                </tr>
               </tbody>
             </table>
           </>
         )}
 
-        {(defects||recommendations||comments)&&(
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-            {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects</div><div className="pro-red-val">{defects}</div></div>}
-            {recommendations&&<div className="pro-comments-box"><div className="pro-comments-lbl">Recommendations</div><div className="pro-comments-val">{recommendations}</div></div>}
-            {comments&&<div className="pro-comments-box" style={{gridColumn:recommendations?"1/-1":undefined}}><div className="pro-comments-lbl">Comments</div><div className="pro-comments-val">{comments}</div></div>}
+        {(defects || recommendations || comments) && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            {defects && (
+              <div className="pro-red-box">
+                <div className="pro-red-lbl">Defects</div>
+                <div className="pro-red-val">{defects}</div>
+              </div>
+            )}
+            {recommendations && (
+              <div className="pro-comments-box">
+                <div className="pro-comments-lbl">Recommendations</div>
+                <div className="pro-comments-val">{recommendations}</div>
+              </div>
+            )}
+            {comments && (
+              <div className="pro-comments-box" style={{ gridColumn: recommendations ? "1/-1" : undefined }}>
+                <div className="pro-comments-lbl">Comments</div>
+                <div className="pro-comments-val">{comments}</div>
+              </div>
+            )}
           </div>
         )}
 
-        {extras.length>0&&(
-          <table className="pro-hrt"><thead><tr><th style={{textAlign:"left"}}>Additional Data</th><th>Value</th></tr></thead><tbody>
-            {extras.map(([k,v])=><tr key={k}><td>{cap(k)}</td><td>{nice(v)}</td></tr>)}
-          </tbody></table>
+        {extras.length > 0 && (
+          <table className="pro-hrt">
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left" }}>Additional Data</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {extras.map(([k, v]) => (
+                <tr key={k}>
+                  <td>{cap(k)}</td>
+                  <td>{nice(v)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
-        <ProEvidence photos={photos}/>
+
+        <ProEvidence photos={photos} />
       </div>
-      <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
-      <ProFooter/>
+
+      <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature" />
+      <ProFooter />
     </div>
   );
 }
