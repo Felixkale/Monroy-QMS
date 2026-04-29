@@ -1,6 +1,5 @@
 // src/app/api/ai/extract/route.js
 import { NextResponse } from "next/server";
-import pdfParse from "pdf-parse/lib/pdf-parse.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -217,6 +216,7 @@ function countDocFields(parsed) {
 ────────────────────────────────────────────────────────────────────────────── */
 async function extractPdfText(bytes) {
   try {
+    const pdfParse = (await import("pdf-parse")).default;
     const data = await pdfParse(bytes, { max: 0 });
     const text = (data?.text || "").trim();
     // Need at least 50 chars of real content to be useful
