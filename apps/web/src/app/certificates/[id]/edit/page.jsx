@@ -34,9 +34,13 @@ function isSandblastingPot(t) { return /sandblast|blasting.pot|blast.pot|sbp|san
 function isHookRopeEquipment(t) {
   const s = String(t || "").replace(/&amp;/gi, "&").trim();
   if (!s) return false;
+
   // IMPORTANT: Wire Rope Sling has its own editor. This mode is for crane hook + crane wire rope certs.
   if (/wire\s*rope\s*sling/i.test(s)) return false;
-  return /crane\s*hook|hook\s*(?:&|and|\/)?\s*rope|wire\s*rope(?!\s*sling)|rope\s*(?:&|and|\/)?\s*hook|hookrope|hr\s*\d+/i.test(s);
+
+  // Your imported record can have equipment_type saved only as "Hook".
+  // The previous detector missed that, so the editor stayed on Grouped mode with 0 fields.
+  return /(^|[^a-z0-9])hook([^a-z0-9]|$)|crane\s*hook|hook\s*block|load\s*hook|hook\s*(?:&|and|\/)?\s*(?:wire\s*)?rope|wire\s*rope(?!\s*sling)|rope\s*(?:&|and|\/)?\s*hook|hookrope|hr\s*\d+|cert\s*[-_]?hk|cert\s*[-_]?rp/i.test(s);
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -389,12 +393,18 @@ function cleanRopeDia(v) {
 }
 
 function buildHookRopeNotes(hr, equipmentType="") {
-  const isHook = /hook/i.test(equipmentType || "");
-  const isRope = /wire\s*rope/i.test(equipmentType || "");
+  const typeText = String(equipmentType || "").replace(/&amp;/gi,"&").trim();
+  const isHook = /hook/i.test(typeText);
+  const isRope = /wire\s*rope/i.test(typeText);
+
+  // Plain "Hook" certificates in your system still print the full Hook & Rope report.
+  // Therefore a Hook certificate must save both hook and rope pipe keys.
+  const saveBoth = !isHook && !isRope ? true : isHook;
+
   const pairs = [];
   const add = (key,val) => { if (val !== undefined && val !== null && String(val).trim() !== "") pairs.push({key,value:String(val).trim()}); };
 
-  if (isHook || (!isHook && !isRope)) {
+  if (isHook || saveBoth) {
     add("Latch", hr.latch || "PASS");
     add("Structural", hr.structural || "PASS");
     add("Hook 1 SWL", hr.hook1_swl);
@@ -411,7 +421,7 @@ function buildHookRopeNotes(hr, equipmentType="") {
     add("Kinks", hr.kinks || "none");
   }
 
-  if (isRope || (!isHook && !isRope)) {
+  if (isRope || saveBoth) {
     add("Rope dia", cleanRopeDia(hr.rope_dia));
     add("Broken wires", hr.broken_wires || "none");
     add("Corrosion", hr.corrosion || "none");
@@ -436,7 +446,18 @@ function buildHookRopeNotes(hr, equipmentType="") {
   add("Notes", hr.notes);
   add("Defects", hr.defects);
   (hr.extra_pairs || []).forEach(p => add(p.key,p.value));
-  return buildNotesPipe(pairs);
+
+  // Prevent duplicate pipe keys when a plain Hook certificate saves both hook and rope sections.
+  const seen = new Set();
+  const unique = [];
+  for (let i = pairs.length - 1; i >= 0; i--) {
+    const norm = normalizeHookRopeKey(pairs[i].key);
+    if (!seen.has(norm)) {
+      seen.add(norm);
+      unique.unshift(pairs[i]);
+    }
+  }
+  return buildNotesPipe(unique);
 }
 
 function hookRopeToRows(hr) {
@@ -1366,6 +1387,7 @@ function CertificateEditInner() {
       data.certificate_type,
       data.certificate_number,
       data.notes,
+      JSON.stringify(storedExtracted || {}),
     ].filter(Boolean).join(" ");
     const rawNotes = isHookRopeEquipment(equipType) ? (data.notes || getEditableInspectionSource(data)) : getEditableInspectionSource(data);
 
