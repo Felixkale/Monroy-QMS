@@ -216,7 +216,7 @@ function countDocFields(parsed) {
 ────────────────────────────────────────────────────────────────────────────── */
 async function extractPdfText(bytes) {
   try {
-    const pdfParse = (await import("pdf-parse")).default;
+    const { default: pdfParse } = await import("pdf-parse");
     const data = await pdfParse(bytes, { max: 0 });
     const text = (data?.text || "").trim();
     // Need at least 50 chars of real content to be useful
