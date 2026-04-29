@@ -28,8 +28,8 @@ const KEYS = [
 if (!KEYS.length) throw new Error("No GEMINI_API_KEY set.");
 
 // 10 RPM limit → 10s cooldown gives real headroom against 429s
-const PER_KEY_MS = 10000;
-const EFF_MS     = Math.max(500, Math.ceil(PER_KEY_MS / KEYS.length));
+const PER_KEY_MS = 7000; // 7s per key — headroom over 6s minimum without being slow
+const EFF_MS     = Math.max(200, Math.ceil(PER_KEY_MS / KEYS.length));
 const cooldowns  = new Map(KEYS.map(k => [k, 0]));
 let   ki         = 0;
 
@@ -439,7 +439,7 @@ function okDoc(fileName, parsed, mode) {
 
 /* ── PARALLEL BATCH ──────────────────────────────────────── */
 async function runBatch(files, sysPrompt, mode) {
-  const MAX_C   = Math.max(2, KEYS.length);
+  const MAX_C   = Math.max(3, KEYS.length); // min 3 concurrent regardless of key count
   const results = new Array(files.length);
   const queue   = files.map((f, i) => ({ f, i }));
   const active  = new Set();
