@@ -246,10 +246,10 @@ async function callOpenRouter(base64Data, mimeType, systemPrompt, fileName, mode
   if (!OR_ENABLED) return null;
 
   const userText = mode === "list"
-    ? `Read EVERY line of this handwritten list. Extract each item into the items array. File: ${fileName}`
+    ? `Read EVERY line of this handwritten list. Extract each item into the items array. File: ${fileName}. Return ONLY valid JSON, no explanation.`
     : mode === "hookrope"
-      ? `Extract all Hook & Rope inspection data from this certificate. Read every field. File: ${fileName}`
-      : `Extract all inspection certificate data from this document. File: ${fileName}`;
+      ? `Extract all Hook & Rope inspection data from this certificate. Read every field. File: ${fileName}. Return ONLY valid JSON, no explanation.`
+      : `Extract all inspection certificate data from this document. File: ${fileName}. Return ONLY a valid JSON object, no markdown, no explanation.`;
 
   const body = {
     model: OR_MODEL,
@@ -268,7 +268,8 @@ async function callOpenRouter(base64Data, mimeType, systemPrompt, fileName, mode
     ],
     temperature: 0.1,
     max_tokens: mode === "list" ? 16384 : 8192,
-    response_format: { type: "json_object" },
+    // NOTE: response_format omitted — not all free OpenRouter models support json_object.
+    // extractJsonFromChatResponse handles fenced/raw JSON from any response format.
   };
 
   try {
@@ -544,16 +545,20 @@ async function processOneFile(fileData, systemPrompt, mode = "document") {
         const json = await geminiGenerate(uploadedFile, fileName, systemPrompt, apiKey, mode, true);
         return { source: "gemini", json, parsed: extractJsonFromPayload(json) };
       })(),
-      // OpenRouter: base64 direct (no upload needed)
+      // OpenRouter: base64 direct (no upload needed) — failure is always silent
       OR_ENABLED
         ? (async () => {
-            const parsed = await callOpenRouter(base64Data, mimeType, systemPrompt, fileName, mode);
-            return { source: "openrouter", json: null, parsed };
+            try {
+              const parsed = await callOpenRouter(base64Data, mimeType, systemPrompt, fileName, mode);
+              return { source: "openrouter", json: null, parsed };
+            } catch {
+              return { source: "openrouter", json: null, parsed: null };
+            }
           })()
-        : Promise.resolve(null),
+        : Promise.resolve({ source: "openrouter", json: null, parsed: null }),
     ]);
 
-    // Evaluate both results
+    // Evaluate both results — a rejected promise means that provider errored
     const geminiResult = geminiUploadResult.status === "fulfilled" ? geminiUploadResult.value : null;
     const orParsed     = orResult.status === "fulfilled" ? orResult.value?.parsed : null;
 
@@ -562,22 +567,22 @@ async function processOneFile(fileData, systemPrompt, mode = "document") {
 
     console.log(`[${fileName}] gemini=${geminiFields} fields | openrouter=${orFields} fields`);
 
-    // Use whichever got more fields
+    // Use whichever got more fields — threshold 2 (not 4) so weak-but-valid results aren't discarded
     let bestParsed = null;
     let bestSource = "none";
 
-    if (geminiFields >= orFields && geminiFields >= 4) {
+    if (geminiFields >= orFields && geminiFields >= 2) {
       bestParsed = geminiResult.parsed; bestSource = "gemini";
-    } else if (orFields > geminiFields && orFields >= 4) {
+    } else if (orFields > geminiFields && orFields >= 2) {
       bestParsed = orParsed; bestSource = "openrouter";
     } else if (geminiFields > 0 || orFields > 0) {
-      // Both weak — use whichever has more
+      // Both weak but not zero — use whichever has more
       bestParsed = geminiFields >= orFields ? geminiResult?.parsed : orParsed;
       bestSource = geminiFields >= orFields ? "gemini" : "openrouter";
     }
 
-    // Shot 2 — Groq if best is still weak
-    if (countDocFields(bestParsed) < 4 && GROQ_ENABLED) {
+    // Shot 2 — Groq if best is still weak (fewer than 2 fields)
+    if (countDocFields(bestParsed) < 2 && GROQ_ENABLED) {
       console.log(`[${fileName}] both providers weak → Groq fallback (instant)…`);
       const geminiPayload = geminiResult?.json || null;
       const groqParsed = await callGroq(systemPrompt, buildGroqPrompt(geminiPayload, mode));
