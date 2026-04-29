@@ -363,9 +363,26 @@ function withMm(value) {
   return /mm|ø/i.test(x) ? x : `${x}mm`;
 }
 
+function hasHookRopeShape(obj) {
+  if (!obj || typeof obj !== "object") return false;
+  return Object.keys(HOOK_ROPE_DEFAULT).some(k => k !== "extra_pairs" && obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== "");
+}
+
 function getHookRopeSource(extractedData={}) {
   const ex = extractedData && typeof extractedData === "object" ? extractedData : {};
-  return ex.hookrope || ex.hook_rope || ex.hookRope || ex;
+  const nested = ex.hookrope || ex.hook_rope || ex.hookRope;
+  if (nested && typeof nested === "object") return nested;
+  if (hasHookRopeShape(ex)) return ex;
+  return {};
+}
+
+function cleanHookRopeBaseExtractedData(extractedData={}) {
+  const ex = extractedData && typeof extractedData === "object" ? extractedData : {};
+  const cleaned = {...ex};
+  delete cleaned.sandblasting;
+  delete cleaned.sbp;
+  delete cleaned.blasting_pot;
+  return cleaned;
 }
 
 function parseHookRopeNotes(notesStr, extractedData={}) {
@@ -895,9 +912,10 @@ function WireRopeSlingEditor({wrs,onChange}) {
   );
 }
 
-
 /* ─────────────────────────────────────────────────────────────
-   HOOK & ROPE EDITOR — same route as Cherry Picker editor, exact HookRopeMode fields
+   HOOK & ROPE EDITOR — exact fields from import/HookRopeMode.jsx
+   IMPORTANT: child components are defined OUTSIDE HookRopeEditor so inputs
+   do not lose focus / stop after one letter.
 ───────────────────────────────────────────────────────────── */
 const HR_YN = ["yes","no"];
 const HR_YN_OK = ["yes","no","OK"];
@@ -908,78 +926,125 @@ function MiniSelect({value,onChange,options,color=T.accent}) {
   return <SelectChips value={value||""} onChange={onChange} options={options} color={color}/>;
 }
 
-function HookRopeEditor({hr,onChange}) {
-  const set=(key,val)=>onChange({...hr,[key]:val});
-  const inp=(key,placeholder="")=>(
-    <input value={hr[key]||""} onChange={e=>set(key,e.target.value)} placeholder={placeholder||"—"}
-      style={{...IS,minHeight:40,fontSize:12}}/>
+function HRInput({value,onChange,placeholder="—",type="text"}) {
+  return (
+    <input
+      type={type}
+      value={value||""}
+      onChange={e=>onChange(e.target.value)}
+      placeholder={placeholder}
+      style={{...IS,minHeight:40,fontSize:12}}
+    />
   );
-  const area=(key,placeholder="")=>(
-    <textarea value={hr[key]||""} onChange={e=>set(key,e.target.value)} rows={2} placeholder={placeholder||"—"}
-      style={{...IS,minHeight:66,fontSize:12,resize:"vertical"}}/>
-  );
+}
 
-  const CondRow=({label,mainKey,auxKey,opts=HR_GOOD})=>(
+function HRTextarea({value,onChange,placeholder="—"}) {
+  return (
+    <textarea
+      value={value||""}
+      onChange={e=>onChange(e.target.value)}
+      rows={2}
+      placeholder={placeholder}
+      style={{...IS,minHeight:66,fontSize:12,resize:"vertical"}}
+    />
+  );
+}
+
+function HRCondRow({label,mainValue,auxValue,onMainChange,onAuxChange,opts=HR_GOOD}) {
+  return (
     <div style={{display:"grid",gridTemplateColumns:"minmax(180px,1fr) minmax(190px,1.2fr) minmax(190px,1.2fr)",gap:8,alignItems:"center",padding:"8px 10px",borderBottom:`1px solid ${T.border}`}}>
       <div style={{fontSize:12,fontWeight:700,color:T.textMid}}>{label}</div>
-      <div><MiniSelect value={hr[mainKey]} onChange={v=>set(mainKey,v)} options={opts} color={T.purple}/></div>
-      <div><MiniSelect value={hr[auxKey]} onChange={v=>set(auxKey,v)} options={opts} color={T.purple}/></div>
+      <div><MiniSelect value={mainValue} onChange={onMainChange} options={opts} color={T.purple}/></div>
+      <div><MiniSelect value={auxValue} onChange={onAuxChange} options={opts} color={T.purple}/></div>
     </div>
   );
+}
 
-  const TextRow=({label,mainKey,auxKey,phMain="",phAux=""})=>(
+function HRTextRow({label,mainValue,auxValue,onMainChange,onAuxChange,phMain="Main",phAux="Aux"}) {
+  return (
     <div style={{display:"grid",gridTemplateColumns:"minmax(180px,1fr) minmax(190px,1.2fr) minmax(190px,1.2fr)",gap:8,alignItems:"center",padding:"8px 10px",borderBottom:`1px solid ${T.border}`}}>
       <div style={{fontSize:12,fontWeight:700,color:T.textMid}}>{label}</div>
-      <input value={hr[mainKey]||""} onChange={e=>set(mainKey,e.target.value)} placeholder={phMain||"Main"} style={{...IS,minHeight:36,fontSize:12}}/>
-      <input value={hr[auxKey]||""} onChange={e=>set(auxKey,e.target.value)} placeholder={phAux||"Aux"} style={{...IS,minHeight:36,fontSize:12}}/>
+      <HRInput value={mainValue} onChange={onMainChange} placeholder={phMain}/>
+      <HRInput value={auxValue} onChange={onAuxChange} placeholder={phAux}/>
     </div>
   );
+}
 
-  const HookBlock=({n,title})=>{
-    const p=`hook${n}_`;
-    return (
-      <div style={{border:`1px solid ${T.amberBrd}`,borderRadius:12,background:"rgba(251,191,36,0.045)",overflow:"hidden"}}>
-        <div style={{padding:"9px 12px",background:"rgba(251,191,36,0.09)",borderBottom:`1px solid ${T.amberBrd}`,fontSize:11,fontWeight:900,letterSpacing:"0.1em",textTransform:"uppercase",color:T.amber}}>{title}</div>
-        <div style={{padding:12,display:"grid",gap:10}}>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
-            <F label={`Hook ${n} SWL`}>{inp(`${p}swl`,"e.g. 14 TON")}</F>
-            <F label={`Hook ${n} Serial No.`}>{inp(`${p}sn`,"serial number")}</F>
-            <F label="A-B Measurement">{inp(`${p}ab`,"mm")}</F>
-            <F label="A-C Measurement">{inp(`${p}ac`,"mm")}</F>
-          </div>
-          <div style={{display:"grid",gap:9}}>
-            <div><label style={LS}>SWL marked on hook</label><MiniSelect value={hr[`${p}swl_marked`]} onChange={v=>set(`${p}swl_marked`,v)} options={HR_YN} color={T.green}/></div>
-            <div><label style={LS}>Safety catch fitted & good condition</label><MiniSelect value={hr[`${p}safety_catch`]} onChange={v=>set(`${p}safety_catch`,v)} options={HR_YN} color={T.green}/></div>
-            <div><label style={LS}>Signs of cracks</label><MiniSelect value={hr[`${p}cracks`]} onChange={v=>set(`${p}cracks`,v)} options={HR_YN} color={T.red}/></div>
-            <div><label style={LS}>Swivel free under load</label><MiniSelect value={hr[`${p}swivel`]} onChange={v=>set(`${p}swivel`,v)} options={HR_YN} color={T.green}/></div>
-            <div><label style={LS}>Corrosion on hook</label><MiniSelect value={hr[`${p}corrosion`]} onChange={v=>set(`${p}corrosion`,v)} options={HR_YN} color={T.red}/></div>
-            <div><label style={LS}>Hook side bending max 5%</label><MiniSelect value={hr[`${p}side_bending`]} onChange={v=>set(`${p}side_bending`,v)} options={HR_YN_OK} color={T.green}/></div>
-          </div>
+function HRHookBlock({n,title,hr,setField}) {
+  const p=`hook${n}_`;
+  return (
+    <div style={{border:`1px solid ${T.amberBrd}`,borderRadius:12,background:"rgba(251,191,36,0.045)",overflow:"hidden"}}>
+      <div style={{padding:"9px 12px",background:"rgba(251,191,36,0.09)",borderBottom:`1px solid ${T.amberBrd}`,fontSize:11,fontWeight:900,letterSpacing:"0.1em",textTransform:"uppercase",color:T.amber}}>{title}</div>
+      <div style={{padding:12,display:"grid",gap:10}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
+          <F label={`Hook ${n} SWL`}><HRInput value={hr[`${p}swl`]} onChange={v=>setField(`${p}swl`,v)} placeholder="e.g. 14 TON"/></F>
+          <F label={`Hook ${n} Serial No.`}><HRInput value={hr[`${p}sn`]} onChange={v=>setField(`${p}sn`,v)} placeholder="serial number"/></F>
+          <F label="A-B Measurement"><HRInput value={hr[`${p}ab`]} onChange={v=>setField(`${p}ab`,v)} placeholder="mm"/></F>
+          <F label="A-C Measurement"><HRInput value={hr[`${p}ac`]} onChange={v=>setField(`${p}ac`,v)} placeholder="mm"/></F>
+        </div>
+        <div style={{display:"grid",gap:9}}>
+          <div><label style={LS}>SWL marked on hook</label><MiniSelect value={hr[`${p}swl_marked`]} onChange={v=>setField(`${p}swl_marked`,v)} options={HR_YN} color={T.green}/></div>
+          <div><label style={LS}>Safety catch fitted & good condition</label><MiniSelect value={hr[`${p}safety_catch`]} onChange={v=>setField(`${p}safety_catch`,v)} options={HR_YN} color={T.green}/></div>
+          <div><label style={LS}>Signs of cracks</label><MiniSelect value={hr[`${p}cracks`]} onChange={v=>setField(`${p}cracks`,v)} options={HR_YN} color={T.red}/></div>
+          <div><label style={LS}>Swivel free under load</label><MiniSelect value={hr[`${p}swivel`]} onChange={v=>setField(`${p}swivel`,v)} options={HR_YN} color={T.green}/></div>
+          <div><label style={LS}>Corrosion on hook</label><MiniSelect value={hr[`${p}corrosion`]} onChange={v=>setField(`${p}corrosion`,v)} options={HR_YN} color={T.red}/></div>
+          <div><label style={LS}>Hook side bending max 5%</label><MiniSelect value={hr[`${p}side_bending`]} onChange={v=>setField(`${p}side_bending`,v)} options={HR_YN_OK} color={T.green}/></div>
         </div>
       </div>
-    );
-  };
+    </div>
+  );
+}
+
+function HookRopeEditor({hr,onChange}) {
+  const setField = useCallback((key,val)=>{
+    onChange(prev => ({...(typeof prev === "function" ? prev() : hr), [key]:val}));
+  },[onChange,hr]);
+
+  const setStableField = useCallback((key,val)=>{
+    onChange(current => {
+      if (typeof current === "object" && current !== null) return {...current,[key]:val};
+      return {...hr,[key]:val};
+    });
+  },[onChange,hr]);
+
+  const setExtraPair = useCallback((index,field,val)=>{
+    onChange(current => {
+      const base = (typeof current === "object" && current !== null) ? current : hr;
+      const next=[...(base.extra_pairs||[])];
+      next[index]={...next[index],[field]:val};
+      return {...base,extra_pairs:next};
+    });
+  },[onChange,hr]);
+
+  const removeExtraPair = useCallback((index)=>{
+    onChange(current => {
+      const base = (typeof current === "object" && current !== null) ? current : hr;
+      return {...base,extra_pairs:(base.extra_pairs||[]).filter((_,idx)=>idx!==index)};
+    });
+  },[onChange,hr]);
+
+  const set = setStableField;
 
   return (
     <div style={{display:"grid",gap:18}}>
       <div style={{padding:"12px 14px",borderRadius:12,border:`1px solid ${T.amberBrd}`,background:T.amberDim}}>
         <div style={{fontSize:13,fontWeight:900,color:T.amber,marginBottom:4}}>🪝 Hook &amp; Rope Inspection Editor</div>
-        <div style={{fontSize:11,color:T.textDim}}>Exact fields from <strong>src/app/certificates/import/HookRopeMode.jsx</strong>. No sandblasting values.</div>
+        <div style={{fontSize:11,color:T.textDim}}>Only Hook &amp; Rope fields from <strong>src/app/certificates/import/HookRopeMode.jsx</strong>. Sandblasting Pot fields are not used here.</div>
       </div>
 
       <div>
         <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.accent,borderLeft:`3px solid ${T.accent}`,paddingLeft:8,marginBottom:12}}>Crane &amp; Job Details</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10}}>
-          <F label="Client Name">{inp("client_name","client")}</F>
-          <F label="Location">{inp("location","site")}</F>
-          <F label="Crane Make">{inp("crane_make","make / model")}</F>
-          <F label="Crane Serial">{inp("crane_serial","serial")}</F>
-          <F label="Crane Fleet">{inp("crane_fleet","fleet")}</F>
-          <F label="Crane SWL">{inp("crane_swl","e.g. 14 TON")}</F>
-          <F label="Machine Hours">{inp("machine_hours","hours")}</F>
-          <F label="Report Number">{inp("report_number","HR 2240-01")}</F>
-          <F label="Inspection Date"><input type="date" value={hr.inspection_date||""} onChange={e=>set("inspection_date",e.target.value)} style={{...IS,minHeight:40,fontSize:12}}/></F>
-          <F label="Expiry Date"><input type="date" value={hr.expiry_date||""} onChange={e=>set("expiry_date",e.target.value)} style={{...IS,minHeight:40,fontSize:12}}/></F>
+          <F label="Client Name"><HRInput value={hr.client_name} onChange={v=>set("client_name",v)} placeholder="client"/></F>
+          <F label="Location"><HRInput value={hr.location} onChange={v=>set("location",v)} placeholder="site"/></F>
+          <F label="Crane Make"><HRInput value={hr.crane_make} onChange={v=>set("crane_make",v)} placeholder="make / model"/></F>
+          <F label="Crane Serial"><HRInput value={hr.crane_serial} onChange={v=>set("crane_serial",v)} placeholder="serial"/></F>
+          <F label="Crane Fleet"><HRInput value={hr.crane_fleet} onChange={v=>set("crane_fleet",v)} placeholder="fleet"/></F>
+          <F label="Crane SWL"><HRInput value={hr.crane_swl} onChange={v=>set("crane_swl",v)} placeholder="e.g. 14 TON"/></F>
+          <F label="Machine Hours"><HRInput value={hr.machine_hours} onChange={v=>set("machine_hours",v)} placeholder="hours"/></F>
+          <F label="Report Number"><HRInput value={hr.report_number} onChange={v=>set("report_number",v)} placeholder="HR 2240-01"/></F>
+          <F label="Inspection Date"><HRInput type="date" value={hr.inspection_date} onChange={v=>set("inspection_date",v)} /></F>
+          <F label="Expiry Date"><HRInput type="date" value={hr.expiry_date} onChange={v=>set("expiry_date",v)} /></F>
         </div>
       </div>
 
@@ -991,8 +1056,8 @@ function HookRopeEditor({hr,onChange}) {
             <div style={{fontSize:10,fontWeight:900,color:T.accent,textTransform:"uppercase",letterSpacing:"0.08em"}}>Main Hoist</div>
             <div style={{fontSize:10,fontWeight:900,color:T.accent,textTransform:"uppercase",letterSpacing:"0.08em"}}>Auxiliary Hoist</div>
           </div>
-          <CondRow label="Hoist Drum Condition" mainKey="drum_main_condition" auxKey="drum_aux_condition" opts={HR_GOOD}/>
-          <CondRow label="Hoist Rope Lay on Drum" mainKey="rope_lay_main" auxKey="rope_lay_aux" opts={HR_GOOD}/>
+          <HRCondRow label="Hoist Drum Condition" mainValue={hr.drum_main_condition} auxValue={hr.drum_aux_condition} onMainChange={v=>set("drum_main_condition",v)} onAuxChange={v=>set("drum_aux_condition",v)} opts={HR_GOOD}/>
+          <HRCondRow label="Hoist Rope Lay on Drum" mainValue={hr.rope_lay_main} auxValue={hr.rope_lay_aux} onMainChange={v=>set("rope_lay_main",v)} onAuxChange={v=>set("rope_lay_aux",v)} opts={HR_GOOD}/>
         </div>
       </div>
 
@@ -1004,40 +1069,43 @@ function HookRopeEditor({hr,onChange}) {
             <div style={{fontSize:10,fontWeight:900,color:T.accent,textTransform:"uppercase",letterSpacing:"0.08em"}}>Main</div>
             <div style={{fontSize:10,fontWeight:900,color:T.accent,textTransform:"uppercase",letterSpacing:"0.08em"}}>Aux</div>
           </div>
-          <TextRow label="Rope Diameter (mm)" mainKey="rope_diameter_main" auxKey="rope_diameter_aux" phMain="main mm" phAux="aux mm"/>
-          <CondRow label="Rope length (3x windings)" mainKey="rope_length_3x_main" auxKey="rope_length_3x_aux" opts={HR_YN}/>
-          <TextRow label="Reduction in rope Dia. (max 10%)" mainKey="reduction_dia_main" auxKey="reduction_dia_aux"/>
-          <TextRow label="Core Protrusion" mainKey="core_protrusion_main" auxKey="core_protrusion_aux"/>
-          <TextRow label="Corrosion" mainKey="corrosion_main" auxKey="corrosion_aux"/>
-          <TextRow label="Broken wires" mainKey="broken_wires_main" auxKey="broken_wires_aux"/>
-          <TextRow label="Rope kinks / deforming" mainKey="rope_kinks_main" auxKey="rope_kinks_aux"/>
-          <TextRow label="Other defects" mainKey="other_defects_main" auxKey="other_defects_aux"/>
-          <TextRow label="End fitting / attachments" mainKey="end_fittings_main" auxKey="end_fittings_aux"/>
-          <TextRow label="Serviceability" mainKey="serviceability_main" auxKey="serviceability_aux"/>
-          <TextRow label="Lower limit" mainKey="lower_limit_main" auxKey="lower_limit_aux"/>
-          <TextRow label="Damaged strands" mainKey="damaged_strands_main" auxKey="damaged_strands_aux"/>
+          <HRTextRow label="Rope Diameter (mm)" mainValue={hr.rope_diameter_main} auxValue={hr.rope_diameter_aux} onMainChange={v=>set("rope_diameter_main",v)} onAuxChange={v=>set("rope_diameter_aux",v)} phMain="main mm" phAux="aux mm"/>
+          <HRCondRow label="Rope length (3x windings)" mainValue={hr.rope_length_3x_main} auxValue={hr.rope_length_3x_aux} onMainChange={v=>set("rope_length_3x_main",v)} onAuxChange={v=>set("rope_length_3x_aux",v)} opts={HR_YN}/>
+          <HRTextRow label="Reduction in rope Dia. (max 10%)" mainValue={hr.reduction_dia_main} auxValue={hr.reduction_dia_aux} onMainChange={v=>set("reduction_dia_main",v)} onAuxChange={v=>set("reduction_dia_aux",v)}/>
+          <HRTextRow label="Core Protrusion" mainValue={hr.core_protrusion_main} auxValue={hr.core_protrusion_aux} onMainChange={v=>set("core_protrusion_main",v)} onAuxChange={v=>set("core_protrusion_aux",v)}/>
+          <HRTextRow label="Corrosion" mainValue={hr.corrosion_main} auxValue={hr.corrosion_aux} onMainChange={v=>set("corrosion_main",v)} onAuxChange={v=>set("corrosion_aux",v)}/>
+          <HRTextRow label="Broken wires" mainValue={hr.broken_wires_main} auxValue={hr.broken_wires_aux} onMainChange={v=>set("broken_wires_main",v)} onAuxChange={v=>set("broken_wires_aux",v)}/>
+          <HRTextRow label="Rope kinks / deforming" mainValue={hr.rope_kinks_main} auxValue={hr.rope_kinks_aux} onMainChange={v=>set("rope_kinks_main",v)} onAuxChange={v=>set("rope_kinks_aux",v)}/>
+          <HRTextRow label="Other defects" mainValue={hr.other_defects_main} auxValue={hr.other_defects_aux} onMainChange={v=>set("other_defects_main",v)} onAuxChange={v=>set("other_defects_aux",v)}/>
+          <HRTextRow label="End fitting / attachments" mainValue={hr.end_fittings_main} auxValue={hr.end_fittings_aux} onMainChange={v=>set("end_fittings_main",v)} onAuxChange={v=>set("end_fittings_aux",v)}/>
+          <HRTextRow label="Serviceability" mainValue={hr.serviceability_main} auxValue={hr.serviceability_aux} onMainChange={v=>set("serviceability_main",v)} onAuxChange={v=>set("serviceability_aux",v)}/>
+          <HRTextRow label="Lower limit" mainValue={hr.lower_limit_main} auxValue={hr.lower_limit_aux} onMainChange={v=>set("lower_limit_main",v)} onAuxChange={v=>set("lower_limit_aux",v)}/>
+          <HRTextRow label="Damaged strands" mainValue={hr.damaged_strands_main} auxValue={hr.damaged_strands_aux} onMainChange={v=>set("damaged_strands_main",v)} onAuxChange={v=>set("damaged_strands_aux",v)}/>
         </div>
       </div>
 
       <div>
         <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.amber,borderLeft:`3px solid ${T.amber}`,paddingLeft:8,marginBottom:12}}>Hook Inspection Criteria</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(290px,1fr))",gap:12}}>
-          <HookBlock n="1" title="Hook 1 (Main)"/>
-          <HookBlock n="2" title="Hook 2 (Aux)"/>
+          <HRHookBlock n="1" title="Hook 1 (Main)" hr={hr} setField={set}/>
+          <HRHookBlock n="2" title="Hook 2 (Aux)" hr={hr} setField={set}/>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10,marginTop:12}}>
-          <F label="Hook 3 Serial No.">{inp("hook3_sn","optional")}</F>
-          <F label="Hook 3 SWL">{inp("hook3_swl","optional")}</F>
+        <div style={{marginTop:12,border:`1px solid ${T.amberBrd}`,borderRadius:12,padding:12,background:"rgba(251,191,36,0.035)"}}>
+          <div style={{fontSize:11,fontWeight:900,letterSpacing:"0.1em",textTransform:"uppercase",color:T.amber,marginBottom:10}}>Hook 3 / Additional Hook</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
+            <F label="Hook 3 SWL"><HRInput value={hr.hook3_swl} onChange={v=>set("hook3_swl",v)} placeholder="SWL"/></F>
+            <F label="Hook 3 Serial No."><HRInput value={hr.hook3_sn} onChange={v=>set("hook3_sn",v)} placeholder="serial"/></F>
+          </div>
         </div>
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:12}}>
-        <div style={{padding:"12px 14px",borderRadius:12,border:`1px solid ${T.greenBrd}`,background:T.greenDim}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10}}>
+        <div style={{padding:12,borderRadius:10,border:`1px solid ${T.greenBrd}`,background:T.greenDim}}>
           <label style={{...LS,color:T.green}}>Overall Result</label>
           <MiniSelect value={hr.overall_result||"PASS"} onChange={v=>set("overall_result",v)} options={HR_RESULT} color={T.green}/>
         </div>
-        <F label="Defects Found">{area("defects_found","defects found")}</F>
-        <F label="Comments">{area("comments","comments / notes")}</F>
+        <F label="Defects Found"><HRTextarea value={hr.defects_found} onChange={v=>set("defects_found",v)} placeholder="defects found"/></F>
+        <F label="Comments"><HRTextarea value={hr.comments} onChange={v=>set("comments",v)} placeholder="comments / notes"/></F>
       </div>
 
       {(hr.extra_pairs||[]).length>0&&(
@@ -1045,10 +1113,10 @@ function HookRopeEditor({hr,onChange}) {
           <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",color:T.textDim,marginBottom:8}}>Extra Imported Pipe Keys</div>
           <div style={{display:"grid",gap:8}}>
             {(hr.extra_pairs||[]).map((p,i)=>(
-              <div key={`${p.key}-${i}`} style={{display:"grid",gridTemplateColumns:"1fr 1fr 32px",gap:8}}>
-                <input value={p.key||""} onChange={e=>{ const next=[...(hr.extra_pairs||[])]; next[i]={...next[i],key:e.target.value}; set("extra_pairs",next); }} style={{...IS,minHeight:36,fontSize:12}}/>
-                <input value={p.value||""} onChange={e=>{ const next=[...(hr.extra_pairs||[])]; next[i]={...next[i],value:e.target.value}; set("extra_pairs",next); }} style={{...IS,minHeight:36,fontSize:12}}/>
-                <button type="button" onClick={()=>{ const next=(hr.extra_pairs||[]).filter((_,idx)=>idx!==i); set("extra_pairs",next); }} style={{border:`1px solid ${T.redBrd}`,background:T.redDim,color:T.red,borderRadius:8,fontWeight:900,cursor:"pointer"}}>×</button>
+              <div key={`extra-${i}`} style={{display:"grid",gridTemplateColumns:"1fr 1fr 32px",gap:8}}>
+                <HRInput value={p.key} onChange={v=>setExtraPair(i,"key",v)} placeholder="Key"/>
+                <HRInput value={p.value} onChange={v=>setExtraPair(i,"value",v)} placeholder="Value"/>
+                <button type="button" onClick={()=>removeExtraPair(i)} style={{border:`1px solid ${T.redBrd}`,background:T.redDim,color:T.red,borderRadius:8,fontWeight:900,cursor:"pointer"}}>×</button>
               </div>
             ))}
           </div>
@@ -1405,10 +1473,10 @@ function CertificateEditInner() {
     form.certificate_number,
   ].filter(Boolean).join(" ");
 
-  const equipIsCherryPicker    = isCherryPicker(equipmentDetectText);
-  const equipIsWireRopeSling   = isWireRopeSling(equipmentDetectText);
-  const equipIsSandblastingPot = isSandblastingPot(equipmentDetectText);
   const equipIsHookRope        = notesMode === "hookrope" || isHookRopeEquipment(equipmentDetectText);
+  const equipIsCherryPicker    = !equipIsHookRope && isCherryPicker(equipmentDetectText);
+  const equipIsWireRopeSling   = !equipIsHookRope && isWireRopeSling(equipmentDetectText);
+  const equipIsSandblastingPot = !equipIsHookRope && isSandblastingPot(equipmentDetectText);
 
   useEffect(() => { if (id) load(); }, [id]);
   useEffect(() => { const t=setTimeout(()=>searchLink(linkSearch),300); return ()=>clearTimeout(t); }, [linkSearch]);
@@ -1466,7 +1534,7 @@ function CertificateEditInner() {
     // Detect special editors from all available certificate text, not only equipment_type.
     // Hook & Rope imports sometimes keep equipment_type as "Crane Hook" / "Wire Rope",
     // but older records can expose "Hook & Rope" only in description, cert number HR..., or notes.
-    const equipType = [
+    const certDetectText = [
       data.equipment_type,
       data.asset_type,
       data.equipment_description,
@@ -1474,19 +1542,13 @@ function CertificateEditInner() {
       data.certificate_type,
       data.certificate_number,
       data.notes,
-      JSON.stringify(storedExtracted || {}),
     ].filter(Boolean).join(" ");
-    const rawNotes = isHookRopeEquipment(equipType) ? (data.notes || getEditableInspectionSource(data)) : getEditableInspectionSource(data);
+    const extractedDetectText = JSON.stringify(storedExtracted || {});
+    const hookRecord = isHookRopeEquipment(certDetectText) || hasHookRopeShape(getHookRopeSource(storedExtracted));
+    const sbpRecord = !hookRecord && isSandblastingPot(certDetectText + " " + extractedDetectText);
+    const rawNotes = hookRecord ? (data.notes || getEditableInspectionSource(data)) : getEditableInspectionSource(data);
 
-    if (isSandblastingPot(equipType)) {
-      setNotesMode("sbp");
-      setSbpData(parseSandblastingNotes(rawNotes, storedExtracted));
-      setJsonRows([]); setNotePairs([]);
-    } else if (isCherryPicker(equipType)) {
-      setNotesMode("cherry");
-      setCpData(parseCherryPickerNotes(rawNotes));
-      setJsonRows([]); setNotePairs([]);
-    } else if (isHookRopeEquipment(equipType)) {
+    if (hookRecord) {
       setNotesMode("hookrope");
       const oldHookRope = getHookRopeSource(storedExtracted);
       const hookRopeSource = {
@@ -1506,7 +1568,16 @@ function CertificateEditInner() {
       };
       setHookRopeData(parseHookRopeNotes(rawNotes, hookRopeSource));
       setJsonRows([]); setNotePairs([]);
-    } else if (isWireRopeSling(equipType)) {
+    } else if (sbpRecord) {
+      setNotesMode("sbp");
+      setSbpData(parseSandblastingNotes(rawNotes, storedExtracted));
+      setJsonRows([]); setNotePairs([]);
+    } else if (isCherryPicker(certDetectText)) {
+      setNotesMode("cherry");
+      setCpData(parseCherryPickerNotes(rawNotes));
+      setJsonRows([]); setNotePairs([]);
+
+    } else if (isWireRopeSling(certDetectText)) {
       setNotesMode("wrs");
       setWrsData(parseWireRopeSlingNotes(rawNotes));
       setJsonRows([]); setNotePairs([]);
@@ -1533,18 +1604,19 @@ function CertificateEditInner() {
   const hcEquipType = e => {
     const newType = e.target.value;
     setForm(p=>({...p,equipment_type:newType}));
-    if (isSandblastingPot(newType) && notesMode !== "sbp") {
-      const built = notesMode==="json"?rebuildNotesJson(jsonRows):notesMode==="cherry"?buildCherryPickerNotes(cpData):notesMode==="wrs"?buildWireRopeSlingNotes(wrsData):notesMode==="hookrope"?buildHookRopeNotes(hookRopeData,form.equipment_type):buildNotesPipe(notePairs);
+    if (isHookRopeEquipment(newType) && notesMode !== "hookrope") {
+      const built = notesMode==="json"?rebuildNotesJson(jsonRows):notesMode==="cherry"?buildCherryPickerNotes(cpData):notesMode==="wrs"?buildWireRopeSlingNotes(wrsData):notesMode==="sbp"?buildNotesPipe([]):buildNotesPipe(notePairs);
+      setHookRopeData(parseHookRopeNotes(built, cleanHookRopeBaseExtractedData(baseExtractedData)));
+      setNotesMode("hookrope");
+    } else if (isSandblastingPot(newType) && notesMode !== "sbp") {
+      const built = notesMode==="json"?rebuildNotesJson(jsonRows):notesMode==="cherry"?buildCherryPickerNotes(cpData):notesMode==="wrs"?buildWireRopeSlingNotes(wrsData):notesMode==="hookrope"?buildNotesPipe([]):buildNotesPipe(notePairs);
       setSbpData(parseSandblastingNotes(built, baseExtractedData));
       setNotesMode("sbp");
     } else if (isCherryPicker(newType) && notesMode !== "cherry") {
       const built = notesMode==="json"?rebuildNotesJson(jsonRows):notesMode==="wrs"?buildWireRopeSlingNotes(wrsData):notesMode==="sbp"?buildSandblastingNotes(sbpData):notesMode==="hookrope"?buildHookRopeNotes(hookRopeData,form.equipment_type):buildNotesPipe(notePairs);
       setCpData(parseCherryPickerNotes(built));
       setNotesMode("cherry");
-    } else if (isHookRopeEquipment(newType) && notesMode !== "hookrope") {
-      const built = notesMode==="json"?rebuildNotesJson(jsonRows):notesMode==="cherry"?buildCherryPickerNotes(cpData):notesMode==="wrs"?buildWireRopeSlingNotes(wrsData):notesMode==="sbp"?buildSandblastingNotes(sbpData):buildNotesPipe(notePairs);
-      setHookRopeData(parseHookRopeNotes(built, baseExtractedData));
-      setNotesMode("hookrope");
+
     } else if (isWireRopeSling(newType) && notesMode !== "wrs") {
       const built = notesMode==="json"?rebuildNotesJson(jsonRows):notesMode==="cherry"?buildCherryPickerNotes(cpData):notesMode==="sbp"?buildSandblastingNotes(sbpData):notesMode==="hookrope"?buildHookRopeNotes(hookRopeData,form.equipment_type):buildNotesPipe(notePairs);
       setWrsData(parseWireRopeSlingNotes(built));
@@ -1587,7 +1659,7 @@ function CertificateEditInner() {
       const finalNotes = buildFinalNotes();
       const mergedInspectionData = notesMode==="hookrope"
         ? {
-            ...safeJsonParse(baseExtractedData,{}),
+            ...cleanHookRopeBaseExtractedData(baseExtractedData),
             hookrope: hookRopeToExtractedData(hookRopeData),
             hook_rope: hookRopeToExtractedData(hookRopeData),
             ...Object.fromEntries(parseNotesPipe(finalNotes).map(p=>[p.key,p.value])),
@@ -1752,9 +1824,9 @@ function CertificateEditInner() {
   );
 
   function getModeButtons() {
+    if (equipIsHookRope)        return [["hookrope","🪝 Hook & Rope"],["pipe","Simple"]];
     if (equipIsSandblastingPot) return [["sbp","🪣 SBP"],["json","Grouped"],["pipe","Simple"]];
     if (equipIsCherryPicker)    return [["cherry","🚡 AWP"],["json","Grouped"],["pipe","Simple"]];
-    if (equipIsHookRope)        return [["hookrope","🪝 Hook & Rope"],["pipe","Simple"]];
     if (equipIsWireRopeSling)   return [["wrs","🪢 Sling"],["json","Grouped"],["pipe","Simple"]];
     return [["json","Grouped"],["pipe","Simple"]];
   }
