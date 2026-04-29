@@ -156,6 +156,99 @@ function parsePVChecklist(c,pn){
   };
 }
 
+/* ── parse sandblasting pot data from extracted_data / notes ── */
+function parseSandblastingData(c,pn){
+  const ex=c.extracted_data||{};
+  const notes=parseNotes(val(c.notes||"")||"");
+  const sb=ex.sandblasting||ex.blasting_pot||ex.sbp||{};
+
+  function g(key,...aliases){
+    for(const k of[key,...aliases]){
+      const v=sb[k]??ex[k]??notes[k]??pn[k];
+      if(v!=null&&String(v).trim()!=="")return String(v).trim();
+    }
+    return null;
+  }
+
+  // vessel dimensions / wall thickness readings
+  const readings=[];
+  for(let i=1;i<=12;i++){
+    const v=g(`reading_${i}`,`t${i}`,`thickness_${i}`,`wt${i}`)||pn[`WT${i}`]||pn[`wt${i}`]||null;
+    readings.push(v);
+  }
+  // If no structured readings, try to read from a flat string like "6.74|6.4|5.74|6.2|6.7"
+  const readingStr=g("wall_thickness_readings","thickness_readings","readings")||"";
+  if(readingStr&&readings.every(x=>!x)){
+    readingStr.split(/[|,;\s]+/).forEach((v,i)=>{if(i<12&&v.trim())readings[i]=v.trim();});
+  }
+
+  return{
+    vessel_unique_id:      g("vessel_unique_id","unique_id","vessel_id")||val(c.serial_number)||"—",
+    equipment_owner:       g("equipment_owner","owner","client_name")||val(c.client_name)||"—",
+    location:              g("location")||val(c.location)||"—",
+    inspection_frequency:  g("inspection_frequency","frequency")||"YEARLY",
+    year_of_manufacture:   g("year_of_manufacture","year_built","year")||val(c.year_built)||"—",
+    previous_inspection:   g("previous_inspection_date","previous_inspection")||"N/A",
+    design_pressure:       g("design_pressure")||val(c.design_pressure)||"—",
+    working_pressure:      g("working_pressure","actual_working_pressure")||val(c.working_pressure)||"—",
+    test_pressure:         g("test_pressure")||val(c.test_pressure)||"0",
+    vessel_material:       g("vessel_material","material")||val(c.material)||"—",
+    manufacturer:          g("manufacturer")||val(c.manufacturer)||"—",
+    pressure_unit:         g("pressure_unit")||val(c.pressure_unit)||"Kpa",
+    volume:                g("volume","capacity","capacity_volume")||val(c.capacity_volume)||"—",
+    circumference:         g("circumference")||"—",
+    height:                g("height")||"—",
+    pressure_gauge_no:     g("pressure_gauge_no","gauge_number")||"Not indicated",
+    pressure_relief_no:    g("pressure_relief_no","relief_valve_no")||"NI",
+    relief_valve_set_pr:   g("relief_valve_set_pressure","relief_set_pr")||"NI",
+    min_max_temp:          g("min_max_temp","temperature_range")||".0-100°C",
+    pressure_relief_type:  g("pressure_relief_type","relief_type")||"NI",
+    test_type:             g("test_type","inspection_type")||"ULTRASONIC TEST",
+    original_shell_thickness: g("original_shell_thickness","nominal_thickness")||"6.74",
+    measured_shell_thickness: g("measured_shell_thickness","actual_thickness")||"0",
+    allowable_reduction:   g("allowable_reduction","reduction_percent")||"20%",
+    // checklist items — default PASS unless stored otherwise
+    checklist:{
+      pipe_connections:      g("pipe_connections")||"PASS",
+      valves_fittings_construction: g("valves_fittings_construction")||"PASS",
+      fittings_pressure_rating: g("fittings_pressure_rating")||"PASS",
+      drain_valves:          g("drain_valves")||"PASS",
+      no_leaks_pipework:     g("no_leaks_pipework")||"PASS",
+      vessel_access:         g("vessel_access")||"PASS",
+      no_leaks_manholes:     g("no_leaks_manholes")||"PASS",
+      gauge_isolation_valve: g("gauge_isolation_valve")||"PASS",
+      relief_valve_calibrated: g("relief_valve_calibrated")||"PASS",
+      gauge_calibrated:      g("gauge_calibrated")||"PASS",
+      gauge_redlined:        g("gauge_redlined")||"PASS",
+      // external
+      vessel_material_standard: g("vessel_material_standard")||"PASS",
+      external_coating:      g("external_coating")||"PASS",
+      no_corrosion:          g("no_corrosion")||"PASS",
+      properly_mounted:      g("properly_mounted")||"PASS",
+      welded_joints:         g("welded_joints")||"PASS",
+      no_dents_cracks:       g("no_dents_cracks")||"PASS",
+      no_external_leakages:  g("no_external_leakages")||"PASS",
+      // relief valve
+      no_cracks_valve_body:  g("no_cracks_valve_body")||"FAIL",
+      no_foreign_material:   g("no_foreign_material")||"FAIL",
+      valve_working:         g("valve_working")||"PASS",
+      // internal
+      no_oil_sludge:         g("no_oil_sludge")||"PASS",
+      interior_condition:    g("interior_condition")||"PASS",
+      no_moisture:           g("no_moisture")||"PASS",
+      no_scaling:            g("no_scaling")||"PASS",
+      internal_stiffeners:   g("internal_stiffeners")||"PASS",
+      // drainage
+      properly_levelled:     g("properly_levelled")||"PASS",
+      drainage_hose:         g("drainage_hose")||"PASS",
+      no_ground_contamination: g("no_ground_contamination")||"PASS",
+      automatic_drainage:    g("automatic_drainage")||"PASS",
+    },
+    wall_readings: readings,
+    comments:      g("comments","remarks")||val(c.comments)||"",
+  };
+}
+
 /* ── CSS ─────────────────────────────────────────────────── */
 const CSS=`
   @page { size: A4; margin: 0; }
@@ -327,6 +420,31 @@ const CSS=`
   /* bucket page accent — orange stripe */
   .bucket-accent{height:3px;background:linear-gradient(90deg,#f97316 0%,#fb923c 55%,#fbbf24 100%);flex-shrink:0}
 
+  /* sandblasting pot — checklist tick/cross table */
+  .sb-cl{width:100%;border-collapse:collapse;font-size:7.5px;border:1px solid #1e3a5f;flex-shrink:0}
+  .sb-cl th{background:#0b1d3a;color:#4fc3f7;padding:3px 6px;text-align:left;border:1px solid #1e3a5f;font-size:7px;font-weight:700}
+  .sb-cl th:not(:first-child){text-align:center;width:28px}
+  .sb-cl td{padding:2.5px 6px;border:1px solid #e8f0fb;font-size:7.5px;vertical-align:middle}
+  .sb-cl tr:nth-child(even) td{background:#f8faff}
+  .sb-cl tr:nth-child(odd) td{background:#fff}
+  .sb-cl td:not(:first-child){text-align:center;font-weight:900;width:28px}
+  .sb-cl td.pass-tick{color:#15803d}
+  .sb-cl td.fail-tick{color:#b91c1c}
+  .sb-cl td.na-tick{color:#9ca3af}
+  .sb-cl-sec td{background:#1e3a5f!important;color:#4fc3f7;font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px}
+  /* wall thickness mini-grid */
+  .wt-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;padding:5px 8px;background:#f4f8ff}
+  .wt-cell{background:#fff;border:1px solid #c3d4e8;border-radius:3px;padding:3px 5px;text-align:center}
+  .wt-lbl{font-size:6.5px;color:#3b6ea5;font-weight:700;margin-bottom:1px}
+  .wt-val{font-size:9px;font-weight:800;color:#0b1d3a;font-family:'IBM Plex Mono',monospace}
+  /* sandblasting test cert table */
+  .sb-t{width:100%;border-collapse:collapse;font-size:8.5px;border:1px solid #1e3a5f;flex-shrink:0}
+  .sb-t td{padding:4px 8px;border:1px solid #c3d4e8}
+  .sb-t td:nth-child(odd){font-weight:700;background:#0b1d3a;color:#4fc3f7;width:22%;white-space:nowrap}
+  .sb-t td:nth-child(even){background:#f4f8ff;font-weight:600;color:#0b1d3a;width:28%}
+  .sb-t tr.sb-result td{background:#0b1d3a;color:#4fc3f7;font-weight:800;font-size:9px;letter-spacing:.06em}
+  .sb-t tr.sb-result td:nth-child(2){font-size:14px;font-weight:900;text-align:center;letter-spacing:.2em}
+
   @media print{
     @page{size:A4;margin:0}
     html,body{margin:0;padding:0}
@@ -454,6 +572,390 @@ function BucketResultRow({label,result}){
   const isFail=/fail|repair|required/i.test(result||"");
   const cellStyle=isFail?{background:"#fff5f5",color:"#b91c1c",fontWeight:800}:isPass?{background:"#f0fdf4",color:"#15803d",fontWeight:700}:{background:"#fff",color:"#0b1d3a",fontWeight:600};
   return(<tr><td>{label}</td><td style={cellStyle}>{result}</td></tr>);
+}
+
+/* ── Sandblasting checklist tick helper ─────────────────── */
+function SBTick({result}){
+  const r=(result||"PASS").toUpperCase();
+  if(r==="PASS") return<td className="pass-tick">✓</td>;
+  if(r==="FAIL") return<td className="fail-tick">✗</td>;
+  return<td className="na-tick">—</td>;
+}
+function SBRow({label,result,naField=false}){
+  const r=(result||"PASS").toUpperCase();
+  return(
+    <tr>
+      <td style={{fontWeight:500,color:"#0b1d3a"}}>{label}</td>
+      <SBTick result={r}/>
+      <td className={r==="FAIL"?"fail-tick":""}>{r==="FAIL"?"✗":""}</td>
+      <td className={r==="NA"||naField?"na-tick":""}>{(r==="NA"||naField)?"—":""}</td>
+    </tr>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   SANDBLASTING POT — PAGE 1: INSPECTION CHECKLIST
+══════════════════════════════════════════════════════════ */
+function SandblastingPotChecklistPage({c,sb,pn,pm,logo}){
+  const certNumber=val(c.certificate_number);
+  const issueDate=formatDate(c.issue_date||c.issued_at)||sb.inspection_date||"—";
+  const expiryDate=formatDate(c.expiry_date)||"—";
+  const inspName=val(c.inspector_name)||"Moemedi Masupe";
+  const inspId=val(c.inspector_id)||"700117910";
+  const cl=sb.checklist;
+  const readings=sb.wall_readings||[];
+
+  // readings layout: up to 5 shown (matching the PDF)
+  const displayReadings=readings.filter(Boolean).slice(0,10);
+
+  return(
+    <div className={`pro-page${pm?" pm":""}`}>
+      <ProHdr logoUrl={logo}/>
+      <div style={{height:3,background:"linear-gradient(90deg,#f97316,#fb923c 55%,#fbbf24)",flexShrink:0}}/>
+      <div className="pro-body">
+        {/* Header info table */}
+        <table className="sb-t" style={{marginBottom:0}}>
+          <tbody>
+            <tr>
+              <td>Equipment Owner</td>
+              <td style={{textTransform:"uppercase",fontWeight:900,color:"#0b1d3a"}}>{sb.equipment_owner}</td>
+              <td>Serial No.</td>
+              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{sb.vessel_unique_id}</td>
+            </tr>
+            <tr>
+              <td>Location</td>
+              <td style={{textTransform:"uppercase"}}>{sb.location}</td>
+              <td>Vessel Material</td>
+              <td>{sb.vessel_material}</td>
+            </tr>
+            <tr>
+              <td>Inspection Frequency</td>
+              <td>{sb.inspection_frequency}</td>
+              <td>Year of Manufacture</td>
+              <td>{sb.year_of_manufacture}</td>
+            </tr>
+            <tr>
+              <td>Previous Inspection Date</td>
+              <td>{sb.previous_inspection}</td>
+              <td>Design Pressure</td>
+              <td style={{fontWeight:800}}>{sb.design_pressure} {sb.pressure_unit}</td>
+            </tr>
+            <tr>
+              <td>Competent Person</td>
+              <td style={{fontWeight:800}}>{inspName}</td>
+              <td>Actual Working Pressure</td>
+              <td style={{fontWeight:800}}>{sb.working_pressure} {sb.pressure_unit}</td>
+            </tr>
+            <tr>
+              <td>Inspection Date</td>
+              <td style={{fontWeight:800}}>{issueDate}</td>
+              <td>Next Inspection Date</td>
+              <td style={{fontWeight:800,color:"#b45309"}}>{expiryDate}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* Legend */}
+        <div style={{display:"flex",gap:16,alignItems:"center",padding:"3px 6px",background:"#f4f8ff",border:"1px solid #c3d4e8",borderRadius:4,fontSize:7.5,flexShrink:0}}>
+          <span style={{fontWeight:700,color:"#0b1d3a"}}>Y = PASS</span>
+          <span style={{fontWeight:700,color:"#b91c1c"}}>N = FAIL</span>
+          <span style={{fontWeight:700,color:"#9ca3af"}}>N/A = NOT APPLICABLE</span>
+          <span style={{marginLeft:"auto",fontWeight:800,color:"#0b1d3a",fontSize:8,textTransform:"uppercase",letterSpacing:".06em"}}>Sandblasting Pot Inspection Checklist</span>
+        </div>
+
+        {/* 2-column layout: checklist left, dimensions right */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 180px",gap:6,flex:1,minHeight:0,overflow:"hidden"}}>
+
+          {/* CHECKLIST */}
+          <div style={{overflow:"hidden"}}>
+            <table className="sb-cl">
+              <thead>
+                <tr>
+                  <th style={{width:"100%"}}>Inspection Item</th>
+                  <th>Y</th><th>N</th><th>N/A</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="sb-cl-sec"><td colSpan={4}>1.0 Appurtenances</td></tr>
+                <SBRow label="1.1 Pipe Connections in good condition" result={cl.pipe_connections}/>
+                <SBRow label="1.2 Valves/Fittings of good construction" result={cl.valves_fittings_construction}/>
+                <SBRow label="1.3 Fittings/Valves of correct pressure rating" result={cl.fittings_pressure_rating}/>
+                <SBRow label="1.4 Drain valves in good operating condition" result={cl.drain_valves}/>
+                <SBRow label="1.5 No leaks in pipework" result={cl.no_leaks_pipework}/>
+                <SBRow label="1.6 Access to vessel interior adequate" result={cl.vessel_access}/>
+                <SBRow label="1.7 No leaks in manholes / hand holes" result={cl.no_leaks_manholes}/>
+                <SBRow label="1.8 Pressure gauge has isolation valve" result={cl.gauge_isolation_valve}/>
+                <SBRow label="1.9 Pressure relief valve calibrated" result={cl.relief_valve_calibrated}/>
+                <SBRow label="2.0 Pressure gauge calibrated" result={cl.gauge_calibrated}/>
+                <SBRow label="2.1 Pressure gauge redlined" result={cl.gauge_redlined}/>
+
+                <tr className="sb-cl-sec"><td colSpan={4}>2.0 Vessel External Inspection</td></tr>
+                <SBRow label="2.1 Vessel material of acceptable standard" result={cl.vessel_material_standard}/>
+                <SBRow label="2.2 Vessel external coating in good condition" result={cl.external_coating}/>
+                <SBRow label="2.3 Vessel not exposed to corrosion" result={cl.no_corrosion}/>
+                <SBRow label="2.4 Vessel properly mounted on floor" result={cl.properly_mounted}/>
+                <SBRow label="2.5 Welded joints in good condition" result={cl.welded_joints}/>
+                <SBRow label="2.6 No vessel dents or cracks" result={cl.no_dents_cracks}/>
+                <SBRow label="2.7 No external leakages" result={cl.no_external_leakages}/>
+
+                <tr className="sb-cl-sec"><td colSpan={4}>3.0 Relief Valve</td></tr>
+                <SBRow label="3.1 Any cracks on the valve body" result={cl.no_cracks_valve_body}/>
+                <SBRow label="3.2 Any foreign material on the valve" result={cl.no_foreign_material}/>
+                <SBRow label="3.3 Valve working properly" result={cl.valve_working}/>
+
+                <tr className="sb-cl-sec"><td colSpan={4}>4.0 Vessel Internal Inspection</td></tr>
+                <SBRow label="4.1 No oil sludge inside vessel" result={cl.no_oil_sludge}/>
+                <SBRow label="4.2 Vessel interior in good condition" result={cl.interior_condition}/>
+                <SBRow label="4.3 No moisture / oil trapped in air receiver" result={cl.no_moisture}/>
+                <SBRow label="4.4 No scaling inside vessel" result={cl.no_scaling}/>
+                <SBRow label="4.5 Internal stiffeners in good condition" result={cl.internal_stiffeners}/>
+
+                <tr className="sb-cl-sec"><td colSpan={4}>5.0 Drainage</td></tr>
+                <SBRow label="5.1 Vessels properly levelled for drainage" result={cl.properly_levelled}/>
+                <SBRow label="5.2 Provided with drainage hose" result={cl.drainage_hose}/>
+                <SBRow label="5.3 Vessel not contaminating ground" result={cl.no_ground_contamination}/>
+                <SBRow label="5.4 Uses automatic drainage" result={cl.automatic_drainage}/>
+              </tbody>
+            </table>
+          </div>
+
+          {/* RIGHT COLUMN: dimensions + wall thickness readings */}
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+            <div style={{border:"1px solid #1e3a5f",borderRadius:4,overflow:"hidden"}}>
+              <div style={{background:"#0b1d3a",color:"#4fc3f7",fontSize:7,fontWeight:800,letterSpacing:".1em",textTransform:"uppercase",padding:"3px 8px",borderBottom:"1px solid #f97316"}}>Vessel Dimensions</div>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:8}}>
+                <tbody>
+                  {[
+                    ["Volume",sb.volume?`${sb.volume} L`:"—"],
+                    ["Circumference",sb.circumference||"—"],
+                    ["Height",sb.height||"—"],
+                    ["Working Pressure",sb.working_pressure?`${sb.working_pressure} ${sb.pressure_unit}`:"—"],
+                    ["Design Pressure",sb.design_pressure?`${sb.design_pressure} ${sb.pressure_unit}`:"—"],
+                  ].map(([k,v])=>(
+                    <tr key={k}>
+                      <td style={{padding:"3px 6px",fontWeight:700,color:"#3b6ea5",background:"#eef4ff",border:"1px solid #c3d4e8",fontSize:7}}>{k}</td>
+                      <td style={{padding:"3px 6px",fontWeight:600,color:"#0b1d3a",background:"#fff",border:"1px solid #c3d4e8",fontSize:8}}>{v}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {displayReadings.length>0&&(
+              <div style={{border:"1px solid #1e3a5f",borderRadius:4,overflow:"hidden"}}>
+                <div style={{background:"#0b1d3a",color:"#4fc3f7",fontSize:7,fontWeight:800,letterSpacing:".1em",textTransform:"uppercase",padding:"3px 8px",borderBottom:"1px solid #f97316"}}>Wall Thickness (mm)</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:2,padding:4,background:"#f4f8ff"}}>
+                  {displayReadings.map((v,i)=>(
+                    <div key={i} style={{background:"#fff",border:"1px solid #c3d4e8",borderRadius:3,padding:"3px 5px",textAlign:"center"}}>
+                      <div style={{fontSize:6.5,color:"#3b6ea5",fontWeight:700}}>Pt {i+1}</div>
+                      <div style={{fontSize:9,fontWeight:800,color:"#0b1d3a",fontFamily:"'IBM Plex Mono',monospace"}}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Overall result box */}
+            <div style={{border:"2px solid #1e3a5f",borderRadius:4,overflow:"hidden",marginTop:"auto"}}>
+              <div style={{background:"#0b1d3a",color:"#4fc3f7",fontSize:7,fontWeight:800,letterSpacing:".1em",textTransform:"uppercase",padding:"3px 8px"}}>Inspection Result</div>
+              <div style={{padding:"8px 10px",background:pickResult(c)==="PASS"?"#dcfce7":"#fee2e2",textAlign:"center"}}>
+                <div style={{fontSize:16,fontWeight:900,color:pickResult(c)==="PASS"?"#15803d":"#b91c1c",letterSpacing:".1em"}}>{pickResult(c)||"PASS"}</div>
+                <div style={{fontSize:7,color:"#64748b",marginTop:2}}>Thorough Inspection</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {sb.comments&&(
+          <div className="pro-comments-box" style={{flexShrink:0}}>
+            <div className="pro-comments-lbl">Comments</div>
+            <div className="pro-comments-val">{sb.comments}</div>
+          </div>
+        )}
+
+        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"4px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
+          APPLICABLE LEGISLATION / STANDARDS: FACTORIES ACT CAP: 44:01 · MQWM ACT CAP: 44:02
+        </div>
+      </div>
+      <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
+      <ProFooter/>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   SANDBLASTING POT — PAGE 2: TEST CERTIFICATE
+══════════════════════════════════════════════════════════ */
+function SandblastingPotTestCertPage({c,sb,pn,pm,logo}){
+  const certNumber=val(c.certificate_number);
+  const issueDate=formatDate(c.issue_date||c.issued_at)||"—";
+  const expiryDate=formatDate(c.expiry_date)||"—";
+  const inspName=val(c.inspector_name)||"Moemedi Masupe";
+  const inspId=val(c.inspector_id)||"700117910";
+  const photos=parsePhotoEvidence(c.photo_evidence);
+  const defects=val(c.defects_found);
+  const recommendations=val(c.recommendations);
+  const tone=resultStyle(pickResult(c));
+  const isPass=tone.label==="PASS";
+
+  return(
+    <div className={`pro-page last-page${pm?" pm":""}`}>
+      <ProHdr logoUrl={logo}/>
+      <div style={{height:3,background:"linear-gradient(90deg,#f97316,#fb923c 55%,#fbbf24)",flexShrink:0}}/>
+      <div className="pro-body">
+
+        {/* Big title */}
+        <div style={{textAlign:"center",padding:"6px 0 4px",flexShrink:0}}>
+          <div style={{fontSize:16,fontWeight:900,color:"#0b1d3a",letterSpacing:"-.01em",textTransform:"uppercase"}}>Sandblasting Pot Test Certificate</div>
+          <div style={{fontSize:8,color:"#64748b",marginTop:2}}>APPLICABLE LEGISLATION / STANDARDS: FACTORIES ACT CAP: 44:01 · MQWM ACT CAP: 44:02</div>
+        </div>
+
+        {/* Main data table — mirrors the original PDF layout exactly */}
+        <table className="sb-t">
+          <tbody>
+            <tr>
+              <td>Equipment</td>
+              <td style={{textTransform:"uppercase",fontWeight:900,color:"#0b1d3a"}}>SANDBLASTING POT</td>
+              <td>Client</td>
+              <td style={{textTransform:"uppercase",fontWeight:900,color:"#c41e3a"}}>{sb.equipment_owner}</td>
+            </tr>
+            <tr>
+              <td>Vessel Unique ID</td>
+              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{sb.vessel_unique_id}</td>
+              <td>Year</td>
+              <td>{sb.year_of_manufacture}</td>
+            </tr>
+            <tr>
+              <td>Location</td>
+              <td style={{textTransform:"uppercase",color:"#c41e3a",fontWeight:800}}>{sb.location}</td>
+              <td>Manufacturer</td>
+              <td>{sb.manufacturer}</td>
+            </tr>
+            <tr>
+              <td>Design Pressure</td>
+              <td style={{fontWeight:800}}>{sb.design_pressure} {sb.pressure_unit}</td>
+              <td>Measured Shell Thickness</td>
+              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:800}}>{sb.measured_shell_thickness}</td>
+            </tr>
+            <tr>
+              <td>Working Pressure</td>
+              <td style={{fontWeight:800}}>{sb.working_pressure} {sb.pressure_unit}</td>
+              <td>Original Shell Thickness</td>
+              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:800}}>{sb.original_shell_thickness}</td>
+            </tr>
+            <tr>
+              <td>Test Pressure</td>
+              <td style={{fontWeight:800}}>{sb.test_pressure||"0"} {sb.pressure_unit}</td>
+              <td>% Allowable Reduction</td>
+              <td style={{fontWeight:800}}>{sb.allowable_reduction}</td>
+            </tr>
+            <tr>
+              <td>Pressure Gauge No.</td>
+              <td>{sb.pressure_gauge_no}</td>
+              <td>Test Type</td>
+              <td style={{fontWeight:800,color:"#0e7490"}}>{sb.test_type}</td>
+            </tr>
+            <tr>
+              <td>Pressure Relief No.</td>
+              <td>{sb.pressure_relief_no}</td>
+              <td>Min / Max Temperature</td>
+              <td>{sb.min_max_temp}</td>
+            </tr>
+            <tr>
+              <td>Relief Valve Set Pressure</td>
+              <td>{sb.relief_valve_set_pr}</td>
+              <td>Pressure Relief Type</td>
+              <td>{sb.pressure_relief_type}</td>
+            </tr>
+            <tr>
+              <td>Inspection Date</td>
+              <td style={{fontWeight:800}}>{issueDate}</td>
+              <td>Next Inspection Date</td>
+              <td style={{fontWeight:800,color:"#b45309"}}>{expiryDate}</td>
+            </tr>
+            <tr>
+              <td>Certificate No.</td>
+              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{certNumber||"—"}</td>
+              <td>Volume / Capacity</td>
+              <td>{sb.volume?`${sb.volume} L`:"—"}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* PASS / FAIL result row */}
+        <table className="sb-t" style={{marginTop:0}}>
+          <tbody>
+            <tr className="sb-result">
+              <td colSpan={2} style={{fontWeight:800,fontSize:9,letterSpacing:".06em",background:"#1e3a5f",color:"#4fc3f7"}}>TEST RESULTS (PASS / FAIL)</td>
+              <td colSpan={2} style={{
+                fontSize:18,fontWeight:900,textAlign:"center",letterSpacing:".2em",
+                background:isPass?"#dcfce7":"#fee2e2",
+                color:isPass?"#15803d":"#b91c1c",
+                border:`2px solid ${isPass?"#86efac":"#fca5a5"}`,
+              }}>{tone.label}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* Shell thickness summary */}
+        {sb.wall_readings&&sb.wall_readings.filter(Boolean).length>0&&(
+          <div style={{border:"1px solid #1e3a5f",borderRadius:4,overflow:"hidden",flexShrink:0}}>
+            <div style={{background:"#0b1d3a",color:"#4fc3f7",fontSize:7,fontWeight:800,letterSpacing:".1em",textTransform:"uppercase",padding:"3px 8px",borderBottom:"1px solid #f97316"}}>
+              Wall Thickness Measurement Points (mm)
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:3,padding:5,background:"#f4f8ff"}}>
+              {sb.wall_readings.filter(Boolean).slice(0,10).map((v,i)=>(
+                <div key={i} style={{background:"#fff",border:"1px solid #c3d4e8",borderRadius:3,padding:"3px 6px",textAlign:"center"}}>
+                  <div style={{fontSize:6.5,color:"#3b6ea5",fontWeight:700}}>Point {i+1}</div>
+                  <div style={{fontSize:10,fontWeight:900,color:"#0b1d3a",fontFamily:"'IBM Plex Mono',monospace"}}>{v} mm</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {defects&&(
+          <div className="pro-red-box">
+            <div className="pro-red-lbl">Defects Found</div>
+            <div className="pro-red-val">{defects}</div>
+          </div>
+        )}
+        {recommendations&&(
+          <div className="pro-red-box">
+            <div className="pro-red-lbl">Recommendations</div>
+            <div className="pro-red-val">{recommendations}</div>
+          </div>
+        )}
+
+        <ProEvidence photos={photos}/>
+
+        {/* Legislation note */}
+        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"4px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
+          THIS VESSEL HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 AND FACTORIES ACT CAP 44:01 OF THE LAWS OF BOTSWANA.
+        </div>
+
+        {/* Signatures area */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,padding:"6px 0 2px",flexShrink:0}}>
+          <div>
+            <div style={{fontSize:7,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",color:"#3b6ea5",marginBottom:3}}>Competent Person / Inspector</div>
+            <div style={{border:"1px solid #1e3a5f",borderRadius:4,minHeight:36,display:"flex",alignItems:"flex-end",padding:"2px 8px",marginBottom:3,background:"#fff"}}>
+              <img src="/Signature" alt="sig" style={{maxHeight:30,maxWidth:100,objectFit:"contain"}} onError={e=>e.target.style.display="none"}/>
+            </div>
+            <div style={{fontSize:9,fontWeight:700,color:"#0b1d3a"}}>{inspName}</div>
+            <div style={{fontSize:7.5,color:"#64748b"}}>Inspector ID: {inspId}</div>
+          </div>
+          <div>
+            <div style={{fontSize:7,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",color:"#3b6ea5",marginBottom:3}}>Client Name &amp; Signature</div>
+            <div style={{border:"1px solid #1e3a5f",borderRadius:4,minHeight:36,marginBottom:3,background:"#fff",padding:"2px 8px",display:"flex",alignItems:"flex-end"}}>
+              <span style={{fontSize:8.5,fontWeight:600,color:"#0b1d3a"}}>{val(c.comments)||""}</span>
+            </div>
+            <div style={{fontSize:7.5,color:"#64748b"}}>Name &amp; Signature</div>
+          </div>
+        </div>
+      </div>
+      <ProFooter/>
+    </div>
+  );
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -811,8 +1313,7 @@ function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
 }
 
 /* ══════════════════════════════════════════════════════════
-   WIRE ROPE SLING  — FIXED: reads from extracted_data.sling_details
-                              and extracted_data.condition_assessment
+   WIRE ROPE SLING
 ══════════════════════════════════════════════════════════ */
 function WireRopeSlingPage({c,pn,tone,pm,logo}){
   const certNumber=val(c.certificate_number);
@@ -830,13 +1331,9 @@ function WireRopeSlingPage({c,pn,tone,pm,logo}){
   const inspName=val(c.inspector_name)||"Moemedi Masupe";
   const inspId=val(c.inspector_id)||"700117910";
   const photos=parsePhotoEvidence(c.photo_evidence);
-
-  // ── Read from structured JSON (saved by WireRopeSlingEditor) ──────────────
-  // Priority: extracted_data.sling_details → extracted_data (flat) → pn (pipe) → c fields
   const ex=c.extracted_data||{};
   const sd=ex.sling_details||{};
   const ca=ex.condition_assessment||{};
-
   const slingType=val(sd.type)||val(ex.type)||val(c.equipment_type)||"Wire Rope Sling";
   const diameter=val(sd.diameter_mm)||val(sd.diameter)||pn["Diameter"]||val(ex.diameter_mm)||val(c.capacity_volume)||"";
   const length=val(sd.length_m)||val(sd.length)||pn["Length"]||val(ex.length_m)||"";
@@ -844,7 +1341,6 @@ function WireRopeSlingPage({c,pn,tone,pm,logo}){
   const construction=val(sd.construction)||pn["Construction"]||val(ex.construction)||"";
   const core=val(sd.core_type)||val(sd.core)||pn["Core"]||val(ex.core_type)||"";
   const slingSWL=val(sd.swl)||swl||"";
-
   const corrosion=val(ca.corrosion)||pn["Corrosion"]||val(ex.corrosion)||"none";
   const brokenWires=val(ca.broken_wires)||pn["Broken wires"]||val(ex.broken_wires)||"none";
   const kinks=val(ca.rope_kinks_deforming)||val(ca.rope_kinks)||pn["Kinks"]||val(ex.rope_kinks_deforming)||"none";
@@ -854,18 +1350,9 @@ function WireRopeSlingPage({c,pn,tone,pm,logo}){
   const serviceability=val(ca.serviceability)||pn["Serviceability"]||val(ex.serviceability)||"Serviceable";
   const overallAssessment=val(ca.overall_assessment)||val(ex.overall_assessment)||tone.label;
   const wrsNotes=val(ca.notes)||val(ca.comments)||val(ex.notes)||"";
-
-  // Colour helper for condition values
-  function condStyle(v){
-    if(!v)return{fontWeight:600};
-    if(/reject|fail|severe|>5|>10|unservice/i.test(v))return{color:"#b91c1c",fontWeight:800};
-    if(/conditional|moderate|fair|3-5|5-10/i.test(v))return{color:"#b45309",fontWeight:700};
-    if(/^pass$|^none$|^good|^serviceable|^new/i.test(v.trim()))return{color:"#15803d",fontWeight:700};
-    return{fontWeight:600};
-  }
+  function condStyle(v){if(!v)return{fontWeight:600};if(/reject|fail|severe|>5|>10|unservice/i.test(v))return{color:"#b91c1c",fontWeight:800};if(/conditional|moderate|fair|3-5|5-10/i.test(v))return{color:"#b45309",fontWeight:700};if(/^pass$|^none$|^good|^serviceable|^new/i.test(v.trim()))return{color:"#15803d",fontWeight:700};return{fontWeight:600};}
   const overallIsPass=/^pass/i.test(overallAssessment);
   const overallIsFail=/^fail|reject|unservice/i.test(overallAssessment);
-
   return(
     <div className={`pro-page last-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
@@ -885,47 +1372,20 @@ function WireRopeSlingPage({c,pn,tone,pm,logo}){
         </div>
         <div className="pro-stl">Sling Details</div>
         <table className="pro-pv">
-          <thead>
-            <tr>
-              <th>Type</th>
-              <th>Diameter (mm)</th>
-              <th>Length (m)</th>
-              <th>No. of Legs</th>
-              <th>Construction</th>
-              <th>Core Type</th>
-              <th>SWL</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td style={{background:"#fff"}}>{slingType}</td>
-              <td style={{background:"#fff"}}>{diameter||"—"}</td>
-              <td style={{background:"#fff"}}>{length||"—"}</td>
-              <td style={{background:"#fff"}}>{numLegs||"—"}</td>
-              <td style={{background:"#fff"}}>{construction||"—"}</td>
-              <td style={{background:"#fff"}}>{core||"—"}</td>
-              <td style={{background:"#fff",fontWeight:700}}>{slingSWL||"—"}</td>
-            </tr>
-          </tbody>
+          <thead><tr><th>Type</th><th>Diameter (mm)</th><th>Length (m)</th><th>No. of Legs</th><th>Construction</th><th>Core Type</th><th>SWL</th></tr></thead>
+          <tbody><tr><td style={{background:"#fff"}}>{slingType}</td><td style={{background:"#fff"}}>{diameter||"—"}</td><td style={{background:"#fff"}}>{length||"—"}</td><td style={{background:"#fff"}}>{numLegs||"—"}</td><td style={{background:"#fff"}}>{construction||"—"}</td><td style={{background:"#fff"}}>{core||"—"}</td><td style={{background:"#fff",fontWeight:700}}>{slingSWL||"—"}</td></tr></tbody>
         </table>
         <div className="pro-stl">Condition Assessment</div>
-        <table className="pro-st">
-          <tbody>
-            <tr><td>Corrosion</td><td style={condStyle(corrosion)}>{corrosion}</td></tr>
-            <tr><td>Broken wires</td><td style={condStyle(brokenWires)}>{brokenWires}</td></tr>
-            <tr><td>Rope kinks / deforming</td><td style={condStyle(kinks)}>{kinks}</td></tr>
-            <tr><td>Reduction in diameter (max 10%)</td><td style={condStyle(reductionDia)}>{reductionDia}</td></tr>
-            <tr><td>Condition of end fittings / ferrule</td><td style={condStyle(endFittings)}>{endFittings}</td></tr>
-            <tr><td>Bird-caging / core protrusion</td><td style={condStyle(birdCaging)}>{birdCaging}</td></tr>
-            <tr><td>Serviceability</td><td style={condStyle(serviceability)}>{serviceability}</td></tr>
-            <tr>
-              <td>Overall assessment</td>
-              <td style={{fontWeight:800,color:overallIsPass?"#15803d":overallIsFail?"#b91c1c":"#b45309"}}>
-                {overallAssessment}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <table className="pro-st"><tbody>
+          <tr><td>Corrosion</td><td style={condStyle(corrosion)}>{corrosion}</td></tr>
+          <tr><td>Broken wires</td><td style={condStyle(brokenWires)}>{brokenWires}</td></tr>
+          <tr><td>Rope kinks / deforming</td><td style={condStyle(kinks)}>{kinks}</td></tr>
+          <tr><td>Reduction in diameter (max 10%)</td><td style={condStyle(reductionDia)}>{reductionDia}</td></tr>
+          <tr><td>Condition of end fittings / ferrule</td><td style={condStyle(endFittings)}>{endFittings}</td></tr>
+          <tr><td>Bird-caging / core protrusion</td><td style={condStyle(birdCaging)}>{birdCaging}</td></tr>
+          <tr><td>Serviceability</td><td style={condStyle(serviceability)}>{serviceability}</td></tr>
+          <tr><td>Overall assessment</td><td style={{fontWeight:800,color:overallIsPass?"#15803d":overallIsFail?"#b91c1c":"#b45309"}}>{overallAssessment}</td></tr>
+        </tbody></table>
         {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
         {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
         {(comments||wrsNotes)&&<div className="pro-comments-box"><div className="pro-comments-lbl">Comments / Notes</div><div className="pro-comments-val">{comments||wrsNotes}</div></div>}
@@ -1157,14 +1617,7 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
   const bucketCertNo=(certNumber?certNumber.replace(/(-BKT)?$/,"-BKT"):null)||"—";
   const bucketSerial=val(bk.serial_number||bk.bucket_serial)||(val(c.serial_number)?`${val(c.serial_number)}-BKT`:null)||"—";
   const bucketMake=val(bk.manufacturer||bk.make)||val(c.manufacturer)||"—";
-  function bkResult(v){
-    if(!v)return"—";
-    const isPass=(v||"").toUpperCase()==="PASS";
-    const isBad=/fail|repair|required/i.test(v||"");
-    const color=isBad?"#b91c1c":isPass?"#15803d":"#b45309";
-    const bg=isBad?"#fff5f5":isPass?"#f0fdf4":"#fffbeb";
-    return<span style={{fontWeight:800,color,background:bg,padding:"1px 5px",borderRadius:3,fontSize:7.5}}>{v}</span>;
-  }
+  function bkResult(v){if(!v)return"—";const isPass=(v||"").toUpperCase()==="PASS";const isBad=/fail|repair|required/i.test(v||"");const color=isBad?"#b91c1c":isPass?"#15803d":"#b45309";const bg=isBad?"#fff5f5":isPass?"#f0fdf4":"#fffbeb";return<span style={{fontWeight:800,color,background:bg,padding:"1px 5px",borderRadius:3,fontSize:7.5}}>{v}</span>;}
   return(
     <div className={`pro-page last-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
@@ -1651,6 +2104,7 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   const nd=getInspectionData(c);
   const tone=resultStyle(pickResult(c));
 
+  // ── Equipment type flags ──────────────────────────────────────────────
   const _isMobileCrane=/mobile.crane|crane/i.test(_rawType)&&!/hook|rope|boom|cherry|telehandler|forklift/i.test(_rawType);
   const _isHook=/hook/i.test(_rawType);
   const _isCraneRope=_rawType==="wire rope";
@@ -1664,12 +2118,27 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   const _isTrailer=/^trailer$/i.test(_rawType.trim());
   const _isMachine=_isTelehandler||_isForklift;
 
+  // ── NEW: Sandblasting / Blasting Pot ─────────────────────────────────
+  const _isSandblasting=/sandblast|blasting.pot|blast.pot|sbp|sand.blast/i.test(_rawType);
+
   const wrap=(children)=>(
     <>
       <style>{CSS}</style>
       <div className={pm?"":"pro-wrap"}>{children}</div>
     </>
   );
+
+  // ── Sandblasting Pot: 2 pages ────────────────────────────────────────
+  if(_isSandblasting){
+    const sb=parseSandblastingData(c,pn);
+    return wrap(
+      <>
+        <SandblastingPotChecklistPage c={c} sb={sb} pn={pn} pm={pm} logo={logo}/>
+        <div className="pro-pb"/>
+        <SandblastingPotTestCertPage c={c} sb={sb} pn={pn} pm={pm} logo={logo}/>
+      </>
+    );
+  }
 
   if(_isMobileCrane) return wrap(
     <>
