@@ -260,202 +260,240 @@ function parseWireRopeSlingNotes(notesStr) {
 
 
 /* ─────────────────────────────────────────────────────────────
-   HOOK & ROPE helpers — saves EXACT pipe keys used by CertificateSheet
+   HOOK & ROPE helpers — EXACT fields from import/HookRopeMode.jsx
+   No sandblasting fields. This editor follows the Hook & Rope import schema.
 ───────────────────────────────────────────────────────────── */
 const HOOK_ROPE_DEFAULT = {
-  latch:"PASS", structural:"PASS",
-  hook1_swl:"", hook1_sn:"", hook_ab:"", hook_ac:"",
-  hook2_swl:"", hook2_sn:"", hook2_ab:"", hook2_ac:"",
-  rope_dia:"", aux_dia:"",
-  broken_wires:"none", corrosion:"none", kinks:"none",
-  end_fittings:"none", serviceability:"Good",
-  drum:"Good", rope_lay:"Good", aux_drum:"Good",
-  drum_main:"", drum_aux:"", lay_main:"", lay_aux:"",
-  reduction:"", core_protrusion:"", lower_limit:"",
-  damaged_strands:"", other_defects:"",
-  notes:"", defects:"",
+  client_name:"", location:"", crane_make:"", crane_serial:"", crane_fleet:"", crane_swl:"", machine_hours:"",
+  inspection_date:"", expiry_date:"", report_number:"",
+
+  drum_main_condition:"Good", drum_aux_condition:"Good", rope_lay_main:"Good", rope_lay_aux:"Good",
+
+  rope_diameter_main:"", rope_diameter_aux:"", rope_length_3x_main:"Yes", rope_length_3x_aux:"Yes",
+  reduction_dia_main:"none", reduction_dia_aux:"none", core_protrusion_main:"None", core_protrusion_aux:"None",
+  corrosion_main:"none", corrosion_aux:"none", broken_wires_main:"none", broken_wires_aux:"none",
+  rope_kinks_main:"none", rope_kinks_aux:"none", other_defects_main:"none", other_defects_aux:"none",
+  end_fittings_main:"Good", end_fittings_aux:"Good", serviceability_main:"Good", serviceability_aux:"Good",
+  lower_limit_main:"", lower_limit_aux:"", damaged_strands_main:"none", damaged_strands_aux:"none",
+
+  hook1_sn:"", hook1_swl:"", hook1_swl_marked:"yes", hook1_safety_catch:"yes", hook1_cracks:"no",
+  hook1_swivel:"yes", hook1_corrosion:"no", hook1_side_bending:"OK", hook1_ab:"", hook1_ac:"",
+
+  hook2_sn:"", hook2_swl:"", hook2_swl_marked:"yes", hook2_safety_catch:"yes", hook2_cracks:"no",
+  hook2_swivel:"yes", hook2_corrosion:"no", hook2_side_bending:"OK", hook2_ab:"", hook2_ac:"",
+
+  hook3_sn:"", hook3_swl:"",
+  overall_result:"PASS", defects_found:"", comments:"",
   extra_pairs:[],
 };
 
-const HOOK_ROPE_KNOWN_KEYS = [
-  "Latch","Structural","Hook 1 SWL","Hook 1 SN","Hook AB","Hook AC",
-  "Hook 2 SWL","Hook 2 SN","Hook 2 AB","Hook 2 AC",
-  "Rope dia","Aux dia","Broken wires","Corrosion","Kinks",
-  "End fittings","Serviceability","Drum","Rope lay","Aux drum",
-  "Drum main","Drum aux","Lay main","Lay aux","Reduction","Core protrusion",
-  "Lower limit","Damaged strands","Other defects","Notes","Defects",
-];
+const HOOK_ROPE_PIPE_ALIASES = {
+  "latch":"hook1_safety_catch",
+  "structural":"hook1_cracks",
+  "hook_1_swl":"hook1_swl",
+  "hook1_swl":"hook1_swl",
+  "hook_1_sn":"hook1_sn",
+  "hook1_sn":"hook1_sn",
+  "hook_ab":"hook1_ab",
+  "hook_1_ab":"hook1_ab",
+  "hook1_ab":"hook1_ab",
+  "hook_ac":"hook1_ac",
+  "hook_1_ac":"hook1_ac",
+  "hook1_ac":"hook1_ac",
+  "hook_2_swl":"hook2_swl",
+  "hook2_swl":"hook2_swl",
+  "hook_2_sn":"hook2_sn",
+  "hook2_sn":"hook2_sn",
+  "hook_2_ab":"hook2_ab",
+  "hook2_ab":"hook2_ab",
+  "hook_2_ac":"hook2_ac",
+  "hook2_ac":"hook2_ac",
+  "rope_dia":"rope_diameter_main",
+  "rope_diameter":"rope_diameter_main",
+  "main_rope_diameter":"rope_diameter_main",
+  "aux_dia":"rope_diameter_aux",
+  "aux_rope_diameter":"rope_diameter_aux",
+  "broken_wires":"broken_wires_main",
+  "corrosion":"corrosion_main",
+  "kinks":"rope_kinks_main",
+  "rope_kinks":"rope_kinks_main",
+  "end_fittings":"end_fittings_main",
+  "end_fitting_attachments":"end_fittings_main",
+  "serviceability":"serviceability_main",
+  "drum":"drum_main_condition",
+  "rope_lay":"rope_lay_main",
+  "aux_drum":"drum_aux_condition",
+  "drum_main":"drum_main_condition",
+  "drum_aux":"drum_aux_condition",
+  "lay_main":"rope_lay_main",
+  "lay_aux":"rope_lay_aux",
+  "reduction":"reduction_dia_main",
+  "reduction_dia":"reduction_dia_main",
+  "core_protrusion":"core_protrusion_main",
+  "lower_limit":"lower_limit_main",
+  "damaged_strands":"damaged_strands_main",
+  "other_defects":"other_defects_main",
+  "notes":"comments",
+  "comments":"comments",
+  "defects":"defects_found",
+  "defects_found":"defects_found",
+};
+
+const HOOK_ROPE_KNOWN_PIPE_KEYS = Object.keys(HOOK_ROPE_PIPE_ALIASES);
 
 function normalizeHookRopeKey(key) {
   return String(key || "").trim().toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"");
 }
 
+function passFailToYesNo(value, yesWhenPass=true) {
+  const s=String(value||"").trim().toUpperCase();
+  if (!s) return "";
+  if (s==="PASS" || s==="YES" || s==="OK" || s==="GOOD") return yesWhenPass ? "yes" : "no";
+  if (s==="FAIL" || s==="NO" || s==="DEFECTIVE") return yesWhenPass ? "no" : "yes";
+  return value;
+}
+
+function stripMm(value) {
+  return String(value||"").trim().replace(/^Ø\s*/i,"").replace(/\s*mm$/i,"");
+}
+
+function withMm(value) {
+  const x=String(value||"").trim();
+  if (!x) return "";
+  return /mm|ø/i.test(x) ? x : `${x}mm`;
+}
+
+function getHookRopeSource(extractedData={}) {
+  const ex = extractedData && typeof extractedData === "object" ? extractedData : {};
+  return ex.hookrope || ex.hook_rope || ex.hookRope || ex;
+}
+
 function parseHookRopeNotes(notesStr, extractedData={}) {
   const out = { ...HOOK_ROPE_DEFAULT, extra_pairs:[] };
-  const ex = extractedData && typeof extractedData === "object" ? extractedData : {};
+  const source = getHookRopeSource(extractedData);
 
-  // If one day you save full extracted hookrope JSON, this will still load it.
-  const json = isJsonNotes(notesStr || "") ? safeJsonParse(notesStr,{}) : {};
-  const source = json.hook_rope || json.hookrope || json.rope || json.hook || ex.hook_rope || ex.hookrope || ex || {};
-  const g = (...keys) => {
-    for (const k of keys) {
-      const v = source?.[k];
-      if (v !== undefined && v !== null && String(v).trim() !== "") return String(v);
-    }
-    return "";
-  };
+  Object.keys(HOOK_ROPE_DEFAULT).forEach(k => {
+    if (k === "extra_pairs") return;
+    const v = source?.[k];
+    if (v !== undefined && v !== null && String(v).trim() !== "") out[k] = String(v);
+  });
 
-  if (Object.keys(source || {}).length) {
-    out.latch = g("latch","Latch") || (g("hook1_safety_catch").toLowerCase()==="yes" ? "PASS" : g("hook1_safety_catch") ? "FAIL" : out.latch);
-    out.structural = g("structural","Structural") || (g("hook1_cracks").toLowerCase()==="yes" ? "FAIL" : g("hook1_cracks") ? "PASS" : out.structural);
-    out.hook1_swl = g("hook1_swl","hook_1_swl","Hook 1 SWL");
-    out.hook1_sn = g("hook1_sn","hook_1_sn","Hook 1 SN");
-    out.hook_ab = g("hook_ab","hook1_ab","Hook AB");
-    out.hook_ac = g("hook_ac","hook1_ac","Hook AC");
-    out.hook2_swl = g("hook2_swl","hook_2_swl","Hook 2 SWL");
-    out.hook2_sn = g("hook2_sn","hook_2_sn","Hook 2 SN");
-    out.hook2_ab = g("hook2_ab","Hook 2 AB");
-    out.hook2_ac = g("hook2_ac","Hook 2 AC");
-    out.rope_dia = g("rope_dia","rope_diameter_main","Rope dia");
-    out.aux_dia = g("aux_dia","rope_diameter_aux","Aux dia");
-    out.broken_wires = g("broken_wires","broken_wires_main","Broken wires") || out.broken_wires;
-    out.corrosion = g("corrosion","corrosion_main","Corrosion") || out.corrosion;
-    out.kinks = g("kinks","rope_kinks_main","Kinks") || out.kinks;
-    out.end_fittings = g("end_fittings","end_fittings_main","End fittings") || out.end_fittings;
-    out.serviceability = g("serviceability","serviceability_main","Serviceability") || out.serviceability;
-    out.drum = g("drum","drum_main_condition","Drum") || out.drum;
-    out.rope_lay = g("rope_lay","rope_lay_main","Rope lay") || out.rope_lay;
-    out.aux_drum = g("aux_drum","drum_aux_condition","Aux drum") || out.aux_drum;
-    out.drum_main = g("drum_main","drum_main_condition","Drum main");
-    out.drum_aux = g("drum_aux","drum_aux_condition","Drum aux");
-    out.lay_main = g("lay_main","rope_lay_main","Lay main");
-    out.lay_aux = g("lay_aux","rope_lay_aux","Lay aux");
-    out.reduction = g("reduction","reduction_dia_main","Reduction");
-    out.core_protrusion = g("core_protrusion","core_protrusion_main","Core protrusion");
-    out.lower_limit = g("lower_limit","lower_limit_main","Lower limit");
-    out.damaged_strands = g("damaged_strands","damaged_strands_main","Damaged strands");
-    out.other_defects = g("other_defects","other_defects_main","Other defects");
-    out.notes = g("notes","comments","Notes");
-    out.defects = g("defects","defects_found","Defects");
+  if (isJsonNotes(notesStr || "")) {
+    const parsed = safeJsonParse(notesStr,{});
+    const js = parsed.hookrope || parsed.hook_rope || parsed.hookRope || parsed;
+    Object.keys(HOOK_ROPE_DEFAULT).forEach(k => {
+      if (k === "extra_pairs") return;
+      const v = js?.[k];
+      if (v !== undefined && v !== null && String(v).trim() !== "") out[k] = String(v);
+    });
+    return out;
   }
 
-  if (!notesStr || isJsonNotes(notesStr)) return out;
-
-  const pairs = parseNotesPipe(notesStr);
+  const pairs = parseNotesPipe(notesStr || "");
   const used = new Set();
   pairs.forEach(({key,value}) => {
-    const k = normalizeHookRopeKey(key);
-    const v = value == null ? "" : String(value);
-    const set = (field) => { out[field] = v; used.add(key); };
-    switch(k) {
-      case "latch": set("latch"); break;
-      case "structural": set("structural"); break;
-      case "hook_1_swl": case "hook1_swl": set("hook1_swl"); break;
-      case "hook_1_sn": case "hook1_sn": set("hook1_sn"); break;
-      case "hook_ab": case "hook_1_ab": case "hook1_ab": set("hook_ab"); break;
-      case "hook_ac": case "hook_1_ac": case "hook1_ac": set("hook_ac"); break;
-      case "hook_2_swl": case "hook2_swl": set("hook2_swl"); break;
-      case "hook_2_sn": case "hook2_sn": set("hook2_sn"); break;
-      case "hook_2_ab": case "hook2_ab": set("hook2_ab"); break;
-      case "hook_2_ac": case "hook2_ac": set("hook2_ac"); break;
-      case "rope_dia": case "rope_diameter": case "diameter": set("rope_dia"); break;
-      case "aux_dia": case "aux_diameter": set("aux_dia"); break;
-      case "broken_wires": set("broken_wires"); break;
-      case "corrosion": set("corrosion"); break;
-      case "kinks": case "rope_kinks": set("kinks"); break;
-      case "end_fittings": set("end_fittings"); break;
-      case "serviceability": set("serviceability"); break;
-      case "drum": set("drum"); break;
-      case "rope_lay": set("rope_lay"); break;
-      case "aux_drum": set("aux_drum"); break;
-      case "drum_main": set("drum_main"); break;
-      case "drum_aux": set("drum_aux"); break;
-      case "lay_main": set("lay_main"); break;
-      case "lay_aux": set("lay_aux"); break;
-      case "reduction": case "reduction_dia": set("reduction"); break;
-      case "core_protrusion": set("core_protrusion"); break;
-      case "lower_limit": set("lower_limit"); break;
-      case "damaged_strands": set("damaged_strands"); break;
-      case "other_defects": set("other_defects"); break;
-      case "notes": case "comments": set("notes"); break;
-      case "defects": case "defects_found": set("defects"); break;
-      default: break;
+    const norm = normalizeHookRopeKey(key);
+    const mapped = HOOK_ROPE_PIPE_ALIASES[norm];
+    if (!mapped) return;
+    used.add(norm);
+
+    if (norm === "latch") {
+      out.hook1_safety_catch = passFailToYesNo(value, true);
+      return;
     }
+    if (norm === "structural") {
+      out.hook1_cracks = passFailToYesNo(value, false);
+      return;
+    }
+    if (mapped === "rope_diameter_main" || mapped === "rope_diameter_aux") {
+      out[mapped] = stripMm(value);
+      return;
+    }
+    out[mapped] = value == null ? "" : String(value);
   });
-  out.extra_pairs = pairs.filter(p => !used.has(p.key) && p.key && !HOOK_ROPE_KNOWN_KEYS.some(k => normalizeHookRopeKey(k) === normalizeHookRopeKey(p.key)));
+
+  out.extra_pairs = pairs.filter(p => {
+    const norm=normalizeHookRopeKey(p.key);
+    return p.key && !used.has(norm) && !HOOK_ROPE_KNOWN_PIPE_KEYS.includes(norm);
+  });
+
   return out;
 }
 
-function cleanRopeDia(v) {
-  const s = String(v || "").trim();
-  if (!s) return "";
-  return /mm|ø/i.test(s) ? s : `${s}mm`;
+function hookRopeToExtractedData(hr) {
+  const out={};
+  Object.keys(HOOK_ROPE_DEFAULT).forEach(k => {
+    if (k === "extra_pairs") return;
+    out[k] = hr?.[k] == null ? "" : String(hr[k]);
+  });
+  return out;
 }
 
 function buildHookRopeNotes(hr, equipmentType="") {
   const typeText = String(equipmentType || "").replace(/&amp;/gi,"&").trim();
-  const isHook = /hook/i.test(typeText);
-  const isRope = /wire\s*rope/i.test(typeText);
+  const isRopeOnly = /wire\s*rope/i.test(typeText) && !/hook/i.test(typeText);
 
-  // Plain "Hook" certificates in your system still print the full Hook & Rope report.
-  // Therefore a Hook certificate must save both hook and rope pipe keys.
-  const saveBoth = !isHook && !isRope ? true : isHook;
+  const pairs=[];
+  const add=(key,val,force=false)=>{
+    const s=val==null?"":String(val).trim();
+    if (force || s) pairs.push({key,value:s});
+  };
 
-  const pairs = [];
-  const add = (key,val) => { if (val !== undefined && val !== null && String(val).trim() !== "") pairs.push({key,value:String(val).trim()}); };
-
-  if (isHook || saveBoth) {
-    add("Latch", hr.latch || "PASS");
-    add("Structural", hr.structural || "PASS");
+  if (!isRopeOnly) {
+    add("Latch", String(hr.hook1_safety_catch||"").toLowerCase()==="yes" ? "PASS" : "FAIL", true);
+    add("Structural", String(hr.hook1_cracks||"").toLowerCase()==="yes" ? "FAIL" : "PASS", true);
     add("Hook 1 SWL", hr.hook1_swl);
     add("Hook 1 SN", hr.hook1_sn);
-    add("Hook AB", hr.hook_ab);
-    add("Hook AC", hr.hook_ac);
+    add("Hook AB", hr.hook1_ab);
+    add("Hook AC", hr.hook1_ac);
     add("Hook 2 SWL", hr.hook2_swl);
     add("Hook 2 SN", hr.hook2_sn);
     add("Hook 2 AB", hr.hook2_ab);
     add("Hook 2 AC", hr.hook2_ac);
-    add("Rope dia", cleanRopeDia(hr.rope_dia));
-    add("Broken wires", hr.broken_wires || "none");
-    add("Corrosion", hr.corrosion || "none");
-    add("Kinks", hr.kinks || "none");
+    add("Hook 3 SWL", hr.hook3_swl);
+    add("Hook 3 SN", hr.hook3_sn);
   }
 
-  if (isRope || saveBoth) {
-    add("Rope dia", cleanRopeDia(hr.rope_dia));
-    add("Broken wires", hr.broken_wires || "none");
-    add("Corrosion", hr.corrosion || "none");
-    add("Kinks", hr.kinks || "none");
-    add("End fittings", hr.end_fittings || "none");
-    add("Serviceability", hr.serviceability || "Good");
-    add("Drum", hr.drum || "Good");
-    add("Rope lay", hr.rope_lay || "Good");
-    add("Aux dia", cleanRopeDia(hr.aux_dia));
-    add("Aux drum", hr.aux_drum || "Good");
-    add("Drum main", hr.drum_main);
-    add("Drum aux", hr.drum_aux);
-    add("Lay main", hr.lay_main);
-    add("Lay aux", hr.lay_aux);
-    add("Reduction", hr.reduction);
-    add("Core protrusion", hr.core_protrusion);
-    add("Lower limit", hr.lower_limit);
-    add("Damaged strands", hr.damaged_strands);
-    add("Other defects", hr.other_defects);
-  }
-
-  add("Notes", hr.notes);
-  add("Defects", hr.defects);
+  add("Rope dia", withMm(hr.rope_diameter_main));
+  add("Aux dia", withMm(hr.rope_diameter_aux));
+  add("Drum", hr.drum_main_condition || "Good", true);
+  add("Aux drum", hr.drum_aux_condition || "Good", true);
+  add("Drum main", hr.drum_main_condition || "Good", true);
+  add("Drum aux", hr.drum_aux_condition || "Good", true);
+  add("Rope lay", hr.rope_lay_main || "Good", true);
+  add("Lay main", hr.rope_lay_main || "Good", true);
+  add("Lay aux", hr.rope_lay_aux || "Good", true);
+  add("Rope length 3x main", hr.rope_length_3x_main || "Yes", true);
+  add("Rope length 3x aux", hr.rope_length_3x_aux || "Yes", true);
+  add("Reduction", hr.reduction_dia_main || "none", true);
+  add("Reduction aux", hr.reduction_dia_aux || "none", true);
+  add("Core protrusion", hr.core_protrusion_main || "None", true);
+  add("Core protrusion aux", hr.core_protrusion_aux || "None", true);
+  add("Corrosion", hr.corrosion_main || "none", true);
+  add("Corrosion aux", hr.corrosion_aux || "none", true);
+  add("Broken wires", hr.broken_wires_main || "none", true);
+  add("Broken wires aux", hr.broken_wires_aux || "none", true);
+  add("Kinks", hr.rope_kinks_main || "none", true);
+  add("Kinks aux", hr.rope_kinks_aux || "none", true);
+  add("Other defects", hr.other_defects_main || "none", true);
+  add("Other defects aux", hr.other_defects_aux || "none", true);
+  add("End fittings", hr.end_fittings_main || "Good", true);
+  add("End fittings aux", hr.end_fittings_aux || "Good", true);
+  add("Serviceability", hr.serviceability_main || "Good", true);
+  add("Serviceability aux", hr.serviceability_aux || "Good", true);
+  add("Lower limit", hr.lower_limit_main);
+  add("Lower limit aux", hr.lower_limit_aux);
+  add("Damaged strands", hr.damaged_strands_main || "none", true);
+  add("Damaged strands aux", hr.damaged_strands_aux || "none", true);
+  add("Notes", hr.comments);
+  add("Defects", hr.defects_found);
   (hr.extra_pairs || []).forEach(p => add(p.key,p.value));
 
-  // Prevent duplicate pipe keys when a plain Hook certificate saves both hook and rope sections.
-  const seen = new Set();
-  const unique = [];
-  for (let i = pairs.length - 1; i >= 0; i--) {
-    const norm = normalizeHookRopeKey(pairs[i].key);
-    if (!seen.has(norm)) {
-      seen.add(norm);
-      unique.unshift(pairs[i]);
-    }
+  const seen=new Set();
+  const unique=[];
+  for (let i=pairs.length-1;i>=0;i--) {
+    const norm=normalizeHookRopeKey(pairs[i].key);
+    if (!seen.has(norm)) { seen.add(norm); unique.unshift(pairs[i]); }
   }
   return buildNotesPipe(unique);
 }
@@ -467,7 +505,7 @@ function hookRopeToRows(hr) {
     key:normalizeFieldToken(p.key),
     label:p.key,
     value:p.value,
-    path:["hook_rope",normalizeFieldToken(p.key)],
+    path:["hookrope",normalizeFieldToken(p.key)],
   }));
 }
 
@@ -859,103 +897,152 @@ function WireRopeSlingEditor({wrs,onChange}) {
 
 
 /* ─────────────────────────────────────────────────────────────
-   HOOK & ROPE EDITOR
+   HOOK & ROPE EDITOR — same route as Cherry Picker editor, exact HookRopeMode fields
 ───────────────────────────────────────────────────────────── */
-const HR_PASS_FAIL = ["PASS","FAIL","REPAIR_REQUIRED"];
-const HR_COND = ["Good","Fair","Poor","FAIL"];
-const HR_MINOR_COND = ["none","light","moderate","severe"];
-const HR_SERVICE = ["Good","Serviceable","Conditionally Serviceable","Unserviceable"];
+const HR_YN = ["yes","no"];
+const HR_YN_OK = ["yes","no","OK"];
+const HR_GOOD = ["Good","Fair","Poor","FAIL"];
+const HR_RESULT = ["PASS","FAIL","CONDITIONAL"];
 
-function HookRopeEditor({hr,onChange,equipmentType}) {
+function MiniSelect({value,onChange,options,color=T.accent}) {
+  return <SelectChips value={value||""} onChange={onChange} options={options} color={color}/>;
+}
+
+function HookRopeEditor({hr,onChange}) {
   const set=(key,val)=>onChange({...hr,[key]:val});
-  const isHook = /hook/i.test(equipmentType || "");
-  const isRope = /wire\s*rope/i.test(equipmentType || "");
-  const showBoth = !isHook && !isRope;
   const inp=(key,placeholder="")=>(
     <input value={hr[key]||""} onChange={e=>set(key,e.target.value)} placeholder={placeholder||"—"}
       style={{...IS,minHeight:40,fontSize:12}}/>
   );
-  const chip = (key, options, color=T.accent) => (
-    <SelectChips value={hr[key]||""} onChange={v=>set(key,v)} options={options} color={color}/>
+  const area=(key,placeholder="")=>(
+    <textarea value={hr[key]||""} onChange={e=>set(key,e.target.value)} rows={2} placeholder={placeholder||"—"}
+      style={{...IS,minHeight:66,fontSize:12,resize:"vertical"}}/>
   );
+
+  const CondRow=({label,mainKey,auxKey,opts=HR_GOOD})=>(
+    <div style={{display:"grid",gridTemplateColumns:"minmax(180px,1fr) minmax(190px,1.2fr) minmax(190px,1.2fr)",gap:8,alignItems:"center",padding:"8px 10px",borderBottom:`1px solid ${T.border}`}}>
+      <div style={{fontSize:12,fontWeight:700,color:T.textMid}}>{label}</div>
+      <div><MiniSelect value={hr[mainKey]} onChange={v=>set(mainKey,v)} options={opts} color={T.purple}/></div>
+      <div><MiniSelect value={hr[auxKey]} onChange={v=>set(auxKey,v)} options={opts} color={T.purple}/></div>
+    </div>
+  );
+
+  const TextRow=({label,mainKey,auxKey,phMain="",phAux=""})=>(
+    <div style={{display:"grid",gridTemplateColumns:"minmax(180px,1fr) minmax(190px,1.2fr) minmax(190px,1.2fr)",gap:8,alignItems:"center",padding:"8px 10px",borderBottom:`1px solid ${T.border}`}}>
+      <div style={{fontSize:12,fontWeight:700,color:T.textMid}}>{label}</div>
+      <input value={hr[mainKey]||""} onChange={e=>set(mainKey,e.target.value)} placeholder={phMain||"Main"} style={{...IS,minHeight:36,fontSize:12}}/>
+      <input value={hr[auxKey]||""} onChange={e=>set(auxKey,e.target.value)} placeholder={phAux||"Aux"} style={{...IS,minHeight:36,fontSize:12}}/>
+    </div>
+  );
+
+  const HookBlock=({n,title})=>{
+    const p=`hook${n}_`;
+    return (
+      <div style={{border:`1px solid ${T.amberBrd}`,borderRadius:12,background:"rgba(251,191,36,0.045)",overflow:"hidden"}}>
+        <div style={{padding:"9px 12px",background:"rgba(251,191,36,0.09)",borderBottom:`1px solid ${T.amberBrd}`,fontSize:11,fontWeight:900,letterSpacing:"0.1em",textTransform:"uppercase",color:T.amber}}>{title}</div>
+        <div style={{padding:12,display:"grid",gap:10}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
+            <F label={`Hook ${n} SWL`}>{inp(`${p}swl`,"e.g. 14 TON")}</F>
+            <F label={`Hook ${n} Serial No.`}>{inp(`${p}sn`,"serial number")}</F>
+            <F label="A-B Measurement">{inp(`${p}ab`,"mm")}</F>
+            <F label="A-C Measurement">{inp(`${p}ac`,"mm")}</F>
+          </div>
+          <div style={{display:"grid",gap:9}}>
+            <div><label style={LS}>SWL marked on hook</label><MiniSelect value={hr[`${p}swl_marked`]} onChange={v=>set(`${p}swl_marked`,v)} options={HR_YN} color={T.green}/></div>
+            <div><label style={LS}>Safety catch fitted & good condition</label><MiniSelect value={hr[`${p}safety_catch`]} onChange={v=>set(`${p}safety_catch`,v)} options={HR_YN} color={T.green}/></div>
+            <div><label style={LS}>Signs of cracks</label><MiniSelect value={hr[`${p}cracks`]} onChange={v=>set(`${p}cracks`,v)} options={HR_YN} color={T.red}/></div>
+            <div><label style={LS}>Swivel free under load</label><MiniSelect value={hr[`${p}swivel`]} onChange={v=>set(`${p}swivel`,v)} options={HR_YN} color={T.green}/></div>
+            <div><label style={LS}>Corrosion on hook</label><MiniSelect value={hr[`${p}corrosion`]} onChange={v=>set(`${p}corrosion`,v)} options={HR_YN} color={T.red}/></div>
+            <div><label style={LS}>Hook side bending max 5%</label><MiniSelect value={hr[`${p}side_bending`]} onChange={v=>set(`${p}side_bending`,v)} options={HR_YN_OK} color={T.green}/></div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div style={{display:"grid",gap:18}}>
-      {(isHook || showBoth) && (
-        <div>
-          <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.amber,borderLeft:`3px solid ${T.amber}`,paddingLeft:8,marginBottom:12}}>Hook Inspection</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10,marginBottom:12}}>
-            <F label="Hook 1 SWL">{inp("hook1_swl","e.g. 55T")}</F>
-            <F label="Hook 1 Serial No.">{inp("hook1_sn","e.g. HK-001")}</F>
-            <F label="Hook AB Measurement">{inp("hook_ab","e.g. 120mm")}</F>
-            <F label="Hook AC Measurement">{inp("hook_ac","e.g. 95mm")}</F>
-            <F label="Hook 2 SWL">{inp("hook2_swl","optional")}</F>
-            <F label="Hook 2 Serial No.">{inp("hook2_sn","optional")}</F>
-            <F label="Hook 2 AB Measurement">{inp("hook2_ab","optional")}</F>
-            <F label="Hook 2 AC Measurement">{inp("hook2_ac","optional")}</F>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:10}}>
-            <div style={{padding:"10px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:"rgba(18,30,50,0.40)"}}>
-              <div style={{fontSize:12,fontWeight:800,color:T.textMid,marginBottom:8}}>Latch / Safety Catch</div>
-              {chip("latch",HR_PASS_FAIL,T.green)}
-            </div>
-            <div style={{padding:"10px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:"rgba(18,30,50,0.40)"}}>
-              <div style={{fontSize:12,fontWeight:800,color:T.textMid,marginBottom:8}}>Structural / Cracks</div>
-              {chip("structural",HR_PASS_FAIL,T.green)}
-            </div>
-          </div>
+      <div style={{padding:"12px 14px",borderRadius:12,border:`1px solid ${T.amberBrd}`,background:T.amberDim}}>
+        <div style={{fontSize:13,fontWeight:900,color:T.amber,marginBottom:4}}>🪝 Hook &amp; Rope Inspection Editor</div>
+        <div style={{fontSize:11,color:T.textDim}}>Exact fields from <strong>src/app/certificates/import/HookRopeMode.jsx</strong>. No sandblasting values.</div>
+      </div>
+
+      <div>
+        <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.accent,borderLeft:`3px solid ${T.accent}`,paddingLeft:8,marginBottom:12}}>Crane &amp; Job Details</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10}}>
+          <F label="Client Name">{inp("client_name","client")}</F>
+          <F label="Location">{inp("location","site")}</F>
+          <F label="Crane Make">{inp("crane_make","make / model")}</F>
+          <F label="Crane Serial">{inp("crane_serial","serial")}</F>
+          <F label="Crane Fleet">{inp("crane_fleet","fleet")}</F>
+          <F label="Crane SWL">{inp("crane_swl","e.g. 14 TON")}</F>
+          <F label="Machine Hours">{inp("machine_hours","hours")}</F>
+          <F label="Report Number">{inp("report_number","HR 2240-01")}</F>
+          <F label="Inspection Date"><input type="date" value={hr.inspection_date||""} onChange={e=>set("inspection_date",e.target.value)} style={{...IS,minHeight:40,fontSize:12}}/></F>
+          <F label="Expiry Date"><input type="date" value={hr.expiry_date||""} onChange={e=>set("expiry_date",e.target.value)} style={{...IS,minHeight:40,fontSize:12}}/></F>
         </div>
-      )}
+      </div>
 
-      {(isRope || showBoth || isHook) && (
-        <div>
-          <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.purple,borderLeft:`3px solid ${T.purple}`,paddingLeft:8,marginBottom:12}}>Wire Rope / Drum Inspection</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10,marginBottom:12}}>
-            <F label="Main Rope Diameter">{inp("rope_dia","e.g. 20mm")}</F>
-            <F label="Aux Rope Diameter">{inp("aux_dia","optional")}</F>
-            <F label="Drum Main">{inp("drum_main","e.g. Good")}</F>
-            <F label="Drum Aux">{inp("drum_aux","e.g. Good")}</F>
-            <F label="Lay Main">{inp("lay_main","e.g. Good")}</F>
-            <F label="Lay Aux">{inp("lay_aux","e.g. Good")}</F>
-            <F label="Reduction in Diameter">{inp("reduction","e.g. none / 2%")}</F>
-            <F label="Core Protrusion">{inp("core_protrusion","e.g. none")}</F>
-            <F label="Lower Limit">{inp("lower_limit","e.g. functional")}</F>
-            <F label="Damaged Strands">{inp("damaged_strands","e.g. none")}</F>
+      <div>
+        <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.purple,borderLeft:`3px solid ${T.purple}`,paddingLeft:8,marginBottom:12}}>Hoist Drum &amp; Rope Condition</div>
+        <div style={{border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden",background:"rgba(255,255,255,0.015)"}}>
+          <div style={{display:"grid",gridTemplateColumns:"minmax(180px,1fr) minmax(190px,1.2fr) minmax(190px,1.2fr)",gap:8,padding:"8px 10px",background:"rgba(11,29,58,0.80)",borderBottom:`1px solid ${T.border}`}}>
+            <div style={{fontSize:10,fontWeight:900,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.08em"}}>Item</div>
+            <div style={{fontSize:10,fontWeight:900,color:T.accent,textTransform:"uppercase",letterSpacing:"0.08em"}}>Main Hoist</div>
+            <div style={{fontSize:10,fontWeight:900,color:T.accent,textTransform:"uppercase",letterSpacing:"0.08em"}}>Auxiliary Hoist</div>
           </div>
-
-          <div style={{display:"grid",gap:12}}>
-            {[
-              {key:"broken_wires",label:"Broken Wires",opts:["none","1-2 wires","3-5 wires",">5 wires (reject)"]},
-              {key:"corrosion",label:"Corrosion",opts:HR_MINOR_COND},
-              {key:"kinks",label:"Kinks / Rope Deformation",opts:["none","slight","moderate","severe (reject)"]},
-              {key:"end_fittings",label:"End Fittings",opts:["none","Good","Fair","Poor","Damaged (replace)"]},
-              {key:"serviceability",label:"Serviceability",opts:HR_SERVICE},
-              {key:"drum",label:"Drum Condition",opts:HR_COND},
-              {key:"rope_lay",label:"Rope Lay",opts:HR_COND},
-              {key:"aux_drum",label:"Aux Drum",opts:HR_COND},
-            ].map(({key,label,opts})=>(
-              <div key={key} style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,padding:"10px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:"rgba(18,30,50,0.40)",flexWrap:"wrap"}}>
-                <div style={{fontSize:12,fontWeight:700,color:T.textMid,minWidth:210,paddingTop:2}}>{label}</div>
-                <div style={{flex:1,minWidth:220}}>
-                  <SelectChips value={hr[key]||""} onChange={v=>set(key,v)} options={opts} color={T.purple}/>
-                  <input value={hr[key]||""} onChange={e=>set(key,e.target.value)} placeholder="or type custom value…"
-                    style={{marginTop:6,width:"100%",padding:"5px 9px",borderRadius:7,border:`1px solid ${T.border}`,background:"rgba(18,30,50,0.50)",color:T.textMid,fontSize:11,fontFamily:"'IBM Plex Sans',sans-serif",outline:"none",minHeight:32,boxSizing:"border-box"}}/>
-                </div>
-              </div>
-            ))}
-          </div>
+          <CondRow label="Hoist Drum Condition" mainKey="drum_main_condition" auxKey="drum_aux_condition" opts={HR_GOOD}/>
+          <CondRow label="Hoist Rope Lay on Drum" mainKey="rope_lay_main" auxKey="rope_lay_aux" opts={HR_GOOD}/>
         </div>
-      )}
+      </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-        <F label="Other Defects"><textarea value={hr.other_defects||""} onChange={e=>set("other_defects",e.target.value)} rows={2} style={{...IS,minHeight:64,resize:"vertical"}} placeholder="Any other rope/hook defects…"/></F>
-        <F label="Defects Found"><textarea value={hr.defects||""} onChange={e=>set("defects",e.target.value)} rows={2} style={{...IS,minHeight:64,resize:"vertical"}} placeholder="Printed as Defects key…"/></F>
-        <F label="Notes / Comments" span={2}><textarea value={hr.notes||""} onChange={e=>set("notes",e.target.value)} rows={3} style={{...IS,minHeight:82,resize:"vertical"}} placeholder="General comments…"/></F>
+      <div>
+        <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.purple,borderLeft:`3px solid ${T.purple}`,paddingLeft:8,marginBottom:12}}>Steel Wire Rope Inspection</div>
+        <div style={{border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden",background:"rgba(255,255,255,0.015)"}}>
+          <div style={{display:"grid",gridTemplateColumns:"minmax(180px,1fr) minmax(190px,1.2fr) minmax(190px,1.2fr)",gap:8,padding:"8px 10px",background:"rgba(11,29,58,0.80)",borderBottom:`1px solid ${T.border}`}}>
+            <div style={{fontSize:10,fontWeight:900,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.08em"}}>Inspection Item</div>
+            <div style={{fontSize:10,fontWeight:900,color:T.accent,textTransform:"uppercase",letterSpacing:"0.08em"}}>Main</div>
+            <div style={{fontSize:10,fontWeight:900,color:T.accent,textTransform:"uppercase",letterSpacing:"0.08em"}}>Aux</div>
+          </div>
+          <TextRow label="Rope Diameter (mm)" mainKey="rope_diameter_main" auxKey="rope_diameter_aux" phMain="main mm" phAux="aux mm"/>
+          <CondRow label="Rope length (3x windings)" mainKey="rope_length_3x_main" auxKey="rope_length_3x_aux" opts={HR_YN}/>
+          <TextRow label="Reduction in rope Dia. (max 10%)" mainKey="reduction_dia_main" auxKey="reduction_dia_aux"/>
+          <TextRow label="Core Protrusion" mainKey="core_protrusion_main" auxKey="core_protrusion_aux"/>
+          <TextRow label="Corrosion" mainKey="corrosion_main" auxKey="corrosion_aux"/>
+          <TextRow label="Broken wires" mainKey="broken_wires_main" auxKey="broken_wires_aux"/>
+          <TextRow label="Rope kinks / deforming" mainKey="rope_kinks_main" auxKey="rope_kinks_aux"/>
+          <TextRow label="Other defects" mainKey="other_defects_main" auxKey="other_defects_aux"/>
+          <TextRow label="End fitting / attachments" mainKey="end_fittings_main" auxKey="end_fittings_aux"/>
+          <TextRow label="Serviceability" mainKey="serviceability_main" auxKey="serviceability_aux"/>
+          <TextRow label="Lower limit" mainKey="lower_limit_main" auxKey="lower_limit_aux"/>
+          <TextRow label="Damaged strands" mainKey="damaged_strands_main" auxKey="damaged_strands_aux"/>
+        </div>
+      </div>
+
+      <div>
+        <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.amber,borderLeft:`3px solid ${T.amber}`,paddingLeft:8,marginBottom:12}}>Hook Inspection Criteria</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(290px,1fr))",gap:12}}>
+          <HookBlock n="1" title="Hook 1 (Main)"/>
+          <HookBlock n="2" title="Hook 2 (Aux)"/>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10,marginTop:12}}>
+          <F label="Hook 3 Serial No.">{inp("hook3_sn","optional")}</F>
+          <F label="Hook 3 SWL">{inp("hook3_swl","optional")}</F>
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:12}}>
+        <div style={{padding:"12px 14px",borderRadius:12,border:`1px solid ${T.greenBrd}`,background:T.greenDim}}>
+          <label style={{...LS,color:T.green}}>Overall Result</label>
+          <MiniSelect value={hr.overall_result||"PASS"} onChange={v=>set("overall_result",v)} options={HR_RESULT} color={T.green}/>
+        </div>
+        <F label="Defects Found">{area("defects_found","defects found")}</F>
+        <F label="Comments">{area("comments","comments / notes")}</F>
       </div>
 
       {(hr.extra_pairs||[]).length>0&&(
         <div style={{border:`1px dashed ${T.border}`,borderRadius:10,padding:12,background:"rgba(255,255,255,0.015)"}}>
-          <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",color:T.textDim,marginBottom:8}}>Extra Imported Keys</div>
+          <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",color:T.textDim,marginBottom:8}}>Extra Imported Pipe Keys</div>
           <div style={{display:"grid",gap:8}}>
             {(hr.extra_pairs||[]).map((p,i)=>(
               <div key={`${p.key}-${i}`} style={{display:"grid",gridTemplateColumns:"1fr 1fr 32px",gap:8}}>
@@ -1401,7 +1488,23 @@ function CertificateEditInner() {
       setJsonRows([]); setNotePairs([]);
     } else if (isHookRopeEquipment(equipType)) {
       setNotesMode("hookrope");
-      setHookRopeData(parseHookRopeNotes(rawNotes, storedExtracted));
+      const oldHookRope = getHookRopeSource(storedExtracted);
+      const hookRopeSource = {
+        ...oldHookRope,
+        client_name: data.client_name || data.company || oldHookRope.client_name || "",
+        location: data.location || oldHookRope.location || "",
+        crane_make: data.model || data.manufacturer || oldHookRope.crane_make || "",
+        crane_serial: data.serial_number || oldHookRope.crane_serial || "",
+        crane_fleet: data.fleet_number || oldHookRope.crane_fleet || "",
+        crane_swl: data.swl || oldHookRope.crane_swl || "",
+        inspection_date: toDate(data.inspection_date || data.issue_date) || oldHookRope.inspection_date || "",
+        expiry_date: toDate(data.expiry_date || data.valid_to) || oldHookRope.expiry_date || "",
+        report_number: data.inspection_number || data.inspection_no || oldHookRope.report_number || "",
+        overall_result: data.result || oldHookRope.overall_result || "PASS",
+        defects_found: data.defects_found || oldHookRope.defects_found || "",
+        comments: data.comments || data.remarks || oldHookRope.comments || "",
+      };
+      setHookRopeData(parseHookRopeNotes(rawNotes, hookRopeSource));
       setJsonRows([]); setNotePairs([]);
     } else if (isWireRopeSling(equipType)) {
       setNotesMode("wrs");
@@ -1482,7 +1585,34 @@ function CertificateEditInner() {
     setSaving(true); setError(""); setSuccess("");
     try {
       const finalNotes = buildFinalNotes();
-      const mergedInspectionData = mergeInspectionData(baseExtractedData, finalNotes, notesMode);
+      const mergedInspectionData = notesMode==="hookrope"
+        ? {
+            ...safeJsonParse(baseExtractedData,{}),
+            hookrope: hookRopeToExtractedData(hookRopeData),
+            hook_rope: hookRopeToExtractedData(hookRopeData),
+            ...Object.fromEntries(parseNotesPipe(finalNotes).map(p=>[p.key,p.value])),
+          }
+        : mergeInspectionData(baseExtractedData, finalNotes, notesMode);
+
+      const hookRopeExtras = notesMode==="hookrope" ? {
+        client_name:         hookRopeData.client_name || form.client_name || null,
+        location:            hookRopeData.location || form.location || null,
+        model:               hookRopeData.crane_make || form.model || null,
+        serial_number:       hookRopeData.crane_serial || form.serial_number || null,
+        fleet_number:        hookRopeData.crane_fleet || form.fleet_number || null,
+        swl:                 hookRopeData.hook1_swl || hookRopeData.crane_swl || form.swl || null,
+        inspection_date:     hookRopeData.inspection_date || form.inspection_date || null,
+        issue_date:          hookRopeData.inspection_date || form.issue_date || null,
+        expiry_date:         hookRopeData.expiry_date || form.expiry_date || null,
+        next_inspection_due: hookRopeData.expiry_date || form.next_inspection_due || null,
+        next_inspection_date:hookRopeData.expiry_date || form.next_inspection_due || null,
+        inspection_number:   hookRopeData.report_number || form.inspection_number || null,
+        result:              hookRopeData.overall_result || form.result || "PASS",
+        equipment_status:    hookRopeData.overall_result || form.result || "PASS",
+        defects_found:       hookRopeData.defects_found || form.defects_found || null,
+        comments:            hookRopeData.comments || form.comments || null,
+        remarks:             hookRopeData.comments || form.comments || null,
+      } : {};
 
       // For SBP also sync flat cert columns from sbpData
       const sbpExtras = notesMode==="sbp" ? {
@@ -1551,6 +1681,7 @@ function CertificateEditInner() {
         folder_name:           form.folder_name           ||null,
         folder_position:       form.folder_position?Number(form.folder_position):null,
         ...sbpExtras,
+        ...hookRopeExtras,
       }).eq("id",id);
       if (e) throw e;
       setSuccess("Saved successfully.");
@@ -1606,7 +1737,7 @@ function CertificateEditInner() {
   const inspFieldCount = notesMode==="sbp" ? Object.keys(SBP_DEFAULT_CHECKLIST).length
     : notesMode==="cherry" ? Object.values(cpData).filter(v=>v&&String(v).trim()&&v!=="PASS"&&v!=="Satisfactory").length
     : notesMode==="wrs"    ? Object.values(wrsData).filter(v=>v&&String(v).trim()).length
-    : notesMode==="hookrope" ? parseNotesPipe(buildHookRopeNotes(hookRopeData, form.equipment_type)).length
+    : notesMode==="hookrope" ? Object.keys(HOOK_ROPE_DEFAULT).filter(k=>k!=="extra_pairs").length
     : notesMode==="json"   ? jsonRows.length : notePairs.length;
 
   const modeColor = notesMode==="cherry"?T.orange:notesMode==="wrs"?T.blue:notesMode==="sbp"?T.orange:notesMode==="hookrope"?T.amber:T.accent;
