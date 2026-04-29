@@ -1222,38 +1222,49 @@ function HookRopePage({ c, pn, tone, pm, logo, isRope }) {
     <span style={{ color: stateColor(children, badWhenYes), fontWeight: 800 }}>{nice(children)}</span>
   );
 
-  const Tick = ({ on }) => (
-    <span
-      style={{
-        display: "inline-flex",
-        width: 14,
-        height: 14,
-        alignItems: "center",
-        justifyContent: "center",
-        border: "1px solid #1e3a5f",
-        borderRadius: 2,
-        fontSize: 10,
-        lineHeight: 1,
-        fontWeight: 900,
-        color: on ? "#15803d" : "transparent",
-        background: on ? "#dcfce7" : "#fff",
-      }}
-    >
-      ✓
-    </span>
-  );
+  const Mark = ({ type }) => {
+    if (type === "yes") {
+      return (
+        <span
+          style={{
+            color: "#15803d",
+            fontSize: 13,
+            lineHeight: 1,
+            fontWeight: 900,
+            fontFamily: "Arial, sans-serif",
+          }}
+        >
+          ✓
+        </span>
+      );
+    }
+    if (type === "no") {
+      return (
+        <span
+          style={{
+            color: "#b91c1c",
+            fontSize: 13,
+            lineHeight: 1,
+            fontWeight: 900,
+            fontFamily: "Arial, sans-serif",
+          }}
+        >
+          ✗
+        </span>
+      );
+    }
+    return <span style={{ color: "#cbd5e1", fontWeight: 800 }}>—</span>;
+  };
 
   const YesNoCells = ({ value, defect = false }) => {
     const yn = defect ? asDefectYN(value) : asPositiveYN(value);
-    const isYes = yn === "yes";
-    const isNo = yn === "no";
     return (
       <>
-        <td style={{ textAlign: "center" }}>
-          <Tick on={isYes} />
+        <td style={{ textAlign: "center", fontWeight: 900 }}>
+          {yn === "yes" ? <Mark type="yes" /> : null}
         </td>
-        <td style={{ textAlign: "center" }}>
-          <Tick on={isNo} />
+        <td style={{ textAlign: "center", fontWeight: 900 }}>
+          {yn === "no" ? <Mark type="no" /> : null}
         </td>
       </>
     );
