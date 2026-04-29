@@ -8,7 +8,7 @@ export const maxDuration = 300;
 /* ── CONFIG ──────────────────────────────────────────────── */
 const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_BASE  = "https://generativelanguage.googleapis.com";
-const MAX_RETRIES  = 5;
+const MAX_RETRIES  = 3; // fail fast — 3 attempts max
 
 // Groq: text-only shot-2 fallback. Instant, no cooldown, 30 RPM free.
 const GROQ_KEY   = process.env.GROQ_API_KEY  || "";
@@ -28,7 +28,7 @@ const KEYS = [
 if (!KEYS.length) throw new Error("No GEMINI_API_KEY set.");
 
 // 10 RPM limit → 10s cooldown gives real headroom against 429s
-const PER_KEY_MS = 7000; // 7s per key — headroom over 6s minimum without being slow
+const PER_KEY_MS = 12000; // original proven value
 const EFF_MS     = Math.max(200, Math.ceil(PER_KEY_MS / KEYS.length));
 const cooldowns  = new Map(KEYS.map(k => [k, 0]));
 let   ki         = 0;
@@ -55,7 +55,7 @@ async function nextKey() {
   return sk;
 }
 
-function penalize(key, ms = 60000) {
+function penalize(key, ms = 15000) {
   cooldowns.set(key, Math.max(cooldowns.get(key) || Date.now(), Date.now() + ms));
 }
 
@@ -294,20 +294,20 @@ async function geminiGen(uf, fileName, sysPrompt, key, mode) {
         120000
       );
     } catch (e) {
-      if (attempt < MAX_RETRIES - 1) { await sleep(5000 * 2 ** attempt); continue; }
+      if (attempt < MAX_RETRIES - 1) { await sleep(2000 * 2 ** attempt); continue; }
       throw e;
     }
 
     if (res.status === 429) {
-      penalize(key, 60000 * (attempt + 1));
+      penalize(key, 15000); // flat 15s penalty, not escalating
       const ra = parseInt(res.headers.get("retry-after") || "0") * 1000;
-      await sleep(Math.max(ra, EFF_MS * 2 ** attempt));
+      await sleep(Math.max(ra, EFF_MS));
       const nk = await nextKey();
       if (nk !== key) return geminiGen(uf, fileName, sysPrompt, nk, mode);
       continue;
     }
     if ((res.status === 500 || res.status === 503) && attempt < MAX_RETRIES - 1) {
-      await sleep(15000 * 2 ** attempt); continue;
+      await sleep(5000); continue; // flat 5s on server error
     }
 
     const j = await res.json().catch(() => null);
@@ -318,7 +318,7 @@ async function geminiGen(uf, fileName, sysPrompt, key, mode) {
 
     const txt = geminiText(j).toLowerCase();
     if ((txt.includes("high demand") || txt.includes("try again")) && attempt < MAX_RETRIES - 1) {
-      await sleep(20000 * (attempt + 1)); continue;
+      await sleep(10000); continue; // flat 10s on overload
     }
 
     return j;
