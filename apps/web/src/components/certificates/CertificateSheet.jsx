@@ -136,57 +136,144 @@ function r(v){const s=resultStyle((v||"").toUpperCase());return<span style={{fon
    ── NOW WITH isCompressor FLAG + PRESSURE FIELDS ──
 ══════════════════════════════════════════════════════════ */
 function parsePortableOvenData(c){
-  const ex=c.extracted_data||{};
-  const pn=parseNotes(val(c.notes||"")||"");
+  const ex=(c&&c.extracted_data&&typeof c.extracted_data==="object")?c.extracted_data:{};
+  const pn=parseNotes(val(c?.notes||"")||"");
 
   function g(key,...aliases){
-    for(const k of[key,...aliases]){
-      const v=ex[k]??pn[k];
-      if(v!=null&&String(v).trim()!=="")return String(v).trim();
+    for(const k of [key,...aliases]){
+      const v=ex?.[k]??pn?.[k]??c?.[k];
+      if(v!==undefined&&v!==null&&String(v).trim()!=="")return String(v).trim();
     }
     return null;
   }
 
-  const rawType=(val(c.equipment_type)||"").toLowerCase();
-  // Detect air pump / compressor so we swap voltage+weight → pressure fields
-  const isCompressor=/air.powered.pump|air.pump|compressor|pump/i.test(rawType);
+  const rawType=String(
+    val(
+      c?.equipment_type||
+      c?.asset_type||
+      c?.equipment_description||
+      ex?.equipment_type||
+      ex?.asset_type||
+      ex?.equipment_description
+    )||""
+  ).toLowerCase();
+
+  /*
+    Anything that stores pressure data must use the same table layout as Air Powered Pump:
+    Design Pressure / Working Pressure / Test Pressure.
+    Oxygen Tank was previously falling into the voltage + weight layout.
+  */
+  const isPressureEquipment=
+    /air[\s._-]*powered[\s._-]*pump/i.test(rawType)||
+    /air[\s._-]*pump/i.test(rawType)||
+    /compressor/i.test(rawType)||
+    /pump/i.test(rawType)||
+    /oxygen[\s._-]*tank/i.test(rawType)||
+    /oxygen[\s._-]*cylinder/i.test(rawType)||
+    /pressure[\s._-]*vessel/i.test(rawType)||
+    /air[\s._-]*receiver/i.test(rawType);
 
   const result=pickResult(c);
   const isPass=result==="PASS";
   const isFail=result==="FAIL";
   const isCond=result==="CONDITIONAL"||/corrective/i.test(ex.overall_assessment||"");
 
+  const pressureUnit=
+    g(
+      "pressure_unit",
+      "Pressure Unit",
+      "pressure_units",
+      "unit",
+      "design_pressure_unit",
+      "working_pressure_unit",
+      "test_pressure_unit"
+    )||"kPa";
+
   return{
     // Page 1 — Compliance cert fields
-    company:        val(c.client_name||c.company)||"—",
-    location:       val(c.location)||"—",
-    serial_number:  val(c.serial_number)||"—",
-    issue_date:     formatDate(c.issue_date||c.issued_at)||"—",
-    expiry_date:    formatDate(c.expiry_date)||"—",
-    equipment_type: val(c.equipment_type)||"Portable Oven",
-    equipment_description: val(c.equipment_description)||"Portable Oven",
-    // Oven / WM fields
-    power_voltage:  g("power_voltage","voltage","POWER VOLTAGE","Voltage")||"—",
-    weight:         g("weight","WEIGHT(KG)","Weight","capacity_volume")||"—",
-    // Compressor / pump pressure fields
-    design_pressure:  g("design_pressure","Design Pressure")||"—",
-    working_pressure: g("working_pressure","Working Pressure")||"—",
-    test_pressure:    g("test_pressure","Test Pressure")||"—",
-    pressure_unit:    g("pressure_unit","Pressure Unit")||"Kpa",
-    inspector_name: val(c.inspector_name)||"Moemedi Masupe",
-    inspector_id:   val(c.inspector_id)||"700117910",
-    partners:       Array.isArray(ex.partners)?ex.partners:["Lycopodium","SMEI PROJECTS","Onetrack Engineering","Metso Outotec Australia limited"],
+    company:        val(c?.client_name||c?.company||ex?.client_name||ex?.company)||"—",
+    location:       val(c?.location||c?.equipment_location||ex?.location||ex?.equipment_location)||"—",
+    serial_number:  val(c?.serial_number||c?.identification_number||ex?.serial_number||ex?.identification_number||ex?.equipment_serial)||"—",
+    issue_date:     formatDate(c?.issue_date||c?.issued_at||ex?.issue_date||ex?.issued_at)||"—",
+    expiry_date:    formatDate(c?.expiry_date||c?.valid_to||ex?.expiry_date||ex?.valid_to)||"—",
+    equipment_type: val(c?.equipment_type||c?.asset_type||ex?.equipment_type||ex?.asset_type)||"Portable Oven",
+    equipment_description: val(c?.equipment_description||c?.asset_name||ex?.equipment_description||ex?.asset_name)||"Portable Oven",
+
+    // Oven / welding machine fields
+    power_voltage:
+      g(
+        "power_voltage",
+        "voltage",
+        "rated_voltage",
+        "supply_voltage",
+        "input_voltage",
+        "POWER VOLTAGE",
+        "Voltage"
+      )||"—",
+
+    weight:
+      g(
+        "weight",
+        "weight_kg",
+        "equipment_weight",
+        "net_weight",
+        "mass",
+        "WEIGHT(KG)",
+        "Weight",
+        "capacity_volume"
+      )||"—",
+
+    // Pressure equipment fields: Air Powered Pump / Oxygen Tank
+    design_pressure:
+      g(
+        "design_pressure",
+        "Design Pressure",
+        "mawp",
+        "maximum_allowable_working_pressure",
+        "rated_pressure"
+      )||"—",
+
+    working_pressure:
+      g(
+        "working_pressure",
+        "Working Pressure",
+        "operating_pressure",
+        "actual_working_pressure",
+        "mawp"
+      )||"—",
+
+    test_pressure:
+      g(
+        "test_pressure",
+        "Test Pressure",
+        "hydrostatic_test_pressure",
+        "hydrostatic_test_pressure_kpa",
+        "proof_pressure"
+      )||"—",
+
+    pressure_unit:    pressureUnit,
+    inspector_name:  val(c?.inspector_name||ex?.inspector_name)||"Moemedi Masupe",
+    inspector_id:    val(c?.inspector_id||ex?.inspector_id)||"700117910",
+    partners:        Array.isArray(ex.partners)?ex.partners:["Lycopodium","SMEI PROJECTS","Onetrack Engineering","Metso Outotec Australia limited"],
     result,
+
     // Page 2 — Test cert fields
     source_cert_number:          g("source_cert_number","original_cert_number")||null,
     structural_integrity:        g("structural_integrity","structural_integrity_assessment")||"Passed",
     functional_test:             g("functional_test","functional_test_verification")||"Passed",
     overall_assessment:          g("overall_assessment")||"Safe for operation",
     failure_to_comply:           g("failure_to_comply")||"Failure to comply may result in prosecution under section 70, penalties under section 71, or court ordered remedial action under section 72 of the Factories Act Cap 44:01",
-    defects_found:               val(c.defects_found)||null,
-    recommendations:             val(c.recommendations)||null,
+    defects_found:               val(c?.defects_found||ex?.defects_found)||null,
+    recommendations:             val(c?.recommendations||ex?.recommendations)||null,
+
     // Flags
-    isPass, isFail, isCond, isCompressor,
+    isPass,
+    isFail,
+    isCond,
+
+    // Keep this old name because PortableOvenCompliancePage already reads po.isCompressor.
+    // Oxygen Tank now returns true here, so it displays pressure values like Air Powered Pump.
+    isCompressor:isPressureEquipment,
   };
 }
 
