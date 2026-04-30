@@ -31,15 +31,11 @@ function toDate(v){ if(!v) return ""; const d = new Date(v); return isNaN(d.getT
 function isCherryPicker(t)    { return /cherry.picker|aerial.work.platform|boom.lift|awp/i.test(t || ""); }
 function isWireRopeSling(t)   { return /wire.rope.sling|wire rope sling/i.test(t || ""); }
 function isSandblastingPot(t) { return /sandblast|blasting.pot|blast.pot|sbp|sand.blast/i.test(t || ""); }
+function isPortableOven(t)    { return /portable.oven|portable.welding|welding.oven|welding.machine|oxygen.tank|air.powered.pump|air.pump/i.test(t || ""); }
 function isHookRopeEquipment(t) {
   const s = String(t || "").replace(/&amp;/gi, "&").trim();
   if (!s) return false;
-
-  // IMPORTANT: Wire Rope Sling has its own editor. This mode is for crane hook + crane wire rope certs.
   if (/wire\s*rope\s*sling/i.test(s)) return false;
-
-  // Your imported record can have equipment_type saved only as "Hook".
-  // The previous detector missed that, so the editor stayed on Grouped mode with 0 fields.
   return /(^|[^a-z0-9])hook([^a-z0-9]|$)|crane\s*hook|hook\s*block|load\s*hook|hook\s*(?:&|and|\/)?\s*(?:wire\s*)?rope|wire\s*rope(?!\s*sling)|rope\s*(?:&|and|\/)?\s*hook|hookrope|hr\s*\d+|cert\s*[-_]?hk|cert\s*[-_]?rp/i.test(s);
 }
 
@@ -258,85 +254,91 @@ function parseWireRopeSlingNotes(notesStr) {
   };
 }
 
+/* ── Portable Oven helpers ── */
+const PO_DEFAULT = {
+  company:"", location:"", equipment_description:"Portable Oven", serial_number:"",
+  power_voltage:"", weight:"",
+  structural_integrity:"Passed", functional_test:"Passed",
+  overall_assessment:"Safe for operation",
+  partners:["Lycopodium","SMEI PROJECTS","Onetrack Engineering","Metso Outotec Australia limited"],
+  failure_to_comply:"Failure to comply may result in prosecution under section 70, penalties under section 71, or court ordered remedial action under section 72 of the Factories Act Cap 44:01",
+  defects_found:"", recommendations:"",
+};
+
+function parsePortableOvenData(notesStr, extractedData, certData) {
+  const ex = (extractedData && typeof extractedData === "object") ? extractedData : {};
+  const po = ex.portable_oven || ex.welding_machine || ex.oxygen_tank || ex.air_pump || {};
+  const merged = { ...po, ...ex };
+
+  function g(...keys) {
+    for (const k of keys) {
+      const v = merged[k];
+      if (v !== null && v !== undefined && String(v).trim() !== "") return String(v).trim();
+    }
+    return "";
+  }
+
+  const partners = Array.isArray(merged.partners) ? merged.partners
+    : Array.isArray(ex.partners) ? ex.partners
+    : PO_DEFAULT.partners;
+
+  return {
+    company:            g("company","equipment_owner","client_name") || (certData ? String(certData.client_name||"") : ""),
+    location:           g("location") || (certData ? String(certData.location||"") : ""),
+    equipment_description: g("equipment_description") || (certData ? String(certData.equipment_description||certData.asset_name||"") : "Portable Oven"),
+    serial_number:      g("serial_number") || (certData ? String(certData.serial_number||"") : ""),
+    power_voltage:      g("power_voltage","voltage","Voltage","POWER VOLTAGE","Power Voltage"),
+    weight:             g("weight","Weight","WEIGHT","WEIGHT(KG)","weight_kg") || (certData ? String(certData.capacity_volume||"") : ""),
+    structural_integrity: g("structural_integrity","structural_integrity_assessment") || "Passed",
+    functional_test:    g("functional_test","functional_test_verification") || "Passed",
+    overall_assessment: g("overall_assessment") || "Safe for operation",
+    partners,
+    failure_to_comply:  g("failure_to_comply") || PO_DEFAULT.failure_to_comply,
+    defects_found:      g("defects_found") || (certData ? String(certData.defects_found||"") : ""),
+    recommendations:    g("recommendations") || (certData ? String(certData.recommendations||"") : ""),
+  };
+}
+
+function buildPortableOvenNotes(po) {
+  return JSON.stringify({ portable_oven: po });
+}
 
 /* ─────────────────────────────────────────────────────────────
-   HOOK & ROPE helpers — EXACT fields from import/HookRopeMode.jsx
-   No sandblasting fields. This editor follows the Hook & Rope import schema.
+   HOOK & ROPE helpers
 ───────────────────────────────────────────────────────────── */
 const HOOK_ROPE_DEFAULT = {
   client_name:"", location:"", crane_make:"", crane_serial:"", crane_fleet:"", crane_swl:"", machine_hours:"",
   inspection_date:"", expiry_date:"", report_number:"",
-
   drum_main_condition:"Good", drum_aux_condition:"Good", rope_lay_main:"Good", rope_lay_aux:"Good",
-
   rope_diameter_main:"", rope_diameter_aux:"", rope_length_3x_main:"Yes", rope_length_3x_aux:"Yes",
   reduction_dia_main:"none", reduction_dia_aux:"none", core_protrusion_main:"None", core_protrusion_aux:"None",
   corrosion_main:"none", corrosion_aux:"none", broken_wires_main:"none", broken_wires_aux:"none",
   rope_kinks_main:"none", rope_kinks_aux:"none", other_defects_main:"none", other_defects_aux:"none",
   end_fittings_main:"Good", end_fittings_aux:"Good", serviceability_main:"Good", serviceability_aux:"Good",
   lower_limit_main:"", lower_limit_aux:"", damaged_strands_main:"none", damaged_strands_aux:"none",
-
   hook1_sn:"", hook1_swl:"", hook1_swl_marked:"yes", hook1_safety_catch:"yes", hook1_cracks:"no",
   hook1_swivel:"yes", hook1_corrosion:"no", hook1_side_bending:"OK", hook1_ab:"", hook1_ac:"",
-
   hook2_sn:"", hook2_swl:"", hook2_swl_marked:"yes", hook2_safety_catch:"yes", hook2_cracks:"no",
   hook2_swivel:"yes", hook2_corrosion:"no", hook2_side_bending:"OK", hook2_ab:"", hook2_ac:"",
-
   hook3_sn:"", hook3_swl:"",
   overall_result:"PASS", defects_found:"", comments:"",
   extra_pairs:[],
 };
 
 const HOOK_ROPE_PIPE_ALIASES = {
-  "latch":"hook1_safety_catch",
-  "structural":"hook1_cracks",
-  "hook_1_swl":"hook1_swl",
-  "hook1_swl":"hook1_swl",
-  "hook_1_sn":"hook1_sn",
-  "hook1_sn":"hook1_sn",
-  "hook_ab":"hook1_ab",
-  "hook_1_ab":"hook1_ab",
-  "hook1_ab":"hook1_ab",
-  "hook_ac":"hook1_ac",
-  "hook_1_ac":"hook1_ac",
-  "hook1_ac":"hook1_ac",
-  "hook_2_swl":"hook2_swl",
-  "hook2_swl":"hook2_swl",
-  "hook_2_sn":"hook2_sn",
-  "hook2_sn":"hook2_sn",
-  "hook_2_ab":"hook2_ab",
-  "hook2_ab":"hook2_ab",
-  "hook_2_ac":"hook2_ac",
-  "hook2_ac":"hook2_ac",
-  "rope_dia":"rope_diameter_main",
-  "rope_diameter":"rope_diameter_main",
-  "main_rope_diameter":"rope_diameter_main",
-  "aux_dia":"rope_diameter_aux",
-  "aux_rope_diameter":"rope_diameter_aux",
-  "broken_wires":"broken_wires_main",
-  "corrosion":"corrosion_main",
-  "kinks":"rope_kinks_main",
-  "rope_kinks":"rope_kinks_main",
-  "end_fittings":"end_fittings_main",
-  "end_fitting_attachments":"end_fittings_main",
-  "serviceability":"serviceability_main",
-  "drum":"drum_main_condition",
-  "rope_lay":"rope_lay_main",
-  "aux_drum":"drum_aux_condition",
-  "drum_main":"drum_main_condition",
-  "drum_aux":"drum_aux_condition",
-  "lay_main":"rope_lay_main",
-  "lay_aux":"rope_lay_aux",
-  "reduction":"reduction_dia_main",
-  "reduction_dia":"reduction_dia_main",
-  "core_protrusion":"core_protrusion_main",
-  "lower_limit":"lower_limit_main",
-  "damaged_strands":"damaged_strands_main",
-  "other_defects":"other_defects_main",
-  "notes":"comments",
-  "comments":"comments",
-  "defects":"defects_found",
-  "defects_found":"defects_found",
+  "latch":"hook1_safety_catch","structural":"hook1_cracks","hook_1_swl":"hook1_swl","hook1_swl":"hook1_swl",
+  "hook_1_sn":"hook1_sn","hook1_sn":"hook1_sn","hook_ab":"hook1_ab","hook_1_ab":"hook1_ab","hook1_ab":"hook1_ab",
+  "hook_ac":"hook1_ac","hook_1_ac":"hook1_ac","hook1_ac":"hook1_ac","hook_2_swl":"hook2_swl","hook2_swl":"hook2_swl",
+  "hook_2_sn":"hook2_sn","hook2_sn":"hook2_sn","hook_2_ab":"hook2_ab","hook2_ab":"hook2_ab",
+  "hook_2_ac":"hook2_ac","hook2_ac":"hook2_ac","rope_dia":"rope_diameter_main","rope_diameter":"rope_diameter_main",
+  "main_rope_diameter":"rope_diameter_main","aux_dia":"rope_diameter_aux","aux_rope_diameter":"rope_diameter_aux",
+  "broken_wires":"broken_wires_main","corrosion":"corrosion_main","kinks":"rope_kinks_main","rope_kinks":"rope_kinks_main",
+  "end_fittings":"end_fittings_main","end_fitting_attachments":"end_fittings_main","serviceability":"serviceability_main",
+  "drum":"drum_main_condition","rope_lay":"rope_lay_main","aux_drum":"drum_aux_condition","drum_main":"drum_main_condition",
+  "drum_aux":"drum_aux_condition","lay_main":"rope_lay_main","lay_aux":"rope_lay_aux","reduction":"reduction_dia_main",
+  "reduction_dia":"reduction_dia_main","core_protrusion":"core_protrusion_main","lower_limit":"lower_limit_main",
+  "damaged_strands":"damaged_strands_main","other_defects":"other_defects_main","notes":"comments","comments":"comments",
+  "defects":"defects_found","defects_found":"defects_found",
 };
 
 const HOOK_ROPE_KNOWN_PIPE_KEYS = Object.keys(HOOK_ROPE_PIPE_ALIASES);
@@ -353,15 +355,8 @@ function passFailToYesNo(value, yesWhenPass=true) {
   return value;
 }
 
-function stripMm(value) {
-  return String(value||"").trim().replace(/^Ø\s*/i,"").replace(/\s*mm$/i,"");
-}
-
-function withMm(value) {
-  const x=String(value||"").trim();
-  if (!x) return "";
-  return /mm|ø/i.test(x) ? x : `${x}mm`;
-}
+function stripMm(value) { return String(value||"").trim().replace(/^Ø\s*/i,"").replace(/\s*mm$/i,""); }
+function withMm(value) { const x=String(value||"").trim(); if (!x) return ""; return /mm|ø/i.test(x) ? x : `${x}mm`; }
 
 function hasHookRopeShape(obj) {
   if (!obj || typeof obj !== "object") return false;
@@ -379,22 +374,18 @@ function getHookRopeSource(extractedData={}) {
 function cleanHookRopeBaseExtractedData(extractedData={}) {
   const ex = extractedData && typeof extractedData === "object" ? extractedData : {};
   const cleaned = {...ex};
-  delete cleaned.sandblasting;
-  delete cleaned.sbp;
-  delete cleaned.blasting_pot;
+  delete cleaned.sandblasting; delete cleaned.sbp; delete cleaned.blasting_pot;
   return cleaned;
 }
 
 function parseHookRopeNotes(notesStr, extractedData={}) {
   const out = { ...HOOK_ROPE_DEFAULT, extra_pairs:[] };
   const source = getHookRopeSource(extractedData);
-
   Object.keys(HOOK_ROPE_DEFAULT).forEach(k => {
     if (k === "extra_pairs") return;
     const v = source?.[k];
     if (v !== undefined && v !== null && String(v).trim() !== "") out[k] = String(v);
   });
-
   if (isJsonNotes(notesStr || "")) {
     const parsed = safeJsonParse(notesStr,{});
     const js = parsed.hookrope || parsed.hook_rope || parsed.hookRope || parsed;
@@ -405,7 +396,6 @@ function parseHookRopeNotes(notesStr, extractedData={}) {
     });
     return out;
   }
-
   const pairs = parseNotesPipe(notesStr || "");
   const used = new Set();
   pairs.forEach(({key,value}) => {
@@ -413,27 +403,15 @@ function parseHookRopeNotes(notesStr, extractedData={}) {
     const mapped = HOOK_ROPE_PIPE_ALIASES[norm];
     if (!mapped) return;
     used.add(norm);
-
-    if (norm === "latch") {
-      out.hook1_safety_catch = passFailToYesNo(value, true);
-      return;
-    }
-    if (norm === "structural") {
-      out.hook1_cracks = passFailToYesNo(value, false);
-      return;
-    }
-    if (mapped === "rope_diameter_main" || mapped === "rope_diameter_aux") {
-      out[mapped] = stripMm(value);
-      return;
-    }
+    if (norm === "latch") { out.hook1_safety_catch = passFailToYesNo(value, true); return; }
+    if (norm === "structural") { out.hook1_cracks = passFailToYesNo(value, false); return; }
+    if (mapped === "rope_diameter_main" || mapped === "rope_diameter_aux") { out[mapped] = stripMm(value); return; }
     out[mapped] = value == null ? "" : String(value);
   });
-
   out.extra_pairs = pairs.filter(p => {
     const norm=normalizeHookRopeKey(p.key);
     return p.key && !used.has(norm) && !HOOK_ROPE_KNOWN_PIPE_KEYS.includes(norm);
   });
-
   return out;
 }
 
@@ -449,80 +427,43 @@ function hookRopeToExtractedData(hr) {
 function buildHookRopeNotes(hr, equipmentType="") {
   const typeText = String(equipmentType || "").replace(/&amp;/gi,"&").trim();
   const isRopeOnly = /wire\s*rope/i.test(typeText) && !/hook/i.test(typeText);
-
   const pairs=[];
-  const add=(key,val,force=false)=>{
-    const s=val==null?"":String(val).trim();
-    if (force || s) pairs.push({key,value:s});
-  };
-
+  const add=(key,val,force=false)=>{ const s=val==null?"":String(val).trim(); if (force || s) pairs.push({key,value:s}); };
   if (!isRopeOnly) {
     add("Latch", String(hr.hook1_safety_catch||"").toLowerCase()==="yes" ? "PASS" : "FAIL", true);
     add("Structural", String(hr.hook1_cracks||"").toLowerCase()==="yes" ? "FAIL" : "PASS", true);
-    add("Hook 1 SWL", hr.hook1_swl);
-    add("Hook 1 SN", hr.hook1_sn);
-    add("Hook AB", hr.hook1_ab);
-    add("Hook AC", hr.hook1_ac);
-    add("Hook 2 SWL", hr.hook2_swl);
-    add("Hook 2 SN", hr.hook2_sn);
-    add("Hook 2 AB", hr.hook2_ab);
-    add("Hook 2 AC", hr.hook2_ac);
-    add("Hook 3 SWL", hr.hook3_swl);
-    add("Hook 3 SN", hr.hook3_sn);
+    add("Hook 1 SWL", hr.hook1_swl); add("Hook 1 SN", hr.hook1_sn);
+    add("Hook AB", hr.hook1_ab); add("Hook AC", hr.hook1_ac);
+    add("Hook 2 SWL", hr.hook2_swl); add("Hook 2 SN", hr.hook2_sn);
+    add("Hook 2 AB", hr.hook2_ab); add("Hook 2 AC", hr.hook2_ac);
+    add("Hook 3 SWL", hr.hook3_swl); add("Hook 3 SN", hr.hook3_sn);
   }
-
-  add("Rope dia", withMm(hr.rope_diameter_main));
-  add("Aux dia", withMm(hr.rope_diameter_aux));
-  add("Drum", hr.drum_main_condition || "Good", true);
-  add("Aux drum", hr.drum_aux_condition || "Good", true);
-  add("Drum main", hr.drum_main_condition || "Good", true);
-  add("Drum aux", hr.drum_aux_condition || "Good", true);
-  add("Rope lay", hr.rope_lay_main || "Good", true);
-  add("Lay main", hr.rope_lay_main || "Good", true);
+  add("Rope dia", withMm(hr.rope_diameter_main)); add("Aux dia", withMm(hr.rope_diameter_aux));
+  add("Drum", hr.drum_main_condition || "Good", true); add("Aux drum", hr.drum_aux_condition || "Good", true);
+  add("Drum main", hr.drum_main_condition || "Good", true); add("Drum aux", hr.drum_aux_condition || "Good", true);
+  add("Rope lay", hr.rope_lay_main || "Good", true); add("Lay main", hr.rope_lay_main || "Good", true);
   add("Lay aux", hr.rope_lay_aux || "Good", true);
-  add("Rope length 3x main", hr.rope_length_3x_main || "Yes", true);
-  add("Rope length 3x aux", hr.rope_length_3x_aux || "Yes", true);
-  add("Reduction", hr.reduction_dia_main || "none", true);
-  add("Reduction aux", hr.reduction_dia_aux || "none", true);
-  add("Core protrusion", hr.core_protrusion_main || "None", true);
-  add("Core protrusion aux", hr.core_protrusion_aux || "None", true);
-  add("Corrosion", hr.corrosion_main || "none", true);
-  add("Corrosion aux", hr.corrosion_aux || "none", true);
-  add("Broken wires", hr.broken_wires_main || "none", true);
-  add("Broken wires aux", hr.broken_wires_aux || "none", true);
-  add("Kinks", hr.rope_kinks_main || "none", true);
-  add("Kinks aux", hr.rope_kinks_aux || "none", true);
-  add("Other defects", hr.other_defects_main || "none", true);
-  add("Other defects aux", hr.other_defects_aux || "none", true);
-  add("End fittings", hr.end_fittings_main || "Good", true);
-  add("End fittings aux", hr.end_fittings_aux || "Good", true);
-  add("Serviceability", hr.serviceability_main || "Good", true);
-  add("Serviceability aux", hr.serviceability_aux || "Good", true);
-  add("Lower limit", hr.lower_limit_main);
-  add("Lower limit aux", hr.lower_limit_aux);
-  add("Damaged strands", hr.damaged_strands_main || "none", true);
-  add("Damaged strands aux", hr.damaged_strands_aux || "none", true);
-  add("Notes", hr.comments);
-  add("Defects", hr.defects_found);
+  add("Rope length 3x main", hr.rope_length_3x_main || "Yes", true); add("Rope length 3x aux", hr.rope_length_3x_aux || "Yes", true);
+  add("Reduction", hr.reduction_dia_main || "none", true); add("Reduction aux", hr.reduction_dia_aux || "none", true);
+  add("Core protrusion", hr.core_protrusion_main || "None", true); add("Core protrusion aux", hr.core_protrusion_aux || "None", true);
+  add("Corrosion", hr.corrosion_main || "none", true); add("Corrosion aux", hr.corrosion_aux || "none", true);
+  add("Broken wires", hr.broken_wires_main || "none", true); add("Broken wires aux", hr.broken_wires_aux || "none", true);
+  add("Kinks", hr.rope_kinks_main || "none", true); add("Kinks aux", hr.rope_kinks_aux || "none", true);
+  add("Other defects", hr.other_defects_main || "none", true); add("Other defects aux", hr.other_defects_aux || "none", true);
+  add("End fittings", hr.end_fittings_main || "Good", true); add("End fittings aux", hr.end_fittings_aux || "Good", true);
+  add("Serviceability", hr.serviceability_main || "Good", true); add("Serviceability aux", hr.serviceability_aux || "Good", true);
+  add("Lower limit", hr.lower_limit_main); add("Lower limit aux", hr.lower_limit_aux);
+  add("Damaged strands", hr.damaged_strands_main || "none", true); add("Damaged strands aux", hr.damaged_strands_aux || "none", true);
+  add("Notes", hr.comments); add("Defects", hr.defects_found);
   (hr.extra_pairs || []).forEach(p => add(p.key,p.value));
-
-  const seen=new Set();
-  const unique=[];
-  for (let i=pairs.length-1;i>=0;i--) {
-    const norm=normalizeHookRopeKey(pairs[i].key);
-    if (!seen.has(norm)) { seen.add(norm); unique.unshift(pairs[i]); }
-  }
+  const seen=new Set(); const unique=[];
+  for (let i=pairs.length-1;i>=0;i--) { const norm=normalizeHookRopeKey(pairs[i].key); if (!seen.has(norm)) { seen.add(norm); unique.unshift(pairs[i]); } }
   return buildNotesPipe(unique);
 }
 
 function hookRopeToRows(hr) {
   return parseNotesPipe(buildHookRopeNotes(hr)).map((p,i)=>({
-    id:Date.now()+i,
-    section:"Hook & Rope",
-    key:normalizeFieldToken(p.key),
-    label:p.key,
-    value:p.value,
-    path:["hookrope",normalizeFieldToken(p.key)],
+    id:Date.now()+i, section:"Hook & Rope", key:normalizeFieldToken(p.key), label:p.key, value:p.value, path:["hookrope",normalizeFieldToken(p.key)],
   }));
 }
 
@@ -531,44 +472,31 @@ function hookRopeToRows(hr) {
 ═══════════════════════════════════════════════════════════ */
 const SBP_CHECKLIST_SECTIONS = [
   { sec:"1.0 Appurtenances", items:[
-    {key:"pipe_connections",           label:"1.1 Pipe Connections in good condition"},
-    {key:"valves_fittings_construction",label:"1.2 Valves / Fittings of good construction"},
-    {key:"fittings_pressure_rating",   label:"1.3 Fittings / Valves of correct pressure rating"},
-    {key:"drain_valves",               label:"1.4 Drain valves in good operating condition"},
-    {key:"no_leaks_pipework",          label:"1.5 No leaks in pipework"},
-    {key:"vessel_access",              label:"1.6 Access to vessel interior adequate"},
-    {key:"no_leaks_manholes",          label:"1.7 No leaks in manholes / hand holes"},
-    {key:"gauge_isolation_valve",      label:"1.8 Pressure gauge has isolation valve"},
-    {key:"relief_valve_calibrated",    label:"1.9 Pressure relief valve calibrated"},
-    {key:"gauge_calibrated",           label:"2.0 Pressure gauge calibrated"},
-    {key:"gauge_redlined",             label:"2.1 Pressure gauge redlined"},
+    {key:"pipe_connections",label:"1.1 Pipe Connections in good condition"},{key:"valves_fittings_construction",label:"1.2 Valves / Fittings of good construction"},
+    {key:"fittings_pressure_rating",label:"1.3 Fittings / Valves of correct pressure rating"},{key:"drain_valves",label:"1.4 Drain valves in good operating condition"},
+    {key:"no_leaks_pipework",label:"1.5 No leaks in pipework"},{key:"vessel_access",label:"1.6 Access to vessel interior adequate"},
+    {key:"no_leaks_manholes",label:"1.7 No leaks in manholes / hand holes"},{key:"gauge_isolation_valve",label:"1.8 Pressure gauge has isolation valve"},
+    {key:"relief_valve_calibrated",label:"1.9 Pressure relief valve calibrated"},{key:"gauge_calibrated",label:"2.0 Pressure gauge calibrated"},
+    {key:"gauge_redlined",label:"2.1 Pressure gauge redlined"},
   ]},
   { sec:"2.0 Vessel External Inspection", items:[
-    {key:"vessel_material_standard",   label:"2.1 Vessel material of acceptable standard"},
-    {key:"external_coating",           label:"2.2 Vessel external coating in good condition"},
-    {key:"no_corrosion",               label:"2.3 Vessel not exposed to corrosion"},
-    {key:"properly_mounted",           label:"2.4 Vessel properly mounted on floor"},
-    {key:"welded_joints",              label:"2.5 Welded joints in good condition"},
-    {key:"no_dents_cracks",            label:"2.6 No vessel dents or cracks"},
-    {key:"no_external_leakages",       label:"2.7 No external leakages"},
+    {key:"vessel_material_standard",label:"2.1 Vessel material of acceptable standard"},{key:"external_coating",label:"2.2 Vessel external coating in good condition"},
+    {key:"no_corrosion",label:"2.3 Vessel not exposed to corrosion"},{key:"properly_mounted",label:"2.4 Vessel properly mounted on floor"},
+    {key:"welded_joints",label:"2.5 Welded joints in good condition"},{key:"no_dents_cracks",label:"2.6 No vessel dents or cracks"},
+    {key:"no_external_leakages",label:"2.7 No external leakages"},
   ]},
   { sec:"3.0 Relief Valve", items:[
-    {key:"no_cracks_valve_body",       label:"3.1 Any cracks on the valve body"},
-    {key:"no_foreign_material",        label:"3.2 Any foreign material on the valve"},
-    {key:"valve_working",              label:"3.3 Valve working properly"},
+    {key:"no_cracks_valve_body",label:"3.1 Any cracks on the valve body"},{key:"no_foreign_material",label:"3.2 Any foreign material on the valve"},
+    {key:"valve_working",label:"3.3 Valve working properly"},
   ]},
   { sec:"4.0 Vessel Internal Inspection", items:[
-    {key:"no_oil_sludge",              label:"4.1 No oil sludge inside vessel"},
-    {key:"interior_condition",         label:"4.2 Vessel interior in good condition"},
-    {key:"no_moisture",                label:"4.3 No moisture / oil trapped in air receiver"},
-    {key:"no_scaling",                 label:"4.4 No scaling inside vessel"},
-    {key:"internal_stiffeners",        label:"4.5 Internal stiffeners in good condition"},
+    {key:"no_oil_sludge",label:"4.1 No oil sludge inside vessel"},{key:"interior_condition",label:"4.2 Vessel interior in good condition"},
+    {key:"no_moisture",label:"4.3 No moisture / oil trapped in air receiver"},{key:"no_scaling",label:"4.4 No scaling inside vessel"},
+    {key:"internal_stiffeners",label:"4.5 Internal stiffeners in good condition"},
   ]},
   { sec:"5.0 Drainage", items:[
-    {key:"properly_levelled",          label:"5.1 Vessels properly levelled for drainage"},
-    {key:"drainage_hose",              label:"5.2 Provided with drainage hose"},
-    {key:"no_ground_contamination",    label:"5.3 Vessel not contaminating ground"},
-    {key:"automatic_drainage",         label:"5.4 Uses automatic drainage"},
+    {key:"properly_levelled",label:"5.1 Vessels properly levelled for drainage"},{key:"drainage_hose",label:"5.2 Provided with drainage hose"},
+    {key:"no_ground_contamination",label:"5.3 Vessel not contaminating ground"},{key:"automatic_drainage",label:"5.4 Uses automatic drainage"},
   ]},
 ];
 
@@ -578,112 +506,58 @@ SBP_CHECKLIST_SECTIONS.forEach(s => s.items.forEach(i => { SBP_DEFAULT_CHECKLIST
 function buildSandblastingNotes(sbp) {
   const readings = (sbp.wall_readings||[]).filter(Boolean);
   const sbBlock = {
-    equipment_owner:          sbp.equipment_owner||"",
-    location:                 sbp.location||"",
-    vessel_unique_id:         sbp.vessel_unique_id||"",
-    vessel_material:          sbp.vessel_material||"",
-    inspection_frequency:     sbp.inspection_frequency||"YEARLY",
-    year_of_manufacture:      sbp.year_of_manufacture||"",
-    previous_inspection:      sbp.previous_inspection||"N/A",
-    design_pressure:          sbp.design_pressure||"",
-    working_pressure:         sbp.working_pressure||"",
-    test_pressure:            sbp.test_pressure||"",
-    pressure_unit:            sbp.pressure_unit||"Kpa",
-    manufacturer:             sbp.manufacturer||"",
-    pressure_gauge_no:        sbp.pressure_gauge_no||"Not indicated",
-    pressure_relief_no:       sbp.pressure_relief_no||"NI",
-    relief_valve_set_pressure:sbp.relief_valve_set_pressure||"NI",
-    min_max_temp:             sbp.min_max_temp||".0-100°C",
-    pressure_relief_type:     sbp.pressure_relief_type||"NI",
-    test_type:                sbp.test_type||"ULTRASONIC TEST",
-    original_shell_thickness: sbp.original_shell_thickness||"6.74",
-    measured_shell_thickness: sbp.measured_shell_thickness||"0",
-    allowable_reduction:      sbp.allowable_reduction||"20%",
-    volume:                   sbp.volume||"",
-    circumference:            sbp.circumference||"",
-    height:                   sbp.height||"",
-    wall_readings:            readings,
-    checklist:                sbp.checklist||SBP_DEFAULT_CHECKLIST,
-    inspector_name:           sbp.inspector_name||"",
-    inspector_id:             sbp.inspector_id||"",
-    client_name_cert:         sbp.client_name_cert||"",
+    equipment_owner:sbp.equipment_owner||"",location:sbp.location||"",vessel_unique_id:sbp.vessel_unique_id||"",
+    vessel_material:sbp.vessel_material||"",inspection_frequency:sbp.inspection_frequency||"YEARLY",
+    year_of_manufacture:sbp.year_of_manufacture||"",previous_inspection:sbp.previous_inspection||"N/A",
+    design_pressure:sbp.design_pressure||"",working_pressure:sbp.working_pressure||"",test_pressure:sbp.test_pressure||"",
+    pressure_unit:sbp.pressure_unit||"Kpa",manufacturer:sbp.manufacturer||"",
+    pressure_gauge_no:sbp.pressure_gauge_no||"Not indicated",pressure_relief_no:sbp.pressure_relief_no||"NI",
+    relief_valve_set_pressure:sbp.relief_valve_set_pressure||"NI",min_max_temp:sbp.min_max_temp||".0-100°C",
+    pressure_relief_type:sbp.pressure_relief_type||"NI",test_type:sbp.test_type||"ULTRASONIC TEST",
+    original_shell_thickness:sbp.original_shell_thickness||"6.74",measured_shell_thickness:sbp.measured_shell_thickness||"0",
+    allowable_reduction:sbp.allowable_reduction||"20%",volume:sbp.volume||"",circumference:sbp.circumference||"",height:sbp.height||"",
+    wall_readings:readings,checklist:sbp.checklist||SBP_DEFAULT_CHECKLIST,
+    inspector_name:sbp.inspector_name||"",inspector_id:sbp.inspector_id||"",client_name_cert:sbp.client_name_cert||"",
   };
   return JSON.stringify({ sandblasting: sbBlock });
 }
 
 function parseSandblastingNotes(notesStr, extractedData) {
   const def = {
-    equipment_owner:"", location:"", vessel_unique_id:"", vessel_material:"",
-    inspection_frequency:"YEARLY", year_of_manufacture:"", previous_inspection:"N/A",
-    design_pressure:"", working_pressure:"", test_pressure:"", pressure_unit:"Kpa",
-    manufacturer:"", pressure_gauge_no:"Not indicated", pressure_relief_no:"NI",
-    relief_valve_set_pressure:"NI", min_max_temp:".0-100°C", pressure_relief_type:"NI",
-    test_type:"ULTRASONIC TEST", original_shell_thickness:"6.74",
-    measured_shell_thickness:"0", allowable_reduction:"20%",
-    volume:"", circumference:"", height:"",
-    wall_readings: Array(10).fill(""),
-    checklist: { ...SBP_DEFAULT_CHECKLIST },
-    inspector_name:"", inspector_id:"", client_name_cert:"",
+    equipment_owner:"",location:"",vessel_unique_id:"",vessel_material:"",inspection_frequency:"YEARLY",
+    year_of_manufacture:"",previous_inspection:"N/A",design_pressure:"",working_pressure:"",test_pressure:"",
+    pressure_unit:"Kpa",manufacturer:"",pressure_gauge_no:"Not indicated",pressure_relief_no:"NI",
+    relief_valve_set_pressure:"NI",min_max_temp:".0-100°C",pressure_relief_type:"NI",test_type:"ULTRASONIC TEST",
+    original_shell_thickness:"6.74",measured_shell_thickness:"0",allowable_reduction:"20%",
+    volume:"",circumference:"",height:"",wall_readings:Array(10).fill(""),
+    checklist:{...SBP_DEFAULT_CHECKLIST},inspector_name:"",inspector_id:"",client_name_cert:"",
   };
-
-  // Try extracted_data.sandblasting first (saved by this editor)
   const ex = extractedData || {};
   const sb = ex.sandblasting || ex.blasting_pot || ex.sbp || {};
-
-  // Also try parsed notes JSON
   let parsedNotes = {};
   try { parsedNotes = JSON.parse(notesStr||"{}"); if (typeof parsedNotes !== "object") parsedNotes={}; } catch(e) { parsedNotes={}; }
   const sbNotes = parsedNotes.sandblasting || parsedNotes.sbp || {};
-
-  // Merge: extracted_data wins over notes
   const merged = { ...sbNotes, ...sb };
-
-  function g(...keys) {
-    for (const k of keys) { const v=merged[k]; if (v!=null&&String(v).trim()!=="") return String(v); }
-    return "";
-  }
-
-  // Wall readings
+  function g(...keys) { for (const k of keys) { const v=merged[k]; if (v!=null&&String(v).trim()!=="") return String(v); } return ""; }
   const rawReadings = merged.wall_readings || [];
   const readArr = Array(10).fill("");
   if (Array.isArray(rawReadings)) rawReadings.slice(0,10).forEach((r,i) => { readArr[i]=String(r||""); });
   else { for (let i=0;i<10;i++) { readArr[i]=String(merged[`reading_${i+1}`]||merged[`wt${i+1}`]||""); } }
-
-  // Checklist
   const cl = merged.checklist || {};
   const mergedCL = { ...SBP_DEFAULT_CHECKLIST };
   Object.keys(mergedCL).forEach(k => { if (cl[k]) mergedCL[k]=String(cl[k]).toUpperCase(); });
-
   return {
-    equipment_owner:          g("equipment_owner","owner"),
-    location:                 g("location"),
-    vessel_unique_id:         g("vessel_unique_id","unique_id","vessel_id"),
-    vessel_material:          g("vessel_material","material"),
-    inspection_frequency:     g("inspection_frequency")||"YEARLY",
-    year_of_manufacture:      g("year_of_manufacture","year_built","year"),
-    previous_inspection:      g("previous_inspection","previous_inspection_date")||"N/A",
-    design_pressure:          g("design_pressure"),
-    working_pressure:         g("working_pressure","actual_working_pressure"),
-    test_pressure:            g("test_pressure"),
-    pressure_unit:            g("pressure_unit")||"Kpa",
-    manufacturer:             g("manufacturer"),
-    pressure_gauge_no:        g("pressure_gauge_no","gauge_number")||"Not indicated",
-    pressure_relief_no:       g("pressure_relief_no","relief_valve_no")||"NI",
-    relief_valve_set_pressure:g("relief_valve_set_pressure","relief_set_pr")||"NI",
-    min_max_temp:             g("min_max_temp","temperature_range")||".0-100°C",
-    pressure_relief_type:     g("pressure_relief_type","relief_type")||"NI",
-    test_type:                g("test_type","inspection_type")||"ULTRASONIC TEST",
-    original_shell_thickness: g("original_shell_thickness","nominal_thickness")||"6.74",
-    measured_shell_thickness: g("measured_shell_thickness","actual_thickness")||"0",
-    allowable_reduction:      g("allowable_reduction","reduction_percent")||"20%",
-    volume:                   g("volume","capacity","capacity_volume"),
-    circumference:            g("circumference"),
-    height:                   g("height"),
-    wall_readings:            readArr,
-    checklist:                mergedCL,
-    inspector_name:           g("inspector_name"),
-    inspector_id:             g("inspector_id"),
-    client_name_cert:         g("client_name_cert","client_name"),
+    equipment_owner:g("equipment_owner","owner"),location:g("location"),vessel_unique_id:g("vessel_unique_id","unique_id","vessel_id"),
+    vessel_material:g("vessel_material","material"),inspection_frequency:g("inspection_frequency")||"YEARLY",
+    year_of_manufacture:g("year_of_manufacture","year_built","year"),previous_inspection:g("previous_inspection","previous_inspection_date")||"N/A",
+    design_pressure:g("design_pressure"),working_pressure:g("working_pressure","actual_working_pressure"),test_pressure:g("test_pressure"),
+    pressure_unit:g("pressure_unit")||"Kpa",manufacturer:g("manufacturer"),pressure_gauge_no:g("pressure_gauge_no","gauge_number")||"Not indicated",
+    pressure_relief_no:g("pressure_relief_no","relief_valve_no")||"NI",relief_valve_set_pressure:g("relief_valve_set_pressure","relief_set_pr")||"NI",
+    min_max_temp:g("min_max_temp","temperature_range")||".0-100°C",pressure_relief_type:g("pressure_relief_type","relief_type")||"NI",
+    test_type:g("test_type","inspection_type")||"ULTRASONIC TEST",original_shell_thickness:g("original_shell_thickness","nominal_thickness")||"6.74",
+    measured_shell_thickness:g("measured_shell_thickness","actual_thickness")||"0",allowable_reduction:g("allowable_reduction","reduction_percent")||"20%",
+    volume:g("volume","capacity","capacity_volume"),circumference:g("circumference"),height:g("height"),
+    wall_readings:readArr,checklist:mergedCL,inspector_name:g("inspector_name"),inspector_id:g("inspector_id"),client_name_cert:g("client_name_cert","client_name"),
   };
 }
 
@@ -695,13 +569,8 @@ function parseNotesPipe(str) {
     return { key:part.slice(0,idx).trim(),value:part.slice(idx+1).trim() };
   }).filter(p=>p.key);
 }
-function buildNotesPipe(pairs) {
-  return pairs.filter(p=>p.key&&p.value).map(p=>`${p.key}: ${p.value}`).join(" | ");
-}
-function isJsonNotes(str) {
-  if (!str||!str.trim()) return false;
-  const t=str.trim(); return t.startsWith("{")||t.startsWith("[");
-}
+function buildNotesPipe(pairs) { return pairs.filter(p=>p.key&&p.value).map(p=>`${p.key}: ${p.value}`).join(" | "); }
+function isJsonNotes(str) { if (!str||!str.trim()) return false; const t=str.trim(); return t.startsWith("{")||t.startsWith("["); }
 function safeJsonParse(value,fallback={}) {
   try { if (!value) return fallback; if (typeof value==="object"&&value!==null) return value; const parsed=JSON.parse(String(value)); return parsed&&typeof parsed==="object"?parsed:fallback; } catch { return fallback; }
 }
@@ -714,7 +583,7 @@ function getEditableInspectionSource(data) {
 function mergeInspectionData(baseExtractedData,notesString,notesMode) {
   const base=safeJsonParse(baseExtractedData,{});
   if (!notesString) return base;
-  if ((notesMode==="json"||notesMode==="cherry"||notesMode==="wrs"||notesMode==="sbp")&&isJsonNotes(notesString)) {
+  if ((notesMode==="json"||notesMode==="cherry"||notesMode==="wrs"||notesMode==="sbp"||notesMode==="po")&&isJsonNotes(notesString)) {
     const parsed=safeJsonParse(notesString,{});
     return {
       ...base,...parsed,
@@ -726,6 +595,7 @@ function mergeInspectionData(baseExtractedData,notesString,notesMode) {
       sling_details:{...(base.sling_details||{}),...(parsed.sling_details||{})},
       condition_assessment:{...(base.condition_assessment||{}),...(parsed.condition_assessment||{})},
       sandblasting:{...(base.sandblasting||{}),...(parsed.sandblasting||{})},
+      portable_oven:{...(base.portable_oven||{}),...(parsed.portable_oven||{})},
       forks:Array.isArray(parsed.forks)?parsed.forks:(Array.isArray(base.forks)?base.forks:[]),
     };
   }
@@ -785,7 +655,6 @@ function PFChip({label,value,onChange}) {
   );
 }
 
-/* ── Sandblasting 3-state YNA chip (Y=PASS / N=FAIL / N/A=NA) ── */
 function YNAChip({label,value,onChange}) {
   const cur=(value||"PASS").toUpperCase();
   return (
@@ -829,6 +698,109 @@ const JsonInspectionRow = memo(function JsonInspectionRow({row,rowIndex,onChange
     </tr>
   );
 });
+
+/* ─────────────────────────────────────────────────────────────
+   PORTABLE OVEN / WELDING MACHINE / OXYGEN TANK / AIR PUMP EDITOR
+───────────────────────────────────────────────────────────── */
+function PortableOvenEditor({po, onChange}) {
+  const set = (key, val) => onChange({...po, [key]: val});
+  const inp = (key, ph = "") => (
+    <input
+      value={po[key] || ""}
+      onChange={e => set(key, e.target.value)}
+      placeholder={ph || "—"}
+      style={{...IS, minHeight:40, fontSize:12}}
+    />
+  );
+
+  const partnersStr = Array.isArray(po.partners) ? po.partners.join(", ") : (po.partners || "");
+
+  return (
+    <div style={{display:"grid", gap:18}}>
+
+      {/* ── PAGE 1 FIELDS ── */}
+      <div>
+        <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.green,borderLeft:`3px solid ${T.green}`,paddingLeft:8,marginBottom:12}}>
+          Page 1 — Compliance Certificate Fields
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10}}>
+          <F label="Company / Equipment Owner">{inp("company","e.g. GULF STREAM ENERGY")}</F>
+          <F label="Equipment Location">{inp("location","e.g. BOTSWANA OIL SITE")}</F>
+          <F label="Equipment Description">{inp("equipment_description","e.g. Portable Oven")}</F>
+          <F label="Identification Number / Serial">{inp("serial_number","e.g. 0001")}</F>
+          <F label="Power Voltage">{inp("power_voltage","e.g. 220V / 380V / 415V")}</F>
+          <F label="Weight (kg)">{inp("weight","e.g. 45")}</F>
+        </div>
+      </div>
+
+      {/* ── PAGE 2 FIELDS ── */}
+      <div>
+        <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.accent,borderLeft:`3px solid ${T.accent}`,paddingLeft:8,marginBottom:12}}>
+          Page 2 — Test Certificate Fields
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10}}>
+          <F label="Structural Integrity Assessment">{inp("structural_integrity","e.g. Passed")}</F>
+          <F label="Functional Test Verification">{inp("functional_test","e.g. Passed")}</F>
+          <F label="Overall Assessment" span={2}>{inp("overall_assessment","e.g. Safe for operation")}</F>
+        </div>
+      </div>
+
+      {/* ── DEFECTS / RECOMMENDATIONS ── */}
+      <div>
+        <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.red,borderLeft:`3px solid ${T.red}`,paddingLeft:8,marginBottom:12}}>
+          Defects &amp; Recommendations
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <F label="Defects Found">
+            <textarea value={po.defects_found||""} onChange={e=>set("defects_found",e.target.value)} rows={2}
+              placeholder="Any defects found during inspection…" style={{...IS,minHeight:68,resize:"vertical",fontSize:12}}/>
+          </F>
+          <F label="Recommendations">
+            <textarea value={po.recommendations||""} onChange={e=>set("recommendations",e.target.value)} rows={2}
+              placeholder="Recommended corrective actions…" style={{...IS,minHeight:68,resize:"vertical",fontSize:12}}/>
+          </F>
+        </div>
+      </div>
+
+      {/* ── PARTNERS ── */}
+      <div>
+        <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.purple,borderLeft:`3px solid ${T.purple}`,paddingLeft:8,marginBottom:8}}>
+          Partners (comma-separated)
+        </div>
+        <input
+          value={partnersStr}
+          onChange={e => set("partners", e.target.value.split(",").map(s => s.trim()).filter(Boolean))}
+          placeholder="e.g. Lycopodium, SMEI PROJECTS, Onetrack Engineering, Metso Outotec Australia limited"
+          style={{...IS, minHeight:44, fontSize:12}}
+        />
+        {Array.isArray(po.partners) && po.partners.length > 0 && (
+          <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:8}}>
+            {po.partners.map((p,i) => (
+              <span key={i} style={{fontSize:11,fontWeight:600,color:T.textMid,background:"rgba(167,139,250,0.12)",border:`1px solid ${T.purpleBrd}`,padding:"2px 8px",borderRadius:4}}>
+                {p}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── FAILURE TO COMPLY ── */}
+      <div>
+        <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.amber,borderLeft:`3px solid ${T.amber}`,paddingLeft:8,marginBottom:8}}>
+          Failure to Comply Text
+        </div>
+        <textarea
+          value={po.failure_to_comply || ""}
+          onChange={e => set("failure_to_comply", e.target.value)}
+          rows={3}
+          placeholder="Failure to comply may result in prosecution under section 70…"
+          style={{...IS, minHeight:80, resize:"vertical", fontSize:12}}
+        />
+      </div>
+
+    </div>
+  );
+}
 
 /* ─────────────────────────────────────────────────────────────
    WIRE ROPE SLING EDITOR
@@ -913,9 +885,7 @@ function WireRopeSlingEditor({wrs,onChange}) {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   HOOK & ROPE EDITOR — exact fields from import/HookRopeMode.jsx
-   IMPORTANT: child components are defined OUTSIDE HookRopeEditor so inputs
-   do not lose focus / stop after one letter.
+   HOOK & ROPE EDITOR
 ───────────────────────────────────────────────────────────── */
 const HR_YN = ["yes","no"];
 const HR_YN_OK = ["yes","no","OK"];
@@ -928,25 +898,13 @@ function MiniSelect({value,onChange,options,color=T.accent}) {
 
 function HRInput({value,onChange,placeholder="—",type="text"}) {
   return (
-    <input
-      type={type}
-      value={value||""}
-      onChange={e=>onChange(e.target.value)}
-      placeholder={placeholder}
-      style={{...IS,minHeight:40,fontSize:12}}
-    />
+    <input type={type} value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{...IS,minHeight:40,fontSize:12}}/>
   );
 }
 
 function HRTextarea({value,onChange,placeholder="—"}) {
   return (
-    <textarea
-      value={value||""}
-      onChange={e=>onChange(e.target.value)}
-      rows={2}
-      placeholder={placeholder}
-      style={{...IS,minHeight:66,fontSize:12,resize:"vertical"}}
-    />
+    <textarea value={value||""} onChange={e=>onChange(e.target.value)} rows={2} placeholder={placeholder} style={{...IS,minHeight:66,fontSize:12,resize:"vertical"}}/>
   );
 }
 
@@ -984,7 +942,7 @@ function HRHookBlock({n,title,hr,setField}) {
         </div>
         <div style={{display:"grid",gap:9}}>
           <div><label style={LS}>SWL marked on hook</label><MiniSelect value={hr[`${p}swl_marked`]} onChange={v=>setField(`${p}swl_marked`,v)} options={HR_YN} color={T.green}/></div>
-          <div><label style={LS}>Safety catch fitted & good condition</label><MiniSelect value={hr[`${p}safety_catch`]} onChange={v=>setField(`${p}safety_catch`,v)} options={HR_YN} color={T.green}/></div>
+          <div><label style={LS}>Safety catch fitted &amp; good condition</label><MiniSelect value={hr[`${p}safety_catch`]} onChange={v=>setField(`${p}safety_catch`,v)} options={HR_YN} color={T.green}/></div>
           <div><label style={LS}>Signs of cracks</label><MiniSelect value={hr[`${p}cracks`]} onChange={v=>setField(`${p}cracks`,v)} options={HR_YN} color={T.red}/></div>
           <div><label style={LS}>Swivel free under load</label><MiniSelect value={hr[`${p}swivel`]} onChange={v=>setField(`${p}swivel`,v)} options={HR_YN} color={T.green}/></div>
           <div><label style={LS}>Corrosion on hook</label><MiniSelect value={hr[`${p}corrosion`]} onChange={v=>setField(`${p}corrosion`,v)} options={HR_YN} color={T.red}/></div>
@@ -996,10 +954,6 @@ function HRHookBlock({n,title,hr,setField}) {
 }
 
 function HookRopeEditor({hr,onChange}) {
-  const setField = useCallback((key,val)=>{
-    onChange(prev => ({...(typeof prev === "function" ? prev() : hr), [key]:val}));
-  },[onChange,hr]);
-
   const setStableField = useCallback((key,val)=>{
     onChange(current => {
       if (typeof current === "object" && current !== null) return {...current,[key]:val};
@@ -1031,7 +985,6 @@ function HookRopeEditor({hr,onChange}) {
         <div style={{fontSize:13,fontWeight:900,color:T.amber,marginBottom:4}}>🪝 Hook &amp; Rope Inspection Editor</div>
         <div style={{fontSize:11,color:T.textDim}}>Only Hook &amp; Rope fields from <strong>src/app/certificates/import/HookRopeMode.jsx</strong>. Sandblasting Pot fields are not used here.</div>
       </div>
-
       <div>
         <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.accent,borderLeft:`3px solid ${T.accent}`,paddingLeft:8,marginBottom:12}}>Crane &amp; Job Details</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10}}>
@@ -1043,11 +996,10 @@ function HookRopeEditor({hr,onChange}) {
           <F label="Crane SWL"><HRInput value={hr.crane_swl} onChange={v=>set("crane_swl",v)} placeholder="e.g. 14 TON"/></F>
           <F label="Machine Hours"><HRInput value={hr.machine_hours} onChange={v=>set("machine_hours",v)} placeholder="hours"/></F>
           <F label="Report Number"><HRInput value={hr.report_number} onChange={v=>set("report_number",v)} placeholder="HR 2240-01"/></F>
-          <F label="Inspection Date"><HRInput type="date" value={hr.inspection_date} onChange={v=>set("inspection_date",v)} /></F>
-          <F label="Expiry Date"><HRInput type="date" value={hr.expiry_date} onChange={v=>set("expiry_date",v)} /></F>
+          <F label="Inspection Date"><HRInput type="date" value={hr.inspection_date} onChange={v=>set("inspection_date",v)}/></F>
+          <F label="Expiry Date"><HRInput type="date" value={hr.expiry_date} onChange={v=>set("expiry_date",v)}/></F>
         </div>
       </div>
-
       <div>
         <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.purple,borderLeft:`3px solid ${T.purple}`,paddingLeft:8,marginBottom:12}}>Hoist Drum &amp; Rope Condition</div>
         <div style={{border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden",background:"rgba(255,255,255,0.015)"}}>
@@ -1060,7 +1012,6 @@ function HookRopeEditor({hr,onChange}) {
           <HRCondRow label="Hoist Rope Lay on Drum" mainValue={hr.rope_lay_main} auxValue={hr.rope_lay_aux} onMainChange={v=>set("rope_lay_main",v)} onAuxChange={v=>set("rope_lay_aux",v)} opts={HR_GOOD}/>
         </div>
       </div>
-
       <div>
         <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.purple,borderLeft:`3px solid ${T.purple}`,paddingLeft:8,marginBottom:12}}>Steel Wire Rope Inspection</div>
         <div style={{border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden",background:"rgba(255,255,255,0.015)"}}>
@@ -1083,7 +1034,6 @@ function HookRopeEditor({hr,onChange}) {
           <HRTextRow label="Damaged strands" mainValue={hr.damaged_strands_main} auxValue={hr.damaged_strands_aux} onMainChange={v=>set("damaged_strands_main",v)} onAuxChange={v=>set("damaged_strands_aux",v)}/>
         </div>
       </div>
-
       <div>
         <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.amber,borderLeft:`3px solid ${T.amber}`,paddingLeft:8,marginBottom:12}}>Hook Inspection Criteria</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(290px,1fr))",gap:12}}>
@@ -1098,7 +1048,6 @@ function HookRopeEditor({hr,onChange}) {
           </div>
         </div>
       </div>
-
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10}}>
         <div style={{padding:12,borderRadius:10,border:`1px solid ${T.greenBrd}`,background:T.greenDim}}>
           <label style={{...LS,color:T.green}}>Overall Result</label>
@@ -1107,7 +1056,6 @@ function HookRopeEditor({hr,onChange}) {
         <F label="Defects Found"><HRTextarea value={hr.defects_found} onChange={v=>set("defects_found",v)} placeholder="defects found"/></F>
         <F label="Comments"><HRTextarea value={hr.comments} onChange={v=>set("comments",v)} placeholder="comments / notes"/></F>
       </div>
-
       {(hr.extra_pairs||[]).length>0&&(
         <div style={{border:`1px dashed ${T.border}`,borderRadius:10,padding:12,background:"rgba(255,255,255,0.015)"}}>
           <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",color:T.textDim,marginBottom:8}}>Extra Imported Pipe Keys</div>
@@ -1136,7 +1084,7 @@ function CherryPickerEditor({cp,onChange}) {
   return (
     <div>
       <div style={gridStyle}>
-        <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.accent,borderLeft:`3px solid ${T.accent}`,paddingLeft:8,marginTop:14,marginBottom:8,gridColumn:"1/-1"}}>Boom Specification & Load Test</div>
+        <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.accent,borderLeft:`3px solid ${T.accent}`,paddingLeft:8,marginTop:14,marginBottom:8,gridColumn:"1/-1"}}>Boom Specification &amp; Load Test</div>
         <F label="Max Working Height (m)">{inp("max_height","e.g. 18")}</F>
         <F label="Min Boom Length (m)">{inp("min_boom_length","e.g. 6")}</F>
         <F label="Max Boom Length (m)">{inp("max_boom_length","e.g. 18")}</F>
@@ -1154,7 +1102,7 @@ function CherryPickerEditor({cp,onChange}) {
       <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.accent,borderLeft:`3px solid ${T.accent}`,paddingLeft:8,marginTop:14,marginBottom:8}}>Boom Systems Condition</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:6,marginBottom:4}}>
         <PFChip label="Boom Structure" value={cp.boom_structure||"PASS"} onChange={v=>set("boom_structure",v)}/>
-        <PFChip label="Boom Pins & Connections" value={cp.boom_pins||"PASS"} onChange={v=>set("boom_pins",v)}/>
+        <PFChip label="Boom Pins &amp; Connections" value={cp.boom_pins||"PASS"} onChange={v=>set("boom_pins",v)}/>
         <PFChip label="Boom Wear / Pads" value={cp.boom_wear||"PASS"} onChange={v=>set("boom_wear",v)}/>
         <PFChip label="Luffing / Extension System" value={cp.luffing_system||"PASS"} onChange={v=>set("luffing_system",v)}/>
         <PFChip label="Slew / Rotation System" value={cp.slew_system||"PASS"} onChange={v=>set("slew_system",v)}/>
@@ -1162,7 +1110,7 @@ function CherryPickerEditor({cp,onChange}) {
         <PFChip label="LMI Tested at Configuration" value={cp.lmi_test||"PASS"} onChange={v=>set("lmi_test",v)}/>
         <PFChip label="Anti-Two Block / Overload" value={cp.anti_two_block||"PASS"} onChange={v=>set("anti_two_block",v)}/>
       </div>
-      <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.blue,borderLeft:`3px solid ${T.blue}`,paddingLeft:8,marginTop:14,marginBottom:8}}>General & Safety Checklist</div>
+      <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.blue,borderLeft:`3px solid ${T.blue}`,paddingLeft:8,marginTop:14,marginBottom:8}}>General &amp; Safety Checklist</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:6,marginBottom:4}}>
         <PFChip label="Structural Integrity" value={cp.structural_result||"PASS"} onChange={v=>set("structural_result",v)}/>
         <PFChip label="Hydraulic System" value={cp.hydraulics_result||"PASS"} onChange={v=>set("hydraulics_result",v)}/>
@@ -1221,11 +1169,8 @@ function SandblastingPotEditor({sbp,onChange}) {
   );
   const readings=sbp.wall_readings||Array(10).fill("");
   const cl=sbp.checklist||SBP_DEFAULT_CHECKLIST;
-
   return (
     <div style={{display:"grid",gap:20}}>
-
-      {/* ── PAGE 1: HEADER INFO ── */}
       <div>
         <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.orange,borderLeft:`3px solid ${T.orange}`,paddingLeft:8,marginBottom:12}}>Page 1 — Equipment &amp; Site Info</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
@@ -1235,10 +1180,8 @@ function SandblastingPotEditor({sbp,onChange}) {
           <F label="Vessel Material">{inp("vessel_material","ALUMINUM")}</F>
           <F label="Inspection Frequency">
             <select value={sbp.inspection_frequency||"YEARLY"} onChange={e=>set("inspection_frequency",e.target.value)} style={{...IS,minHeight:40}}>
-              <option value="YEARLY">Yearly</option>
-              <option value="BI-ANNUALLY">Bi-annually</option>
-              <option value="QUARTERLY">Quarterly</option>
-              <option value="MONTHLY">Monthly</option>
+              <option value="YEARLY">Yearly</option><option value="BI-ANNUALLY">Bi-annually</option>
+              <option value="QUARTERLY">Quarterly</option><option value="MONTHLY">Monthly</option>
             </select>
           </F>
           <F label="Year of Manufacture">{inp("year_of_manufacture","2025")}</F>
@@ -1246,8 +1189,6 @@ function SandblastingPotEditor({sbp,onChange}) {
           <F label="Manufacturer">{inp("manufacturer","INDIA")}</F>
         </div>
       </div>
-
-      {/* ── PAGE 1: PRESSURE DATA ── */}
       <div>
         <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.orange,borderLeft:`3px solid ${T.orange}`,paddingLeft:8,marginBottom:12}}>Pressure Data</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
@@ -1256,17 +1197,12 @@ function SandblastingPotEditor({sbp,onChange}) {
           <F label="Test Pressure">{inp("test_pressure","0")}</F>
           <F label="Pressure Unit">
             <select value={sbp.pressure_unit||"Kpa"} onChange={e=>set("pressure_unit",e.target.value)} style={{...IS,minHeight:40}}>
-              <option value="Kpa">Kpa</option>
-              <option value="bar">bar</option>
-              <option value="psi">psi</option>
-              <option value="MPa">MPa</option>
+              <option value="Kpa">Kpa</option><option value="bar">bar</option><option value="psi">psi</option><option value="MPa">MPa</option>
             </select>
           </F>
           <F label="Min / Max Temperature">{inp("min_max_temp",".0-100°C")}</F>
         </div>
       </div>
-
-      {/* ── PAGE 1: VESSEL DIMENSIONS ── */}
       <div>
         <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.orange,borderLeft:`3px solid ${T.orange}`,paddingLeft:8,marginBottom:12}}>Vessel Dimensions</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
@@ -1275,8 +1211,6 @@ function SandblastingPotEditor({sbp,onChange}) {
           <F label="Height (mm)">{inp("height","1200",true)}</F>
         </div>
       </div>
-
-      {/* ── PAGE 1: WALL THICKNESS ── */}
       <div>
         <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.orange,borderLeft:`3px solid ${T.orange}`,paddingLeft:8,marginBottom:12}}>Wall Thickness Measurement Points (mm)</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
@@ -1289,28 +1223,20 @@ function SandblastingPotEditor({sbp,onChange}) {
           ))}
         </div>
       </div>
-
-      {/* ── PAGE 1: CHECKLIST ── */}
       <div>
         <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.orange,borderLeft:`3px solid ${T.orange}`,paddingLeft:8,marginBottom:12}}>Inspection Checklist — Y (Pass) / N (Fail) / N/A</div>
         <div style={{border:`1px solid ${T.border}`,borderRadius:10,overflow:"hidden"}}>
           {SBP_CHECKLIST_SECTIONS.map((section,si)=>(
             <div key={si}>
-              <div style={{padding:"5px 12px",background:"rgba(11,29,58,0.9)",borderBottom:`1px solid rgba(251,146,60,0.3)`,color:T.orange,fontSize:9,fontWeight:800,letterSpacing:".14em",textTransform:"uppercase"}}>
-                {section.sec}
-              </div>
+              <div style={{padding:"5px 12px",background:"rgba(11,29,58,0.9)",borderBottom:`1px solid rgba(251,146,60,0.3)`,color:T.orange,fontSize:9,fontWeight:800,letterSpacing:".14em",textTransform:"uppercase"}}>{section.sec}</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr"}}>
-                {section.items.map((item,ii)=>(
-                  <YNAChip key={item.key} label={item.label} value={cl[item.key]||"PASS"} onChange={v=>setCL(item.key,v)}/>
-                ))}
+                {section.items.map((item)=>(<YNAChip key={item.key} label={item.label} value={cl[item.key]||"PASS"} onChange={v=>setCL(item.key,v)}/>))}
                 {section.items.length%2!==0&&<div style={{minHeight:40}}/>}
               </div>
             </div>
           ))}
         </div>
       </div>
-
-      {/* ── PAGE 2: TEST CERT DATA ── */}
       <div>
         <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.accent,borderLeft:`3px solid ${T.accent}`,paddingLeft:8,marginBottom:12}}>Page 2 — Test Certificate Details</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
@@ -1324,17 +1250,13 @@ function SandblastingPotEditor({sbp,onChange}) {
           <F label="Pressure Relief Type">{inp("pressure_relief_type","NI")}</F>
         </div>
       </div>
-
-      {/* ── PAGE 2: SIGNATURES ── */}
       <div style={{borderTop:`1px solid ${T.border}`,paddingTop:16}}>
-        <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.accent,borderLeft:`3px solid ${T.accent}`,paddingLeft:8,marginBottom:12}}>Page 2 — Signatures (Bottom of Certificate)</div>
+        <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.accent,borderLeft:`3px solid ${T.accent}`,paddingLeft:8,marginBottom:12}}>Page 2 — Signatures</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
           <div style={{border:`1px solid ${T.accentBrd}`,borderRadius:10,padding:"14px 16px",background:T.accentDim}}>
             <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",color:T.accent,marginBottom:10}}>Competent Person / Inspector</div>
             <F label="Inspector Name">{inp("inspector_name","M.MASUPE")}</F>
-            <div style={{marginTop:8}}>
-              <F label="Inspector ID">{inp("inspector_id","700117910",true)}</F>
-            </div>
+            <div style={{marginTop:8}}><F label="Inspector ID">{inp("inspector_id","700117910",true)}</F></div>
             <div style={{marginTop:10,padding:"8px 12px",background:"rgba(34,211,238,0.05)",borderRadius:7,border:`1px dashed ${T.accentBrd}`,fontSize:11,color:T.textDim,textAlign:"center"}}>
               Signature image loads automatically from <span style={{color:T.accent}}>/Signature</span>
             </div>
@@ -1342,8 +1264,7 @@ function SandblastingPotEditor({sbp,onChange}) {
           <div style={{border:`1px solid ${T.border}`,borderRadius:10,padding:"14px 16px",background:"rgba(18,30,50,0.4)"}}>
             <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",color:T.textDim,marginBottom:10}}>Client Name &amp; Signature</div>
             <F label="Client Name (printed on cert)">
-              <input value={sbp.client_name_cert||""} onChange={e=>set("client_name_cert",e.target.value)} placeholder="MR SANNY"
-                style={{...IS,minHeight:40,fontSize:12}}/>
+              <input value={sbp.client_name_cert||""} onChange={e=>set("client_name_cert",e.target.value)} placeholder="MR SANNY" style={{...IS,minHeight:40,fontSize:12}}/>
             </F>
             <div style={{marginTop:10,padding:"8px 12px",background:"rgba(18,30,50,0.5)",borderRadius:7,border:`1px dashed ${T.border}`,fontSize:11,color:T.textDim,textAlign:"center"}}>
               Client signs physically on the printed certificate
@@ -1351,7 +1272,6 @@ function SandblastingPotEditor({sbp,onChange}) {
           </div>
         </div>
       </div>
-
     </div>
   );
 }
@@ -1364,47 +1284,82 @@ function EquipmentTypeSelect({value,onChange,style}) {
     <select value={value} onChange={onChange} style={style}>
       <option value="">Select type…</option>
       <optgroup label="🏗 Cranes">
-        <option>Mobile Crane</option><option>Crane Boom</option><option>Crane Hook</option><option>Wire Rope</option><option>Overhead Crane / EOT Crane</option><option>Gantry Crane</option><option>Tower Crane</option><option>Crawler Crane</option><option>Knuckle Boom Crane</option><option>Tadano Crane</option><option>Rough Terrain Crane</option><option>Truck-Mounted Crane</option>
+        <option>Mobile Crane</option><option>Crane Boom</option><option>Crane Hook</option><option>Wire Rope</option>
+        <option>Overhead Crane / EOT Crane</option><option>Gantry Crane</option><option>Tower Crane</option>
+        <option>Crawler Crane</option><option>Knuckle Boom Crane</option><option>Tadano Crane</option>
+        <option>Rough Terrain Crane</option><option>Truck-Mounted Crane</option>
       </optgroup>
       <optgroup label="⛓ Hoists">
-        <option>Chain Block</option><option>Manual Chain Hoist</option><option>Electric Chain Hoist</option><option>Lever Hoist / Tirfor</option><option>Electric Wire Rope Hoist</option>
+        <option>Chain Block</option><option>Manual Chain Hoist</option><option>Electric Chain Hoist</option>
+        <option>Lever Hoist / Tirfor</option><option>Electric Wire Rope Hoist</option>
       </optgroup>
       <optgroup label="🔗 Shackles">
-        <option>Shackle — Bow / Anchor</option><option>Shackle — D / Dee</option><option>Shackle — Safety Bow</option><option>Shackle — Wide Mouth</option><option>Shackle — Screw Pin Anchor</option><option>Shackle — Bolt Type Anchor</option><option>Shackle — Alloy</option><option>Shackle — Stainless Steel</option>
+        <option>Shackle — Bow / Anchor</option><option>Shackle — D / Dee</option><option>Shackle — Safety Bow</option>
+        <option>Shackle — Wide Mouth</option><option>Shackle — Screw Pin Anchor</option>
+        <option>Shackle — Bolt Type Anchor</option><option>Shackle — Alloy</option><option>Shackle — Stainless Steel</option>
       </optgroup>
       <optgroup label="🪢 Slings">
-        <option>Chain Sling</option><option>Wire Rope Sling</option><option>Web Sling / Flat Sling</option><option>Round Sling</option><option>Multi-Leg Chain Sling</option><option>Multi-Leg Wire Rope Sling</option>
+        <option>Chain Sling</option><option>Wire Rope Sling</option><option>Web Sling / Flat Sling</option>
+        <option>Round Sling</option><option>Multi-Leg Chain Sling</option><option>Multi-Leg Wire Rope Sling</option>
       </optgroup>
       <optgroup label="🔩 Rigging Hardware">
-        <option>Hook — Swivel</option><option>Hook — Eye</option><option>Hook — Crane</option><option>Eye Bolt</option><option>Eye Nut</option><option>Turnbuckle</option><option>Master Link</option><option>Swivel</option><option>Wire Rope Clip</option>
+        <option>Hook — Swivel</option><option>Hook — Eye</option><option>Hook — Crane</option><option>Eye Bolt</option>
+        <option>Eye Nut</option><option>Turnbuckle</option><option>Master Link</option><option>Swivel</option><option>Wire Rope Clip</option>
       </optgroup>
       <optgroup label="📐 Beams & Spreaders">
-        <option>Spreader Beam</option><option>Lifting Beam</option><option>Adjustable Spreader Beam</option><option>Pallet Lifter</option><option>Drum Lifter</option><option>Magnetic Lifter</option>
+        <option>Spreader Beam</option><option>Lifting Beam</option><option>Adjustable Spreader Beam</option>
+        <option>Pallet Lifter</option><option>Drum Lifter</option><option>Magnetic Lifter</option>
       </optgroup>
       <optgroup label="🦺 Fall Protection">
-        <option>Safety Harness — Full Body</option><option>Lanyard — Energy Absorbing</option><option>Lanyard — Twin Leg</option><option>Self-Retracting Lifeline (SRL)</option><option>Fall Arrest Block</option><option>Anchor Point</option>
+        <option>Safety Harness — Full Body</option><option>Lanyard — Energy Absorbing</option>
+        <option>Lanyard — Twin Leg</option><option>Self-Retracting Lifeline (SRL)</option>
+        <option>Fall Arrest Block</option><option>Anchor Point</option>
       </optgroup>
       <optgroup label="🔧 Jacks & Hydraulic Lifting">
-        <option>Electric Hydraulic Lifting Machine</option><option>Jinyun Electric Hydraulic Lifting Machine</option><option>Hydraulic Jack — General</option><option>Bottle Jack</option><option>Toe Jack / Skid Jack</option><option>Screw Jack</option><option>Pneumatic Jack</option><option>Railway Jack</option><option>Strand Jack</option><option>Hydraulic Cylinder Jack</option><option>Hydraulic Gantry / Portal Jack</option><option>Hydraulic Floor Jack</option><option>Hydraulic Press</option><option>Air / Pneumatic Lifting Bag</option><option>Mechanical Screw Lift</option><option>Synchronised Hydraulic Lifting System</option>
+        <option>Electric Hydraulic Lifting Machine</option><option>Jinyun Electric Hydraulic Lifting Machine</option>
+        <option>Hydraulic Jack — General</option><option>Bottle Jack</option><option>Toe Jack / Skid Jack</option>
+        <option>Screw Jack</option><option>Pneumatic Jack</option><option>Railway Jack</option><option>Strand Jack</option>
+        <option>Hydraulic Cylinder Jack</option><option>Hydraulic Gantry / Portal Jack</option>
+        <option>Hydraulic Floor Jack</option><option>Hydraulic Press</option>
+        <option>Air / Pneumatic Lifting Bag</option><option>Mechanical Screw Lift</option>
+        <option>Synchronised Hydraulic Lifting System</option>
       </optgroup>
       <optgroup label="🔥 Pressure Equipment">
-        <option>Pressure Vessel</option><option>Air Receiver</option><option>Boiler</option><option>Hydraulic Tank</option><option>Compressor — Air</option><option>Accumulator</option><option>Gas Cylinder</option><option>LPG Tank</option>
+        <option>Pressure Vessel</option><option>Air Receiver</option><option>Boiler</option>
+        <option>Hydraulic Tank</option><option>Compressor — Air</option><option>Accumulator</option>
+        <option>Gas Cylinder</option><option>Oxygen Tank</option><option>LPG Tank</option>
         <option>Sandblasting Pot</option>
       </optgroup>
       <optgroup label="🚛 Trucks & Heavy Vehicles">
-        <option>Mixer Truck</option><option>Diesel Bowser</option><option>Water Bowser</option><option>Tipper Truck</option><option>Rigid Truck</option><option>Flatbed Truck</option><option>Crane Truck / Hiab</option><option>Horse (Prime Mover)</option><option>Horse &amp; Trailer</option><option>Trailer — Flatbed</option><option>Trailer — Lowbed</option><option>Trailer — Tanker</option><option>Trailer — Side Tipper</option><option>Trailer — Skeletal</option><option>Bus / Personnel Carrier</option><option>Light Vehicle / Pickup</option><option>Ambulance</option>
+        <option>Mixer Truck</option><option>Diesel Bowser</option><option>Water Bowser</option>
+        <option>Tipper Truck</option><option>Rigid Truck</option><option>Flatbed Truck</option>
+        <option>Crane Truck / Hiab</option><option>Horse (Prime Mover)</option><option>Horse &amp; Trailer</option>
+        <option>Trailer — Flatbed</option><option>Trailer — Lowbed</option><option>Trailer — Tanker</option>
+        <option>Trailer — Side Tipper</option><option>Trailer — Skeletal</option>
+        <option>Bus / Personnel Carrier</option><option>Light Vehicle / Pickup</option><option>Ambulance</option>
       </optgroup>
       <optgroup label="🏗 Earthmoving & Construction">
-        <option>Excavator</option><option>Bulldozer</option><option>Grader / Motor Grader</option><option>Compactor / Roller</option><option>Scraper</option><option>Dump Truck</option><option>Haul Truck</option><option>TLB (Tractor Loader Backhoe)</option><option>Front Loader / Wheel Loader</option><option>Skid Steer Loader</option>
+        <option>Excavator</option><option>Bulldozer</option><option>Grader / Motor Grader</option>
+        <option>Compactor / Roller</option><option>Scraper</option><option>Dump Truck</option>
+        <option>Haul Truck</option><option>TLB (Tractor Loader Backhoe)</option>
+        <option>Front Loader / Wheel Loader</option><option>Skid Steer Loader</option>
       </optgroup>
       <optgroup label="⚙ Forklifts & Lifting Machines">
-        <option>Forklift</option><option>Reach Stacker</option><option>Telehandler</option><option>Cherry Picker / Aerial Work Platform</option><option>Scissor Lift</option><option>Personnel Lift / Manlift</option><option>Fork Arm Assembly</option>
+        <option>Forklift</option><option>Reach Stacker</option><option>Telehandler</option>
+        <option>Cherry Picker / Aerial Work Platform</option><option>Scissor Lift</option>
+        <option>Personnel Lift / Manlift</option><option>Fork Arm Assembly</option>
       </optgroup>
       <optgroup label="💧 Pumps & Fluid Equipment">
-        <option>Water Pump</option><option>Submersible Pump</option><option>Diesel Fuel Pump</option><option>Chemical Dosing Pump</option><option>Generator — Diesel</option><option>Generator — Petrol</option><option>Air Compressor</option><option>Welding Machine</option>
+        <option>Water Pump</option><option>Submersible Pump</option><option>Diesel Fuel Pump</option>
+        <option>Air Powered Pump</option><option>Chemical Dosing Pump</option>
+        <option>Generator — Diesel</option><option>Generator — Petrol</option><option>Air Compressor</option>
+        <option>Welding Machine</option><option>Portable Welding Inverter</option><option>Portable Welding Oven</option>
       </optgroup>
       <optgroup label="⛏ Mine & Site Specific">
-        <option>Scaffold</option><option>Underground Mine Cage</option><option>Skip Hoist</option><option>Rock Drill / Drill Rig</option><option>Continuous Miner</option><option>LHD (Load Haul Dump)</option><option>Conveyor Belt System</option><option>Fire Extinguisher</option><option>Breathing Apparatus / SCBA</option><option>Gas Detector</option>
+        <option>Scaffold</option><option>Underground Mine Cage</option><option>Skip Hoist</option>
+        <option>Rock Drill / Drill Rig</option><option>Continuous Miner</option>
+        <option>LHD (Load Haul Dump)</option><option>Conveyor Belt System</option>
+        <option>Fire Extinguisher</option><option>Breathing Apparatus / SCBA</option><option>Gas Detector</option>
       </optgroup>
       <optgroup label="📦 Other"><option>Other</option></optgroup>
     </select>
@@ -1443,6 +1398,7 @@ function CertificateEditInner() {
   const [wrsData,     setWrsData]     = useState(parseWireRopeSlingNotes(""));
   const [sbpData,     setSbpData]     = useState(parseSandblastingNotes("",{}));
   const [hookRopeData,setHookRopeData]= useState(parseHookRopeNotes("",{}));
+  const [poData,      setPoData]      = useState({...PO_DEFAULT});
   const [addSection,  setAddSection]  = useState("");
   const [addKey,      setAddKey]      = useState("");
   const [addValue,    setAddValue]    = useState("");
@@ -1466,17 +1422,15 @@ function CertificateEditInner() {
   });
 
   const equipmentDetectText = [
-    form.equipment_type,
-    form.equipment_description,
-    form.asset_name,
-    form.certificate_type,
-    form.certificate_number,
+    form.equipment_type,form.equipment_description,form.asset_name,
+    form.certificate_type,form.certificate_number,
   ].filter(Boolean).join(" ");
 
   const equipIsHookRope        = notesMode === "hookrope" || isHookRopeEquipment(equipmentDetectText);
   const equipIsCherryPicker    = !equipIsHookRope && isCherryPicker(equipmentDetectText);
   const equipIsWireRopeSling   = !equipIsHookRope && isWireRopeSling(equipmentDetectText);
   const equipIsSandblastingPot = !equipIsHookRope && isSandblastingPot(equipmentDetectText);
+  const equipIsPortableOven    = !equipIsHookRope && !equipIsCherryPicker && !equipIsWireRopeSling && !equipIsSandblastingPot && isPortableOven(equipmentDetectText);
 
   useEffect(() => { if (id) load(); }, [id]);
   useEffect(() => { const t=setTimeout(()=>searchLink(linkSearch),300); return ()=>clearTimeout(t); }, [linkSearch]);
@@ -1531,40 +1485,33 @@ function CertificateEditInner() {
     const storedExtracted = data.extracted_data || {};
     setBaseExtractedData(storedExtracted);
 
-    // Detect special editors from all available certificate text, not only equipment_type.
-    // Hook & Rope imports sometimes keep equipment_type as "Crane Hook" / "Wire Rope",
-    // but older records can expose "Hook & Rope" only in description, cert number HR..., or notes.
     const certDetectText = [
-      data.equipment_type,
-      data.asset_type,
-      data.equipment_description,
-      data.asset_name,
-      data.certificate_type,
-      data.certificate_number,
-      data.notes,
+      data.equipment_type,data.asset_type,data.equipment_description,
+      data.asset_name,data.certificate_type,data.certificate_number,data.notes,
     ].filter(Boolean).join(" ");
     const extractedDetectText = JSON.stringify(storedExtracted || {});
     const hookRecord = isHookRopeEquipment(certDetectText) || hasHookRopeShape(getHookRopeSource(storedExtracted));
-    const sbpRecord = !hookRecord && isSandblastingPot(certDetectText + " " + extractedDetectText);
-    const rawNotes = hookRecord ? (data.notes || getEditableInspectionSource(data)) : getEditableInspectionSource(data);
+    const sbpRecord  = !hookRecord && isSandblastingPot(certDetectText + " " + extractedDetectText);
+    const poRecord   = !hookRecord && !sbpRecord && isPortableOven(certDetectText + " " + extractedDetectText);
+    const rawNotes   = hookRecord ? (data.notes || getEditableInspectionSource(data)) : getEditableInspectionSource(data);
 
     if (hookRecord) {
       setNotesMode("hookrope");
       const oldHookRope = getHookRopeSource(storedExtracted);
       const hookRopeSource = {
         ...oldHookRope,
-        client_name: data.client_name || data.company || oldHookRope.client_name || "",
-        location: data.location || oldHookRope.location || "",
-        crane_make: data.model || data.manufacturer || oldHookRope.crane_make || "",
-        crane_serial: data.serial_number || oldHookRope.crane_serial || "",
-        crane_fleet: data.fleet_number || oldHookRope.crane_fleet || "",
-        crane_swl: data.swl || oldHookRope.crane_swl || "",
+        client_name:   data.client_name || data.company || oldHookRope.client_name || "",
+        location:      data.location || oldHookRope.location || "",
+        crane_make:    data.model || data.manufacturer || oldHookRope.crane_make || "",
+        crane_serial:  data.serial_number || oldHookRope.crane_serial || "",
+        crane_fleet:   data.fleet_number || oldHookRope.crane_fleet || "",
+        crane_swl:     data.swl || oldHookRope.crane_swl || "",
         inspection_date: toDate(data.inspection_date || data.issue_date) || oldHookRope.inspection_date || "",
-        expiry_date: toDate(data.expiry_date || data.valid_to) || oldHookRope.expiry_date || "",
+        expiry_date:   toDate(data.expiry_date || data.valid_to) || oldHookRope.expiry_date || "",
         report_number: data.inspection_number || data.inspection_no || oldHookRope.report_number || "",
-        overall_result: data.result || oldHookRope.overall_result || "PASS",
+        overall_result:data.result || oldHookRope.overall_result || "PASS",
         defects_found: data.defects_found || oldHookRope.defects_found || "",
-        comments: data.comments || data.remarks || oldHookRope.comments || "",
+        comments:      data.comments || data.remarks || oldHookRope.comments || "",
       };
       setHookRopeData(parseHookRopeNotes(rawNotes, hookRopeSource));
       setJsonRows([]); setNotePairs([]);
@@ -1572,11 +1519,14 @@ function CertificateEditInner() {
       setNotesMode("sbp");
       setSbpData(parseSandblastingNotes(rawNotes, storedExtracted));
       setJsonRows([]); setNotePairs([]);
+    } else if (poRecord) {
+      setNotesMode("po");
+      setPoData(parsePortableOvenData(rawNotes, storedExtracted, data));
+      setJsonRows([]); setNotePairs([]);
     } else if (isCherryPicker(certDetectText)) {
       setNotesMode("cherry");
       setCpData(parseCherryPickerNotes(rawNotes));
       setJsonRows([]); setNotePairs([]);
-
     } else if (isWireRopeSling(certDetectText)) {
       setNotesMode("wrs");
       setWrsData(parseWireRopeSlingNotes(rawNotes));
@@ -1604,27 +1554,37 @@ function CertificateEditInner() {
   const hcEquipType = e => {
     const newType = e.target.value;
     setForm(p=>({...p,equipment_type:newType}));
+
+    const getCurrentNotes = () => {
+      if (notesMode==="json")     return rebuildNotesJson(jsonRows);
+      if (notesMode==="cherry")   return buildCherryPickerNotes(cpData);
+      if (notesMode==="wrs")      return buildWireRopeSlingNotes(wrsData);
+      if (notesMode==="hookrope") return buildHookRopeNotes(hookRopeData,form.equipment_type);
+      if (notesMode==="sbp")      return buildSandblastingNotes(sbpData);
+      if (notesMode==="po")       return buildPortableOvenNotes(poData);
+      return buildNotesPipe(notePairs);
+    };
+
     if (isHookRopeEquipment(newType) && notesMode !== "hookrope") {
-      const built = notesMode==="json"?rebuildNotesJson(jsonRows):notesMode==="cherry"?buildCherryPickerNotes(cpData):notesMode==="wrs"?buildWireRopeSlingNotes(wrsData):notesMode==="sbp"?buildNotesPipe([]):buildNotesPipe(notePairs);
-      setHookRopeData(parseHookRopeNotes(built, cleanHookRopeBaseExtractedData(baseExtractedData)));
+      setHookRopeData(parseHookRopeNotes(getCurrentNotes(), cleanHookRopeBaseExtractedData(baseExtractedData)));
       setNotesMode("hookrope");
     } else if (isSandblastingPot(newType) && notesMode !== "sbp") {
-      const built = notesMode==="json"?rebuildNotesJson(jsonRows):notesMode==="cherry"?buildCherryPickerNotes(cpData):notesMode==="wrs"?buildWireRopeSlingNotes(wrsData):notesMode==="hookrope"?buildNotesPipe([]):buildNotesPipe(notePairs);
-      setSbpData(parseSandblastingNotes(built, baseExtractedData));
+      setSbpData(parseSandblastingNotes(getCurrentNotes(), baseExtractedData));
       setNotesMode("sbp");
+    } else if (isPortableOven(newType) && notesMode !== "po") {
+      setPoData(parsePortableOvenData(getCurrentNotes(), baseExtractedData, form));
+      setNotesMode("po");
     } else if (isCherryPicker(newType) && notesMode !== "cherry") {
-      const built = notesMode==="json"?rebuildNotesJson(jsonRows):notesMode==="wrs"?buildWireRopeSlingNotes(wrsData):notesMode==="sbp"?buildSandblastingNotes(sbpData):notesMode==="hookrope"?buildHookRopeNotes(hookRopeData,form.equipment_type):buildNotesPipe(notePairs);
-      setCpData(parseCherryPickerNotes(built));
+      setCpData(parseCherryPickerNotes(getCurrentNotes()));
       setNotesMode("cherry");
-
     } else if (isWireRopeSling(newType) && notesMode !== "wrs") {
-      const built = notesMode==="json"?rebuildNotesJson(jsonRows):notesMode==="cherry"?buildCherryPickerNotes(cpData):notesMode==="sbp"?buildSandblastingNotes(sbpData):notesMode==="hookrope"?buildHookRopeNotes(hookRopeData,form.equipment_type):buildNotesPipe(notePairs);
-      setWrsData(parseWireRopeSlingNotes(built));
+      setWrsData(parseWireRopeSlingNotes(getCurrentNotes()));
       setNotesMode("wrs");
-    } else if (!isCherryPicker(newType)&&!isWireRopeSling(newType)&&!isSandblastingPot(newType)&&!isHookRopeEquipment(newType)) {
-      if (notesMode==="cherry") { setJsonRows(flattenNotesJson(buildCherryPickerNotes(cpData))); setNotesMode("json"); }
+    } else if (!isCherryPicker(newType)&&!isWireRopeSling(newType)&&!isSandblastingPot(newType)&&!isHookRopeEquipment(newType)&&!isPortableOven(newType)) {
+      if (notesMode==="cherry")   { setJsonRows(flattenNotesJson(buildCherryPickerNotes(cpData))); setNotesMode("json"); }
       else if (notesMode==="wrs") { setJsonRows(flattenNotesJson(buildWireRopeSlingNotes(wrsData))); setNotesMode("json"); }
       else if (notesMode==="sbp") { setJsonRows(flattenNotesJson(buildSandblastingNotes(sbpData))); setNotesMode("json"); }
+      else if (notesMode==="po")  { setJsonRows(flattenNotesJson(buildPortableOvenNotes(poData))); setNotesMode("json"); }
       else if (notesMode==="hookrope") { setNotePairs(parseNotesPipe(buildHookRopeNotes(hookRopeData,form.equipment_type))); setNotesMode("pipe"); }
     }
   };
@@ -1645,11 +1605,12 @@ function CertificateEditInner() {
   const removePair=i=>setNotePairs(p=>p.filter((_,j)=>j!==i));
 
   function buildFinalNotes() {
-    if (notesMode==="sbp")    return buildSandblastingNotes(sbpData);
-    if (notesMode==="cherry") return buildCherryPickerNotes(cpData);
-    if (notesMode==="wrs")    return buildWireRopeSlingNotes(wrsData);
+    if (notesMode==="sbp")      return buildSandblastingNotes(sbpData);
+    if (notesMode==="cherry")   return buildCherryPickerNotes(cpData);
+    if (notesMode==="wrs")      return buildWireRopeSlingNotes(wrsData);
     if (notesMode==="hookrope") return buildHookRopeNotes(hookRopeData, form.equipment_type);
-    if (notesMode==="json")   return rebuildNotesJson(jsonRows);
+    if (notesMode==="po")       return buildPortableOvenNotes(poData);
+    if (notesMode==="json")     return rebuildNotesJson(jsonRows);
     return buildNotesPipe(notePairs);
   }
 
@@ -1657,12 +1618,30 @@ function CertificateEditInner() {
     setSaving(true); setError(""); setSuccess("");
     try {
       const finalNotes = buildFinalNotes();
+
       const mergedInspectionData = notesMode==="hookrope"
         ? {
             ...cleanHookRopeBaseExtractedData(baseExtractedData),
             hookrope: hookRopeToExtractedData(hookRopeData),
             hook_rope: hookRopeToExtractedData(hookRopeData),
             ...Object.fromEntries(parseNotesPipe(finalNotes).map(p=>[p.key,p.value])),
+          }
+        : notesMode==="po"
+        ? {
+            ...baseExtractedData,
+            portable_oven: poData,
+            // also flatten top-level so CertificateSheet.parsePortableOvenData can pick them up directly
+            company:              poData.company,
+            location:             poData.location,
+            equipment_description:poData.equipment_description,
+            serial_number:        poData.serial_number,
+            power_voltage:        poData.power_voltage,
+            weight:               poData.weight,
+            structural_integrity: poData.structural_integrity,
+            functional_test:      poData.functional_test,
+            overall_assessment:   poData.overall_assessment,
+            partners:             poData.partners,
+            failure_to_comply:    poData.failure_to_comply,
           }
         : mergeInspectionData(baseExtractedData, finalNotes, notesMode);
 
@@ -1686,7 +1665,6 @@ function CertificateEditInner() {
         remarks:             hookRopeData.comments || form.comments || null,
       } : {};
 
-      // For SBP also sync flat cert columns from sbpData
       const sbpExtras = notesMode==="sbp" ? {
         client_name:      sbpData.equipment_owner||form.client_name||null,
         location:         sbpData.location||form.location||null,
@@ -1702,6 +1680,16 @@ function CertificateEditInner() {
         inspector_name:   sbpData.inspector_name||form.inspector_name||null,
         inspector_id:     sbpData.inspector_id||form.inspector_id||null,
         comments:         sbpData.client_name_cert||form.comments||null,
+      } : {};
+
+      // Sync portable oven flat columns back to cert record
+      const poExtras = notesMode==="po" ? {
+        client_name:           poData.company || form.client_name || null,
+        location:              poData.location || form.location || null,
+        equipment_description: poData.equipment_description || form.equipment_description || null,
+        serial_number:         poData.serial_number || form.serial_number || null,
+        defects_found:         poData.defects_found || form.defects_found || null,
+        recommendations:       poData.recommendations || form.recommendations || null,
       } : {};
 
       const {error:e} = await supabase.from("certificates").update({
@@ -1754,6 +1742,7 @@ function CertificateEditInner() {
         folder_position:       form.folder_position?Number(form.folder_position):null,
         ...sbpExtras,
         ...hookRopeExtras,
+        ...poExtras,
       }).eq("id",id);
       if (e) throw e;
       setSuccess("Saved successfully.");
@@ -1806,15 +1795,17 @@ function CertificateEditInner() {
   const sectionCount   = sectionEntries.length;
   const toggleCollapse = useCallback((sec)=>setCollapsed(p=>({...p,[sec]:!p[sec]})),[]);
 
-  const inspFieldCount = notesMode==="sbp" ? Object.keys(SBP_DEFAULT_CHECKLIST).length
-    : notesMode==="cherry" ? Object.values(cpData).filter(v=>v&&String(v).trim()&&v!=="PASS"&&v!=="Satisfactory").length
-    : notesMode==="wrs"    ? Object.values(wrsData).filter(v=>v&&String(v).trim()).length
+  const inspFieldCount = notesMode==="sbp"      ? Object.keys(SBP_DEFAULT_CHECKLIST).length
+    : notesMode==="cherry"   ? Object.values(cpData).filter(v=>v&&String(v).trim()&&v!=="PASS"&&v!=="Satisfactory").length
+    : notesMode==="wrs"      ? Object.values(wrsData).filter(v=>v&&String(v).trim()).length
     : notesMode==="hookrope" ? Object.keys(HOOK_ROPE_DEFAULT).filter(k=>k!=="extra_pairs").length
-    : notesMode==="json"   ? jsonRows.length : notePairs.length;
+    : notesMode==="po"       ? Object.keys(PO_DEFAULT).length
+    : notesMode==="json"     ? jsonRows.length
+    : notePairs.length;
 
-  const modeColor = notesMode==="cherry"?T.orange:notesMode==="wrs"?T.blue:notesMode==="sbp"?T.orange:notesMode==="hookrope"?T.amber:T.accent;
-  const modeDim   = notesMode==="cherry"?T.orangeDim:notesMode==="wrs"?T.blueDim:notesMode==="sbp"?T.orangeDim:notesMode==="hookrope"?T.amberDim:T.accentDim;
-  const modeBrd   = notesMode==="cherry"?T.orangeBrd:notesMode==="wrs"?T.blueBrd:notesMode==="sbp"?T.orangeBrd:notesMode==="hookrope"?T.amberBrd:T.accentBrd;
+  const modeColor = notesMode==="cherry"?T.orange:notesMode==="wrs"?T.blue:notesMode==="sbp"?T.orange:notesMode==="hookrope"?T.amber:notesMode==="po"?T.green:T.accent;
+  const modeDim   = notesMode==="cherry"?T.orangeDim:notesMode==="wrs"?T.blueDim:notesMode==="sbp"?T.orangeDim:notesMode==="hookrope"?T.amberDim:notesMode==="po"?T.greenDim:T.accentDim;
+  const modeBrd   = notesMode==="cherry"?T.orangeBrd:notesMode==="wrs"?T.blueBrd:notesMode==="sbp"?T.orangeBrd:notesMode==="hookrope"?T.amberBrd:notesMode==="po"?T.greenBrd:T.accentBrd;
 
   const SaveBtn = () => (
     <button type="button" onClick={handleSave} disabled={saving}
@@ -1826,6 +1817,7 @@ function CertificateEditInner() {
   function getModeButtons() {
     if (equipIsHookRope)        return [["hookrope","🪝 Hook & Rope"],["pipe","Simple"]];
     if (equipIsSandblastingPot) return [["sbp","🪣 SBP"],["json","Grouped"],["pipe","Simple"]];
+    if (equipIsPortableOven)    return [["po","🔧 Oven / WM"],["json","Grouped"],["pipe","Simple"]];
     if (equipIsCherryPicker)    return [["cherry","🚡 AWP"],["json","Grouped"],["pipe","Simple"]];
     if (equipIsWireRopeSling)   return [["wrs","🪢 Sling"],["json","Grouped"],["pipe","Simple"]];
     return [["json","Grouped"],["pipe","Simple"]];
@@ -1833,18 +1825,20 @@ function CertificateEditInner() {
 
   function switchMode(m) {
     if (m===notesMode) return;
-    const built = notesMode==="json"?rebuildNotesJson(jsonRows)
-      :notesMode==="cherry"?buildCherryPickerNotes(cpData)
-      :notesMode==="wrs"?buildWireRopeSlingNotes(wrsData)
-      :notesMode==="hookrope"?buildHookRopeNotes(hookRopeData,form.equipment_type)
-      :notesMode==="sbp"?buildSandblastingNotes(sbpData)
-      :buildNotesPipe(notePairs);
-    if (m==="sbp")    { setSbpData(parseSandblastingNotes(built,baseExtractedData)); }
-    else if (m==="cherry") { setCpData(parseCherryPickerNotes(built)); }
-    else if (m==="wrs")    { setWrsData(parseWireRopeSlingNotes(built)); }
+    const built = notesMode==="json"     ? rebuildNotesJson(jsonRows)
+      : notesMode==="cherry"   ? buildCherryPickerNotes(cpData)
+      : notesMode==="wrs"      ? buildWireRopeSlingNotes(wrsData)
+      : notesMode==="hookrope" ? buildHookRopeNotes(hookRopeData,form.equipment_type)
+      : notesMode==="sbp"      ? buildSandblastingNotes(sbpData)
+      : notesMode==="po"       ? buildPortableOvenNotes(poData)
+      : buildNotesPipe(notePairs);
+    if (m==="sbp")       { setSbpData(parseSandblastingNotes(built,baseExtractedData)); }
+    else if (m==="po")   { setPoData(parsePortableOvenData(built,baseExtractedData,form)); }
+    else if (m==="cherry")   { setCpData(parseCherryPickerNotes(built)); }
+    else if (m==="wrs")      { setWrsData(parseWireRopeSlingNotes(built)); }
     else if (m==="hookrope") { setHookRopeData(parseHookRopeNotes(built,baseExtractedData)); }
-    else if (m==="json")   { setJsonRows(notesMode==="hookrope"?hookRopeToRows(hookRopeData):flattenNotesJson(built)); }
-    else if (m==="pipe")   { setNotePairs(parseNotesPipe(built)); }
+    else if (m==="json")     { setJsonRows(notesMode==="hookrope"?hookRopeToRows(hookRopeData):flattenNotesJson(built)); }
+    else if (m==="pipe")     { setNotePairs(parseNotesPipe(built)); }
     setNotesMode(m);
   }
 
@@ -1892,6 +1886,7 @@ function CertificateEditInner() {
                 <p style={{margin:0,color:T.textDim,fontSize:12}}>
                   {form.certificate_type}{form.equipment_type?` · ${form.equipment_type}`:""}
                   {equipIsSandblastingPot&&<span style={{marginLeft:8,color:T.orange,fontWeight:800}}>🪣 SBP</span>}
+                  {equipIsPortableOven&&<span style={{marginLeft:8,color:T.green,fontWeight:800}}>🔧 Oven/WM</span>}
                   {equipIsCherryPicker&&<span style={{marginLeft:8,color:T.orange,fontWeight:800}}>🚡 AWP</span>}
                   {equipIsHookRope&&<span style={{marginLeft:8,color:T.amber,fontWeight:800}}>🪝 Hook &amp; Rope</span>}
                   {equipIsWireRopeSling&&<span style={{marginLeft:8,color:T.blue,fontWeight:800}}>🪢 WRS</span>}
@@ -1926,7 +1921,7 @@ function CertificateEditInner() {
                     {t}
                     {i===4&&inspFieldCount>0&&(
                       <span style={{marginLeft:5,fontSize:9,padding:"1px 6px",borderRadius:99,background:modeDim,color:modeColor,border:`1px solid ${modeBrd}`}}>
-                        {notesMode==="cherry"?"AWP":notesMode==="wrs"?"WRS":notesMode==="sbp"?"SBP":notesMode==="hookrope"?"H/R":inspFieldCount}
+                        {notesMode==="cherry"?"AWP":notesMode==="wrs"?"WRS":notesMode==="sbp"?"SBP":notesMode==="hookrope"?"H/R":notesMode==="po"?"WM":inspFieldCount}
                       </span>
                     )}
                     {i===5&&isLinked&&(
@@ -2005,11 +2000,12 @@ function CertificateEditInner() {
                     <div>
                       <div style={{fontSize:14,fontWeight:800,color:T.text}}>Inspection Data</div>
                       <div style={{fontSize:11,color:T.textDim,marginTop:2}}>
-                        {notesMode==="sbp"?"Sandblasting Pot — 2-page cert: checklist, wall thickness, test cert & signatures"
-                          :notesMode==="cherry"?"Cherry Picker / AWP — boom & platform structured fields"
+                        {notesMode==="sbp"      ?"Sandblasting Pot — 2-page cert: checklist, wall thickness, test cert & signatures"
+                          :notesMode==="po"     ?"Portable Oven / Welding Machine — Page 1 compliance cert + Page 2 test cert fields"
+                          :notesMode==="cherry" ?"Cherry Picker / AWP — boom & platform structured fields"
                           :notesMode==="hookrope"?"Hook & Rope — edits the exact CertificateSheet pipe keys"
-                          :notesMode==="wrs"?"Wire Rope Sling — sling details & condition assessment"
-                          :notesMode==="json"?`${jsonRows.length} fields · ${sectionCount} sections`
+                          :notesMode==="wrs"    ?"Wire Rope Sling — sling details & condition assessment"
+                          :notesMode==="json"   ?`${jsonRows.length} fields · ${sectionCount} sections`
                           :`${notePairs.length} fields`}
                       </div>
                     </div>
@@ -2017,7 +2013,10 @@ function CertificateEditInner() {
                       <div style={{display:"flex",border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden"}}>
                         {getModeButtons().map(([m,lbl])=>(
                           <button key={m} type="button" onClick={()=>switchMode(m)}
-                            style={{padding:"6px 12px",border:"none",background:notesMode===m?(m==="cherry"||m==="sbp"?T.orangeDim:m==="wrs"?T.blueDim:m==="hookrope"?T.amberDim:T.accentDim):"transparent",color:notesMode===m?(m==="cherry"||m==="sbp"?T.orange:m==="wrs"?T.blue:m==="hookrope"?T.amber:T.accent):T.textDim,fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
+                            style={{padding:"6px 12px",border:"none",
+                              background:notesMode===m?(m==="cherry"||m==="sbp"?T.orangeDim:m==="wrs"?T.blueDim:m==="hookrope"?T.amberDim:m==="po"?T.greenDim:T.accentDim):"transparent",
+                              color:notesMode===m?(m==="cherry"||m==="sbp"?T.orange:m==="wrs"?T.blue:m==="hookrope"?T.amber:m==="po"?T.green:T.accent):T.textDim,
+                              fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
                             {lbl}
                           </button>
                         ))}
@@ -2031,39 +2030,51 @@ function CertificateEditInner() {
                     </div>
                   </div>
 
-                  {/* SBP MODE */}
+                  {/* ── PORTABLE OVEN MODE ── */}
+                  {notesMode==="po"&&(
+                    <div style={{border:`1px solid ${T.greenBrd}`,borderRadius:10,padding:16,background:"rgba(52,211,153,0.04)"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,paddingBottom:12,borderBottom:`1px solid ${T.greenBrd}`}}>
+                        <span style={{fontSize:18}}>🔧</span>
+                        <div>
+                          <div style={{fontSize:13,fontWeight:800,color:T.green}}>Portable Oven / Welding Machine / Oxygen Tank / Air Pump Inspector</div>
+                          <div style={{fontSize:11,color:T.textDim,marginTop:1}}>
+                            Edits both pages: Page 1 (Compliance Certificate) and Page 2 (Test Certificate). All fields map directly to the printed certificate.
+                          </div>
+                        </div>
+                      </div>
+                      <PortableOvenEditor po={poData} onChange={setPoData}/>
+                    </div>
+                  )}
+
+                  {/* ── SBP MODE ── */}
                   {notesMode==="sbp"&&(
                     <div style={{border:`1px solid ${T.orangeBrd}`,borderRadius:10,padding:16,background:"rgba(251,146,60,0.04)"}}>
                       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,paddingBottom:12,borderBottom:`1px solid ${T.orangeBrd}`}}>
                         <span style={{fontSize:18}}>🪣</span>
                         <div>
                           <div style={{fontSize:13,fontWeight:800,color:T.orange}}>Sandblasting Pot Inspector</div>
-                          <div style={{fontSize:11,color:T.textDim,marginTop:1}}>
-                            Edits both pages: Page 1 (checklist, wall thickness) and Page 2 (test cert, signatures).
-                          </div>
+                          <div style={{fontSize:11,color:T.textDim,marginTop:1}}>Edits both pages: Page 1 (checklist, wall thickness) and Page 2 (test cert, signatures).</div>
                         </div>
                       </div>
                       <SandblastingPotEditor sbp={sbpData} onChange={setSbpData}/>
                     </div>
                   )}
 
-                  {/* HOOK & ROPE MODE */}
+                  {/* ── HOOK & ROPE MODE ── */}
                   {notesMode==="hookrope"&&(
                     <div style={{border:`1px solid ${T.amberBrd}`,borderRadius:10,padding:16,background:"rgba(251,191,36,0.04)"}}>
                       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,paddingBottom:12,borderBottom:`1px solid ${T.amberBrd}`}}>
                         <span style={{fontSize:18}}>🪝</span>
                         <div>
                           <div style={{fontSize:13,fontWeight:800,color:T.amber}}>Hook &amp; Wire Rope Inspector</div>
-                          <div style={{fontSize:11,color:T.textDim,marginTop:1}}>
-                            Saves exact pipe-note keys used by your certificate sheet: Latch, Structural, Rope dia, Broken wires, Drum main, Drum aux, Lay main and Lay aux.
-                          </div>
+                          <div style={{fontSize:11,color:T.textDim,marginTop:1}}>Saves exact pipe-note keys used by your certificate sheet.</div>
                         </div>
                       </div>
                       <HookRopeEditor hr={hookRopeData} onChange={setHookRopeData} equipmentType={form.equipment_type}/>
                     </div>
                   )}
 
-                  {/* WRS MODE */}
+                  {/* ── WRS MODE ── */}
                   {notesMode==="wrs"&&(
                     <div style={{border:`1px solid ${T.blueBrd}`,borderRadius:10,padding:16,background:"rgba(96,165,250,0.04)"}}>
                       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,paddingBottom:12,borderBottom:`1px solid ${T.blueBrd}`}}>
@@ -2077,7 +2088,7 @@ function CertificateEditInner() {
                     </div>
                   )}
 
-                  {/* CHERRY MODE */}
+                  {/* ── CHERRY MODE ── */}
                   {notesMode==="cherry"&&(
                     <div style={{border:`1px solid ${T.orangeBrd}`,borderRadius:10,padding:16,background:"rgba(251,146,60,0.04)"}}>
                       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,paddingBottom:12,borderBottom:`1px solid ${T.orangeBrd}`}}>
@@ -2091,7 +2102,7 @@ function CertificateEditInner() {
                     </div>
                   )}
 
-                  {/* JSON MODE */}
+                  {/* ── JSON MODE ── */}
                   {notesMode==="json"&&(
                     <>
                       {jsonRows.length>0&&(
@@ -2099,7 +2110,7 @@ function CertificateEditInner() {
                       )}
                       {jsonRows.length===0?(
                         <div style={{padding:"32px 20px",textAlign:"center",border:`1px dashed ${T.border}`,borderRadius:12,color:T.textDim,fontSize:13}}>
-                          No inspection data found.{equipIsSandblastingPot?" Switch to 🪣 SBP mode.":equipIsCherryPicker?" Switch to 🚡 AWP mode.":equipIsWireRopeSling?" Switch to 🪢 Sling mode.":""}
+                          No inspection data found.{equipIsSandblastingPot?" Switch to 🪣 SBP mode.":equipIsPortableOven?" Switch to 🔧 Oven/WM mode.":equipIsCherryPicker?" Switch to 🚡 AWP mode.":equipIsWireRopeSling?" Switch to 🪢 Sling mode.":""}
                         </div>
                       ):(
                         <div style={{border:`1px solid ${T.border}`,borderRadius:10,overflow:"hidden"}}>
@@ -2147,7 +2158,7 @@ function CertificateEditInner() {
                     </>
                   )}
 
-                  {/* PIPE MODE */}
+                  {/* ── PIPE MODE ── */}
                   {notesMode==="pipe"&&(
                     notePairs.length===0?(
                       <div style={{padding:"32px 20px",textAlign:"center",border:`1px dashed ${T.border}`,borderRadius:12,color:T.textDim,fontSize:13}}>
