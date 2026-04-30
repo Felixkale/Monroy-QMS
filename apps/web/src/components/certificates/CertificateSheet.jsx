@@ -131,7 +131,10 @@ function detectFail(defects,...kws){if(!defects)return"PASS";const d=defects.toL
 function parsePhotoEvidence(raw){if(!raw)return[];if(Array.isArray(raw))return raw;if(typeof raw==="string"){try{const p=JSON.parse(raw);return Array.isArray(p)?p:[];}catch(e){return[];}}return[];}
 function r(v){const s=resultStyle((v||"").toUpperCase());return<span style={{fontSize:8,fontWeight:800,color:s.color,background:s.bg,border:`1px solid ${s.brd}`,padding:"1px 6px",borderRadius:3,whiteSpace:"nowrap"}}>{s.label}</span>;}
 
-/* ── parse portable oven / welding machine data ──────────── */
+/* ══════════════════════════════════════════════════════════
+   PARSE PORTABLE OVEN / WELDING MACHINE / AIR POWERED PUMP
+   ── NOW WITH isCompressor FLAG + PRESSURE FIELDS ──
+══════════════════════════════════════════════════════════ */
 function parsePortableOvenData(c){
   const ex=c.extracted_data||{};
   const pn=parseNotes(val(c.notes||"")||"");
@@ -143,6 +146,10 @@ function parsePortableOvenData(c){
     }
     return null;
   }
+
+  const rawType=(val(c.equipment_type)||"").toLowerCase();
+  // Detect air pump / compressor so we swap voltage+weight → pressure fields
+  const isCompressor=/air.powered.pump|air.pump|compressor|pump/i.test(rawType);
 
   const result=pickResult(c);
   const isPass=result==="PASS";
@@ -158,8 +165,14 @@ function parsePortableOvenData(c){
     expiry_date:    formatDate(c.expiry_date)||"—",
     equipment_type: val(c.equipment_type)||"Portable Oven",
     equipment_description: val(c.equipment_description)||"Portable Oven",
+    // Oven / WM fields
     power_voltage:  g("power_voltage","voltage","POWER VOLTAGE","Voltage")||"—",
     weight:         g("weight","WEIGHT(KG)","Weight","capacity_volume")||"—",
+    // Compressor / pump pressure fields
+    design_pressure:  g("design_pressure","Design Pressure")||"—",
+    working_pressure: g("working_pressure","Working Pressure")||"—",
+    test_pressure:    g("test_pressure","Test Pressure")||"—",
+    pressure_unit:    g("pressure_unit","Pressure Unit")||"Kpa",
     inspector_name: val(c.inspector_name)||"Moemedi Masupe",
     inspector_id:   val(c.inspector_id)||"700117910",
     partners:       Array.isArray(ex.partners)?ex.partners:["Lycopodium","SMEI PROJECTS","Onetrack Engineering","Metso Outotec Australia limited"],
@@ -173,7 +186,7 @@ function parsePortableOvenData(c){
     defects_found:               val(c.defects_found)||null,
     recommendations:             val(c.recommendations)||null,
     // Flags
-    isPass, isFail, isCond,
+    isPass, isFail, isCond, isCompressor,
   };
 }
 
@@ -453,26 +466,22 @@ const CSS=`
   .sb-t tr.sb-result td:nth-child(2){font-size:14px;font-weight:900;text-align:center;letter-spacing:.2em}
 
   /* ── PORTABLE OVEN — specific styles ── */
-  /* main data table — alternating dark/light column pairs */
   .po-t{width:100%;border-collapse:collapse;font-size:8.5px;border:1px solid #1e3a5f;flex-shrink:0}
   .po-t td{padding:4px 8px;border:1px solid #c3d4e8}
   .po-t td:nth-child(odd){font-weight:700;background:#0b1d3a;color:#4fc3f7;width:22%;white-space:nowrap}
   .po-t td:nth-child(even){background:#f4f8ff;font-weight:600;color:#0b1d3a;width:28%}
-  /* overall assessment 4-col grid */
   .po-oa{width:100%;border-collapse:collapse;font-size:7.5px;border:1px solid #1e3a5f;flex-shrink:0}
   .po-oa th{background:#0b1d3a;color:#4fc3f7;padding:3px 5px;font-size:7px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;border:1px solid #1e3a5f;text-align:center}
   .po-oa td{padding:6px 5px;border:1px solid #c3d4e8;text-align:center;font-size:7.5px;font-weight:600;color:#94a3b8;background:#fff;vertical-align:middle}
   .po-oa td.po-sel{background:#dcfce7;color:#15803d;font-weight:900;border:2px solid #86efac}
   .po-oa td.po-sel-f{background:#fee2e2;color:#b91c1c;font-weight:900;border:2px solid #fca5a5}
   .po-oa td.po-sel-a{background:#fef3c7;color:#b45309;font-weight:900;border:2px solid #fcd34d}
-  /* sf side-by-side boxes */
   .po-sf{display:grid;grid-template-columns:1fr 1fr;gap:5px;flex-shrink:0}
   .po-sf-box{border:1px solid #1e3a5f;border-radius:4px;overflow:hidden}
   .po-sf-hd{background:#0b1d3a;color:#4fc3f7;font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-bottom:1px solid #22d3ee}
   .po-sf-body{padding:6px 10px;display:flex;align-items:center;gap:8px}
   .po-sf-tick{font-size:16px;font-weight:900;line-height:1}
   .po-sf-val{font-size:9px;font-weight:600;color:#334155}
-  /* pass/fail verdict row */
   .po-pf{display:grid;grid-template-columns:1fr 1fr;gap:5px;flex-shrink:0}
   .po-pf-box{border:1px solid #1e3a5f;border-radius:4px;overflow:hidden}
   .po-pf-hd{background:#0b1d3a;color:#4fc3f7;font-size:7px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;padding:3px 8px;border-bottom:1px solid #22d3ee}
@@ -480,16 +489,13 @@ const CSS=`
   .po-pf-lbl{font-size:8px;font-weight:700;color:#0b1d3a}
   .po-pf-mark{font-size:18px;font-weight:900;line-height:1}
   .po-result-box{border-radius:4px;padding:7px 12px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-  /* partners row */
   .po-partners{border:1px solid #e2e8f0;border-radius:4px;padding:5px 9px;background:#f9fafb;flex-shrink:0}
   .po-partners-lbl{font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#3b6ea5;margin-bottom:3px}
   .po-partners-list{display:flex;flex-wrap:wrap;gap:5px}
   .po-partner{font-size:7.5px;font-weight:600;color:#0b1d3a;background:#fff;border:1px solid #c3d4e8;border-radius:3px;padding:2px 6px}
-  /* failure to comply */
   .po-ftc{border:1px solid #fca5a5;border-radius:4px;padding:5px 9px;background:#fff5f5;flex-shrink:0}
   .po-ftc-lbl{font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#b91c1c;margin-bottom:2px}
   .po-ftc-txt{font-size:7.5px;color:#7f1d1d;line-height:1.6;font-style:italic}
-  /* test cert dual sig */
   .po-sig2{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:5px 12px 4px;flex-shrink:0}
   .po-sig2-meta{font-size:7px;font-weight:700;color:#3b6ea5;margin-bottom:1px}
   .po-sig2-line{border:1px solid #1e3a5f;border-radius:3px;min-height:32px;background:#fff;padding:2px 8px;display:flex;align-items:flex-end;margin-bottom:2px}
@@ -645,13 +651,11 @@ function SBRow({label,result,naField=false}){
 /* ══════════════════════════════════════════════════════════
    PORTABLE OVEN / WELDING MACHINE / OXYGEN TANK / AIR PUMP
    PAGE 1 — COMPLIANCE CERTIFICATE
-   Mirrors exact Factories Act CAP 44:01 layout from WM01.pdf
 ══════════════════════════════════════════════════════════ */
 function PortableOvenCompliancePage({c,po,pm,logo}){
   const certNumber=val(c.certificate_number);
   const tone=resultStyle(po.result);
 
-  /* ── build cert title from equipment type ── */
   const titleMap={
     "portable oven":"Portable Oven Compliance Certificate",
     "portable welding oven":"Portable Welding Oven Compliance Certificate",
@@ -667,17 +671,16 @@ function PortableOvenCompliancePage({c,po,pm,logo}){
   return(
     <div className={`pro-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
-      {/* Blue accent stripe matching other pro-pages */}
       <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
 
       <div className="pro-body">
 
-        {/* ── Main data table — mirrors PDF column layout exactly ── */}
         <div style={{textAlign:"center",flexShrink:0,paddingBottom:2}}>
           <div style={{fontSize:13,fontWeight:900,color:"#0b1d3a",letterSpacing:"-.01em",textTransform:"uppercase"}}>{certTitle}</div>
           <div style={{fontSize:8,color:"#64748b",marginTop:2,fontWeight:600}}>(FACTORIES ACT CAP 44:01)</div>
         </div>
 
+        {/* ── Main data table ── */}
         <table className="po-t">
           <tbody>
             <tr>
@@ -692,24 +695,56 @@ function PortableOvenCompliancePage({c,po,pm,logo}){
               <td>Identification Number</td>
               <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490",fontSize:9}}>{po.serial_number}</td>
             </tr>
-            <tr>
-              <td>Power Voltage</td>
-              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{po.power_voltage}</td>
-              <td>Weight (kg)</td>
-              <td style={{fontWeight:700}}>{po.weight}</td>
-            </tr>
-            <tr>
-              <td>Equipment Status</td>
-              <td style={{fontWeight:900,color:tone.color,background:tone.bg,fontSize:10,letterSpacing:".05em"}}>{tone.label}</td>
-              <td>Date</td>
-              <td style={{fontWeight:700}}>{po.issue_date}</td>
-            </tr>
+
+            {/* ── CONDITIONAL ROWS: pressure vs voltage/weight ── */}
+            {po.isCompressor ? (
+              <>
+                <tr>
+                  <td>Design Pressure</td>
+                  <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{po.design_pressure} {po.pressure_unit}</td>
+                  <td>Working Pressure</td>
+                  <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{po.working_pressure} {po.pressure_unit}</td>
+                </tr>
+                <tr>
+                  <td>Test Pressure</td>
+                  <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{po.test_pressure} {po.pressure_unit}</td>
+                  <td>Equipment Status</td>
+                  <td style={{fontWeight:900,color:tone.color,background:tone.bg,fontSize:10,letterSpacing:".05em"}}>{tone.label}</td>
+                </tr>
+              </>
+            ) : (
+              <>
+                <tr>
+                  <td>Power Voltage</td>
+                  <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{po.power_voltage}</td>
+                  <td>Weight (kg)</td>
+                  <td style={{fontWeight:700}}>{po.weight}</td>
+                </tr>
+                <tr>
+                  <td>Equipment Status</td>
+                  <td style={{fontWeight:900,color:tone.color,background:tone.bg,fontSize:10,letterSpacing:".05em"}}>{tone.label}</td>
+                  <td>Date</td>
+                  <td style={{fontWeight:700}}>{po.issue_date}</td>
+                </tr>
+              </>
+            )}
+
             <tr>
               <td>Expiry Date</td>
               <td style={{fontWeight:800,color:"#b45309"}}>{po.expiry_date}</td>
               <td>Certificate No.</td>
               <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{certNumber||"—"}</td>
             </tr>
+
+            {/* Show date row for compressor (moved status up, date here) */}
+            {po.isCompressor&&(
+              <tr>
+                <td>Date</td>
+                <td style={{fontWeight:700}}>{po.issue_date}</td>
+                <td></td>
+                <td></td>
+              </tr>
+            )}
           </tbody>
         </table>
 
@@ -731,11 +766,9 @@ function PortableOvenCompliancePage({c,po,pm,logo}){
           </div>
         </div>
 
-        {/* ── Defects / recommendations ── */}
         {po.defects_found&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{po.defects_found}</div></div>}
         {po.recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{po.recommendations}</div></div>}
 
-        {/* ── Partners ── */}
         {po.partners&&po.partners.length>0&&(
           <div className="po-partners">
             <div className="po-partners-lbl">Our Partners</div>
@@ -745,16 +778,13 @@ function PortableOvenCompliancePage({c,po,pm,logo}){
           </div>
         )}
 
-        {/* ── Photos ── */}
         {photos.length>0&&<ProEvidence photos={photos}/>}
 
-        {/* ── Legislation bar ── */}
         <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"4px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
           INSPECTION CARRIED OUT IN ACCORDANCE WITH: FACTORIES ACT CAP 44:01 OF THE LAWS OF BOTSWANA
         </div>
       </div>
 
-      {/* ── Inspector signature (matches ProSig style) ── */}
       <div className="pro-sig">
         <div className="pro-sigg">
           <div>
@@ -781,19 +811,15 @@ function PortableOvenCompliancePage({c,po,pm,logo}){
 /* ══════════════════════════════════════════════════════════
    PORTABLE OVEN / WELDING MACHINE / OXYGEN TANK / AIR PUMP
    PAGE 2 — TEST CERTIFICATE
-   Mirrors exact "GULF STREAM ENERGY TEST CERTIFICATE
-   (FACTORIES ACT CAP 44:01)" layout from WM01.pdf page 2
 ══════════════════════════════════════════════════════════ */
 function PortableOvenTestCertPage({c,po,pm,logo}){
   const certNumber=val(c.certificate_number);
   const tone=resultStyle(po.result);
 
-  /* Overall assessment column selection */
   const isSafe  = po.isPass && !po.isCond;
   const isCond  = po.isCond;
   const isNotSafe = po.isFail;
 
-  /* Structural / functional colours */
   const sfColor=(v)=>{
     if(/^pass/i.test(v)||/^good/i.test(v)||/^satisf/i.test(v))return{tick:"✓",color:"#15803d",bg:"#f0fdf4"};
     if(/^fail/i.test(v)||/^poor/i.test(v))return{tick:"✗",color:"#b91c1c",bg:"#fff5f5"};
@@ -802,26 +828,22 @@ function PortableOvenTestCertPage({c,po,pm,logo}){
   const sf=sfColor(po.structural_integrity);
   const ft=sfColor(po.functional_test);
 
-  /* Source cert number shown on this page */
   const sourceCertNo=po.source_cert_number||certNumber;
-
   const photos=parsePhotoEvidence(c.photo_evidence);
 
   return(
     <div className={`pro-page last-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
-      {/* Green accent stripe — distinct from page 1's blue */}
       <div style={{height:3,background:"linear-gradient(90deg,#22c55e,#16a34a 55%,#4ade80)",flexShrink:0}}/>
 
       <div className="pro-body">
 
-        {/* ── Page title ── */}
         <div style={{textAlign:"center",flexShrink:0,paddingBottom:2}}>
           <div style={{fontSize:13,fontWeight:900,color:"#0b1d3a",letterSpacing:"-.01em",textTransform:"uppercase"}}>{po.company} Test Certificate</div>
           <div style={{fontSize:8,color:"#64748b",marginTop:2,fontWeight:600}}>(FACTORIES ACT CAP 44:01)</div>
         </div>
 
-        {/* ── Main data table — exact pairs from PDF ── */}
+        {/* ── Main data table ── */}
         <table className="po-t">
           <tbody>
             <tr>
@@ -842,22 +864,43 @@ function PortableOvenTestCertPage({c,po,pm,logo}){
               <td>Client</td>
               <td style={{fontWeight:700,textTransform:"uppercase"}}>{po.company}</td>
             </tr>
-            <tr>
-              <td>Voltage</td>
-              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{po.power_voltage}</td>
-              <td>Client's Location</td>
-              <td>{po.location}</td>
-            </tr>
-            <tr>
-              <td>Weight (kg)</td>
-              <td style={{fontWeight:700}}>{po.weight}</td>
-              <td></td>
-              <td></td>
-            </tr>
+
+            {/* ── CONDITIONAL ROWS: pressure vs voltage/weight ── */}
+            {po.isCompressor ? (
+              <>
+                <tr>
+                  <td>Design Pressure</td>
+                  <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{po.design_pressure} {po.pressure_unit}</td>
+                  <td>Working Pressure</td>
+                  <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{po.working_pressure} {po.pressure_unit}</td>
+                </tr>
+                <tr>
+                  <td>Test Pressure</td>
+                  <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{po.test_pressure} {po.pressure_unit}</td>
+                  <td>Client's Location</td>
+                  <td>{po.location}</td>
+                </tr>
+              </>
+            ) : (
+              <>
+                <tr>
+                  <td>Voltage</td>
+                  <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{po.power_voltage}</td>
+                  <td>Client's Location</td>
+                  <td>{po.location}</td>
+                </tr>
+                <tr>
+                  <td>Weight (kg)</td>
+                  <td style={{fontWeight:700}}>{po.weight}</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              </>
+            )}
           </tbody>
         </table>
 
-        {/* ── Structural Integrity + Functional Test side by side ── */}
+        {/* ── Structural Integrity + Functional Test ── */}
         <div className="po-sf">
           {[
             ["Structural Integrity Assessment", po.structural_integrity, sf],
@@ -873,7 +916,7 @@ function PortableOvenTestCertPage({c,po,pm,logo}){
           ))}
         </div>
 
-        {/* ── Overall Assessment 4-column options grid ── */}
+        {/* ── Overall Assessment ── */}
         <div className="pro-stl">Overall Assessment</div>
         <table className="po-oa">
           <thead>
@@ -886,27 +929,15 @@ function PortableOvenTestCertPage({c,po,pm,logo}){
           </thead>
           <tbody>
             <tr>
-              <td className={isSafe?"po-sel":""}>
-                {isSafe&&<><b>✓</b><br/></>}
-                Safe for operation
-              </td>
-              <td className={isCond?"po-sel-a":""}>
-                {isCond&&<><b>✓</b><br/></>}
-                Safe for operation subject to corrective action
-              </td>
-              <td className={isNotSafe?"po-sel-f":""}>
-                {isNotSafe&&<><b>✓</b><br/></>}
-                Not safe for operation
-              </td>
-              <td className={isSafe?"po-sel":""}>
-                {isSafe&&<><b>✓</b><br/></>}
-                Safe for operation
-              </td>
+              <td className={isSafe?"po-sel":""}>{isSafe&&<><b>✓</b><br/></>}Safe for operation</td>
+              <td className={isCond?"po-sel-a":""}>{isCond&&<><b>✓</b><br/></>}Safe for operation subject to corrective action</td>
+              <td className={isNotSafe?"po-sel-f":""}>{isNotSafe&&<><b>✓</b><br/></>}Not safe for operation</td>
+              <td className={isSafe?"po-sel":""}>{isSafe&&<><b>✓</b><br/></>}Safe for operation</td>
             </tr>
           </tbody>
         </table>
 
-        {/* ── PASS THOROUGH INSPECTION / FAILED row ── */}
+        {/* ── Pass / Fail verdict ── */}
         <div className="pro-stl">Pass Thorough Inspection / Failed</div>
         <div className="po-pf">
           <div className="po-pf-box">
@@ -918,7 +949,6 @@ function PortableOvenTestCertPage({c,po,pm,logo}){
               <span className="po-pf-mark" style={{color:po.isFail?"#b91c1c":"#d1d5db"}}>{po.isFail?"✗":""}</span>
             </div>
           </div>
-          {/* Result big box */}
           <div className="po-result-box" style={{border:`2px solid ${tone.brd}`,background:tone.bg}}>
             <div>
               <div style={{fontSize:15,fontWeight:900,color:tone.color,letterSpacing:".08em"}}>{tone.label}</div>
@@ -934,20 +964,16 @@ function PortableOvenTestCertPage({c,po,pm,logo}){
           <div className="po-ftc-txt">{po.failure_to_comply}</div>
         </div>
 
-        {/* ── Defects / recommendations ── */}
         {po.defects_found&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{po.defects_found}</div></div>}
         {po.recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{po.recommendations}</div></div>}
 
-        {/* ── Photos ── */}
         {photos.length>1&&<ProEvidence photos={photos.slice(Math.ceil(photos.length/2))}/>}
 
-        {/* ── Legislation bar ── */}
         <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"4px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
           THIS EQUIPMENT HAS BEEN INSPECTED IN ACCORDANCE WITH THE FACTORIES ACT CAP 44:01 OF THE LAWS OF BOTSWANA.
         </div>
       </div>
 
-      {/* ── Dual signature block matching PDF exactly ── */}
       <div className="po-sig2">
         <div>
           <div className="po-sig2-meta">Inspector's Name: {po.inspector_name}</div>
@@ -2200,7 +2226,7 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   const _isMachine=_isTelehandler||_isForklift;
   const _isSandblasting=/sandblast|blasting.pot|blast.pot|sbp|sand.blast/i.test(_rawType);
 
-  /* ── NEW: Portable Oven / Welding Machine / Oxygen Tank / Air Powered Pump ── */
+  /* ── Portable Oven / Welding Machine / Oxygen Tank / Air Powered Pump ── */
   const _isPortableOven=/portable.oven|portable.welding|welding.oven|welding.machine|oxygen.tank|air.powered.pump|air.pump/i.test(_rawType);
 
   const wrap=(children)=>(
