@@ -31,8 +31,9 @@ function toDate(v){ if(!v) return ""; const d = new Date(v); return isNaN(d.getT
 function isCherryPicker(t)    { return /cherry.picker|aerial.work.platform|boom.lift|awp/i.test(t || ""); }
 function isWireRopeSling(t)   { return /wire.rope.sling|wire rope sling/i.test(t || ""); }
 function isSandblastingPot(t) { return /sandblast|blasting.pot|blast.pot|sbp|sand.blast/i.test(t || ""); }
-function isPortableOven(t)    { return /portable.oven|portable.welding|welding.oven|welding.machine|oxygen.tank|air.powered.pump|air.pump/i.test(t || ""); }
-function isAirPressureEquipment(t) { return /air.powered.pump|air.pump|air.compressor|compressor/i.test(t || ""); }
+function isPortableOven(t)    { return /portable.oven|portable.welding|welding.oven|welding.machine|portable.welding.inverter|oxygen.tank|oxygen.cylinder|air.powered.pump|air.pump/i.test(t || ""); }
+function isOxygenTank(t)       { return /oxygen.tank|oxygen.cylinder|o2.tank|o2.cylinder/i.test(t || ""); }
+function isAirPressureEquipment(t) { return /air.powered.pump|air.pump|air.compressor|compressor|oxygen.tank|oxygen.cylinder|o2.tank|o2.cylinder/i.test(t || ""); }
 function isHookRopeEquipment(t) {
   const s = String(t || "").replace(/&amp;/gi, "&").trim();
   if (!s) return false;
@@ -57,6 +58,10 @@ function getSectionLabel(key) {
     horse:"Horse / Prime Mover", trailer:"Trailer",
     sling_details:"Sling Details", condition_assessment:"Condition Assessment",
     sandblasting:"Sandblasting Pot",
+    portable_oven:"Portable Oven",
+    welding_machine:"Welding Machine",
+    oxygen_tank:"Oxygen Tank",
+    air_pump:"Air Powered Pump",
   };
   return map[key] || formatFieldLabel(key);
 }
@@ -80,6 +85,10 @@ function normalizeSectionPathKey(section) {
     "sling details":"sling_details",sling_details:"sling_details",
     "condition assessment":"condition_assessment",condition_assessment:"condition_assessment",
     sandblasting:"sandblasting","blasting pot":"sandblasting","sbp":"sandblasting",
+    "portable oven":"portable_oven",portable_oven:"portable_oven",
+    "welding machine":"welding_machine",welding_machine:"welding_machine","portable welding inverter":"welding_machine","portable welding oven":"welding_machine",
+    "oxygen tank":"oxygen_tank",oxygen_tank:"oxygen_tank","oxygen cylinder":"oxygen_tank","o2 tank":"oxygen_tank","o2 cylinder":"oxygen_tank",
+    "air powered pump":"air_pump",air_pump:"air_pump","air pump":"air_pump",
   };
   return aliasMap[raw] || raw.replace(/\s+/g,"_");
 }
@@ -305,8 +314,22 @@ function parsePortableOvenData(notesStr, extractedData, certData) {
   };
 }
 
+function getPortableInspectionKey(equipmentText="") {
+  const s = String(equipmentText || "").toLowerCase();
+  if (isOxygenTank(s)) return "oxygen_tank";
+  if (/air[\s._-]*powered[\s._-]*pump|air[\s._-]*pump|compressor/.test(s)) return "air_pump";
+  if (/welding[\s._-]*machine|portable[\s._-]*welding[\s._-]*inverter|portable[\s._-]*welding[\s._-]*oven/.test(s)) return "welding_machine";
+  return "portable_oven";
+}
+
 function buildPortableOvenNotes(po) {
-  return JSON.stringify({ portable_oven: po });
+  const key = getPortableInspectionKey(po?.equipment_description || po?.equipment_type || "");
+  return JSON.stringify({
+    inspection_data_type: key,
+    [key]: po,
+    // Keep portable_oven as a compatibility alias because older certificates read this block.
+    portable_oven: po,
+  });
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -722,7 +745,7 @@ const JsonInspectionRow = memo(function JsonInspectionRow({row,rowIndex,onChange
 /* ─────────────────────────────────────────────────────────────
    PORTABLE OVEN / WELDING MACHINE / OXYGEN TANK / AIR PUMP EDITOR
    equipmentDescription is passed in to switch between pressure
-   fields (air pump / compressor) vs voltage+weight (ovens)
+   fields (oxygen tank / air pump / compressor) vs voltage+weight (ovens and welders)
 ───────────────────────────────────────────────────────────── */
 function PortableOvenEditor({po, onChange, equipmentDescription=""}) {
   const set = (key, val) => onChange({...po, [key]: val});
@@ -735,7 +758,8 @@ function PortableOvenEditor({po, onChange, equipmentDescription=""}) {
     />
   );
 
-  const isPressureEquip = isAirPressureEquipment(equipmentDescription);
+  const detectText = [equipmentDescription, po?.equipment_description, po?.equipment_type].filter(Boolean).join(" ");
+  const isPressureEquip = isAirPressureEquipment(detectText);
   const partnersStr = Array.isArray(po.partners) ? po.partners.join(", ") : (po.partners || "");
 
   return (
@@ -752,7 +776,7 @@ function PortableOvenEditor({po, onChange, equipmentDescription=""}) {
           <F label="Equipment Description">{inp("equipment_description","e.g. Air Powered Pump")}</F>
           <F label="Identification Number / Serial">{inp("serial_number","e.g. 0001")}</F>
 
-          {/* ── Conditional: Pressure fields for air pumps/compressors, Voltage+Weight for ovens ── */}
+          {/* ── Conditional: Pressure fields for oxygen tanks / air pumps / compressors; Voltage+Weight for ovens and welding machines ── */}
           {isPressureEquip ? (
             <>
               <F label="Design Pressure">{inp("design_pressure","e.g. 1063 kPa")}</F>
@@ -1664,6 +1688,7 @@ function CertificateEditInner() {
     setSaving(true); setError(""); setSuccess("");
     try {
       const finalNotes = buildFinalNotes();
+      const portableDataKey = getPortableInspectionKey(poData.equipment_description || form.equipment_description || form.equipment_type);
 
       const mergedInspectionData = notesMode==="hookrope"
         ? {
@@ -1675,7 +1700,9 @@ function CertificateEditInner() {
         : notesMode==="po"
         ? {
             ...baseExtractedData,
+            inspection_data_type: portableDataKey,
             portable_oven: poData,
+            [portableDataKey]: poData,
             company:              poData.company,
             location:             poData.location,
             equipment_description:poData.equipment_description,
@@ -1691,6 +1718,8 @@ function CertificateEditInner() {
             overall_assessment:   poData.overall_assessment,
             partners:             poData.partners,
             failure_to_comply:    poData.failure_to_comply,
+            defects_found:        poData.defects_found,
+            recommendations:      poData.recommendations,
           }
         : mergeInspectionData(baseExtractedData, finalNotes, notesMode);
 
@@ -1870,7 +1899,7 @@ function CertificateEditInner() {
   function getModeButtons() {
     if (equipIsHookRope)        return [["hookrope","🪝 Hook & Rope"],["pipe","Simple"]];
     if (equipIsSandblastingPot) return [["sbp","🪣 SBP"],["json","Grouped"],["pipe","Simple"]];
-    if (equipIsPortableOven)    return [["po","🔧 Oven / WM"],["json","Grouped"],["pipe","Simple"]];
+    if (equipIsPortableOven)    return [["po","🔧 Oven / WM / O₂"],["json","Grouped"],["pipe","Simple"]];
     if (equipIsCherryPicker)    return [["cherry","🚡 AWP"],["json","Grouped"],["pipe","Simple"]];
     if (equipIsWireRopeSling)   return [["wrs","🪢 Sling"],["json","Grouped"],["pipe","Simple"]];
     return [["json","Grouped"],["pipe","Simple"]];
@@ -1896,7 +1925,7 @@ function CertificateEditInner() {
   }
 
   // Determine the equipment description to pass into PortableOvenEditor
-  const poEquipmentDescription = form.equipment_description || form.equipment_type || poData.equipment_description || "";
+  const poEquipmentDescription = [form.equipment_description, form.equipment_type, form.asset_name, poData.equipment_description].filter(Boolean).join(" ");
 
   return (
     <AppLayout title="Edit Certificate">
@@ -1977,7 +2006,7 @@ function CertificateEditInner() {
                     {t}
                     {i===4&&inspFieldCount>0&&(
                       <span style={{marginLeft:5,fontSize:9,padding:"1px 6px",borderRadius:99,background:modeDim,color:modeColor,border:`1px solid ${modeBrd}`}}>
-                        {notesMode==="cherry"?"AWP":notesMode==="wrs"?"WRS":notesMode==="sbp"?"SBP":notesMode==="hookrope"?"H/R":notesMode==="po"?"WM":inspFieldCount}
+                        {notesMode==="cherry"?"AWP":notesMode==="wrs"?"WRS":notesMode==="sbp"?"SBP":notesMode==="hookrope"?"H/R":notesMode==="po"?"O₂/WM":inspFieldCount}
                       </span>
                     )}
                     {i===5&&isLinked&&(
@@ -2057,7 +2086,7 @@ function CertificateEditInner() {
                       <div style={{fontSize:14,fontWeight:800,color:T.text}}>Inspection Data</div>
                       <div style={{fontSize:11,color:T.textDim,marginTop:2}}>
                         {notesMode==="sbp"      ?"Sandblasting Pot — 2-page cert: checklist, wall thickness, test cert & signatures"
-                          :notesMode==="po"     ?"Portable Oven / Welding Machine / Air Pump — Page 1 compliance cert + Page 2 test cert fields"
+                          :notesMode==="po"     ?"Portable Oven / Welding Machine / Oxygen Tank / Air Pump — Page 1 compliance cert + Page 2 test cert fields"
                           :notesMode==="cherry" ?"Cherry Picker / AWP — boom & platform structured fields"
                           :notesMode==="hookrope"?"Hook & Rope — edits the exact CertificateSheet pipe keys"
                           :notesMode==="wrs"    ?"Wire Rope Sling — sling details & condition assessment"
@@ -2093,9 +2122,11 @@ function CertificateEditInner() {
                         <span style={{fontSize:18}}>🔧</span>
                         <div>
                           <div style={{fontSize:13,fontWeight:800,color:T.green}}>
-                            {isAirPressureEquipment(poEquipmentDescription)
-                              ? "Air Powered Pump / Compressor Inspector"
-                              : "Portable Oven / Welding Machine / Oxygen Tank Inspector"}
+                            {isOxygenTank(poEquipmentDescription)
+                              ? "Oxygen Tank Inspector"
+                              : isAirPressureEquipment(poEquipmentDescription)
+                                ? "Air Powered Pump / Compressor Inspector"
+                                : "Portable Oven / Welding Machine Inspector"}
                           </div>
                           <div style={{fontSize:11,color:T.textDim,marginTop:1}}>
                             Edits both pages: Page 1 (Compliance Certificate) and Page 2 (Test Certificate). All fields map directly to the printed certificate.
