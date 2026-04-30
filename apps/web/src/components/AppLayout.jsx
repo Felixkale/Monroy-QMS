@@ -6,18 +6,19 @@ import { useState } from "react";
 import { useAuth } from "@/components/AuthContext";
 
 const navItems = [
-  { id:"dashboard",       label:"Dashboard",       icon:"▦",  href:"/dashboard" },
-  { id:"clients",         label:"Clients",          icon:"🏢", href:"/clients" },
-  { id:"register-client", label:"Register Client",  icon:"＋", href:"/clients/register" },
-  { id:"equipment",       label:"Equipment",        icon:"⚙",  href:"/equipment" },
-  { id:"certificates",    label:"Certificates",     icon:"📜", href:"/certificates" },
-  { id:"crane-inspection",   label:"Crane Inspection",  icon:"🏗", href:"/certificates/crane-inspection" },
-  { id:"machine-inspection", label:"Machine Inspection", icon:"⚙️", href:"/certificates/machine-inspection" },
-  { id:"ncr",             label:"NCR",              icon:"⚠",  href:"/ncr" },
-  { id:"capa",            label:"CAPA",             icon:"🔧", href:"/capa" },
-  { id:"reports",         label:"Reports",          icon:"📈", href:"/reports" },
-  { id:"admin",           label:"Admin",            icon:"⚡", href:"/admin" },
-  { id:"users",           label:"Users",            icon:"👥", href:"/admin/users" },
+  { id:"dashboard",            label:"Dashboard",            icon:"▦",  href:"/dashboard" },
+  { id:"clients",              label:"Clients",              icon:"🏢", href:"/clients" },
+  { id:"register-client",      label:"Register Client",      icon:"＋", href:"/clients/register" },
+  { id:"equipment",            label:"Equipment",            icon:"⚙",  href:"/equipment" },
+  { id:"certificates",         label:"Certificates",         icon:"📜", href:"/certificates" },
+  { id:"crane-inspection",     label:"Crane Inspection",     icon:"🏗", href:"/certificates/crane-inspection" },
+  { id:"machine-inspection",   label:"Machine Inspection",   icon:"⚙️", href:"/certificates/machine-inspection" },
+  { id:"inspection-templates", label:"Insp. Templates",      icon:"📋", href:"/inspection-templates" },
+  { id:"ncr",                  label:"NCR",                  icon:"⚠",  href:"/ncr" },
+  { id:"capa",                 label:"CAPA",                 icon:"🔧", href:"/capa" },
+  { id:"reports",              label:"Reports",              icon:"📈", href:"/reports" },
+  { id:"admin",                label:"Admin",                icon:"⚡", href:"/admin" },
+  { id:"users",                label:"Users",                icon:"👥", href:"/admin/users" },
 ];
 
 const CSS = `
@@ -123,7 +124,7 @@ const CSS = `
   .qms-nav-icon { width: 20px; min-width: 20px; display: inline-flex; justify-content: center; font-size: 14px; line-height: 1; }
   .qms-nav-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-  /* Nav divider — separates Admin from core nav */
+  /* Nav divider */
   .qms-nav-divider { height: 1px; background: rgba(148,163,184,0.08); margin: 8px 4px; }
 
   .qms-sidebar-footer {
@@ -313,7 +314,6 @@ export default function AppLayout({ children, title = "Monroy QMS" }) {
   const userInitial = user?.email?.charAt(0)?.toUpperCase() || "U";
   const userName    = user?.email?.split("@")[0] || "User";
 
-  // Separate admin from main nav
   const mainNav  = navItems.filter(i => i.id !== "admin" && i.id !== "users");
   const adminNav = navItems.filter(i => i.id === "admin" || i.id === "users");
 
@@ -348,7 +348,6 @@ export default function AppLayout({ children, title = "Monroy QMS" }) {
               </button>
             ))}
 
-            {/* Divider before Admin */}
             <div className="qms-nav-divider" />
 
             {adminNav.map(item => (
