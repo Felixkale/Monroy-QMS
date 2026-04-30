@@ -131,6 +131,52 @@ function detectFail(defects,...kws){if(!defects)return"PASS";const d=defects.toL
 function parsePhotoEvidence(raw){if(!raw)return[];if(Array.isArray(raw))return raw;if(typeof raw==="string"){try{const p=JSON.parse(raw);return Array.isArray(p)?p:[];}catch(e){return[];}}return[];}
 function r(v){const s=resultStyle((v||"").toUpperCase());return<span style={{fontSize:8,fontWeight:800,color:s.color,background:s.bg,border:`1px solid ${s.brd}`,padding:"1px 6px",borderRadius:3,whiteSpace:"nowrap"}}>{s.label}</span>;}
 
+/* ── parse portable oven / welding machine data ──────────── */
+function parsePortableOvenData(c){
+  const ex=c.extracted_data||{};
+  const pn=parseNotes(val(c.notes||"")||"");
+
+  function g(key,...aliases){
+    for(const k of[key,...aliases]){
+      const v=ex[k]??pn[k];
+      if(v!=null&&String(v).trim()!=="")return String(v).trim();
+    }
+    return null;
+  }
+
+  const result=pickResult(c);
+  const isPass=result==="PASS";
+  const isFail=result==="FAIL";
+  const isCond=result==="CONDITIONAL"||/corrective/i.test(ex.overall_assessment||"");
+
+  return{
+    // Page 1 — Compliance cert fields
+    company:        val(c.client_name||c.company)||"—",
+    location:       val(c.location)||"—",
+    serial_number:  val(c.serial_number)||"—",
+    issue_date:     formatDate(c.issue_date||c.issued_at)||"—",
+    expiry_date:    formatDate(c.expiry_date)||"—",
+    equipment_type: val(c.equipment_type)||"Portable Oven",
+    equipment_description: val(c.equipment_description)||"Portable Oven",
+    power_voltage:  g("power_voltage","voltage","POWER VOLTAGE","Voltage")||"—",
+    weight:         g("weight","WEIGHT(KG)","Weight","capacity_volume")||"—",
+    inspector_name: val(c.inspector_name)||"Moemedi Masupe",
+    inspector_id:   val(c.inspector_id)||"700117910",
+    partners:       Array.isArray(ex.partners)?ex.partners:["Lycopodium","SMEI PROJECTS","Onetrack Engineering","Metso Outotec Australia limited"],
+    result,
+    // Page 2 — Test cert fields
+    source_cert_number:          g("source_cert_number","original_cert_number")||null,
+    structural_integrity:        g("structural_integrity","structural_integrity_assessment")||"Passed",
+    functional_test:             g("functional_test","functional_test_verification")||"Passed",
+    overall_assessment:          g("overall_assessment")||"Safe for operation",
+    failure_to_comply:           g("failure_to_comply")||"Failure to comply may result in prosecution under section 70, penalties under section 71, or court ordered remedial action under section 72 of the Factories Act Cap 44:01",
+    defects_found:               val(c.defects_found)||null,
+    recommendations:             val(c.recommendations)||null,
+    // Flags
+    isPass, isFail, isCond,
+  };
+}
+
 function parsePVChecklist(c,pn){
   let cl={};
   try{const raw=val(c.notes||"");if(raw){const parsed=JSON.parse(raw);if(parsed&&typeof parsed==="object"){cl=parsed.checklist||parsed.pressure_vessel_checklist||parsed;}}}catch(e){}
@@ -156,96 +202,59 @@ function parsePVChecklist(c,pn){
   };
 }
 
-/* ── parse sandblasting pot data from extracted_data / notes ── */
 function parseSandblastingData(c,pn){
   const ex=c.extracted_data||{};
   const notes=parseNotes(val(c.notes||"")||"");
   const sb=ex.sandblasting||ex.blasting_pot||ex.sbp||{};
-
-  function g(key,...aliases){
-    for(const k of[key,...aliases]){
-      const v=sb[k]??ex[k]??notes[k]??pn[k];
-      if(v!=null&&String(v).trim()!=="")return String(v).trim();
-    }
-    return null;
-  }
-
-  // vessel dimensions / wall thickness readings
+  function g(key,...aliases){for(const k of[key,...aliases]){const v=sb[k]??ex[k]??notes[k]??pn[k];if(v!=null&&String(v).trim()!=="")return String(v).trim();}return null;}
   const readings=[];
-  for(let i=1;i<=12;i++){
-    const v=g(`reading_${i}`,`t${i}`,`thickness_${i}`,`wt${i}`)||pn[`WT${i}`]||pn[`wt${i}`]||null;
-    readings.push(v);
-  }
-  // If no structured readings, try to read from a flat string like "6.74|6.4|5.74|6.2|6.7"
+  for(let i=1;i<=12;i++){const v=g(`reading_${i}`,`t${i}`,`thickness_${i}`,`wt${i}`)||pn[`WT${i}`]||pn[`wt${i}`]||null;readings.push(v);}
   const readingStr=g("wall_thickness_readings","thickness_readings","readings")||"";
-  if(readingStr&&readings.every(x=>!x)){
-    readingStr.split(/[|,;\s]+/).forEach((v,i)=>{if(i<12&&v.trim())readings[i]=v.trim();});
-  }
-
+  if(readingStr&&readings.every(x=>!x)){readingStr.split(/[|,;\s]+/).forEach((v,i)=>{if(i<12&&v.trim())readings[i]=v.trim();});}
   return{
-    vessel_unique_id:      g("vessel_unique_id","unique_id","vessel_id")||val(c.serial_number)||"—",
-    equipment_owner:       g("equipment_owner","owner","client_name")||val(c.client_name)||"—",
-    location:              g("location")||val(c.location)||"—",
-    inspection_frequency:  g("inspection_frequency","frequency")||"YEARLY",
-    year_of_manufacture:   g("year_of_manufacture","year_built","year")||val(c.year_built)||"—",
-    previous_inspection:   g("previous_inspection_date","previous_inspection")||"N/A",
-    design_pressure:       g("design_pressure")||val(c.design_pressure)||"—",
-    working_pressure:      g("working_pressure","actual_working_pressure")||val(c.working_pressure)||"—",
-    test_pressure:         g("test_pressure")||val(c.test_pressure)||"0",
-    vessel_material:       g("vessel_material","material")||val(c.material)||"—",
-    manufacturer:          g("manufacturer")||val(c.manufacturer)||"—",
-    pressure_unit:         g("pressure_unit")||val(c.pressure_unit)||"Kpa",
-    volume:                g("volume","capacity","capacity_volume")||val(c.capacity_volume)||"—",
-    circumference:         g("circumference")||"—",
-    height:                g("height")||"—",
-    pressure_gauge_no:     g("pressure_gauge_no","gauge_number")||"Not indicated",
-    pressure_relief_no:    g("pressure_relief_no","relief_valve_no")||"NI",
-    relief_valve_set_pr:   g("relief_valve_set_pressure","relief_set_pr")||"NI",
-    min_max_temp:          g("min_max_temp","temperature_range")||".0-100°C",
-    pressure_relief_type:  g("pressure_relief_type","relief_type")||"NI",
-    test_type:             g("test_type","inspection_type")||"ULTRASONIC TEST",
-    original_shell_thickness: g("original_shell_thickness","nominal_thickness")||"6.74",
-    measured_shell_thickness: g("measured_shell_thickness","actual_thickness")||"0",
-    allowable_reduction:   g("allowable_reduction","reduction_percent")||"20%",
-    // checklist items — default PASS unless stored otherwise
+    vessel_unique_id:g("vessel_unique_id","unique_id","vessel_id")||val(c.serial_number)||"—",
+    equipment_owner:g("equipment_owner","owner","client_name")||val(c.client_name)||"—",
+    location:g("location")||val(c.location)||"—",
+    inspection_frequency:g("inspection_frequency","frequency")||"YEARLY",
+    year_of_manufacture:g("year_of_manufacture","year_built","year")||val(c.year_built)||"—",
+    previous_inspection:g("previous_inspection_date","previous_inspection")||"N/A",
+    design_pressure:g("design_pressure")||val(c.design_pressure)||"—",
+    working_pressure:g("working_pressure","actual_working_pressure")||val(c.working_pressure)||"—",
+    test_pressure:g("test_pressure")||val(c.test_pressure)||"0",
+    vessel_material:g("vessel_material","material")||val(c.material)||"—",
+    manufacturer:g("manufacturer")||val(c.manufacturer)||"—",
+    pressure_unit:g("pressure_unit")||val(c.pressure_unit)||"Kpa",
+    volume:g("volume","capacity","capacity_volume")||val(c.capacity_volume)||"—",
+    circumference:g("circumference")||"—",
+    height:g("height")||"—",
+    pressure_gauge_no:g("pressure_gauge_no","gauge_number")||"Not indicated",
+    pressure_relief_no:g("pressure_relief_no","relief_valve_no")||"NI",
+    relief_valve_set_pr:g("relief_valve_set_pressure","relief_set_pr")||"NI",
+    min_max_temp:g("min_max_temp","temperature_range")||".0-100°C",
+    pressure_relief_type:g("pressure_relief_type","relief_type")||"NI",
+    test_type:g("test_type","inspection_type")||"ULTRASONIC TEST",
+    original_shell_thickness:g("original_shell_thickness","nominal_thickness")||"6.74",
+    measured_shell_thickness:g("measured_shell_thickness","actual_thickness")||"0",
+    allowable_reduction:g("allowable_reduction","reduction_percent")||"20%",
     checklist:{
-      pipe_connections:      g("pipe_connections")||"PASS",
-      valves_fittings_construction: g("valves_fittings_construction")||"PASS",
-      fittings_pressure_rating: g("fittings_pressure_rating")||"PASS",
-      drain_valves:          g("drain_valves")||"PASS",
-      no_leaks_pipework:     g("no_leaks_pipework")||"PASS",
-      vessel_access:         g("vessel_access")||"PASS",
-      no_leaks_manholes:     g("no_leaks_manholes")||"PASS",
-      gauge_isolation_valve: g("gauge_isolation_valve")||"PASS",
-      relief_valve_calibrated: g("relief_valve_calibrated")||"PASS",
-      gauge_calibrated:      g("gauge_calibrated")||"PASS",
-      gauge_redlined:        g("gauge_redlined")||"PASS",
-      // external
-      vessel_material_standard: g("vessel_material_standard")||"PASS",
-      external_coating:      g("external_coating")||"PASS",
-      no_corrosion:          g("no_corrosion")||"PASS",
-      properly_mounted:      g("properly_mounted")||"PASS",
-      welded_joints:         g("welded_joints")||"PASS",
-      no_dents_cracks:       g("no_dents_cracks")||"PASS",
-      no_external_leakages:  g("no_external_leakages")||"PASS",
-      // relief valve
-      no_cracks_valve_body:  g("no_cracks_valve_body")||"FAIL",
-      no_foreign_material:   g("no_foreign_material")||"FAIL",
-      valve_working:         g("valve_working")||"PASS",
-      // internal
-      no_oil_sludge:         g("no_oil_sludge")||"PASS",
-      interior_condition:    g("interior_condition")||"PASS",
-      no_moisture:           g("no_moisture")||"PASS",
-      no_scaling:            g("no_scaling")||"PASS",
-      internal_stiffeners:   g("internal_stiffeners")||"PASS",
-      // drainage
-      properly_levelled:     g("properly_levelled")||"PASS",
-      drainage_hose:         g("drainage_hose")||"PASS",
-      no_ground_contamination: g("no_ground_contamination")||"PASS",
-      automatic_drainage:    g("automatic_drainage")||"PASS",
+      pipe_connections:g("pipe_connections")||"PASS",valves_fittings_construction:g("valves_fittings_construction")||"PASS",
+      fittings_pressure_rating:g("fittings_pressure_rating")||"PASS",drain_valves:g("drain_valves")||"PASS",
+      no_leaks_pipework:g("no_leaks_pipework")||"PASS",vessel_access:g("vessel_access")||"PASS",
+      no_leaks_manholes:g("no_leaks_manholes")||"PASS",gauge_isolation_valve:g("gauge_isolation_valve")||"PASS",
+      relief_valve_calibrated:g("relief_valve_calibrated")||"PASS",gauge_calibrated:g("gauge_calibrated")||"PASS",
+      gauge_redlined:g("gauge_redlined")||"PASS",vessel_material_standard:g("vessel_material_standard")||"PASS",
+      external_coating:g("external_coating")||"PASS",no_corrosion:g("no_corrosion")||"PASS",
+      properly_mounted:g("properly_mounted")||"PASS",welded_joints:g("welded_joints")||"PASS",
+      no_dents_cracks:g("no_dents_cracks")||"PASS",no_external_leakages:g("no_external_leakages")||"PASS",
+      no_cracks_valve_body:g("no_cracks_valve_body")||"FAIL",no_foreign_material:g("no_foreign_material")||"FAIL",
+      valve_working:g("valve_working")||"PASS",no_oil_sludge:g("no_oil_sludge")||"PASS",
+      interior_condition:g("interior_condition")||"PASS",no_moisture:g("no_moisture")||"PASS",
+      no_scaling:g("no_scaling")||"PASS",internal_stiffeners:g("internal_stiffeners")||"PASS",
+      properly_levelled:g("properly_levelled")||"PASS",drainage_hose:g("drainage_hose")||"PASS",
+      no_ground_contamination:g("no_ground_contamination")||"PASS",automatic_drainage:g("automatic_drainage")||"PASS",
     },
-    wall_readings: readings,
-    comments:      g("comments","remarks")||val(c.comments)||"",
+    wall_readings:readings,
+    comments:g("comments","remarks")||val(c.comments)||"",
   };
 }
 
@@ -420,7 +429,7 @@ const CSS=`
   /* bucket page accent — orange stripe */
   .bucket-accent{height:3px;background:linear-gradient(90deg,#f97316 0%,#fb923c 55%,#fbbf24 100%);flex-shrink:0}
 
-  /* sandblasting pot — checklist tick/cross table */
+  /* sandblasting pot */
   .sb-cl{width:100%;border-collapse:collapse;font-size:7.5px;border:1px solid #1e3a5f;flex-shrink:0}
   .sb-cl th{background:#0b1d3a;color:#4fc3f7;padding:3px 6px;text-align:left;border:1px solid #1e3a5f;font-size:7px;font-weight:700}
   .sb-cl th:not(:first-child){text-align:center;width:28px}
@@ -432,18 +441,58 @@ const CSS=`
   .sb-cl td.fail-tick{color:#b91c1c}
   .sb-cl td.na-tick{color:#9ca3af}
   .sb-cl-sec td{background:#1e3a5f!important;color:#4fc3f7;font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px}
-  /* wall thickness mini-grid */
   .wt-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;padding:5px 8px;background:#f4f8ff}
   .wt-cell{background:#fff;border:1px solid #c3d4e8;border-radius:3px;padding:3px 5px;text-align:center}
   .wt-lbl{font-size:6.5px;color:#3b6ea5;font-weight:700;margin-bottom:1px}
   .wt-val{font-size:9px;font-weight:800;color:#0b1d3a;font-family:'IBM Plex Mono',monospace}
-  /* sandblasting test cert table */
   .sb-t{width:100%;border-collapse:collapse;font-size:8.5px;border:1px solid #1e3a5f;flex-shrink:0}
   .sb-t td{padding:4px 8px;border:1px solid #c3d4e8}
   .sb-t td:nth-child(odd){font-weight:700;background:#0b1d3a;color:#4fc3f7;width:22%;white-space:nowrap}
   .sb-t td:nth-child(even){background:#f4f8ff;font-weight:600;color:#0b1d3a;width:28%}
   .sb-t tr.sb-result td{background:#0b1d3a;color:#4fc3f7;font-weight:800;font-size:9px;letter-spacing:.06em}
   .sb-t tr.sb-result td:nth-child(2){font-size:14px;font-weight:900;text-align:center;letter-spacing:.2em}
+
+  /* ── PORTABLE OVEN — specific styles ── */
+  /* main data table — alternating dark/light column pairs */
+  .po-t{width:100%;border-collapse:collapse;font-size:8.5px;border:1px solid #1e3a5f;flex-shrink:0}
+  .po-t td{padding:4px 8px;border:1px solid #c3d4e8}
+  .po-t td:nth-child(odd){font-weight:700;background:#0b1d3a;color:#4fc3f7;width:22%;white-space:nowrap}
+  .po-t td:nth-child(even){background:#f4f8ff;font-weight:600;color:#0b1d3a;width:28%}
+  /* overall assessment 4-col grid */
+  .po-oa{width:100%;border-collapse:collapse;font-size:7.5px;border:1px solid #1e3a5f;flex-shrink:0}
+  .po-oa th{background:#0b1d3a;color:#4fc3f7;padding:3px 5px;font-size:7px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;border:1px solid #1e3a5f;text-align:center}
+  .po-oa td{padding:6px 5px;border:1px solid #c3d4e8;text-align:center;font-size:7.5px;font-weight:600;color:#94a3b8;background:#fff;vertical-align:middle}
+  .po-oa td.po-sel{background:#dcfce7;color:#15803d;font-weight:900;border:2px solid #86efac}
+  .po-oa td.po-sel-f{background:#fee2e2;color:#b91c1c;font-weight:900;border:2px solid #fca5a5}
+  .po-oa td.po-sel-a{background:#fef3c7;color:#b45309;font-weight:900;border:2px solid #fcd34d}
+  /* sf side-by-side boxes */
+  .po-sf{display:grid;grid-template-columns:1fr 1fr;gap:5px;flex-shrink:0}
+  .po-sf-box{border:1px solid #1e3a5f;border-radius:4px;overflow:hidden}
+  .po-sf-hd{background:#0b1d3a;color:#4fc3f7;font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-bottom:1px solid #22d3ee}
+  .po-sf-body{padding:6px 10px;display:flex;align-items:center;gap:8px}
+  .po-sf-tick{font-size:16px;font-weight:900;line-height:1}
+  .po-sf-val{font-size:9px;font-weight:600;color:#334155}
+  /* pass/fail verdict row */
+  .po-pf{display:grid;grid-template-columns:1fr 1fr;gap:5px;flex-shrink:0}
+  .po-pf-box{border:1px solid #1e3a5f;border-radius:4px;overflow:hidden}
+  .po-pf-hd{background:#0b1d3a;color:#4fc3f7;font-size:7px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;padding:3px 8px;border-bottom:1px solid #22d3ee}
+  .po-pf-body{display:flex;gap:24px;padding:6px 12px;align-items:center}
+  .po-pf-lbl{font-size:8px;font-weight:700;color:#0b1d3a}
+  .po-pf-mark{font-size:18px;font-weight:900;line-height:1}
+  .po-result-box{border-radius:4px;padding:7px 12px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+  /* partners row */
+  .po-partners{border:1px solid #e2e8f0;border-radius:4px;padding:5px 9px;background:#f9fafb;flex-shrink:0}
+  .po-partners-lbl{font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#3b6ea5;margin-bottom:3px}
+  .po-partners-list{display:flex;flex-wrap:wrap;gap:5px}
+  .po-partner{font-size:7.5px;font-weight:600;color:#0b1d3a;background:#fff;border:1px solid #c3d4e8;border-radius:3px;padding:2px 6px}
+  /* failure to comply */
+  .po-ftc{border:1px solid #fca5a5;border-radius:4px;padding:5px 9px;background:#fff5f5;flex-shrink:0}
+  .po-ftc-lbl{font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#b91c1c;margin-bottom:2px}
+  .po-ftc-txt{font-size:7.5px;color:#7f1d1d;line-height:1.6;font-style:italic}
+  /* test cert dual sig */
+  .po-sig2{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:5px 12px 4px;flex-shrink:0}
+  .po-sig2-meta{font-size:7px;font-weight:700;color:#3b6ea5;margin-bottom:1px}
+  .po-sig2-line{border:1px solid #1e3a5f;border-radius:3px;min-height:32px;background:#fff;padding:2px 8px;display:flex;align-items:flex-end;margin-bottom:2px}
 
   @media print{
     @page{size:A4;margin:0}
@@ -569,8 +618,8 @@ function PFBadge({result}){
 function BucketResultRow({label,result}){
   if(!result)return null;
   const isPass=(result||"").toUpperCase()==="PASS";
-  const isFail=/fail|repair|required/i.test(result||"");
-  const cellStyle=isFail?{background:"#fff5f5",color:"#b91c1c",fontWeight:800}:isPass?{background:"#f0fdf4",color:"#15803d",fontWeight:700}:{background:"#fff",color:"#0b1d3a",fontWeight:600};
+  const isBad=/fail|repair|required/i.test(result||"");
+  const cellStyle=isBad?{background:"#fff5f5",color:"#b91c1c",fontWeight:800}:isPass?{background:"#f0fdf4",color:"#15803d",fontWeight:700}:{background:"#fff",color:"#0b1d3a",fontWeight:600};
   return(<tr><td>{label}</td><td style={cellStyle}>{result}</td></tr>);
 }
 
@@ -594,6 +643,334 @@ function SBRow({label,result,naField=false}){
 }
 
 /* ══════════════════════════════════════════════════════════
+   PORTABLE OVEN / WELDING MACHINE / OXYGEN TANK / AIR PUMP
+   PAGE 1 — COMPLIANCE CERTIFICATE
+   Mirrors exact Factories Act CAP 44:01 layout from WM01.pdf
+══════════════════════════════════════════════════════════ */
+function PortableOvenCompliancePage({c,po,pm,logo}){
+  const certNumber=val(c.certificate_number);
+  const tone=resultStyle(po.result);
+
+  /* ── build cert title from equipment type ── */
+  const titleMap={
+    "portable oven":"Portable Oven Compliance Certificate",
+    "portable welding oven":"Portable Welding Oven Compliance Certificate",
+    "welding machine":"Welding Machine Compliance Certificate",
+    "oxygen tank":"Oxygen Tank Compliance Certificate",
+    "air powered pump":"Air Powered Pump Compliance Certificate",
+    "air pump":"Air Powered Pump Compliance Certificate",
+  };
+  const rawType=(po.equipment_type||"").toLowerCase();
+  const certTitle=Object.entries(titleMap).find(([k])=>rawType.includes(k))?.[1]||`${po.equipment_type} Compliance Certificate`;
+  const photos=parsePhotoEvidence(c.photo_evidence);
+
+  return(
+    <div className={`pro-page${pm?" pm":""}`}>
+      <ProHdr logoUrl={logo}/>
+      {/* Blue accent stripe matching other pro-pages */}
+      <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
+
+      <div className="pro-body">
+
+        {/* ── Main data table — mirrors PDF column layout exactly ── */}
+        <div style={{textAlign:"center",flexShrink:0,paddingBottom:2}}>
+          <div style={{fontSize:13,fontWeight:900,color:"#0b1d3a",letterSpacing:"-.01em",textTransform:"uppercase"}}>{certTitle}</div>
+          <div style={{fontSize:8,color:"#64748b",marginTop:2,fontWeight:600}}>(FACTORIES ACT CAP 44:01)</div>
+        </div>
+
+        <table className="po-t">
+          <tbody>
+            <tr>
+              <td>Company</td>
+              <td style={{textTransform:"uppercase",fontWeight:900,color:"#0b1d3a",fontSize:9}}>{po.company}</td>
+              <td>Equipment Description</td>
+              <td style={{fontWeight:700,color:"#0b1d3a"}}>{po.equipment_description}</td>
+            </tr>
+            <tr>
+              <td>Equipment Location</td>
+              <td style={{textTransform:"uppercase"}}>{po.location}</td>
+              <td>Identification Number</td>
+              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490",fontSize:9}}>{po.serial_number}</td>
+            </tr>
+            <tr>
+              <td>Power Voltage</td>
+              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{po.power_voltage}</td>
+              <td>Weight (kg)</td>
+              <td style={{fontWeight:700}}>{po.weight}</td>
+            </tr>
+            <tr>
+              <td>Equipment Status</td>
+              <td style={{fontWeight:900,color:tone.color,background:tone.bg,fontSize:10,letterSpacing:".05em"}}>{tone.label}</td>
+              <td>Date</td>
+              <td style={{fontWeight:700}}>{po.issue_date}</td>
+            </tr>
+            <tr>
+              <td>Expiry Date</td>
+              <td style={{fontWeight:800,color:"#b45309"}}>{po.expiry_date}</td>
+              <td>Certificate No.</td>
+              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{certNumber||"—"}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* ── Cert ID + Compliance box ── */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:6,flexShrink:0}}>
+          <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>{certTitle}</div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#0e7490",marginTop:2}}>{certNumber||"—"}</div>
+            <div style={{display:"inline-flex",alignItems:"center",gap:3,border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 6px",marginTop:3,fontSize:7.5,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>
+              <span style={{color:"#3b6ea5"}}>Valid until:</span> {po.expiry_date}
+            </div>
+          </div>
+          <div className="pro-compbox" style={{padding:"6px 14px"}}>
+            <div>
+              <div style={{fontSize:10,fontWeight:900,color:"#0b1d3a"}}>Compliance</div>
+              <div style={{fontSize:7.5,color:"#64748b",marginTop:1}}>{po.isFail?"Not to be issued":"Certificate issued"}</div>
+            </div>
+            <div style={{fontSize:30,color:tone.color,fontWeight:900,marginLeft:10}}>{po.isFail?"✗":"✓"}</div>
+          </div>
+        </div>
+
+        {/* ── Defects / recommendations ── */}
+        {po.defects_found&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{po.defects_found}</div></div>}
+        {po.recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{po.recommendations}</div></div>}
+
+        {/* ── Partners ── */}
+        {po.partners&&po.partners.length>0&&(
+          <div className="po-partners">
+            <div className="po-partners-lbl">Our Partners</div>
+            <div className="po-partners-list">
+              {po.partners.map((p,i)=><span key={i} className="po-partner">{p}</span>)}
+            </div>
+          </div>
+        )}
+
+        {/* ── Photos ── */}
+        {photos.length>0&&<ProEvidence photos={photos}/>}
+
+        {/* ── Legislation bar ── */}
+        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"4px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
+          INSPECTION CARRIED OUT IN ACCORDANCE WITH: FACTORIES ACT CAP 44:01 OF THE LAWS OF BOTSWANA
+        </div>
+      </div>
+
+      {/* ── Inspector signature (matches ProSig style) ── */}
+      <div className="pro-sig">
+        <div className="pro-sigg">
+          <div>
+            <div className="pro-sgl">Inspector's Name: {po.inspector_name}</div>
+            <div style={{fontSize:7,color:"#3b6ea5",marginBottom:3,fontWeight:600}}>INSPECTOR ID NO: {po.inspector_id}</div>
+            <div className="pro-sgl" style={{marginBottom:2}}>Inspector Signature</div>
+            <div className="pro-sgline">
+              <img src="/Signature" alt="sig" style={{maxHeight:30,maxWidth:90,objectFit:"contain"}} onError={e=>e.target.style.display="none"}/>
+            </div>
+          </div>
+          <div>
+            <div className="pro-sgl">Customer Signature</div>
+            <div className="pro-sgline" style={{marginTop:20}}/>
+            <div className="pro-sgrole">Customer signature ……………….</div>
+          </div>
+        </div>
+      </div>
+
+      <ProFooter/>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
+   PORTABLE OVEN / WELDING MACHINE / OXYGEN TANK / AIR PUMP
+   PAGE 2 — TEST CERTIFICATE
+   Mirrors exact "GULF STREAM ENERGY TEST CERTIFICATE
+   (FACTORIES ACT CAP 44:01)" layout from WM01.pdf page 2
+══════════════════════════════════════════════════════════ */
+function PortableOvenTestCertPage({c,po,pm,logo}){
+  const certNumber=val(c.certificate_number);
+  const tone=resultStyle(po.result);
+
+  /* Overall assessment column selection */
+  const isSafe  = po.isPass && !po.isCond;
+  const isCond  = po.isCond;
+  const isNotSafe = po.isFail;
+
+  /* Structural / functional colours */
+  const sfColor=(v)=>{
+    if(/^pass/i.test(v)||/^good/i.test(v)||/^satisf/i.test(v))return{tick:"✓",color:"#15803d",bg:"#f0fdf4"};
+    if(/^fail/i.test(v)||/^poor/i.test(v))return{tick:"✗",color:"#b91c1c",bg:"#fff5f5"};
+    return{tick:"✓",color:"#15803d",bg:"#f0fdf4"};
+  };
+  const sf=sfColor(po.structural_integrity);
+  const ft=sfColor(po.functional_test);
+
+  /* Source cert number shown on this page */
+  const sourceCertNo=po.source_cert_number||certNumber;
+
+  const photos=parsePhotoEvidence(c.photo_evidence);
+
+  return(
+    <div className={`pro-page last-page${pm?" pm":""}`}>
+      <ProHdr logoUrl={logo}/>
+      {/* Green accent stripe — distinct from page 1's blue */}
+      <div style={{height:3,background:"linear-gradient(90deg,#22c55e,#16a34a 55%,#4ade80)",flexShrink:0}}/>
+
+      <div className="pro-body">
+
+        {/* ── Page title ── */}
+        <div style={{textAlign:"center",flexShrink:0,paddingBottom:2}}>
+          <div style={{fontSize:13,fontWeight:900,color:"#0b1d3a",letterSpacing:"-.01em",textTransform:"uppercase"}}>{po.company} Test Certificate</div>
+          <div style={{fontSize:8,color:"#64748b",marginTop:2,fontWeight:600}}>(FACTORIES ACT CAP 44:01)</div>
+        </div>
+
+        {/* ── Main data table — exact pairs from PDF ── */}
+        <table className="po-t">
+          <tbody>
+            <tr>
+              <td>Certificate No.</td>
+              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{sourceCertNo||"—"}</td>
+              <td>Equipment Type</td>
+              <td style={{fontWeight:700,color:"#0b1d3a"}}>{po.equipment_type}</td>
+            </tr>
+            <tr>
+              <td>Date of Inspection</td>
+              <td style={{fontWeight:800}}>{po.issue_date}</td>
+              <td>Next Inspection Date</td>
+              <td style={{fontWeight:800,color:"#b45309"}}>{po.expiry_date}</td>
+            </tr>
+            <tr>
+              <td>Serial No.</td>
+              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{po.serial_number}</td>
+              <td>Client</td>
+              <td style={{fontWeight:700,textTransform:"uppercase"}}>{po.company}</td>
+            </tr>
+            <tr>
+              <td>Voltage</td>
+              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{po.power_voltage}</td>
+              <td>Client's Location</td>
+              <td>{po.location}</td>
+            </tr>
+            <tr>
+              <td>Weight (kg)</td>
+              <td style={{fontWeight:700}}>{po.weight}</td>
+              <td></td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* ── Structural Integrity + Functional Test side by side ── */}
+        <div className="po-sf">
+          {[
+            ["Structural Integrity Assessment", po.structural_integrity, sf],
+            ["Functional Test Verification",    po.functional_test,       ft],
+          ].map(([lbl,v,style])=>(
+            <div key={lbl} className="po-sf-box">
+              <div className="po-sf-hd">{lbl}</div>
+              <div className="po-sf-body" style={{background:style.bg}}>
+                <span className="po-sf-tick" style={{color:style.color}}>{style.tick}</span>
+                <span className="po-sf-val">{v}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Overall Assessment 4-column options grid ── */}
+        <div className="pro-stl">Overall Assessment</div>
+        <table className="po-oa">
+          <thead>
+            <tr>
+              <th>Safe for operation</th>
+              <th>Safe for operation subject to corrective action</th>
+              <th>Not safe for operation</th>
+              <th>Safe for operation</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td className={isSafe?"po-sel":""}>
+                {isSafe&&<><b>✓</b><br/></>}
+                Safe for operation
+              </td>
+              <td className={isCond?"po-sel-a":""}>
+                {isCond&&<><b>✓</b><br/></>}
+                Safe for operation subject to corrective action
+              </td>
+              <td className={isNotSafe?"po-sel-f":""}>
+                {isNotSafe&&<><b>✓</b><br/></>}
+                Not safe for operation
+              </td>
+              <td className={isSafe?"po-sel":""}>
+                {isSafe&&<><b>✓</b><br/></>}
+                Safe for operation
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* ── PASS THOROUGH INSPECTION / FAILED row ── */}
+        <div className="pro-stl">Pass Thorough Inspection / Failed</div>
+        <div className="po-pf">
+          <div className="po-pf-box">
+            <div className="po-pf-hd">Inspection Verdict</div>
+            <div className="po-pf-body">
+              <span className="po-pf-lbl">Pass:</span>
+              <span className="po-pf-mark" style={{color:po.isFail?"#d1d5db":"#15803d"}}>{po.isFail?"":"✓"}</span>
+              <span className="po-pf-lbl" style={{marginLeft:8}}>Fail:</span>
+              <span className="po-pf-mark" style={{color:po.isFail?"#b91c1c":"#d1d5db"}}>{po.isFail?"✗":""}</span>
+            </div>
+          </div>
+          {/* Result big box */}
+          <div className="po-result-box" style={{border:`2px solid ${tone.brd}`,background:tone.bg}}>
+            <div>
+              <div style={{fontSize:15,fontWeight:900,color:tone.color,letterSpacing:".08em"}}>{tone.label}</div>
+              <div style={{fontSize:7.5,color:"#64748b",marginTop:2}}>Test Certificate Result</div>
+            </div>
+            <div style={{fontSize:28,color:tone.color,fontWeight:900,marginLeft:12}}>{po.isFail?"✗":"✓"}</div>
+          </div>
+        </div>
+
+        {/* ── Failure to Comply ── */}
+        <div className="po-ftc">
+          <div className="po-ftc-lbl">⚠ Failure to Comply</div>
+          <div className="po-ftc-txt">{po.failure_to_comply}</div>
+        </div>
+
+        {/* ── Defects / recommendations ── */}
+        {po.defects_found&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{po.defects_found}</div></div>}
+        {po.recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{po.recommendations}</div></div>}
+
+        {/* ── Photos ── */}
+        {photos.length>1&&<ProEvidence photos={photos.slice(Math.ceil(photos.length/2))}/>}
+
+        {/* ── Legislation bar ── */}
+        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"4px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
+          THIS EQUIPMENT HAS BEEN INSPECTED IN ACCORDANCE WITH THE FACTORIES ACT CAP 44:01 OF THE LAWS OF BOTSWANA.
+        </div>
+      </div>
+
+      {/* ── Dual signature block matching PDF exactly ── */}
+      <div className="po-sig2">
+        <div>
+          <div className="po-sig2-meta">Inspector's Name: {po.inspector_name}</div>
+          <div className="po-sig2-meta">Inspector ID No: {po.inspector_id}</div>
+          <div style={{fontSize:7,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:"#3b6ea5",margin:"3px 0 2px"}}>Signature:</div>
+          <div className="po-sig2-line">
+            <img src="/Signature" alt="sig" style={{maxHeight:28,maxWidth:88,objectFit:"contain"}} onError={e=>e.target.style.display="none"}/>
+          </div>
+        </div>
+        <div>
+          <div className="po-sig2-meta">Client's Name:</div>
+          <div className="po-sig2-meta" style={{minHeight:14}}>&nbsp;</div>
+          <div style={{fontSize:7,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:"#3b6ea5",margin:"3px 0 2px"}}>Signature:</div>
+          <div className="po-sig2-line"/>
+        </div>
+      </div>
+
+      <ProFooter/>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════
    SANDBLASTING POT — PAGE 1: INSPECTION CHECKLIST
 ══════════════════════════════════════════════════════════ */
 function SandblastingPotChecklistPage({c,sb,pn,pm,logo}){
@@ -604,77 +981,32 @@ function SandblastingPotChecklistPage({c,sb,pn,pm,logo}){
   const inspId=val(c.inspector_id)||"700117910";
   const cl=sb.checklist;
   const readings=sb.wall_readings||[];
-
-  // readings layout: up to 5 shown (matching the PDF)
   const displayReadings=readings.filter(Boolean).slice(0,10);
-
   return(
     <div className={`pro-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
       <div style={{height:3,background:"linear-gradient(90deg,#f97316,#fb923c 55%,#fbbf24)",flexShrink:0}}/>
       <div className="pro-body">
-        {/* Header info table */}
         <table className="sb-t" style={{marginBottom:0}}>
           <tbody>
-            <tr>
-              <td>Equipment Owner</td>
-              <td style={{textTransform:"uppercase",fontWeight:900,color:"#0b1d3a"}}>{sb.equipment_owner}</td>
-              <td>Serial No.</td>
-              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{sb.vessel_unique_id}</td>
-            </tr>
-            <tr>
-              <td>Location</td>
-              <td style={{textTransform:"uppercase"}}>{sb.location}</td>
-              <td>Vessel Material</td>
-              <td>{sb.vessel_material}</td>
-            </tr>
-            <tr>
-              <td>Inspection Frequency</td>
-              <td>{sb.inspection_frequency}</td>
-              <td>Year of Manufacture</td>
-              <td>{sb.year_of_manufacture}</td>
-            </tr>
-            <tr>
-              <td>Previous Inspection Date</td>
-              <td>{sb.previous_inspection}</td>
-              <td>Design Pressure</td>
-              <td style={{fontWeight:800}}>{sb.design_pressure} {sb.pressure_unit}</td>
-            </tr>
-            <tr>
-              <td>Competent Person</td>
-              <td style={{fontWeight:800}}>{inspName}</td>
-              <td>Actual Working Pressure</td>
-              <td style={{fontWeight:800}}>{sb.working_pressure} {sb.pressure_unit}</td>
-            </tr>
-            <tr>
-              <td>Inspection Date</td>
-              <td style={{fontWeight:800}}>{issueDate}</td>
-              <td>Next Inspection Date</td>
-              <td style={{fontWeight:800,color:"#b45309"}}>{expiryDate}</td>
-            </tr>
+            <tr><td>Equipment Owner</td><td style={{textTransform:"uppercase",fontWeight:900,color:"#0b1d3a"}}>{sb.equipment_owner}</td><td>Serial No.</td><td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{sb.vessel_unique_id}</td></tr>
+            <tr><td>Location</td><td style={{textTransform:"uppercase"}}>{sb.location}</td><td>Vessel Material</td><td>{sb.vessel_material}</td></tr>
+            <tr><td>Inspection Frequency</td><td>{sb.inspection_frequency}</td><td>Year of Manufacture</td><td>{sb.year_of_manufacture}</td></tr>
+            <tr><td>Previous Inspection Date</td><td>{sb.previous_inspection}</td><td>Design Pressure</td><td style={{fontWeight:800}}>{sb.design_pressure} {sb.pressure_unit}</td></tr>
+            <tr><td>Competent Person</td><td style={{fontWeight:800}}>{inspName}</td><td>Actual Working Pressure</td><td style={{fontWeight:800}}>{sb.working_pressure} {sb.pressure_unit}</td></tr>
+            <tr><td>Inspection Date</td><td style={{fontWeight:800}}>{issueDate}</td><td>Next Inspection Date</td><td style={{fontWeight:800,color:"#b45309"}}>{expiryDate}</td></tr>
           </tbody>
         </table>
-
-        {/* Legend */}
         <div style={{display:"flex",gap:16,alignItems:"center",padding:"3px 6px",background:"#f4f8ff",border:"1px solid #c3d4e8",borderRadius:4,fontSize:7.5,flexShrink:0}}>
           <span style={{fontWeight:700,color:"#0b1d3a"}}>Y = PASS</span>
           <span style={{fontWeight:700,color:"#b91c1c"}}>N = FAIL</span>
           <span style={{fontWeight:700,color:"#9ca3af"}}>N/A = NOT APPLICABLE</span>
           <span style={{marginLeft:"auto",fontWeight:800,color:"#0b1d3a",fontSize:8,textTransform:"uppercase",letterSpacing:".06em"}}>Sandblasting Pot Inspection Checklist</span>
         </div>
-
-        {/* 2-column layout: checklist left, dimensions right */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 180px",gap:6,flex:1,minHeight:0,overflow:"hidden"}}>
-
-          {/* CHECKLIST */}
           <div style={{overflow:"hidden"}}>
             <table className="sb-cl">
-              <thead>
-                <tr>
-                  <th style={{width:"100%"}}>Inspection Item</th>
-                  <th>Y</th><th>N</th><th>N/A</th>
-                </tr>
-              </thead>
+              <thead><tr><th style={{width:"100%"}}>Inspection Item</th><th>Y</th><th>N</th><th>N/A</th></tr></thead>
               <tbody>
                 <tr className="sb-cl-sec"><td colSpan={4}>1.0 Appurtenances</td></tr>
                 <SBRow label="1.1 Pipe Connections in good condition" result={cl.pipe_connections}/>
@@ -688,7 +1020,6 @@ function SandblastingPotChecklistPage({c,sb,pn,pm,logo}){
                 <SBRow label="1.9 Pressure relief valve calibrated" result={cl.relief_valve_calibrated}/>
                 <SBRow label="2.0 Pressure gauge calibrated" result={cl.gauge_calibrated}/>
                 <SBRow label="2.1 Pressure gauge redlined" result={cl.gauge_redlined}/>
-
                 <tr className="sb-cl-sec"><td colSpan={4}>2.0 Vessel External Inspection</td></tr>
                 <SBRow label="2.1 Vessel material of acceptable standard" result={cl.vessel_material_standard}/>
                 <SBRow label="2.2 Vessel external coating in good condition" result={cl.external_coating}/>
@@ -697,19 +1028,16 @@ function SandblastingPotChecklistPage({c,sb,pn,pm,logo}){
                 <SBRow label="2.5 Welded joints in good condition" result={cl.welded_joints}/>
                 <SBRow label="2.6 No vessel dents or cracks" result={cl.no_dents_cracks}/>
                 <SBRow label="2.7 No external leakages" result={cl.no_external_leakages}/>
-
                 <tr className="sb-cl-sec"><td colSpan={4}>3.0 Relief Valve</td></tr>
                 <SBRow label="3.1 Any cracks on the valve body" result={cl.no_cracks_valve_body}/>
                 <SBRow label="3.2 Any foreign material on the valve" result={cl.no_foreign_material}/>
                 <SBRow label="3.3 Valve working properly" result={cl.valve_working}/>
-
                 <tr className="sb-cl-sec"><td colSpan={4}>4.0 Vessel Internal Inspection</td></tr>
                 <SBRow label="4.1 No oil sludge inside vessel" result={cl.no_oil_sludge}/>
                 <SBRow label="4.2 Vessel interior in good condition" result={cl.interior_condition}/>
                 <SBRow label="4.3 No moisture / oil trapped in air receiver" result={cl.no_moisture}/>
                 <SBRow label="4.4 No scaling inside vessel" result={cl.no_scaling}/>
                 <SBRow label="4.5 Internal stiffeners in good condition" result={cl.internal_stiffeners}/>
-
                 <tr className="sb-cl-sec"><td colSpan={4}>5.0 Drainage</td></tr>
                 <SBRow label="5.1 Vessels properly levelled for drainage" result={cl.properly_levelled}/>
                 <SBRow label="5.2 Provided with drainage hose" result={cl.drainage_hose}/>
@@ -718,20 +1046,12 @@ function SandblastingPotChecklistPage({c,sb,pn,pm,logo}){
               </tbody>
             </table>
           </div>
-
-          {/* RIGHT COLUMN: dimensions + wall thickness readings */}
           <div style={{display:"flex",flexDirection:"column",gap:5}}>
             <div style={{border:"1px solid #1e3a5f",borderRadius:4,overflow:"hidden"}}>
               <div style={{background:"#0b1d3a",color:"#4fc3f7",fontSize:7,fontWeight:800,letterSpacing:".1em",textTransform:"uppercase",padding:"3px 8px",borderBottom:"1px solid #f97316"}}>Vessel Dimensions</div>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:8}}>
                 <tbody>
-                  {[
-                    ["Volume",sb.volume?`${sb.volume} L`:"—"],
-                    ["Circumference",sb.circumference||"—"],
-                    ["Height",sb.height||"—"],
-                    ["Working Pressure",sb.working_pressure?`${sb.working_pressure} ${sb.pressure_unit}`:"—"],
-                    ["Design Pressure",sb.design_pressure?`${sb.design_pressure} ${sb.pressure_unit}`:"—"],
-                  ].map(([k,v])=>(
+                  {[["Volume",sb.volume?`${sb.volume} L`:"—"],["Circumference",sb.circumference||"—"],["Height",sb.height||"—"],["Working Pressure",sb.working_pressure?`${sb.working_pressure} ${sb.pressure_unit}`:"—"],["Design Pressure",sb.design_pressure?`${sb.design_pressure} ${sb.pressure_unit}`:"—"]].map(([k,v])=>(
                     <tr key={k}>
                       <td style={{padding:"3px 6px",fontWeight:700,color:"#3b6ea5",background:"#eef4ff",border:"1px solid #c3d4e8",fontSize:7}}>{k}</td>
                       <td style={{padding:"3px 6px",fontWeight:600,color:"#0b1d3a",background:"#fff",border:"1px solid #c3d4e8",fontSize:8}}>{v}</td>
@@ -740,7 +1060,6 @@ function SandblastingPotChecklistPage({c,sb,pn,pm,logo}){
                 </tbody>
               </table>
             </div>
-
             {displayReadings.length>0&&(
               <div style={{border:"1px solid #1e3a5f",borderRadius:4,overflow:"hidden"}}>
                 <div style={{background:"#0b1d3a",color:"#4fc3f7",fontSize:7,fontWeight:800,letterSpacing:".1em",textTransform:"uppercase",padding:"3px 8px",borderBottom:"1px solid #f97316"}}>Wall Thickness (mm)</div>
@@ -754,8 +1073,6 @@ function SandblastingPotChecklistPage({c,sb,pn,pm,logo}){
                 </div>
               </div>
             )}
-
-            {/* Overall result box */}
             <div style={{border:"2px solid #1e3a5f",borderRadius:4,overflow:"hidden",marginTop:"auto"}}>
               <div style={{background:"#0b1d3a",color:"#4fc3f7",fontSize:7,fontWeight:800,letterSpacing:".1em",textTransform:"uppercase",padding:"3px 8px"}}>Inspection Result</div>
               <div style={{padding:"8px 10px",background:pickResult(c)==="PASS"?"#dcfce7":"#fee2e2",textAlign:"center"}}>
@@ -765,14 +1082,7 @@ function SandblastingPotChecklistPage({c,sb,pn,pm,logo}){
             </div>
           </div>
         </div>
-
-        {sb.comments&&(
-          <div className="pro-comments-box" style={{flexShrink:0}}>
-            <div className="pro-comments-lbl">Comments</div>
-            <div className="pro-comments-val">{sb.comments}</div>
-          </div>
-        )}
-
+        {sb.comments&&<div className="pro-comments-box" style={{flexShrink:0}}><div className="pro-comments-lbl">Comments</div><div className="pro-comments-val">{sb.comments}</div></div>}
         <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"4px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
           APPLICABLE LEGISLATION / STANDARDS: FACTORIES ACT CAP: 44:01 · MQWM ACT CAP: 44:02
         </div>
@@ -797,112 +1107,41 @@ function SandblastingPotTestCertPage({c,sb,pn,pm,logo}){
   const recommendations=val(c.recommendations);
   const tone=resultStyle(pickResult(c));
   const isPass=tone.label==="PASS";
-
   return(
     <div className={`pro-page last-page${pm?" pm":""}`}>
       <ProHdr logoUrl={logo}/>
       <div style={{height:3,background:"linear-gradient(90deg,#f97316,#fb923c 55%,#fbbf24)",flexShrink:0}}/>
       <div className="pro-body">
-
-        {/* Big title */}
         <div style={{textAlign:"center",padding:"6px 0 4px",flexShrink:0}}>
           <div style={{fontSize:16,fontWeight:900,color:"#0b1d3a",letterSpacing:"-.01em",textTransform:"uppercase"}}>Sandblasting Pot Test Certificate</div>
           <div style={{fontSize:8,color:"#64748b",marginTop:2}}>APPLICABLE LEGISLATION / STANDARDS: FACTORIES ACT CAP: 44:01 · MQWM ACT CAP: 44:02</div>
         </div>
-
-        {/* Main data table — mirrors the original PDF layout exactly */}
         <table className="sb-t">
           <tbody>
-            <tr>
-              <td>Equipment</td>
-              <td style={{textTransform:"uppercase",fontWeight:900,color:"#0b1d3a"}}>SANDBLASTING POT</td>
-              <td>Client</td>
-              <td style={{textTransform:"uppercase",fontWeight:900,color:"#c41e3a"}}>{sb.equipment_owner}</td>
-            </tr>
-            <tr>
-              <td>Vessel Unique ID</td>
-              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{sb.vessel_unique_id}</td>
-              <td>Year</td>
-              <td>{sb.year_of_manufacture}</td>
-            </tr>
-            <tr>
-              <td>Location</td>
-              <td style={{textTransform:"uppercase",color:"#c41e3a",fontWeight:800}}>{sb.location}</td>
-              <td>Manufacturer</td>
-              <td>{sb.manufacturer}</td>
-            </tr>
-            <tr>
-              <td>Design Pressure</td>
-              <td style={{fontWeight:800}}>{sb.design_pressure} {sb.pressure_unit}</td>
-              <td>Measured Shell Thickness</td>
-              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:800}}>{sb.measured_shell_thickness}</td>
-            </tr>
-            <tr>
-              <td>Working Pressure</td>
-              <td style={{fontWeight:800}}>{sb.working_pressure} {sb.pressure_unit}</td>
-              <td>Original Shell Thickness</td>
-              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:800}}>{sb.original_shell_thickness}</td>
-            </tr>
-            <tr>
-              <td>Test Pressure</td>
-              <td style={{fontWeight:800}}>{sb.test_pressure||"0"} {sb.pressure_unit}</td>
-              <td>% Allowable Reduction</td>
-              <td style={{fontWeight:800}}>{sb.allowable_reduction}</td>
-            </tr>
-            <tr>
-              <td>Pressure Gauge No.</td>
-              <td>{sb.pressure_gauge_no}</td>
-              <td>Test Type</td>
-              <td style={{fontWeight:800,color:"#0e7490"}}>{sb.test_type}</td>
-            </tr>
-            <tr>
-              <td>Pressure Relief No.</td>
-              <td>{sb.pressure_relief_no}</td>
-              <td>Min / Max Temperature</td>
-              <td>{sb.min_max_temp}</td>
-            </tr>
-            <tr>
-              <td>Relief Valve Set Pressure</td>
-              <td>{sb.relief_valve_set_pr}</td>
-              <td>Pressure Relief Type</td>
-              <td>{sb.pressure_relief_type}</td>
-            </tr>
-            <tr>
-              <td>Inspection Date</td>
-              <td style={{fontWeight:800}}>{issueDate}</td>
-              <td>Next Inspection Date</td>
-              <td style={{fontWeight:800,color:"#b45309"}}>{expiryDate}</td>
-            </tr>
-            <tr>
-              <td>Certificate No.</td>
-              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{certNumber||"—"}</td>
-              <td>Volume / Capacity</td>
-              <td>{sb.volume?`${sb.volume} L`:"—"}</td>
-            </tr>
+            <tr><td>Equipment</td><td style={{textTransform:"uppercase",fontWeight:900,color:"#0b1d3a"}}>SANDBLASTING POT</td><td>Client</td><td style={{textTransform:"uppercase",fontWeight:900,color:"#c41e3a"}}>{sb.equipment_owner}</td></tr>
+            <tr><td>Vessel Unique ID</td><td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{sb.vessel_unique_id}</td><td>Year</td><td>{sb.year_of_manufacture}</td></tr>
+            <tr><td>Location</td><td style={{textTransform:"uppercase",color:"#c41e3a",fontWeight:800}}>{sb.location}</td><td>Manufacturer</td><td>{sb.manufacturer}</td></tr>
+            <tr><td>Design Pressure</td><td style={{fontWeight:800}}>{sb.design_pressure} {sb.pressure_unit}</td><td>Measured Shell Thickness</td><td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:800}}>{sb.measured_shell_thickness}</td></tr>
+            <tr><td>Working Pressure</td><td style={{fontWeight:800}}>{sb.working_pressure} {sb.pressure_unit}</td><td>Original Shell Thickness</td><td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:800}}>{sb.original_shell_thickness}</td></tr>
+            <tr><td>Test Pressure</td><td style={{fontWeight:800}}>{sb.test_pressure||"0"} {sb.pressure_unit}</td><td>% Allowable Reduction</td><td style={{fontWeight:800}}>{sb.allowable_reduction}</td></tr>
+            <tr><td>Pressure Gauge No.</td><td>{sb.pressure_gauge_no}</td><td>Test Type</td><td style={{fontWeight:800,color:"#0e7490"}}>{sb.test_type}</td></tr>
+            <tr><td>Pressure Relief No.</td><td>{sb.pressure_relief_no}</td><td>Min / Max Temperature</td><td>{sb.min_max_temp}</td></tr>
+            <tr><td>Relief Valve Set Pressure</td><td>{sb.relief_valve_set_pr}</td><td>Pressure Relief Type</td><td>{sb.pressure_relief_type}</td></tr>
+            <tr><td>Inspection Date</td><td style={{fontWeight:800}}>{issueDate}</td><td>Next Inspection Date</td><td style={{fontWeight:800,color:"#b45309"}}>{expiryDate}</td></tr>
+            <tr><td>Certificate No.</td><td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{certNumber||"—"}</td><td>Volume / Capacity</td><td>{sb.volume?`${sb.volume} L`:"—"}</td></tr>
           </tbody>
         </table>
-
-        {/* PASS / FAIL result row */}
         <table className="sb-t" style={{marginTop:0}}>
           <tbody>
             <tr className="sb-result">
               <td colSpan={2} style={{fontWeight:800,fontSize:9,letterSpacing:".06em",background:"#1e3a5f",color:"#4fc3f7"}}>TEST RESULTS (PASS / FAIL)</td>
-              <td colSpan={2} style={{
-                fontSize:18,fontWeight:900,textAlign:"center",letterSpacing:".2em",
-                background:isPass?"#dcfce7":"#fee2e2",
-                color:isPass?"#15803d":"#b91c1c",
-                border:`2px solid ${isPass?"#86efac":"#fca5a5"}`,
-              }}>{tone.label}</td>
+              <td colSpan={2} style={{fontSize:18,fontWeight:900,textAlign:"center",letterSpacing:".2em",background:isPass?"#dcfce7":"#fee2e2",color:isPass?"#15803d":"#b91c1c",border:`2px solid ${isPass?"#86efac":"#fca5a5"}`}}>{tone.label}</td>
             </tr>
           </tbody>
         </table>
-
-        {/* Shell thickness summary */}
         {sb.wall_readings&&sb.wall_readings.filter(Boolean).length>0&&(
           <div style={{border:"1px solid #1e3a5f",borderRadius:4,overflow:"hidden",flexShrink:0}}>
-            <div style={{background:"#0b1d3a",color:"#4fc3f7",fontSize:7,fontWeight:800,letterSpacing:".1em",textTransform:"uppercase",padding:"3px 8px",borderBottom:"1px solid #f97316"}}>
-              Wall Thickness Measurement Points (mm)
-            </div>
+            <div style={{background:"#0b1d3a",color:"#4fc3f7",fontSize:7,fontWeight:800,letterSpacing:".1em",textTransform:"uppercase",padding:"3px 8px",borderBottom:"1px solid #f97316"}}>Wall Thickness Measurement Points (mm)</div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:3,padding:5,background:"#f4f8ff"}}>
               {sb.wall_readings.filter(Boolean).slice(0,10).map((v,i)=>(
                 <div key={i} style={{background:"#fff",border:"1px solid #c3d4e8",borderRadius:3,padding:"3px 6px",textAlign:"center"}}>
@@ -913,28 +1152,12 @@ function SandblastingPotTestCertPage({c,sb,pn,pm,logo}){
             </div>
           </div>
         )}
-
-        {defects&&(
-          <div className="pro-red-box">
-            <div className="pro-red-lbl">Defects Found</div>
-            <div className="pro-red-val">{defects}</div>
-          </div>
-        )}
-        {recommendations&&(
-          <div className="pro-red-box">
-            <div className="pro-red-lbl">Recommendations</div>
-            <div className="pro-red-val">{recommendations}</div>
-          </div>
-        )}
-
+        {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
+        {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
         <ProEvidence photos={photos}/>
-
-        {/* Legislation note */}
         <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"4px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
           THIS VESSEL HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 AND FACTORIES ACT CAP 44:01 OF THE LAWS OF BOTSWANA.
         </div>
-
-        {/* Signatures area */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,padding:"6px 0 2px",flexShrink:0}}>
           <div>
             <div style={{fontSize:7,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",color:"#3b6ea5",marginBottom:3}}>Competent Person / Inspector</div>
@@ -1139,524 +1362,138 @@ function CraneChecklistPage({c,pn,pm,logo}){
 ══════════════════════════════════════════════════════════ */
 function HookRopePage({ c, pn, tone, pm, logo, isRope }) {
   const certNumber = val(c.certificate_number);
-
   const ex = c.extracted_data && typeof c.extracted_data === "object" ? c.extracted_data : {};
-  const hr =
-    (ex.hookrope && typeof ex.hookrope === "object" ? ex.hookrope : null) ||
-    (ex.hook_rope && typeof ex.hook_rope === "object" ? ex.hook_rope : null) ||
-    (ex.hookRope && typeof ex.hookRope === "object" ? ex.hookRope : null) ||
-    {};
-
+  const hr=(ex.hookrope&&typeof ex.hookrope==="object"?ex.hookrope:null)||(ex.hook_rope&&typeof ex.hook_rope==="object"?ex.hook_rope:null)||(ex.hookRope&&typeof ex.hookRope==="object"?ex.hookRope:null)||{};
   const clean = (v) => (v === null || v === undefined ? "" : String(v).trim());
   const nice = (v) => clean(v) || "—";
-  const keyNorm = (k) =>
-    String(k || "")
-      .toLowerCase()
-      .replace(/&amp;/g, "&")
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
-
-  // IMPORTANT: structured data from the edit page wins over old pipe notes.
-  // This stops stale/default pipe values from forcing YES on the printed certificate.
+  const keyNorm = (k) => String(k || "").toLowerCase().replace(/&amp;/g, "&").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   const pick = (...keys) => {
     for (const k of keys) {
       const candidates = [k, keyNorm(k)];
       for (const ck of candidates) {
-        const v1 = hr?.[ck];
-        if (clean(v1)) return clean(v1);
-        const v2 = ex?.[ck];
-        if (clean(v2)) return clean(v2);
-        const v3 = pn?.[ck];
-        if (clean(v3)) return clean(v3);
+        const v1 = hr?.[ck]; if (clean(v1)) return clean(v1);
+        const v2 = ex?.[ck]; if (clean(v2)) return clean(v2);
+        const v3 = pn?.[ck]; if (clean(v3)) return clean(v3);
       }
     }
     return "";
   };
-
   const stripMm = (v) => clean(v).replace(/[Øø]/g, "").replace(/\s*mm\s*$/i, "");
   const cap = (s) => clean(s).replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
-
-  // For normal good/positive questions:
-  // yes/pass/ok/good = YES, no/fail = NO.
-  const asPositiveYN = (v) => {
-    const s = clean(v).toLowerCase();
-    if (!s || s === "—" || s === "n/a" || s === "na") return "";
-    if (["yes", "y", "true", "pass", "passed", "ok", "okay", "good", "serviceable", "satisfactory"].includes(s)) return "yes";
-    if (["no", "n", "false", "fail", "failed", "poor", "bad", "unserviceable", "not serviceable"].includes(s)) return "no";
-    return s;
-  };
-
-  // For defect questions:
-  // yes/fail means defect is present = YES.
-  // no/pass/none/ok means defect is not present = NO.
-  const asDefectYN = (v) => {
-    const s = clean(v).toLowerCase();
-    if (!s || s === "—" || s === "n/a" || s === "na") return "";
-    if (["yes", "y", "true", "fail", "failed", "bad", "poor", "severe", "defective", "present"].includes(s)) return "yes";
-    if (["no", "n", "false", "pass", "passed", "none", "nil", "ok", "okay", "good", "serviceable", "satisfactory", "not present"].includes(s)) return "no";
-    if (s.includes("none") || s.includes("nil") || s.includes("no ")) return "no";
-    if (s.includes("severe") || s.includes("fail") || s.includes("poor")) return "yes";
-    return s;
-  };
-
-  const stateColor = (v, badWhenYes = false) => {
-    const s = clean(v).toLowerCase();
-    if (!s || s === "—" || s === "n/a" || s === "na") return "#9ca3af";
-
-    const yes = ["yes", "pass", "passed", "good", "serviceable", "ok", "okay", "satisfactory"].includes(s);
-    const no = ["no", "fail", "failed", "poor", "unserviceable", "bad"].includes(s);
-
-    if (badWhenYes) {
-      if (["yes", "fail", "failed", "poor", "bad", "severe", "defective", "present"].includes(s)) return "#b91c1c";
-      if (["no", "pass", "passed", "none", "nil", "ok", "okay", "good", "serviceable", "satisfactory"].includes(s)) return "#15803d";
-    }
-
-    if (yes) return "#15803d";
-    if (no) return "#b91c1c";
-    if (s.includes("none") || s.includes("nil")) return "#15803d";
-    if (s.includes("severe") || s.includes("poor") || s.includes("fail")) return "#b91c1c";
-    return "#0b1d3a";
-  };
-
-  const Cell = ({ children, badWhenYes = false }) => (
-    <span style={{ color: stateColor(children, badWhenYes), fontWeight: 800 }}>{nice(children)}</span>
-  );
-
-  const Mark = ({ type }) => {
-    if (type === "yes") {
-      return (
-        <span
-          style={{
-            color: "#15803d",
-            fontSize: 13,
-            lineHeight: 1,
-            fontWeight: 900,
-            fontFamily: "Arial, sans-serif",
-          }}
-        >
-          ✓
-        </span>
-      );
-    }
-    if (type === "no") {
-      return (
-        <span
-          style={{
-            color: "#b91c1c",
-            fontSize: 13,
-            lineHeight: 1,
-            fontWeight: 900,
-            fontFamily: "Arial, sans-serif",
-          }}
-        >
-          ✗
-        </span>
-      );
-    }
-    return <span style={{ color: "#cbd5e1", fontWeight: 800 }}>—</span>;
-  };
-
-  const YesNoCells = ({ value, defect = false }) => {
-    const yn = defect ? asDefectYN(value) : asPositiveYN(value);
-    return (
-      <>
-        <td style={{ textAlign: "center", fontWeight: 900 }}>
-          {yn === "yes" ? <Mark type="yes" /> : null}
-        </td>
-        <td style={{ textAlign: "center", fontWeight: 900 }}>
-          {yn === "no" ? <Mark type="no" /> : null}
-        </td>
-      </>
-    );
-  };
-
-  const company = val(c.client_name || c.company || pick("client_name")) || "—";
-  const location = val(c.location || pick("location")) || "—";
-  const issueDate = formatDate(c.issue_date || c.issued_at || c.inspection_date || pick("inspection_date"));
-  const expiryDate = formatDate(c.expiry_date || c.valid_to || pick("expiry_date"));
-  const equipMake = val(c.manufacturer || c.model || pick("crane_make") || c.equipment_type) || "—";
-  const serialNo = val(c.serial_number || pick("crane_serial")) || "—";
-  const fleetNo = val(c.fleet_number || pick("crane_fleet")) || "—";
-  const swl = val(c.swl || pick("crane_swl") || pick("hook1_swl", "Hook 1 SWL")) || "—";
-  const machineHours = val(c.machine_hours || pick("machine_hours", "Machine hours", "Machine Hours"));
-  const defects = val(c.defects_found || pick("defects_found", "Defects"));
-  const recommendations = val(c.recommendations);
-  const comments = val(c.comments || c.remarks || pick("comments", "Notes"));
-  const inspName = val(c.inspector_name) || "Moemedi Masupe";
-  const inspId = val(c.inspector_id) || "700117910";
-  const photos = parsePhotoEvidence(c.photo_evidence);
-  const reportNo =
-    val(pick("report_number", "Report No", "Report Number") || c.inspection_number || c.inspection_no) ||
-    certNumber?.replace("CERT-", "HR ") ||
-    "HR 0001";
-
-  const drumMain = pick("drum_main_condition", "Drum main", "Drum") || "Good";
-  const drumAux = pick("drum_aux_condition", "Drum aux", "Aux drum") || "Good";
-  const layMain = pick("rope_lay_main", "Lay main", "Rope lay") || "Good";
-  const layAux = pick("rope_lay_aux", "Lay aux") || "Good";
-
-  const ropeDiameterMain = pick("rope_diameter_main", "Rope dia", "Main rope diameter") || val(c.capacity_volume) || "";
-  const ropeDiameterAux = pick("rope_diameter_aux", "Aux dia", "Aux rope diameter") || "";
-  const ropeLengthMain = pick("rope_length_3x_main", "Rope length 3x main") || "Yes";
-  const ropeLengthAux = pick("rope_length_3x_aux", "Rope length 3x aux") || "Yes";
-  const reductionMain = pick("reduction_dia_main", "Reduction") || "none";
-  const reductionAux = pick("reduction_dia_aux", "Reduction aux") || "none";
-  const coreMain = pick("core_protrusion_main", "Core protrusion") || "None";
-  const coreAux = pick("core_protrusion_aux", "Core protrusion aux") || "None";
-  const corrosionMain = pick("corrosion_main", "Corrosion") || "none";
-  const corrosionAux = pick("corrosion_aux", "Corrosion aux") || "none";
-  const brokenMain = pick("broken_wires_main", "Broken wires") || "none";
-  const brokenAux = pick("broken_wires_aux", "Broken wires aux") || "none";
-  const kinksMain = pick("rope_kinks_main", "Kinks") || "none";
-  const kinksAux = pick("rope_kinks_aux", "Kinks aux") || "none";
-  const otherDefectsMain = pick("other_defects_main", "Other defects") || "none";
-  const otherDefectsAux = pick("other_defects_aux", "Other defects aux") || "none";
-  const endFittingsMain = pick("end_fittings_main", "End fittings") || "Good";
-  const endFittingsAux = pick("end_fittings_aux", "End fittings aux") || "Good";
-  const serviceMain = pick("serviceability_main", "Serviceability") || "Good";
-  const serviceAux = pick("serviceability_aux", "Serviceability aux") || "Good";
-  const lowerLimitMain = pick("lower_limit_main", "Lower limit") || "Yes";
-  const lowerLimitAux = pick("lower_limit_aux", "Lower limit aux") || "Yes";
-  const damagedMain = pick("damaged_strands_main", "Damaged strands") || "none";
-  const damagedAux = pick("damaged_strands_aux", "Damaged strands aux") || "none";
-
-  const hook = (n) => ({
-    sn: pick(`hook${n}_sn`, `Hook ${n} SN`, n === 1 ? "Hook SN" : ""),
-    swl: pick(`hook${n}_swl`, `Hook ${n} SWL`) || (n === 1 ? swl : ""),
-    swlMarked: pick(`hook${n}_swl_marked`, `Hook ${n} SWL marked`) || "yes",
-    safety: pick(`hook${n}_safety_catch`, `Hook ${n} safety catch`, n === 1 ? "Latch" : "") || "yes",
-    // Structural PASS in old pipe notes means NO cracks.
-    cracks: pick(`hook${n}_cracks`, `Hook ${n} cracks`, n === 1 ? "Structural" : "") || (n === 1 ? "PASS" : "no"),
-    swivel: pick(`hook${n}_swivel`, `Hook ${n} swivel`) || "yes",
-    corrosion: pick(`hook${n}_corrosion`, `Hook ${n} corrosion`) || "no",
-    bending: pick(`hook${n}_side_bending`, `Hook ${n} side bending`) || "OK",
-    ab: pick(`hook${n}_ab`, `Hook ${n} AB`, n === 1 ? "Hook AB" : ""),
-    ac: pick(`hook${n}_ac`, `Hook ${n} AC`, n === 1 ? "Hook AC" : ""),
-  });
-
-  const h1 = hook(1);
-  const h2 = hook(2);
-  const h3 = hook(3);
-
-  const hookHas = (h) => clean(h.sn) || clean(h.swl) || clean(h.ab) || clean(h.ac);
-  const h3Active = hookHas(h3);
-  const hookRaw = (h, field) => (h3Active || h !== h3 ? nice(h[field]) : <span style={{ color: "#9ca3af", fontWeight: 700 }}>N/A</span>);
-
-  const known = new Set([
-    "latch",
-    "structural",
-    "wear",
-    "broken_wires",
-    "corrosion",
-    "kinks",
-    "rope_dia",
-    "drum",
-    "aux_drum",
-    "drum_main",
-    "drum_aux",
-    "rope_lay",
-    "lay_main",
-    "lay_aux",
-    "rope_length_3x_main",
-    "rope_length_3x_aux",
-    "reduction",
-    "reduction_aux",
-    "core_protrusion",
-    "core_protrusion_aux",
-    "corrosion_aux",
-    "broken_wires_aux",
-    "kinks_aux",
-    "other_defects",
-    "other_defects_aux",
-    "end_fittings",
-    "end_fittings_aux",
-    "serviceability",
-    "serviceability_aux",
-    "lower_limit",
-    "lower_limit_aux",
-    "damaged_strands",
-    "damaged_strands_aux",
-    "notes",
-    "defects",
-    "hook_1_swl",
-    "hook_1_sn",
-    "hook_ab",
-    "hook_ac",
-    "hook_1_ab",
-    "hook_1_ac",
-    "hook_2_swl",
-    "hook_2_sn",
-    "hook_2_ab",
-    "hook_2_ac",
-    "hook_3_swl",
-    "hook_3_sn",
-  ]);
-
-  const extras = Object.entries(pn || {})
-    .filter(([k, v]) => clean(v) && !known.has(keyNorm(k)))
-    .slice(0, 12);
-
+  const asPositiveYN = (v) => {const s=clean(v).toLowerCase();if(!s||s==="—"||s==="n/a"||s==="na")return"";if(["yes","y","true","pass","passed","ok","okay","good","serviceable","satisfactory"].includes(s))return"yes";if(["no","n","false","fail","failed","poor","bad","unserviceable","not serviceable"].includes(s))return"no";return s;};
+  const asDefectYN = (v) => {const s=clean(v).toLowerCase();if(!s||s==="—"||s==="n/a"||s==="na")return"";if(["yes","y","true","fail","failed","bad","poor","severe","defective","present"].includes(s))return"yes";if(["no","n","false","pass","passed","none","nil","ok","okay","good","serviceable","satisfactory","not present"].includes(s))return"no";if(s.includes("none")||s.includes("nil")||s.includes("no "))return"no";if(s.includes("severe")||s.includes("fail")||s.includes("poor"))return"yes";return s;};
+  const stateColor = (v, badWhenYes = false) => {const s=clean(v).toLowerCase();if(!s||s==="—"||s==="n/a"||s==="na")return"#9ca3af";const yes=["yes","pass","passed","good","serviceable","ok","okay","satisfactory"].includes(s);const no=["no","fail","failed","poor","unserviceable","bad"].includes(s);if(badWhenYes){if(["yes","fail","failed","poor","bad","severe","defective","present"].includes(s))return"#b91c1c";if(["no","pass","passed","none","nil","ok","okay","good","serviceable","satisfactory"].includes(s))return"#15803d";}if(yes)return"#15803d";if(no)return"#b91c1c";if(s.includes("none")||s.includes("nil"))return"#15803d";if(s.includes("severe")||s.includes("poor")||s.includes("fail"))return"#b91c1c";return"#0b1d3a";};
+  const Cell = ({ children, badWhenYes = false }) => (<span style={{ color: stateColor(children, badWhenYes), fontWeight: 800 }}>{nice(children)}</span>);
+  const Mark = ({ type }) => {if(type==="yes")return<span style={{color:"#15803d",fontSize:13,lineHeight:1,fontWeight:900,fontFamily:"Arial, sans-serif"}}>✓</span>;if(type==="no")return<span style={{color:"#b91c1c",fontSize:13,lineHeight:1,fontWeight:900,fontFamily:"Arial, sans-serif"}}>✗</span>;return<span style={{color:"#cbd5e1",fontWeight:800}}>—</span>;};
+  const YesNoCells = ({ value, defect = false }) => {const yn=defect?asDefectYN(value):asPositiveYN(value);return(<><td style={{textAlign:"center",fontWeight:900}}>{yn==="yes"?<Mark type="yes"/>:null}</td><td style={{textAlign:"center",fontWeight:900}}>{yn==="no"?<Mark type="no"/>:null}</td></>);};
+  const company=val(c.client_name||c.company||pick("client_name"))||"—";
+  const location=val(c.location||pick("location"))||"—";
+  const issueDate=formatDate(c.issue_date||c.issued_at||c.inspection_date||pick("inspection_date"));
+  const expiryDate=formatDate(c.expiry_date||c.valid_to||pick("expiry_date"));
+  const equipMake=val(c.manufacturer||c.model||pick("crane_make")||c.equipment_type)||"—";
+  const serialNo=val(c.serial_number||pick("crane_serial"))||"—";
+  const fleetNo=val(c.fleet_number||pick("crane_fleet"))||"—";
+  const swl=val(c.swl||pick("crane_swl")||pick("hook1_swl","Hook 1 SWL"))||"—";
+  const machineHours=val(c.machine_hours||pick("machine_hours","Machine hours","Machine Hours"));
+  const defects=val(c.defects_found||pick("defects_found","Defects"));
+  const recommendations=val(c.recommendations);
+  const comments=val(c.comments||c.remarks||pick("comments","Notes"));
+  const inspName=val(c.inspector_name)||"Moemedi Masupe";
+  const inspId=val(c.inspector_id)||"700117910";
+  const photos=parsePhotoEvidence(c.photo_evidence);
+  const reportNo=val(pick("report_number","Report No","Report Number")||c.inspection_number||c.inspection_no)||certNumber?.replace("CERT-","HR ")||"HR 0001";
+  const drumMain=pick("drum_main_condition","Drum main","Drum")||"Good";
+  const drumAux=pick("drum_aux_condition","Drum aux","Aux drum")||"Good";
+  const layMain=pick("rope_lay_main","Lay main","Rope lay")||"Good";
+  const layAux=pick("rope_lay_aux","Lay aux")||"Good";
+  const ropeDiameterMain=pick("rope_diameter_main","Rope dia","Main rope diameter")||val(c.capacity_volume)||"";
+  const ropeDiameterAux=pick("rope_diameter_aux","Aux dia","Aux rope diameter")||"";
+  const ropeLengthMain=pick("rope_length_3x_main","Rope length 3x main")||"Yes";
+  const ropeLengthAux=pick("rope_length_3x_aux","Rope length 3x aux")||"Yes";
+  const reductionMain=pick("reduction_dia_main","Reduction")||"none";
+  const reductionAux=pick("reduction_dia_aux","Reduction aux")||"none";
+  const coreMain=pick("core_protrusion_main","Core protrusion")||"None";
+  const coreAux=pick("core_protrusion_aux","Core protrusion aux")||"None";
+  const corrosionMain=pick("corrosion_main","Corrosion")||"none";
+  const corrosionAux=pick("corrosion_aux","Corrosion aux")||"none";
+  const brokenMain=pick("broken_wires_main","Broken wires")||"none";
+  const brokenAux=pick("broken_wires_aux","Broken wires aux")||"none";
+  const kinksMain=pick("rope_kinks_main","Kinks")||"none";
+  const kinksAux=pick("rope_kinks_aux","Kinks aux")||"none";
+  const otherDefectsMain=pick("other_defects_main","Other defects")||"none";
+  const otherDefectsAux=pick("other_defects_aux","Other defects aux")||"none";
+  const endFittingsMain=pick("end_fittings_main","End fittings")||"Good";
+  const endFittingsAux=pick("end_fittings_aux","End fittings aux")||"Good";
+  const serviceMain=pick("serviceability_main","Serviceability")||"Good";
+  const serviceAux=pick("serviceability_aux","Serviceability aux")||"Good";
+  const lowerLimitMain=pick("lower_limit_main","Lower limit")||"Yes";
+  const lowerLimitAux=pick("lower_limit_aux","Lower limit aux")||"Yes";
+  const damagedMain=pick("damaged_strands_main","Damaged strands")||"none";
+  const damagedAux=pick("damaged_strands_aux","Damaged strands aux")||"none";
+  const hook=(n)=>({sn:pick(`hook${n}_sn`,`Hook ${n} SN`,n===1?"Hook SN":""),swl:pick(`hook${n}_swl`,`Hook ${n} SWL`)||(n===1?swl:""),swlMarked:pick(`hook${n}_swl_marked`,`Hook ${n} SWL marked`)||"yes",safety:pick(`hook${n}_safety_catch`,`Hook ${n} safety catch`,n===1?"Latch":"")||"yes",cracks:pick(`hook${n}_cracks`,`Hook ${n} cracks`,n===1?"Structural":"")||(n===1?"PASS":"no"),swivel:pick(`hook${n}_swivel`,`Hook ${n} swivel`)||"yes",corrosion:pick(`hook${n}_corrosion`,`Hook ${n} corrosion`)||"no",bending:pick(`hook${n}_side_bending`,`Hook ${n} side bending`)||"OK",ab:pick(`hook${n}_ab`,`Hook ${n} AB`,n===1?"Hook AB":""),ac:pick(`hook${n}_ac`,`Hook ${n} AC`,n===1?"Hook AC":"")});
+  const h1=hook(1);const h2=hook(2);const h3=hook(3);
+  const hookHas=(h)=>clean(h.sn)||clean(h.swl)||clean(h.ab)||clean(h.ac);
+  const h3Active=hookHas(h3);
+  const hookRaw=(h,field)=>(h3Active||h!==h3?nice(h[field]):<span style={{color:"#9ca3af",fontWeight:700}}>N/A</span>);
+  const known=new Set(["latch","structural","wear","broken_wires","corrosion","kinks","rope_dia","drum","aux_drum","drum_main","drum_aux","rope_lay","lay_main","lay_aux","rope_length_3x_main","rope_length_3x_aux","reduction","reduction_aux","core_protrusion","core_protrusion_aux","corrosion_aux","broken_wires_aux","kinks_aux","other_defects","other_defects_aux","end_fittings","end_fittings_aux","serviceability","serviceability_aux","lower_limit","lower_limit_aux","damaged_strands","damaged_strands_aux","notes","defects","hook_1_swl","hook_1_sn","hook_ab","hook_ac","hook_1_ab","hook_1_ac","hook_2_swl","hook_2_sn","hook_2_ab","hook_2_ac","hook_3_swl","hook_3_sn"]);
+  const extras=Object.entries(pn||{}).filter(([k,v])=>clean(v)&&!known.has(keyNorm(k))).slice(0,12);
   return (
-    <div className={"pro-page" + (pm ? " pm" : "")}>
-      <ProHdr logoUrl={logo} />
-
-      <div className="pro-body" style={{ gap: 4, padding: "7px 12px 0" }}>
-        <ProCT
-          company={company}
-          location={location}
-          issueDate={issueDate}
-          equipMake={equipMake}
-          serialNo={serialNo}
-          fleetNo={fleetNo}
-          swl={swl}
-          machineHours={machineHours}
-        />
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 4, flexShrink: 0 }}>
-          <div style={{ border: "1px solid #1e3a5f", borderRadius: 5, padding: "7px 10px", background: "#f4f8ff" }}>
-            <div style={{ fontSize: 12, fontWeight: 900, color: "#0b1d3a" }}>Hook &amp; Rope Inspection Report</div>
-            <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, fontWeight: 800, color: "#0e7490", marginTop: 2 }}>
-              {reportNo}
-            </div>
-            {expiryDate && (
-              <div style={{ marginTop: 5, display: "inline-block", border: "1px solid #1e3a5f", borderRadius: 4, padding: "3px 9px", fontSize: 8, fontWeight: 800 }}>
-                Expiry date: {expiryDate}
-              </div>
-            )}
+    <div className={"pro-page"+(pm?" pm":"")}>
+      <ProHdr logoUrl={logo}/>
+      <div className="pro-body" style={{gap:4,padding:"7px 12px 0"}}>
+        <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl} machineHours={machineHours}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:4,flexShrink:0}}>
+          <div style={{border:"1px solid #1e3a5f",borderRadius:5,padding:"7px 10px",background:"#f4f8ff"}}>
+            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Hook &amp; Rope Inspection Report</div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,fontWeight:800,color:"#0e7490",marginTop:2}}>{reportNo}</div>
+            {expiryDate&&(<div style={{marginTop:5,display:"inline-block",border:"1px solid #1e3a5f",borderRadius:4,padding:"3px 9px",fontSize:8,fontWeight:800}}>Expiry date: {expiryDate}</div>)}
           </div>
-
-          <div className="pro-compbox" style={{ padding: "6px 10px" }}>
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 900, color: "#0b1d3a" }}>Compliance Certificate</div>
-              <div style={{ fontSize: 8, color: "#64748b" }}>{pickResult(c) === "FAIL" ? "not to be issued" : "to be issued"}</div>
-            </div>
-            <div style={{ fontSize: 28, color: pickResult(c) === "FAIL" ? "#b91c1c" : "#15803d", fontWeight: 900 }}>
-              {pickResult(c) === "FAIL" ? "✗" : "✓"}
-            </div>
+          <div className="pro-compbox" style={{padding:"6px 10px"}}>
+            <div><div style={{fontSize:10,fontWeight:900,color:"#0b1d3a"}}>Compliance Certificate</div><div style={{fontSize:8,color:"#64748b"}}>{pickResult(c)==="FAIL"?"not to be issued":"to be issued"}</div></div>
+            <div style={{fontSize:28,color:pickResult(c)==="FAIL"?"#b91c1c":"#15803d",fontWeight:900}}>{pickResult(c)==="FAIL"?"✗":"✓"}</div>
           </div>
         </div>
-
         <div className="pro-stl">Hoist Drum &amp; Rope Condition</div>
-        <table className="pro-hrt">
-          <thead>
-            <tr>
-              <th>Item</th>
-              <th>Main Hoist</th>
-              <th>Auxiliary Hoist</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Hoist Drum Condition</td>
-              <td><Cell>{drumMain}</Cell></td>
-              <td><Cell>{drumAux}</Cell></td>
-            </tr>
-            <tr>
-              <td>Hoist Rope Lay on Drum</td>
-              <td><Cell>{layMain}</Cell></td>
-              <td><Cell>{layAux}</Cell></td>
-            </tr>
-          </tbody>
-        </table>
-
+        <table className="pro-hrt"><thead><tr><th>Item</th><th>Main Hoist</th><th>Auxiliary Hoist</th></tr></thead><tbody><tr><td>Hoist Drum Condition</td><td><Cell>{drumMain}</Cell></td><td><Cell>{drumAux}</Cell></td></tr><tr><td>Hoist Rope Lay on Drum</td><td><Cell>{layMain}</Cell></td><td><Cell>{layAux}</Cell></td></tr></tbody></table>
         <div className="pro-stl">Steel Wire Rope Inspection</div>
-        <table className="pro-hrt">
-          <thead>
-            <tr>
-              <th style={{ textAlign: "left" }}>Inspection Item</th>
-              <th>Main</th>
-              <th>Aux</th>
-              <th>Inspection Item</th>
-              <th>Main</th>
-              <th>Aux</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Rope Diameter (mm)</td>
-              <td>{stripMm(ropeDiameterMain) || "—"}</td>
-              <td>{stripMm(ropeDiameterAux) || "—"}</td>
-              <td>Rope length (3x windings)</td>
-              <td><Cell>{ropeLengthMain}</Cell></td>
-              <td><Cell>{ropeLengthAux}</Cell></td>
-            </tr>
-            <tr>
-              <td>Reduction in rope Dia. (max 10%)</td>
-              <td><Cell badWhenYes>{reductionMain}</Cell></td>
-              <td><Cell badWhenYes>{reductionAux}</Cell></td>
-              <td>Core Protrusion</td>
-              <td><Cell badWhenYes>{coreMain}</Cell></td>
-              <td><Cell badWhenYes>{coreAux}</Cell></td>
-            </tr>
-            <tr>
-              <td>Corrosion</td>
-              <td><Cell badWhenYes>{corrosionMain}</Cell></td>
-              <td><Cell badWhenYes>{corrosionAux}</Cell></td>
-              <td>Broken wires</td>
-              <td><Cell badWhenYes>{brokenMain}</Cell></td>
-              <td><Cell badWhenYes>{brokenAux}</Cell></td>
-            </tr>
-            <tr>
-              <td>Rope kinks / deforming</td>
-              <td><Cell badWhenYes>{kinksMain}</Cell></td>
-              <td><Cell badWhenYes>{kinksAux}</Cell></td>
-              <td>Other defects</td>
-              <td><Cell badWhenYes>{otherDefectsMain}</Cell></td>
-              <td><Cell badWhenYes>{otherDefectsAux}</Cell></td>
-            </tr>
-            <tr>
-              <td>End fitting / attachments</td>
-              <td><Cell>{endFittingsMain}</Cell></td>
-              <td><Cell>{endFittingsAux}</Cell></td>
-              <td>Serviceability</td>
-              <td><Cell>{serviceMain}</Cell></td>
-              <td><Cell>{serviceAux}</Cell></td>
-            </tr>
-            <tr>
-              <td>Damaged strands</td>
-              <td><Cell badWhenYes>{damagedMain}</Cell></td>
-              <td><Cell badWhenYes>{damagedAux}</Cell></td>
-              <td>Hoist lower limit cut off</td>
-              <td><Cell>{lowerLimitMain}</Cell></td>
-              <td><Cell>{lowerLimitAux}</Cell></td>
-            </tr>
-          </tbody>
-        </table>
-
-        {!isRope && (
-          <>
-            <div className="pro-stl">Hook Inspection Criteria</div>
-            <table className="pro-hrt">
-              <thead>
-                <tr>
-                  <th style={{ textAlign: "left", width: "34%" }}>Hook inspection criteria</th>
-                  <th colSpan="2">Hook 1 (Main)</th>
-                  <th colSpan="2">Hook 2 (Aux)</th>
-                  <th colSpan="2">Hook 3</th>
-                </tr>
-                <tr>
-                  <th></th>
-                  <th>Yes</th>
-                  <th>No</th>
-                  <th>Yes</th>
-                  <th>No</th>
-                  <th>Yes</th>
-                  <th>No</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Hook block SN</td>
-                  <td colSpan="2">{hookRaw(h1, "sn")}</td>
-                  <td colSpan="2">{hookRaw(h2, "sn")}</td>
-                  <td colSpan="2">{hookRaw(h3, "sn")}</td>
-                </tr>
-                <tr>
-                  <td>Hook block SWL</td>
-                  <td colSpan="2">{hookRaw(h1, "swl")}</td>
-                  <td colSpan="2">{hookRaw(h2, "swl")}</td>
-                  <td colSpan="2">{hookRaw(h3, "swl")}</td>
-                </tr>
-                <tr>
-                  <td>SWL marked on hook</td>
-                  <YesNoCells value={h1.swlMarked} />
-                  <YesNoCells value={h2.swlMarked} />
-                  <YesNoCells value={h3.swlMarked} />
-                </tr>
-                <tr>
-                  <td>Safety catch fitted &amp; good condition</td>
-                  <YesNoCells value={h1.safety} />
-                  <YesNoCells value={h2.safety} />
-                  <YesNoCells value={h3.safety} />
-                </tr>
-                <tr>
-                  <td>Signs of cracks</td>
-                  <YesNoCells value={h1.cracks} defect />
-                  <YesNoCells value={h2.cracks} defect />
-                  <YesNoCells value={h3.cracks} defect />
-                </tr>
-                <tr>
-                  <td>Swivel free under load</td>
-                  <YesNoCells value={h1.swivel} />
-                  <YesNoCells value={h2.swivel} />
-                  <YesNoCells value={h3.swivel} />
-                </tr>
-                <tr>
-                  <td>Excessive corrosion on hook block</td>
-                  <YesNoCells value={h1.corrosion} defect />
-                  <YesNoCells value={h2.corrosion} defect />
-                  <YesNoCells value={h3.corrosion} defect />
-                </tr>
-                <tr>
-                  <td>Hook side bending (max 5%)</td>
-                  <YesNoCells value={h1.bending} defect />
-                  <YesNoCells value={h2.bending} defect />
-                  <YesNoCells value={h3.bending} defect />
-                </tr>
-                <tr>
-                  <td>Distance between hook points A-B</td>
-                  <td colSpan="2">{hookRaw(h1, "ab")}</td>
-                  <td colSpan="2">{hookRaw(h2, "ab")}</td>
-                  <td colSpan="2">{hookRaw(h3, "ab")}</td>
-                </tr>
-                <tr>
-                  <td>Distance between hook points A-C</td>
-                  <td colSpan="2">{hookRaw(h1, "ac")}</td>
-                  <td colSpan="2">{hookRaw(h2, "ac")}</td>
-                  <td colSpan="2">{hookRaw(h3, "ac")}</td>
-                </tr>
-              </tbody>
-            </table>
-          </>
-        )}
-
-        {(defects || recommendations || comments) && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-            {defects && (
-              <div className="pro-red-box">
-                <div className="pro-red-lbl">Defects</div>
-                <div className="pro-red-val">{defects}</div>
-              </div>
-            )}
-            {recommendations && (
-              <div className="pro-comments-box">
-                <div className="pro-comments-lbl">Recommendations</div>
-                <div className="pro-comments-val">{recommendations}</div>
-              </div>
-            )}
-            {comments && (
-              <div className="pro-comments-box" style={{ gridColumn: recommendations ? "1/-1" : undefined }}>
-                <div className="pro-comments-lbl">Comments</div>
-                <div className="pro-comments-val">{comments}</div>
-              </div>
-            )}
+        <table className="pro-hrt"><thead><tr><th style={{textAlign:"left"}}>Inspection Item</th><th>Main</th><th>Aux</th><th>Inspection Item</th><th>Main</th><th>Aux</th></tr></thead><tbody>
+          <tr><td>Rope Diameter (mm)</td><td>{stripMm(ropeDiameterMain)||"—"}</td><td>{stripMm(ropeDiameterAux)||"—"}</td><td>Rope length (3x windings)</td><td><Cell>{ropeLengthMain}</Cell></td><td><Cell>{ropeLengthAux}</Cell></td></tr>
+          <tr><td>Reduction in rope Dia. (max 10%)</td><td><Cell badWhenYes>{reductionMain}</Cell></td><td><Cell badWhenYes>{reductionAux}</Cell></td><td>Core Protrusion</td><td><Cell badWhenYes>{coreMain}</Cell></td><td><Cell badWhenYes>{coreAux}</Cell></td></tr>
+          <tr><td>Corrosion</td><td><Cell badWhenYes>{corrosionMain}</Cell></td><td><Cell badWhenYes>{corrosionAux}</Cell></td><td>Broken wires</td><td><Cell badWhenYes>{brokenMain}</Cell></td><td><Cell badWhenYes>{brokenAux}</Cell></td></tr>
+          <tr><td>Rope kinks / deforming</td><td><Cell badWhenYes>{kinksMain}</Cell></td><td><Cell badWhenYes>{kinksAux}</Cell></td><td>Other defects</td><td><Cell badWhenYes>{otherDefectsMain}</Cell></td><td><Cell badWhenYes>{otherDefectsAux}</Cell></td></tr>
+          <tr><td>End fitting / attachments</td><td><Cell>{endFittingsMain}</Cell></td><td><Cell>{endFittingsAux}</Cell></td><td>Serviceability</td><td><Cell>{serviceMain}</Cell></td><td><Cell>{serviceAux}</Cell></td></tr>
+          <tr><td>Damaged strands</td><td><Cell badWhenYes>{damagedMain}</Cell></td><td><Cell badWhenYes>{damagedAux}</Cell></td><td>Hoist lower limit cut off</td><td><Cell>{lowerLimitMain}</Cell></td><td><Cell>{lowerLimitAux}</Cell></td></tr>
+        </tbody></table>
+        {!isRope&&(<>
+          <div className="pro-stl">Hook Inspection Criteria</div>
+          <table className="pro-hrt"><thead>
+            <tr><th style={{textAlign:"left",width:"34%"}}>Hook inspection criteria</th><th colSpan="2">Hook 1 (Main)</th><th colSpan="2">Hook 2 (Aux)</th><th colSpan="2">Hook 3</th></tr>
+            <tr><th></th><th>Yes</th><th>No</th><th>Yes</th><th>No</th><th>Yes</th><th>No</th></tr>
+          </thead><tbody>
+            <tr><td>Hook block SN</td><td colSpan="2">{hookRaw(h1,"sn")}</td><td colSpan="2">{hookRaw(h2,"sn")}</td><td colSpan="2">{hookRaw(h3,"sn")}</td></tr>
+            <tr><td>Hook block SWL</td><td colSpan="2">{hookRaw(h1,"swl")}</td><td colSpan="2">{hookRaw(h2,"swl")}</td><td colSpan="2">{hookRaw(h3,"swl")}</td></tr>
+            <tr><td>SWL marked on hook</td><YesNoCells value={h1.swlMarked}/><YesNoCells value={h2.swlMarked}/><YesNoCells value={h3.swlMarked}/></tr>
+            <tr><td>Safety catch fitted &amp; good condition</td><YesNoCells value={h1.safety}/><YesNoCells value={h2.safety}/><YesNoCells value={h3.safety}/></tr>
+            <tr><td>Signs of cracks</td><YesNoCells value={h1.cracks} defect/><YesNoCells value={h2.cracks} defect/><YesNoCells value={h3.cracks} defect/></tr>
+            <tr><td>Swivel free under load</td><YesNoCells value={h1.swivel}/><YesNoCells value={h2.swivel}/><YesNoCells value={h3.swivel}/></tr>
+            <tr><td>Excessive corrosion on hook block</td><YesNoCells value={h1.corrosion} defect/><YesNoCells value={h2.corrosion} defect/><YesNoCells value={h3.corrosion} defect/></tr>
+            <tr><td>Hook side bending (max 5%)</td><YesNoCells value={h1.bending} defect/><YesNoCells value={h2.bending} defect/><YesNoCells value={h3.bending} defect/></tr>
+            <tr><td>Distance between hook points A-B</td><td colSpan="2">{hookRaw(h1,"ab")}</td><td colSpan="2">{hookRaw(h2,"ab")}</td><td colSpan="2">{hookRaw(h3,"ab")}</td></tr>
+            <tr><td>Distance between hook points A-C</td><td colSpan="2">{hookRaw(h1,"ac")}</td><td colSpan="2">{hookRaw(h2,"ac")}</td><td colSpan="2">{hookRaw(h3,"ac")}</td></tr>
+          </tbody></table>
+        </>)}
+        {(defects||recommendations||comments)&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+            {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects</div><div className="pro-red-val">{defects}</div></div>}
+            {recommendations&&<div className="pro-comments-box"><div className="pro-comments-lbl">Recommendations</div><div className="pro-comments-val">{recommendations}</div></div>}
+            {comments&&<div className="pro-comments-box" style={{gridColumn:recommendations?"1/-1":undefined}}><div className="pro-comments-lbl">Comments</div><div className="pro-comments-val">{comments}</div></div>}
           </div>
         )}
-
-        {extras.length > 0 && (
-          <table className="pro-hrt">
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left" }}>Additional Data</th>
-                <th>Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {extras.map(([k, v]) => (
-                <tr key={k}>
-                  <td>{cap(k)}</td>
-                  <td>{nice(v)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        <ProEvidence photos={photos} />
+        {extras.length>0&&(<table className="pro-hrt"><thead><tr><th style={{textAlign:"left"}}>Additional Data</th><th>Value</th></tr></thead><tbody>{extras.map(([k,v])=>(<tr key={k}><td>{cap(k)}</td><td>{nice(v)}</td></tr>))}</tbody></table>)}
+        <ProEvidence photos={photos}/>
       </div>
-
-      <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature" />
-      <ProFooter />
+      <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
+      <ProFooter/>
     </div>
   );
 }
@@ -1706,16 +1543,10 @@ function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
             <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
             {expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry date: {expiryDate}</div>}
           </div>
-          <div className="pro-compbox">
-            <div><div style={{fontSize:10,fontWeight:800,color:"#0b1d3a"}}>Compliance Certificate</div><div style={{fontSize:8,color:"#64748b"}}>to be issued</div></div>
-            <div style={{fontSize:26,color:tone.label==="PASS"?"#15803d":"#b91c1c",fontWeight:900}}>{tone.label==="PASS"?"✓":"✗"}</div>
-          </div>
+          <div className="pro-compbox"><div><div style={{fontSize:10,fontWeight:800,color:"#0b1d3a"}}>Compliance Certificate</div><div style={{fontSize:8,color:"#64748b"}}>to be issued</div></div><div style={{fontSize:26,color:tone.label==="PASS"?"#15803d":"#b91c1c",fontWeight:900}}>{tone.label==="PASS"?"✓":"✗"}</div></div>
         </div>
         <div className="pro-stl">Pressure Vessel Details</div>
-        <table className="pro-pv">
-          <thead><tr><th>Vessel Type</th><th>Serial Number</th><th>Capacity</th><th>MAWP ({pressureUnit})</th><th>Test Pressure ({pressureUnit})</th><th>Design Pressure ({pressureUnit})</th></tr></thead>
-          <tbody><tr><td style={{background:"#fff"}}>{pvType}</td><td style={{background:"#fff",fontFamily:"monospace"}}>{pvSN||"—"}</td><td style={{background:"#fff"}}>{pvCap||"—"}</td><td style={{background:"#fff",fontWeight:700}}>{mawp||"—"}</td><td style={{background:"#fff",fontWeight:700}}>{testP||"—"}</td><td style={{background:"#fff"}}>{designP||"—"}</td></tr></tbody>
-        </table>
+        <table className="pro-pv"><thead><tr><th>Vessel Type</th><th>Serial Number</th><th>Capacity</th><th>MAWP ({pressureUnit})</th><th>Test Pressure ({pressureUnit})</th><th>Design Pressure ({pressureUnit})</th></tr></thead><tbody><tr><td style={{background:"#fff"}}>{pvType}</td><td style={{background:"#fff",fontFamily:"monospace"}}>{pvSN||"—"}</td><td style={{background:"#fff"}}>{pvCap||"—"}</td><td style={{background:"#fff",fontWeight:700}}>{mawp||"—"}</td><td style={{background:"#fff",fontWeight:700}}>{testP||"—"}</td><td style={{background:"#fff"}}>{designP||"—"}</td></tr></tbody></table>
         <div className="pro-stl">Inspection Results</div>
         <table className="pro-st"><tbody>
           <tr><td>Vessel condition — external visual</td><td>{cl.vessel_condition_external}</td></tr>
@@ -1728,9 +1559,7 @@ function PressureVesselPage({c,pn,tone,pm,logo,pvNum}){
           <tr><td>Hydrostatic test performed</td><td>{hydroDisplay}</td></tr>
           <tr><td>Overall assessment</td><td style={overallStyle}>{overallDisplay}</td></tr>
         </tbody></table>
-        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
-          THIS PRESSURE VESSEL HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
-        </div>
+        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>THIS PRESSURE VESSEL HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.</div>
         {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
         {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
         {comments&&<div className="pro-comments-box"><div className="pro-comments-lbl">Comments</div><div className="pro-comments-val">{comments}</div></div>}
@@ -1790,21 +1619,11 @@ function WireRopeSlingPage({c,pn,tone,pm,logo}){
       <div className="pro-body">
         <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl}/>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,flexShrink:0}}>
-          <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
-            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Wire Rope Sling Inspection</div>
-            <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
-            {expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry date: {expiryDate}</div>}
-          </div>
-          <div className="pro-compbox">
-            <div><div style={{fontSize:10,fontWeight:800,color:"#0b1d3a"}}>Compliance Certificate</div></div>
-            <div style={{fontSize:26,color:overallIsPass?"#15803d":overallIsFail?"#b91c1c":"#b45309",fontWeight:900}}>{overallIsPass?"✓":"✗"}</div>
-          </div>
+          <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}><div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Wire Rope Sling Inspection</div><div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>{expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry date: {expiryDate}</div>}</div>
+          <div className="pro-compbox"><div><div style={{fontSize:10,fontWeight:800,color:"#0b1d3a"}}>Compliance Certificate</div></div><div style={{fontSize:26,color:overallIsPass?"#15803d":overallIsFail?"#b91c1c":"#b45309",fontWeight:900}}>{overallIsPass?"✓":"✗"}</div></div>
         </div>
         <div className="pro-stl">Sling Details</div>
-        <table className="pro-pv">
-          <thead><tr><th>Type</th><th>Diameter (mm)</th><th>Length (m)</th><th>No. of Legs</th><th>Construction</th><th>Core Type</th><th>SWL</th></tr></thead>
-          <tbody><tr><td style={{background:"#fff"}}>{slingType}</td><td style={{background:"#fff"}}>{diameter||"—"}</td><td style={{background:"#fff"}}>{length||"—"}</td><td style={{background:"#fff"}}>{numLegs||"—"}</td><td style={{background:"#fff"}}>{construction||"—"}</td><td style={{background:"#fff"}}>{core||"—"}</td><td style={{background:"#fff",fontWeight:700}}>{slingSWL||"—"}</td></tr></tbody>
-        </table>
+        <table className="pro-pv"><thead><tr><th>Type</th><th>Diameter (mm)</th><th>Length (m)</th><th>No. of Legs</th><th>Construction</th><th>Core Type</th><th>SWL</th></tr></thead><tbody><tr><td style={{background:"#fff"}}>{slingType}</td><td style={{background:"#fff"}}>{diameter||"—"}</td><td style={{background:"#fff"}}>{length||"—"}</td><td style={{background:"#fff"}}>{numLegs||"—"}</td><td style={{background:"#fff"}}>{construction||"—"}</td><td style={{background:"#fff"}}>{core||"—"}</td><td style={{background:"#fff",fontWeight:700}}>{slingSWL||"—"}</td></tr></tbody></table>
         <div className="pro-stl">Condition Assessment</div>
         <table className="pro-st"><tbody>
           <tr><td>Corrosion</td><td style={condStyle(corrosion)}>{corrosion}</td></tr>
@@ -1856,25 +1675,18 @@ function TelehandlerPage({c,nd,pm,logo}){
       <div className="pro-body">
         <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl}/>
         <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
-          <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
-            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Load Test Certificate — Telehandler</div>
-            <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
-            {expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry: {expiryDate}</div>}
-          </div>
+          <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}><div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Load Test Certificate — Telehandler</div><div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>{expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry: {expiryDate}</div>}</div>
           <PFBadge result={tone.label}/>
         </div>
         <div className="pro-stl">Boom Configuration &amp; Load Test</div>
-        <table className="pro-lt">
-          <thead><tr><th style={{textAlign:"left",width:140}}>Parameter</th><th>Min Boom</th><th>Max Boom</th><th>Actual / Test Config</th></tr></thead>
-          <tbody>
-            <tr><td>Boom Length (m)</td><td>{bm.min_boom_length||"—"}</td><td>{bm.max_boom_length||"—"}</td><td>{bm.actual_boom_length||"—"}</td></tr>
-            <tr><td>Extended / Telescoped (m)</td><td>—</td><td>—</td><td>{bm.extended_boom_length||"—"}</td></tr>
-            <tr><td>Working Radius (m)</td><td>{bm.min_radius||"—"}</td><td>{bm.max_radius||"—"}</td><td>{bm.load_tested_at_radius||"—"}</td></tr>
-            <tr><td>SWL at Radius</td><td>{bm.swl_at_min_radius||"—"}</td><td>{bm.swl_at_max_radius||"—"}</td><td>{bm.swl_at_actual_config||swl||"—"}</td></tr>
-            <tr><td>Boom Angle (°)</td><td>—</td><td>—</td><td>{bm.boom_angle||"—"}</td></tr>
-            <tr className="pro-lt-bold"><td>Test Load Applied (110% SWL)</td><td></td><td></td><td>{bm.test_load||"—"}</td></tr>
-          </tbody>
-        </table>
+        <table className="pro-lt"><thead><tr><th style={{textAlign:"left",width:140}}>Parameter</th><th>Min Boom</th><th>Max Boom</th><th>Actual / Test Config</th></tr></thead><tbody>
+          <tr><td>Boom Length (m)</td><td>{bm.min_boom_length||"—"}</td><td>{bm.max_boom_length||"—"}</td><td>{bm.actual_boom_length||"—"}</td></tr>
+          <tr><td>Extended / Telescoped (m)</td><td>—</td><td>—</td><td>{bm.extended_boom_length||"—"}</td></tr>
+          <tr><td>Working Radius (m)</td><td>{bm.min_radius||"—"}</td><td>{bm.max_radius||"—"}</td><td>{bm.load_tested_at_radius||"—"}</td></tr>
+          <tr><td>SWL at Radius</td><td>{bm.swl_at_min_radius||"—"}</td><td>{bm.swl_at_max_radius||"—"}</td><td>{bm.swl_at_actual_config||swl||"—"}</td></tr>
+          <tr><td>Boom Angle (°)</td><td>—</td><td>—</td><td>{bm.boom_angle||"—"}</td></tr>
+          <tr className="pro-lt-bold"><td>Test Load Applied (110% SWL)</td><td></td><td></td><td>{bm.test_load||"—"}</td></tr>
+        </tbody></table>
         {bm.jib_fitted==="yes"&&<div style={{fontSize:8,fontWeight:700,color:"#0e7490",marginTop:2,marginBottom:2,padding:"2px 6px",background:"#eef4ff",border:"1px solid #c3d4e8",borderRadius:3,display:"inline-block"}}>Jib / Fork Attachment: FITTED</div>}
         <div className="pro-stl">Boom Systems Condition</div>
         <table className="pro-st"><tbody>
@@ -1888,46 +1700,21 @@ function TelehandlerPage({c,nd,pm,logo}){
         <div className="pro-cg">
           <div className="pro-cc">
             <div className="pro-csec">General Condition</div>
-            <CI label="Structural Integrity" result={cl.structural_result||"PASS"}/>
-            <CI label="Hydraulic System" result={cl.hydraulics_result||"PASS"}/>
-            <CI label="Brake / Drive System" result={cl.brakes_result||"PASS"}/>
-            <CI label="Tyres &amp; Wheels" result={cl.tyres_result||"PASS"}/>
-            <CI label="Oil Leaks" result={detectFail(defects,"leak","oil")}/>
-            <CI label="Lights &amp; Horn" result="PASS"/>
-            <CI label="Fire Extinguisher" result={cl.fire_extinguisher||"PASS"}/>
-            <CI label="Seat Belt" result="PASS"/>
+            <CI label="Structural Integrity" result={cl.structural_result||"PASS"}/><CI label="Hydraulic System" result={cl.hydraulics_result||"PASS"}/><CI label="Brake / Drive System" result={cl.brakes_result||"PASS"}/><CI label="Tyres &amp; Wheels" result={cl.tyres_result||"PASS"}/><CI label="Oil Leaks" result={detectFail(defects,"leak","oil")}/><CI label="Lights &amp; Horn" result="PASS"/><CI label="Fire Extinguisher" result={cl.fire_extinguisher||"PASS"}/><CI label="Seat Belt" result="PASS"/>
           </div>
           <div className="pro-cc">
             <div className="pro-csec">Safety &amp; Controls</div>
-            <CI label="Load Management Indicator (LMI)" result={cl.lmi_result||"PASS"}/>
-            <CI label="LMI SWL Correctly Indicated" result="PASS"/>
-            <CI label="Emergency Stop Function" result="PASS"/>
-            <CI label="Overload Protection" result="PASS"/>
-            <CI label="Outrigger Interlocks (if fitted)" result="PASS"/>
-            <CI label="Controls Marked Correctly" result="PASS"/>
-            <CI label="Load Chart Available" result="PASS"/>
+            <CI label="Load Management Indicator (LMI)" result={cl.lmi_result||"PASS"}/><CI label="LMI SWL Correctly Indicated" result="PASS"/><CI label="Emergency Stop Function" result="PASS"/><CI label="Overload Protection" result="PASS"/><CI label="Outrigger Interlocks (if fitted)" result="PASS"/><CI label="Controls Marked Correctly" result="PASS"/><CI label="Load Chart Available" result="PASS"/>
             <div className="pro-csec">Load Test Result</div>
-            <CI label="Test Load Applied at Rated Config" result="PASS"/>
-            <CI label="Machine Stable Under Load" result={cl.machine_stable_under_load||"PASS"}/>
-            <CI label="No Structural Deformation" result="PASS"/>
+            <CI label="Test Load Applied at Rated Config" result="PASS"/><CI label="Machine Stable Under Load" result={cl.machine_stable_under_load||"PASS"}/><CI label="No Structural Deformation" result="PASS"/>
           </div>
         </div>
-        {fks.length>0&&(
-          <>
-            <div className="pro-stl">Fork Arms Inspected ({fks.length} arm{fks.length>1?"s":""})</div>
-            <table className="fk-t">
-              <thead><tr><th>Fork ID</th><th>SWL</th><th>Length (mm)</th><th>Heel (mm)</th><th>Blade (mm)</th><th>Wear %</th><th>Cracks</th><th>Bending</th><th>Result</th></tr></thead>
-              <tbody>{fks.map((fk,i)=>(<tr key={i}><td>{fk.fork_number||`Fork ${i+1}`}</td><td>{fk.swl||"—"}</td><td>{fk.length||"—"}</td><td>{fk.thickness_heel||"—"}</td><td>{fk.thickness_blade||"—"}</td><td>{fk.wear_pct||"—"}</td><td style={{color:fk.cracks==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.cracks==="yes"?"YES":"No"}</td><td style={{color:fk.bending==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.bending==="yes"?"YES":"No"}</td><td>{r(fk.result)}</td></tr>))}</tbody>
-            </table>
-          </>
-        )}
+        {fks.length>0&&(<><div className="pro-stl">Fork Arms Inspected ({fks.length} arm{fks.length>1?"s":""})</div><table className="fk-t"><thead><tr><th>Fork ID</th><th>SWL</th><th>Length (mm)</th><th>Heel (mm)</th><th>Blade (mm)</th><th>Wear %</th><th>Cracks</th><th>Bending</th><th>Result</th></tr></thead><tbody>{fks.map((fk,i)=>(<tr key={i}><td>{fk.fork_number||`Fork ${i+1}`}</td><td>{fk.swl||"—"}</td><td>{fk.length||"—"}</td><td>{fk.thickness_heel||"—"}</td><td>{fk.thickness_blade||"—"}</td><td>{fk.wear_pct||"—"}</td><td style={{color:fk.cracks==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.cracks==="yes"?"YES":"No"}</td><td style={{color:fk.bending==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.bending==="yes"?"YES":"No"}</td><td>{r(fk.result)}</td></tr>))}</tbody></table></>)}
         {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
         {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
         {bm.notes&&<div className="pro-comments-box"><div className="pro-comments-lbl">Boom Notes</div><div className="pro-comments-val">{bm.notes}</div></div>}
         <ProEvidence photos={photos}/>
-        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
-          THIS TELEHANDLER HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
-        </div>
+        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>THIS TELEHANDLER HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.</div>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
       <ProFooter/>
@@ -1974,52 +1761,32 @@ function CherryPickerMachinePage({c,nd,pm,logo}){
           <PFBadge result={tone.label}/>
         </div>
         <div className="pro-stl">Boom Specification &amp; Load Test</div>
-        <table className="pro-lt">
-          <thead><tr><th style={{textAlign:"left",width:140}}>Parameter</th><th>Min Boom</th><th>Max Boom</th><th>Actual / Test Config</th></tr></thead>
-          <tbody>
-            <tr><td>Max Working Height (m)</td><td>—</td><td>{bm.max_height||"—"}</td><td>{bm.max_height||"—"}</td></tr>
-            <tr><td>Boom Length (m)</td><td>{bm.min_boom_length||"—"}</td><td>{bm.max_boom_length||"—"}</td><td>{bm.actual_boom_length||"—"}</td></tr>
-            <tr><td>Extended / Telescoped (m)</td><td>—</td><td>—</td><td>{bm.extended_boom_length||"—"}</td></tr>
-            <tr><td>Boom Angle (°)</td><td>—</td><td>—</td><td>{bm.boom_angle||"—"}</td></tr>
-            <tr><td>Working Radius (m)</td><td>{bm.min_radius||"—"}</td><td>{bm.max_radius||"—"}</td><td>{bm.load_tested_at_radius||"—"}</td></tr>
-            <tr><td>SWL at Radius</td><td>{bm.swl_at_min_radius||"—"}</td><td>{bm.swl_at_max_radius||"—"}</td><td style={{fontWeight:800}}>{bm.swl_at_actual_config||swl||"—"}</td></tr>
-            <tr className="pro-lt-bold"><td>Test Load Applied (110% SWL)</td><td></td><td></td><td>{bm.test_load||"—"}</td></tr>
-          </tbody>
-        </table>
+        <table className="pro-lt"><thead><tr><th style={{textAlign:"left",width:140}}>Parameter</th><th>Min Boom</th><th>Max Boom</th><th>Actual / Test Config</th></tr></thead><tbody>
+          <tr><td>Max Working Height (m)</td><td>—</td><td>{bm.max_height||"—"}</td><td>{bm.max_height||"—"}</td></tr>
+          <tr><td>Boom Length (m)</td><td>{bm.min_boom_length||"—"}</td><td>{bm.max_boom_length||"—"}</td><td>{bm.actual_boom_length||"—"}</td></tr>
+          <tr><td>Extended / Telescoped (m)</td><td>—</td><td>—</td><td>{bm.extended_boom_length||"—"}</td></tr>
+          <tr><td>Boom Angle (°)</td><td>—</td><td>—</td><td>{bm.boom_angle||"—"}</td></tr>
+          <tr><td>Working Radius (m)</td><td>{bm.min_radius||"—"}</td><td>{bm.max_radius||"—"}</td><td>{bm.load_tested_at_radius||"—"}</td></tr>
+          <tr><td>SWL at Radius</td><td>{bm.swl_at_min_radius||"—"}</td><td>{bm.swl_at_max_radius||"—"}</td><td style={{fontWeight:800}}>{bm.swl_at_actual_config||swl||"—"}</td></tr>
+          <tr className="pro-lt-bold"><td>Test Load Applied (110% SWL)</td><td></td><td></td><td>{bm.test_load||"—"}</td></tr>
+        </tbody></table>
         <div className="pro-cg">
           <div className="pro-cc">
             <div className="pro-csec">Boom Systems</div>
-            <CI label="Boom Structure" result={bm.boom_structure||"PASS"}/>
-            <CI label="Boom Pins &amp; Connections" result={bm.boom_pins||"PASS"}/>
-            <CI label="Boom Wear / Pads" result={bm.boom_wear||"PASS"}/>
-            <CI label="Luffing / Extension System" result={bm.luffing_system||"PASS"}/>
-            <CI label="Slew / Rotation System" result={bm.slew_system||"PASS"}/>
-            <CI label="Hoist / Lift System" result={bm.hoist_system||"PASS"}/>
-            <CI label="LMI Tested at Config" result={bm.lmi_test||"PASS"}/>
-            <CI label="Anti-Two Block / Overload" result={bm.anti_two_block||"PASS"}/>
+            <CI label="Boom Structure" result={bm.boom_structure||"PASS"}/><CI label="Boom Pins &amp; Connections" result={bm.boom_pins||"PASS"}/><CI label="Boom Wear / Pads" result={bm.boom_wear||"PASS"}/><CI label="Luffing / Extension System" result={bm.luffing_system||"PASS"}/><CI label="Slew / Rotation System" result={bm.slew_system||"PASS"}/><CI label="Hoist / Lift System" result={bm.hoist_system||"PASS"}/><CI label="LMI Tested at Config" result={bm.lmi_test||"PASS"}/><CI label="Anti-Two Block / Overload" result={bm.anti_two_block||"PASS"}/>
             <div className="pro-csec">Hydraulics &amp; Drive</div>
-            <CI label="Hydraulic System" result={cl.hydraulics_result||"PASS"}/>
-            <CI label="Oil Leaks" result={detectFail(defects,"leak","oil")}/>
-            <CI label="Structural Integrity" result={cl.structural_result||"PASS"}/>
+            <CI label="Hydraulic System" result={cl.hydraulics_result||"PASS"}/><CI label="Oil Leaks" result={detectFail(defects,"leak","oil")}/><CI label="Structural Integrity" result={cl.structural_result||"PASS"}/>
           </div>
           <div className="pro-cc">
             <div className="pro-csec">Safety Systems</div>
-            <CI label="Safety Devices / Interlocks" result={cl.safety_devices||"PASS"}/>
-            <CI label="Fire Extinguisher" result={cl.fire_extinguisher||"PASS"}/>
-            <CI label="Emergency Stop" result={cl.emergency_stop||"PASS"}/>
-            <CI label="Outrigger / Stabiliser Interlocks" result={cl.stabiliser_interlocks||"PASS"}/>
-            <CI label="Machine Stable Under Load" result={cl.machine_stable_under_load||"PASS"}/>
-            <CI label="No Structural Deformation Under Load" result={cl.no_structural_deformation_under_load||"PASS"}/>
-            <CI label="All Functions Operate Under Load" result={cl.all_functions_operate_under_load||"PASS"}/>
+            <CI label="Safety Devices / Interlocks" result={cl.safety_devices||"PASS"}/><CI label="Fire Extinguisher" result={cl.fire_extinguisher||"PASS"}/><CI label="Emergency Stop" result={cl.emergency_stop||"PASS"}/><CI label="Outrigger / Stabiliser Interlocks" result={cl.stabiliser_interlocks||"PASS"}/><CI label="Machine Stable Under Load" result={cl.machine_stable_under_load||"PASS"}/><CI label="No Structural Deformation Under Load" result={cl.no_structural_deformation_under_load||"PASS"}/><CI label="All Functions Operate Under Load" result={cl.all_functions_operate_under_load||"PASS"}/>
             {defects&&defects.length>0&&(<><div className="pro-csec" style={{background:"#7f1d1d",color:"#fca5a5"}}>Defects</div><div style={{padding:"4px 8px",fontSize:7.5,color:"#b91c1c",fontWeight:700,lineHeight:1.45,background:"#fff5f5"}}>{defects}</div></>)}
           </div>
         </div>
         {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
         {bm.notes&&<div className="pro-comments-box"><div className="pro-comments-lbl">Notes</div><div className="pro-comments-val">{bm.notes}</div></div>}
         {photos.length>0&&<ProEvidence photos={photos.slice(0,Math.ceil(photos.length/2))}/>}
-        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
-          THIS CHERRY PICKER HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA. THIS CERTIFICATE IS VALID FOR 12 MONTHS FROM DATE OF ISSUE.
-        </div>
+        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>THIS CHERRY PICKER HAS BEEN INSPECTED IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA. THIS CERTIFICATE IS VALID FOR 12 MONTHS FROM DATE OF ISSUE.</div>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
       <ProFooter/>
@@ -2082,47 +1849,32 @@ function CherryPickerBucketPage({c,nd,pm,logo}){
           <tr><td>Next Inspection Due</td><td style={{fontWeight:800,color:"#b45309"}}>{bucketExpiry||"—"}</td></tr>
         </tbody></table>
         <div className="pro-stl" style={{borderLeftColor:"#f97316"}}>Platform / Bucket Structural Inspection</div>
-        <table className="bk-t">
-          <thead><tr><th>Inspection Item</th><th>Result</th></tr></thead>
-          <tbody>
-            <tr><td>Platform Structure — welds &amp; frame integrity</td><td>{bkResult(bk.platform_structure||"PASS")}</td></tr>
-            <tr><td>Platform Floor Condition</td><td>{bkResult(bk.platform_floor||"PASS")}</td></tr>
-            <tr><td>Guardrails — height, welds &amp; security</td><td>{bkResult(bk.guardrails||"PASS")}</td></tr>
-            <tr><td>Toe Boards — fitted &amp; condition</td><td>{bkResult(bk.toe_boards||"PASS")}</td></tr>
-            <tr><td>Gate / Latch System</td><td>{bkResult(bk.gate_latch||"PASS")}</td></tr>
-            <tr><td>Platform Mounting / Attachment to Boom</td><td>{bkResult(bk.platform_mounting||"PASS")}</td></tr>
-            <tr><td>Rotation / Slew Mechanism (if fitted)</td><td>{bkResult(bk.rotation||"PASS")}</td></tr>
-            <tr><td>Harness Anchor Points — quantity &amp; condition</td><td>{bkResult(bk.harness_anchors||"PASS")}</td></tr>
-            <tr><td>SWL Marking legible on platform</td><td>{bkResult(bk.swl_marking||"PASS")}</td></tr>
-            <tr><td>Paint / Coating condition</td><td>{bkResult(bk.paint_condition||"Satisfactory")}</td></tr>
-          </tbody>
-        </table>
+        <table className="bk-t"><thead><tr><th>Inspection Item</th><th>Result</th></tr></thead><tbody>
+          <tr><td>Platform Structure — welds &amp; frame integrity</td><td>{bkResult(bk.platform_structure||"PASS")}</td></tr>
+          <tr><td>Platform Floor Condition</td><td>{bkResult(bk.platform_floor||"PASS")}</td></tr>
+          <tr><td>Guardrails — height, welds &amp; security</td><td>{bkResult(bk.guardrails||"PASS")}</td></tr>
+          <tr><td>Toe Boards — fitted &amp; condition</td><td>{bkResult(bk.toe_boards||"PASS")}</td></tr>
+          <tr><td>Gate / Latch System</td><td>{bkResult(bk.gate_latch||"PASS")}</td></tr>
+          <tr><td>Platform Mounting / Attachment to Boom</td><td>{bkResult(bk.platform_mounting||"PASS")}</td></tr>
+          <tr><td>Rotation / Slew Mechanism (if fitted)</td><td>{bkResult(bk.rotation||"PASS")}</td></tr>
+          <tr><td>Harness Anchor Points — quantity &amp; condition</td><td>{bkResult(bk.harness_anchors||"PASS")}</td></tr>
+          <tr><td>SWL Marking legible on platform</td><td>{bkResult(bk.swl_marking||"PASS")}</td></tr>
+          <tr><td>Paint / Coating condition</td><td>{bkResult(bk.paint_condition||"Satisfactory")}</td></tr>
+        </tbody></table>
         <div className="pro-stl" style={{borderLeftColor:"#f97316"}}>Safety Systems &amp; Controls in Platform</div>
         <div className="pro-cg">
           <div className="pro-cc">
             <div className="pro-csec" style={{background:"#7c2d12",borderBottomColor:"#f97316"}}>Platform Safety Devices</div>
-            <CI label="Platform Auto-Levelling" result={bk.levelling_system||"PASS"}/>
-            <CI label="Emergency Lowering Device (ground)" result={bk.emergency_lowering||cl.emergency_lowering||"PASS"}/>
-            <CI label="Emergency Stop (in platform)" result="PASS"/>
-            <CI label="Overload / SWL Cut-Off Device" result={bk.overload_device||"PASS"}/>
-            <CI label="Tilt / Inclination Alarm" result={bk.tilt_alarm||"PASS"}/>
-            <CI label="Intercom / Communication (if fitted)" result={bk.intercom!=null?bk.intercom:"PASS"} na={!bk.intercom}/>
+            <CI label="Platform Auto-Levelling" result={bk.levelling_system||"PASS"}/><CI label="Emergency Lowering Device (ground)" result={bk.emergency_lowering||cl.emergency_lowering||"PASS"}/><CI label="Emergency Stop (in platform)" result="PASS"/><CI label="Overload / SWL Cut-Off Device" result={bk.overload_device||"PASS"}/><CI label="Tilt / Inclination Alarm" result={bk.tilt_alarm||"PASS"}/><CI label="Intercom / Communication (if fitted)" result={bk.intercom!=null?bk.intercom:"PASS"} na={!bk.intercom}/>
           </div>
           <div className="pro-cc">
             <div className="pro-csec" style={{background:"#7c2d12",borderBottomColor:"#f97316"}}>Load Test Observations</div>
-            <CI label="Platform stable under test load" result="PASS"/>
-            <CI label="No deformation of frame / guardrails" result="PASS"/>
-            <CI label="Gate remained secure under load" result="PASS"/>
-            <CI label="Levelling maintained at max height" result={bk.levelling_system||"PASS"}/>
-            <CI label="All platform controls functional" result="PASS"/>
-            <CI label="Harness anchors held under load" result={bk.harness_anchors||"PASS"}/>
+            <CI label="Platform stable under test load" result="PASS"/><CI label="No deformation of frame / guardrails" result="PASS"/><CI label="Gate remained secure under load" result="PASS"/><CI label="Levelling maintained at max height" result={bk.levelling_system||"PASS"}/><CI label="All platform controls functional" result="PASS"/><CI label="Harness anchors held under load" result={bk.harness_anchors||"PASS"}/>
           </div>
         </div>
         {bk.notes&&<div className="pro-comments-box"><div className="pro-comments-lbl">Platform Notes</div><div className="pro-comments-val">{bk.notes}</div></div>}
         {photos.length>1&&<ProEvidence photos={photos.slice(Math.ceil(photos.length/2))}/>}
-        <div style={{fontSize:7.5,color:"#9a3412",lineHeight:1.5,border:"1px solid #f97316",borderRadius:4,padding:"5px 9px",background:"#fff7ed",textAlign:"center",fontWeight:700,flexShrink:0}}>
-          THIS WORK PLATFORM / BUCKET CERTIFICATE IS VALID FOR 6 MONTHS FROM DATE OF ISSUE AND MUST BE RE-INSPECTED BEFORE EXPIRY. INSPECTION CARRIED OUT IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
-        </div>
+        <div style={{fontSize:7.5,color:"#9a3412",lineHeight:1.5,border:"1px solid #f97316",borderRadius:4,padding:"5px 9px",background:"#fff7ed",textAlign:"center",fontWeight:700,flexShrink:0}}>THIS WORK PLATFORM / BUCKET CERTIFICATE IS VALID FOR 6 MONTHS FROM DATE OF ISSUE AND MUST BE RE-INSPECTED BEFORE EXPIRY. INSPECTION CARRIED OUT IN ACCORDANCE WITH THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.</div>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
       <ProFooter/>
@@ -2147,8 +1899,7 @@ function ForkArmPage({c,pm,logo}){
   const tone=resultStyle(pickResult(c));
   const photos=parsePhotoEvidence(c.photo_evidence);
   const raw=val(c.notes)||"";
-  const parts={};
-  raw.split("|").forEach(p=>{const i=p.indexOf(":");if(i<0)return;parts[p.slice(0,i).trim()]=p.slice(i+1).trim();});
+  const parts={};raw.split("|").forEach(p=>{const i=p.indexOf(":");if(i<0)return;parts[p.slice(0,i).trim()]=p.slice(i+1).trim();});
   const length=parts["L"]?.replace("mm","")||"";
   const heel=parts["Heel"]?.replace("mm","")||"";
   const blade=parts["Blade"]?.replace("mm","")||"";
@@ -2162,11 +1913,7 @@ function ForkArmPage({c,pm,logo}){
       <div className="pro-body">
         <ProCT company={company} location={location} issueDate={issueDate} equipMake={val(c.equipment_description)||"Fork Arm"} serialNo={serialNo} fleetNo={null} swl={swl}/>
         <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
-          <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
-            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Fork Arm Inspection Certificate</div>
-            <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
-            {expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry: {expiryDate}</div>}
-          </div>
+          <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}><div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>Fork Arm Inspection Certificate</div><div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>{expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry: {expiryDate}</div>}</div>
           <PFBadge result={tone.label}/>
         </div>
         <div className="pro-stl">Fork Arm Details &amp; Dimensional Inspection</div>
@@ -2189,9 +1936,7 @@ function ForkArmPage({c,pm,logo}){
           <tr><td>Fork Rejected</td><td style={{color:tone.label!=="PASS"?"#b91c1c":"#15803d",fontWeight:800}}>{tone.label!=="PASS"?"YES — SEE DEFECTS":"No"}</td></tr>
         </tbody></table>
         {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
-        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
-          FORK ARMS INSPECTED IN ACCORDANCE WITH ISO 5057, EN 13157, AND THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA. FORK ARMS WITH WEAR EXCEEDING 10% OR WITH CRACKS / BENDING SHALL BE REMOVED FROM SERVICE IMMEDIATELY.
-        </div>
+        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>FORK ARMS INSPECTED IN ACCORDANCE WITH ISO 5057, EN 13157, AND THE MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA. FORK ARMS WITH WEAR EXCEEDING 10% OR WITH CRACKS / BENDING SHALL BE REMOVED FROM SERVICE IMMEDIATELY.</div>
         <ProEvidence photos={photos}/>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
@@ -2233,11 +1978,7 @@ function HorseTrailerPage({c,pm,logo,isTrailer}){
       <div className="pro-body">
         <ProCT company={company} location={location} issueDate={issueDate} equipMake={`${make} ${model}`.trim()||vtitle} serialNo={vin} fleetNo={fleet} swl={gvm}/>
         <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,flexShrink:0}}>
-          <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
-            <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>{isTrailer?"Trailer":"Vehicle"} Registration Certificate</div>
-            <div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>
-            {expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry: {expiryDate}</div>}
-          </div>
+          <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}><div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>{isTrailer?"Trailer":"Vehicle"} Registration Certificate</div><div style={{fontSize:10,fontWeight:700,color:"#0e7490",marginTop:2}}>{certNumber}</div>{expiryDate&&<div style={{display:"inline-block",border:"1px solid #1e3a5f",borderRadius:3,padding:"2px 7px",marginTop:4,fontSize:8,fontWeight:700,color:"#0b1d3a",background:"#fff"}}>Expiry: {expiryDate}</div>}</div>
           <PFBadge result={tone.label}/>
         </div>
         <div className="pro-stl">{vtitle} Registration Details</div>
@@ -2250,20 +1991,7 @@ function HorseTrailerPage({c,pm,logo,isTrailer}){
           <tr><td>Fleet Number</td><td>{fleet}</td></tr>
           <tr><td>Gross Vehicle Mass (GVM)</td><td style={{fontWeight:800}}>{vd.gvm||"—"}</td></tr>
         </tbody></table>
-        {!isTrailer&&trailer&&trailer.reg&&(
-          <>
-            <div className="pro-stl">Trailer Details (Linked to this Horse)</div>
-            <table className="vr-t"><tbody>
-              <tr><td>Trailer Registration</td><td style={{fontFamily:"monospace",fontWeight:900,fontSize:11,color:"#0b1d3a"}}>{trailer.reg||"—"}</td></tr>
-              <tr><td>Make / Manufacturer</td><td>{trailer.make||"—"}</td></tr>
-              <tr><td>Model / Type</td><td>{trailer.model||"—"}</td></tr>
-              <tr><td>VIN / Chassis Number</td><td style={{fontFamily:"monospace"}}>{trailer.vin||"—"}</td></tr>
-              <tr><td>Year of Manufacture</td><td>{trailer.year||"—"}</td></tr>
-              <tr><td>Gross Vehicle Mass (GVM)</td><td style={{fontWeight:800}}>{trailer.gvm||"—"}</td></tr>
-              <tr><td>Trailer Result</td><td>{r(trailer.result||"PASS")}</td></tr>
-            </tbody></table>
-          </>
-        )}
+        {!isTrailer&&trailer&&trailer.reg&&(<><div className="pro-stl">Trailer Details (Linked to this Horse)</div><table className="vr-t"><tbody><tr><td>Trailer Registration</td><td style={{fontFamily:"monospace",fontWeight:900,fontSize:11,color:"#0b1d3a"}}>{trailer.reg||"—"}</td></tr><tr><td>Make / Manufacturer</td><td>{trailer.make||"—"}</td></tr><tr><td>Model / Type</td><td>{trailer.model||"—"}</td></tr><tr><td>VIN / Chassis Number</td><td style={{fontFamily:"monospace"}}>{trailer.vin||"—"}</td></tr><tr><td>Year of Manufacture</td><td>{trailer.year||"—"}</td></tr><tr><td>Gross Vehicle Mass (GVM)</td><td style={{fontWeight:800}}>{trailer.gvm||"—"}</td></tr><tr><td>Trailer Result</td><td>{r(trailer.result||"PASS")}</td></tr></tbody></table></>)}
         <div className="pro-stl">Inspection Results</div>
         <table className="pro-st"><tbody>
           <tr><td>Vehicle condition — external visual</td><td>Satisfactory</td></tr>
@@ -2277,9 +2005,7 @@ function HorseTrailerPage({c,pm,logo,isTrailer}){
           <tr><td>Overall assessment</td><td style={{fontWeight:800,color:tone.label==="PASS"?"#15803d":"#b91c1c"}}>{tone.label}</td></tr>
         </tbody></table>
         {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found / Notes</div><div className="pro-red-val">{defects}</div></div>}
-        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>
-          THIS VEHICLE HAS BEEN INSPECTED IN ACCORDANCE WITH THE ROAD TRAFFIC ACT AND MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.
-        </div>
+        <div style={{fontSize:7.5,color:"#4b5563",lineHeight:1.5,border:"1px solid #1e3a5f",borderRadius:4,padding:"5px 9px",background:"#f4f8ff",textAlign:"center",fontWeight:700,flexShrink:0}}>THIS VEHICLE HAS BEEN INSPECTED IN ACCORDANCE WITH THE ROAD TRAFFIC ACT AND MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 OF THE LAWS OF BOTSWANA.</div>
         <ProEvidence photos={photos}/>
       </div>
       <ProSig inspName={inspName} inspId={inspId} sigUrl="/Signature"/>
@@ -2321,63 +2047,26 @@ function MachinePage({c,nd,pm,logo}){
       <div className="pro-body">
         <ProCT company={company} location={location} issueDate={issueDate} equipMake={equipMake} serialNo={serialNo} fleetNo={fleetNo} swl={swl}/>
         <div className="pro-mhdr">
-          <div>
-            {expiryDate&&<div style={{fontSize:9,fontWeight:800,color:"#0b1d3a",marginBottom:2}}>Validity: {expiryDate}</div>}
-            <div className="pro-mt">{equipType} Inspection — {certNumber}</div>
-            <div className="pro-ms">Inspected with regards to the MQWMR Act CAP 44:02 Under Regulations 2</div>
-          </div>
+          <div>{expiryDate&&<div style={{fontSize:9,fontWeight:800,color:"#0b1d3a",marginBottom:2}}>Validity: {expiryDate}</div>}<div className="pro-mt">{equipType} Inspection — {certNumber}</div><div className="pro-ms">Inspected with regards to the MQWMR Act CAP 44:02 Under Regulations 2</div></div>
           <PFBadge result={tone.label}/>
         </div>
         <div className="pro-cg">
           <div className="pro-cc">
             <div className="pro-csec">General &amp; Cab Condition</div>
-            <CI label="Structural Integrity" result={cl.structural_result||"PASS"}/>
-            <CI label="Hydraulic System" result={cl.hydraulics_result||"PASS"}/>
-            <CI label="Brake System" result={cl.brakes_result||brakes||"PASS"}/>
-            <CI label="Tyres / Wheels" result={cl.tyres_result||tires||"PASS"}/>
-            <CI label="Oil Leaks (General)" result={oilLeaks}/>
-            <CI label="Lights &amp; Horn" result="PASS"/>
-            <CI label="Fire Extinguisher" result={cl.fire_extinguisher||"PASS"}/>
-            <CI label="Seat Belt" result="PASS"/>
-            <CI label="Controls Marked Correctly" result="PASS"/>
-            <CI label="Load Chart Available" result="PASS"/>
-            {isForklift&&<><div className="pro-csec">Forks &amp; Mast</div>
-              <CI label="Mast / Structural Integrity" result={cl.structural_result||"PASS"}/>
-              <CI label="Fork Condition" result={cl.forks_result||detectFail(defects,"fork","tine")}/>
-              <CI label="Fork Retention Pins" result="PASS"/>
-              <CI label="Mast Chain Lubrication" result="PASS"/>
-              <CI label="Tilt Cylinders — No Leaks" result={oilLeaks}/></>}
-            {!isForklift&&<><div className="pro-csec">Additional Systems</div>
-              <CI label="Safety Result" result={cl.safety_result||"PASS"}/>
-              <CI label="Operational Check" result={cl.operational_result||"PASS"}/></>}
+            <CI label="Structural Integrity" result={cl.structural_result||"PASS"}/><CI label="Hydraulic System" result={cl.hydraulics_result||"PASS"}/><CI label="Brake System" result={cl.brakes_result||brakes||"PASS"}/><CI label="Tyres / Wheels" result={cl.tyres_result||tires||"PASS"}/><CI label="Oil Leaks (General)" result={oilLeaks}/><CI label="Lights &amp; Horn" result="PASS"/><CI label="Fire Extinguisher" result={cl.fire_extinguisher||"PASS"}/><CI label="Seat Belt" result="PASS"/><CI label="Controls Marked Correctly" result="PASS"/><CI label="Load Chart Available" result="PASS"/>
+            {isForklift&&<><div className="pro-csec">Forks &amp; Mast</div><CI label="Mast / Structural Integrity" result={cl.structural_result||"PASS"}/><CI label="Fork Condition" result={cl.forks_result||detectFail(defects,"fork","tine")}/><CI label="Fork Retention Pins" result="PASS"/><CI label="Mast Chain Lubrication" result="PASS"/><CI label="Tilt Cylinders — No Leaks" result={oilLeaks}/></>}
+            {!isForklift&&<><div className="pro-csec">Additional Systems</div><CI label="Safety Result" result={cl.safety_result||"PASS"}/><CI label="Operational Check" result={cl.operational_result||"PASS"}/></>}
           </div>
           <div className="pro-cc">
             <div className="pro-csec">Safety Systems</div>
-            <CI label="Load Indicator / SWL Plate" result={cl.lmi_result||"PASS"}/>
-            <CI label="Emergency Stop" result={cl.emergency_stop||"PASS"}/>
-            <CI label="Overload Protection" result="PASS"/>
+            <CI label="Load Indicator / SWL Plate" result={cl.lmi_result||"PASS"}/><CI label="Emergency Stop" result={cl.emergency_stop||"PASS"}/><CI label="Overload Protection" result="PASS"/>
             <div className="pro-csec">Hydraulics &amp; Drive</div>
-            <CI label="Hydraulic Oil Level" result="PASS"/>
-            <CI label="Hydraulic Hoses &amp; Fittings" result={oilLeaks}/>
-            <CI label="Drive Transmission" result="PASS"/>
-            <CI label="Steering System" result="PASS"/>
-            <CI label="Engine / Motor Condition" result="PASS"/>
+            <CI label="Hydraulic Oil Level" result="PASS"/><CI label="Hydraulic Hoses &amp; Fittings" result={oilLeaks}/><CI label="Drive Transmission" result="PASS"/><CI label="Steering System" result="PASS"/><CI label="Engine / Motor Condition" result="PASS"/>
             <div className="pro-csec">Load Test</div>
-            <CI label="Test Load Applied at Rated Capacity" result="PASS"/>
-            <CI label="Lifting / Lowering Smooth" result="PASS"/>
-            <CI label="No Deformation Under Load" result="PASS"/>
-            <CI label="All Functions Operate Under Load" result={cl.all_functions_operate_under_load||"PASS"}/>
+            <CI label="Test Load Applied at Rated Capacity" result="PASS"/><CI label="Lifting / Lowering Smooth" result="PASS"/><CI label="No Deformation Under Load" result="PASS"/><CI label="All Functions Operate Under Load" result={cl.all_functions_operate_under_load||"PASS"}/>
           </div>
         </div>
-        {isForklift&&fks.length>0&&(
-          <>
-            <div className="pro-stl">Fork Arms Inspected ({fks.length} arm{fks.length>1?"s":""})</div>
-            <table className="fk-t">
-              <thead><tr><th>Fork ID</th><th>SWL</th><th>Length (mm)</th><th>Heel (mm)</th><th>Blade (mm)</th><th>Wear %</th><th>Cracks</th><th>Bending</th><th>Result</th></tr></thead>
-              <tbody>{fks.map((fk,i)=>(<tr key={i}><td>{fk.fork_number||`Fork ${i+1}`}</td><td>{fk.swl||"—"}</td><td>{fk.length||"—"}</td><td>{fk.thickness_heel||"—"}</td><td>{fk.thickness_blade||"—"}</td><td>{fk.wear_pct||"—"}</td><td style={{color:fk.cracks==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.cracks==="yes"?"YES":"No"}</td><td style={{color:fk.bending==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.bending==="yes"?"YES":"No"}</td><td>{r(fk.result)}</td></tr>))}</tbody>
-            </table>
-          </>
-        )}
+        {isForklift&&fks.length>0&&(<><div className="pro-stl">Fork Arms Inspected ({fks.length} arm{fks.length>1?"s":""})</div><table className="fk-t"><thead><tr><th>Fork ID</th><th>SWL</th><th>Length (mm)</th><th>Heel (mm)</th><th>Blade (mm)</th><th>Wear %</th><th>Cracks</th><th>Bending</th><th>Result</th></tr></thead><tbody>{fks.map((fk,i)=>(<tr key={i}><td>{fk.fork_number||`Fork ${i+1}`}</td><td>{fk.swl||"—"}</td><td>{fk.length||"—"}</td><td>{fk.thickness_heel||"—"}</td><td>{fk.thickness_blade||"—"}</td><td>{fk.wear_pct||"—"}</td><td style={{color:fk.cracks==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.cracks==="yes"?"YES":"No"}</td><td style={{color:fk.bending==="yes"?"#b91c1c":"#15803d",fontWeight:800}}>{fk.bending==="yes"?"YES":"No"}</td><td>{r(fk.result)}</td></tr>))}</tbody></table></>)}
         {defects&&<div className="pro-red-box"><div className="pro-red-lbl">Defects Found</div><div className="pro-red-val">{defects}</div></div>}
         {recommendations&&<div className="pro-red-box"><div className="pro-red-lbl">Recommendations</div><div className="pro-red-val">{recommendations}</div></div>}
         <ProEvidence photos={photos}/>
@@ -2469,50 +2158,12 @@ function GenericCert({c,pm,logo}){
               {capacity&&<Field label="Capacity / Volume" value={capacity}/>}
               {testP&&<Field label="Test Pressure" value={`${testP} ${pressureUnit}`}/>}
             </Section>
-            <div className="cs-sec">
-              <div className="cs-sec-ttl">Legal Compliance</div>
-              <div className="cs-fields">
-                <div className="cs-field" style={{gridColumn:"1/-1",background:"#f4f8ff"}}>
-                  <div className="cs-fv" style={{fontSize:8,color:"#4b5563",lineHeight:1.4,fontWeight:400}}>
-                    This inspection has been performed by a <strong>competent person</strong> as defined under the <strong>Mines, Quarries, Works and Machinery Act Cap 44:02</strong> of the Laws of Botswana.
-                  </div>
-                </div>
-              </div>
-            </div>
-            {(defects||recommendations)&&(
-              <Section title="Defects &amp; Recommendations">
-                {defects&&<Field label="Defects Found" value={defects} full red/>}
-                {recommendations&&<Field label="Recommendations" value={recommendations} full red/>}
-              </Section>
-            )}
+            <div className="cs-sec"><div className="cs-sec-ttl">Legal Compliance</div><div className="cs-fields"><div className="cs-field" style={{gridColumn:"1/-1",background:"#f4f8ff"}}><div className="cs-fv" style={{fontSize:8,color:"#4b5563",lineHeight:1.4,fontWeight:400}}>This inspection has been performed by a <strong>competent person</strong> as defined under the <strong>Mines, Quarries, Works and Machinery Act Cap 44:02</strong> of the Laws of Botswana.</div></div></div></div>
+            {(defects||recommendations)&&(<Section title="Defects &amp; Recommendations">{defects&&<Field label="Defects Found" value={defects} full red/>}{recommendations&&<Field label="Recommendations" value={recommendations} full red/>}</Section>)}
             {comments&&<div className="cs-sec"><div className="cs-sec-ttl">Comments</div><div className="cs-remarks">{comments}</div></div>}
-            {photos.length>0&&(
-              <div className="cs-sec">
-                <div className="cs-sec-ttl">Photo Evidence ({photos.length})</div>
-                <div className="cs-evidence"><div className="cs-evidence-grid">
-                  {photos.map((p,i)=>(<div className="cs-evidence-item" key={i}><img className="cs-evidence-img" src={p.dataURL} alt={p.caption||`Photo ${i+1}`} onError={e=>e.target.style.display="none"}/>{p.caption&&<div className="cs-evidence-cap">{p.caption}</div>}</div>))}
-                </div></div>
-              </div>
-            )}
+            {photos.length>0&&(<div className="cs-sec"><div className="cs-sec-ttl">Photo Evidence ({photos.length})</div><div className="cs-evidence"><div className="cs-evidence-grid">{photos.map((p,i)=>(<div className="cs-evidence-item" key={i}><img className="cs-evidence-img" src={p.dataURL} alt={p.caption||`Photo ${i+1}`} onError={e=>e.target.style.display="none"}/>{p.caption&&<div className="cs-evidence-cap">{p.caption}</div>}</div>))}</div></div></div>)}
           </div>
-          <div className="cs-sig-wrap">
-            <div className="cs-sig-card">
-              <div className="cs-sig-card-title">Signatures &amp; Authorisation</div>
-              <div className="cs-sig-grid">
-                <div>
-                  <div className="cs-sig-label">Inspector Signature</div>
-                  <div className="cs-sig-img-wrap"><img src="/Signature" alt="sig" style={{maxHeight:32,maxWidth:96,objectFit:"contain"}} onError={e=>e.target.style.display="none"}/></div>
-                  <div className="cs-sig-name">{inspName}</div>
-                  <div className="cs-sig-role">Inspector ID: {inspId}</div>
-                </div>
-                <div>
-                  <div className="cs-sig-label">Client / Witness Signature</div>
-                  <div className="cs-sig-img-wrap"/>
-                  <div className="cs-sig-role">Client representative sign here</div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <div className="cs-sig-wrap"><div className="cs-sig-card"><div className="cs-sig-card-title">Signatures &amp; Authorisation</div><div className="cs-sig-grid"><div><div className="cs-sig-label">Inspector Signature</div><div className="cs-sig-img-wrap"><img src="/Signature" alt="sig" style={{maxHeight:32,maxWidth:96,objectFit:"contain"}} onError={e=>e.target.style.display="none"}/></div><div className="cs-sig-name">{inspName}</div><div className="cs-sig-role">Inspector ID: {inspId}</div></div><div><div className="cs-sig-label">Client / Witness Signature</div><div className="cs-sig-img-wrap"/><div className="cs-sig-role">Client representative sign here</div></div></div></div></div>
           <div className="cs-services"><p><b>Mobile Crane Hire</b> | <b>Rigging</b> | <b>NDT Test</b> | <b>Scaffolding</b> | <b>Painting</b> | <b>Inspection of Lifting Equipment and Machinery, Pressure Vessels &amp; Air Receiver</b> | <b>Steel Fabricating and Structural</b> | <b>Mechanical Engineering</b> | <b>Fencing</b> | <b>Maintenance</b></p></div>
           <div className="cs-footer"><span>Monroy (Pty) Ltd · Mophane Avenue, Maun, Botswana</span><span>Quality · Safety · Excellence</span></div>
         </div>
@@ -2534,7 +2185,7 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   const nd=getInspectionData(c);
   const tone=resultStyle(pickResult(c));
 
-  // ── Equipment type flags ──────────────────────────────────────────────
+  /* ── Equipment type flags ─────────────────────────────── */
   const _isMobileCrane=/mobile.crane|crane/i.test(_rawType)&&!/hook|rope|boom|cherry|telehandler|forklift/i.test(_rawType);
   const _isHook=/hook/i.test(_rawType);
   const _isCraneRope=_rawType==="wire rope";
@@ -2547,9 +2198,10 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   const _isHorse=/horse.*mover|prime.mover/i.test(_rawType);
   const _isTrailer=/^trailer$/i.test(_rawType.trim());
   const _isMachine=_isTelehandler||_isForklift;
-
-  // ── NEW: Sandblasting / Blasting Pot ─────────────────────────────────
   const _isSandblasting=/sandblast|blasting.pot|blast.pot|sbp|sand.blast/i.test(_rawType);
+
+  /* ── NEW: Portable Oven / Welding Machine / Oxygen Tank / Air Powered Pump ── */
+  const _isPortableOven=/portable.oven|portable.welding|welding.oven|welding.machine|oxygen.tank|air.powered.pump|air.pump/i.test(_rawType);
 
   const wrap=(children)=>(
     <>
@@ -2558,7 +2210,19 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
     </>
   );
 
-  // ── Sandblasting Pot: 2 pages ────────────────────────────────────────
+  /* ── Portable Oven: 2 pages (Compliance + Test Cert) ─── */
+  if(_isPortableOven){
+    const po=parsePortableOvenData(c);
+    return wrap(
+      <>
+        <PortableOvenCompliancePage c={c} po={po} pm={pm} logo={logo}/>
+        <div className="pro-pb"/>
+        <PortableOvenTestCertPage c={c} po={po} pm={pm} logo={logo}/>
+      </>
+    );
+  }
+
+  /* ── Sandblasting Pot: 2 pages ─────────────────────────── */
   if(_isSandblasting){
     const sb=parseSandblastingData(c,pn);
     return wrap(
@@ -2581,7 +2245,6 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   if(_isWireRopeSling) return wrap(<WireRopeSlingPage c={c} pn={pn} tone={tone} pm={pm} logo={logo}/>);
   if(_isPV) return wrap(<PressureVesselPage c={c} pn={pn} tone={tone} pm={pm} logo={logo} pvNum={index+1}/>);
   if(_isTelehandler) return wrap(<TelehandlerPage c={c} nd={nd} pm={pm} logo={logo}/>);
-
   if(_isCherryPicker) return wrap(
     <>
       <CherryPickerMachinePage c={c} nd={nd} pm={pm} logo={logo}/>
@@ -2589,7 +2252,6 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
       <CherryPickerBucketPage c={c} nd={nd} pm={pm} logo={logo}/>
     </>
   );
-
   if(_isForkArm) return wrap(<ForkArmPage c={c} pm={pm} logo={logo}/>);
   if(_isHorse) return wrap(<HorseTrailerPage c={c} pm={pm} logo={logo} isTrailer={false}/>);
   if(_isTrailer) return wrap(<HorseTrailerPage c={c} pm={pm} logo={logo} isTrailer={true}/>);
