@@ -32,6 +32,7 @@ function isCherryPicker(t)    { return /cherry.picker|aerial.work.platform|boom.
 function isWireRopeSling(t)   { return /wire.rope.sling|wire rope sling/i.test(t || ""); }
 function isSandblastingPot(t) { return /sandblast|blasting.pot|blast.pot|sbp|sand.blast/i.test(t || ""); }
 function isPortableOven(t)    { return /portable.oven|portable.welding|welding.oven|welding.machine|oxygen.tank|air.powered.pump|air.pump/i.test(t || ""); }
+function isAirPressureEquipment(t) { return /air.powered.pump|air.pump|air.compressor|compressor/i.test(t || ""); }
 function isHookRopeEquipment(t) {
   const s = String(t || "").replace(/&amp;/gi, "&").trim();
   if (!s) return false;
@@ -258,6 +259,7 @@ function parseWireRopeSlingNotes(notesStr) {
 const PO_DEFAULT = {
   company:"", location:"", equipment_description:"Portable Oven", serial_number:"",
   power_voltage:"", weight:"",
+  design_pressure:"", working_pressure:"", test_pressure:"", pressure_unit:"Kpa",
   structural_integrity:"Passed", functional_test:"Passed",
   overall_assessment:"Safe for operation",
   partners:["Lycopodium","SMEI PROJECTS","Onetrack Engineering","Metso Outotec Australia limited"],
@@ -289,6 +291,10 @@ function parsePortableOvenData(notesStr, extractedData, certData) {
     serial_number:      g("serial_number") || (certData ? String(certData.serial_number||"") : ""),
     power_voltage:      g("power_voltage","voltage","Voltage","POWER VOLTAGE","Power Voltage"),
     weight:             g("weight","Weight","WEIGHT","WEIGHT(KG)","weight_kg") || (certData ? String(certData.capacity_volume||"") : ""),
+    design_pressure:    g("design_pressure","Design Pressure","DESIGN_PRESSURE") || (certData ? String(certData.design_pressure||"") : ""),
+    working_pressure:   g("working_pressure","Working Pressure","WORKING_PRESSURE") || (certData ? String(certData.working_pressure||"") : ""),
+    test_pressure:      g("test_pressure","Test Pressure","TEST_PRESSURE") || (certData ? String(certData.test_pressure||"") : ""),
+    pressure_unit:      g("pressure_unit") || (certData ? String(certData.pressure_unit||"") : "") || "Kpa",
     structural_integrity: g("structural_integrity","structural_integrity_assessment") || "Passed",
     functional_test:    g("functional_test","functional_test_verification") || "Passed",
     overall_assessment: g("overall_assessment") || "Safe for operation",
@@ -325,6 +331,25 @@ const HOOK_ROPE_DEFAULT = {
   extra_pairs:[],
 };
 
+/* ── FIX: Only match on rope/hook-specific structural keys, not generic ones ── */
+const HOOK_ROPE_SPECIFIC_KEYS = new Set([
+  "drum_main_condition","drum_aux_condition","rope_lay_main","rope_lay_aux",
+  "rope_diameter_main","rope_diameter_aux","rope_length_3x_main","rope_length_3x_aux",
+  "reduction_dia_main","reduction_dia_aux","core_protrusion_main","core_protrusion_aux",
+  "broken_wires_main","broken_wires_aux","rope_kinks_main","rope_kinks_aux",
+  "hook1_sn","hook1_swl","hook1_safety_catch","hook1_cracks","hook1_ab","hook1_ac",
+  "hook2_sn","hook2_swl","hook2_ab","hook2_ac",
+  "end_fittings_main","serviceability_main","damaged_strands_main",
+  "other_defects_main","lower_limit_main","crane_fleet","crane_swl","machine_hours",
+]);
+
+function hasHookRopeShape(obj) {
+  if (!obj || typeof obj !== "object") return false;
+  return [...HOOK_ROPE_SPECIFIC_KEYS].some(
+    k => obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== ""
+  );
+}
+
 const HOOK_ROPE_PIPE_ALIASES = {
   "latch":"hook1_safety_catch","structural":"hook1_cracks","hook_1_swl":"hook1_swl","hook1_swl":"hook1_swl",
   "hook_1_sn":"hook1_sn","hook1_sn":"hook1_sn","hook_ab":"hook1_ab","hook_1_ab":"hook1_ab","hook1_ab":"hook1_ab",
@@ -357,11 +382,6 @@ function passFailToYesNo(value, yesWhenPass=true) {
 
 function stripMm(value) { return String(value||"").trim().replace(/^Ø\s*/i,"").replace(/\s*mm$/i,""); }
 function withMm(value) { const x=String(value||"").trim(); if (!x) return ""; return /mm|ø/i.test(x) ? x : `${x}mm`; }
-
-function hasHookRopeShape(obj) {
-  if (!obj || typeof obj !== "object") return false;
-  return Object.keys(HOOK_ROPE_DEFAULT).some(k => k !== "extra_pairs" && obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== "");
-}
 
 function getHookRopeSource(extractedData={}) {
   const ex = extractedData && typeof extractedData === "object" ? extractedData : {};
@@ -701,8 +721,10 @@ const JsonInspectionRow = memo(function JsonInspectionRow({row,rowIndex,onChange
 
 /* ─────────────────────────────────────────────────────────────
    PORTABLE OVEN / WELDING MACHINE / OXYGEN TANK / AIR PUMP EDITOR
+   equipmentDescription is passed in to switch between pressure
+   fields (air pump / compressor) vs voltage+weight (ovens)
 ───────────────────────────────────────────────────────────── */
-function PortableOvenEditor({po, onChange}) {
+function PortableOvenEditor({po, onChange, equipmentDescription=""}) {
   const set = (key, val) => onChange({...po, [key]: val});
   const inp = (key, ph = "") => (
     <input
@@ -713,6 +735,7 @@ function PortableOvenEditor({po, onChange}) {
     />
   );
 
+  const isPressureEquip = isAirPressureEquipment(equipmentDescription);
   const partnersStr = Array.isArray(po.partners) ? po.partners.join(", ") : (po.partners || "");
 
   return (
@@ -726,10 +749,30 @@ function PortableOvenEditor({po, onChange}) {
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10}}>
           <F label="Company / Equipment Owner">{inp("company","e.g. GULF STREAM ENERGY")}</F>
           <F label="Equipment Location">{inp("location","e.g. BOTSWANA OIL SITE")}</F>
-          <F label="Equipment Description">{inp("equipment_description","e.g. Portable Oven")}</F>
+          <F label="Equipment Description">{inp("equipment_description","e.g. Air Powered Pump")}</F>
           <F label="Identification Number / Serial">{inp("serial_number","e.g. 0001")}</F>
-          <F label="Power Voltage">{inp("power_voltage","e.g. 220V / 380V / 415V")}</F>
-          <F label="Weight (kg)">{inp("weight","e.g. 45")}</F>
+
+          {/* ── Conditional: Pressure fields for air pumps/compressors, Voltage+Weight for ovens ── */}
+          {isPressureEquip ? (
+            <>
+              <F label="Design Pressure">{inp("design_pressure","e.g. 1063 kPa")}</F>
+              <F label="Working Pressure">{inp("working_pressure","e.g. 850 kPa")}</F>
+              <F label="Test Pressure">{inp("test_pressure","e.g. 0")}</F>
+              <F label="Pressure Unit">
+                <select value={po.pressure_unit||"Kpa"} onChange={e=>set("pressure_unit",e.target.value)} style={{...IS,minHeight:40}}>
+                  <option value="Kpa">Kpa</option>
+                  <option value="bar">bar</option>
+                  <option value="psi">psi</option>
+                  <option value="MPa">MPa</option>
+                </select>
+              </F>
+            </>
+          ) : (
+            <>
+              <F label="Power Voltage">{inp("power_voltage","e.g. 220V / 380V / 415V")}</F>
+              <F label="Weight (kg)">{inp("weight","e.g. 45")}</F>
+            </>
+          )}
         </div>
       </div>
 
@@ -1490,6 +1533,9 @@ function CertificateEditInner() {
       data.asset_name,data.certificate_type,data.certificate_number,data.notes,
     ].filter(Boolean).join(" ");
     const extractedDetectText = JSON.stringify(storedExtracted || {});
+
+    // FIX: Only trigger hookrope if there are actual hook/rope-specific keys in extracted_data
+    // — not just generic keys like client_name / location / comments
     const hookRecord = isHookRopeEquipment(certDetectText) || hasHookRopeShape(getHookRopeSource(storedExtracted));
     const sbpRecord  = !hookRecord && isSandblastingPot(certDetectText + " " + extractedDetectText);
     const poRecord   = !hookRecord && !sbpRecord && isPortableOven(certDetectText + " " + extractedDetectText);
@@ -1630,13 +1676,16 @@ function CertificateEditInner() {
         ? {
             ...baseExtractedData,
             portable_oven: poData,
-            // also flatten top-level so CertificateSheet.parsePortableOvenData can pick them up directly
             company:              poData.company,
             location:             poData.location,
             equipment_description:poData.equipment_description,
             serial_number:        poData.serial_number,
             power_voltage:        poData.power_voltage,
             weight:               poData.weight,
+            design_pressure:      poData.design_pressure,
+            working_pressure:     poData.working_pressure,
+            test_pressure:        poData.test_pressure,
+            pressure_unit:        poData.pressure_unit,
             structural_integrity: poData.structural_integrity,
             functional_test:      poData.functional_test,
             overall_assessment:   poData.overall_assessment,
@@ -1682,14 +1731,18 @@ function CertificateEditInner() {
         comments:         sbpData.client_name_cert||form.comments||null,
       } : {};
 
-      // Sync portable oven flat columns back to cert record
+      // Sync portable oven flat columns — includes pressure fields for air pumps
       const poExtras = notesMode==="po" ? {
-        client_name:           poData.company || form.client_name || null,
-        location:              poData.location || form.location || null,
+        client_name:           poData.company           || form.client_name           || null,
+        location:              poData.location          || form.location              || null,
         equipment_description: poData.equipment_description || form.equipment_description || null,
-        serial_number:         poData.serial_number || form.serial_number || null,
-        defects_found:         poData.defects_found || form.defects_found || null,
-        recommendations:       poData.recommendations || form.recommendations || null,
+        serial_number:         poData.serial_number     || form.serial_number         || null,
+        defects_found:         poData.defects_found     || form.defects_found         || null,
+        recommendations:       poData.recommendations   || form.recommendations       || null,
+        design_pressure:       poData.design_pressure   || form.design_pressure       || null,
+        working_pressure:      poData.working_pressure  || form.working_pressure      || null,
+        test_pressure:         poData.test_pressure     || form.test_pressure         || null,
+        pressure_unit:         poData.pressure_unit     || form.pressure_unit         || null,
       } : {};
 
       const {error:e} = await supabase.from("certificates").update({
@@ -1841,6 +1894,9 @@ function CertificateEditInner() {
     else if (m==="pipe")     { setNotePairs(parseNotesPipe(built)); }
     setNotesMode(m);
   }
+
+  // Determine the equipment description to pass into PortableOvenEditor
+  const poEquipmentDescription = form.equipment_description || form.equipment_type || poData.equipment_description || "";
 
   return (
     <AppLayout title="Edit Certificate">
@@ -2001,7 +2057,7 @@ function CertificateEditInner() {
                       <div style={{fontSize:14,fontWeight:800,color:T.text}}>Inspection Data</div>
                       <div style={{fontSize:11,color:T.textDim,marginTop:2}}>
                         {notesMode==="sbp"      ?"Sandblasting Pot — 2-page cert: checklist, wall thickness, test cert & signatures"
-                          :notesMode==="po"     ?"Portable Oven / Welding Machine — Page 1 compliance cert + Page 2 test cert fields"
+                          :notesMode==="po"     ?"Portable Oven / Welding Machine / Air Pump — Page 1 compliance cert + Page 2 test cert fields"
                           :notesMode==="cherry" ?"Cherry Picker / AWP — boom & platform structured fields"
                           :notesMode==="hookrope"?"Hook & Rope — edits the exact CertificateSheet pipe keys"
                           :notesMode==="wrs"    ?"Wire Rope Sling — sling details & condition assessment"
@@ -2036,13 +2092,21 @@ function CertificateEditInner() {
                       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,paddingBottom:12,borderBottom:`1px solid ${T.greenBrd}`}}>
                         <span style={{fontSize:18}}>🔧</span>
                         <div>
-                          <div style={{fontSize:13,fontWeight:800,color:T.green}}>Portable Oven / Welding Machine / Oxygen Tank / Air Pump Inspector</div>
+                          <div style={{fontSize:13,fontWeight:800,color:T.green}}>
+                            {isAirPressureEquipment(poEquipmentDescription)
+                              ? "Air Powered Pump / Compressor Inspector"
+                              : "Portable Oven / Welding Machine / Oxygen Tank Inspector"}
+                          </div>
                           <div style={{fontSize:11,color:T.textDim,marginTop:1}}>
                             Edits both pages: Page 1 (Compliance Certificate) and Page 2 (Test Certificate). All fields map directly to the printed certificate.
                           </div>
                         </div>
                       </div>
-                      <PortableOvenEditor po={poData} onChange={setPoData}/>
+                      <PortableOvenEditor
+                        po={poData}
+                        onChange={setPoData}
+                        equipmentDescription={poEquipmentDescription}
+                      />
                     </div>
                   )}
 
