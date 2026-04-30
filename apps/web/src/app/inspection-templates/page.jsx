@@ -165,7 +165,8 @@ export default function InspectionTemplatesPage() {
     (async () => {
       const { data } = await supabase.from("certificates").select("equipment_type").order("equipment_type");
       if (!data) return;
-      setEquipTypes([...new Set(data.map(r => r.equipment_type).filter(Boolean))].sort());
+      const cleaned = data.map(r => (r.equipment_type||"").replace(/[\r\n\u2014\u2013]+/g," ").replace(/\s+/g," ").trim()).filter(Boolean);
+      setEquipTypes([...new Set(cleaned)].sort());
     })();
   }, []);
 
@@ -176,7 +177,7 @@ export default function InspectionTemplatesPage() {
       .select("id,certificate_number,client_name,equipment_type,equipment_description,serial_number,manufacturer,model,swl,working_pressure,location,inspection_date,expiry_date,result,fleet_number,reg_number,year_built")
       .order("inspection_date", { ascending: false })
       .limit(300);
-    if (selType !== "ALL") q = q.eq("equipment_type", selType);
+    if (selType !== "ALL") q = q.ilike("equipment_type", `%${selType.trim()}%`);
     if (search.trim())     q = q.ilike("equipment_description", `%${search.trim()}%`);
     const { data, error } = await q;
     setCerts(error ? [] : (data || []));
