@@ -177,7 +177,8 @@ export default function InspectionTemplatesPage() {
       .from("certificates")
       .select("id,certificate_number,client_name,equipment_type,equipment_description,serial_number,manufacturer,model,swl,working_pressure,location,inspection_date,expiry_date,result,fleet_number,reg_number,year_built")
       .limit(2000);
-    if (error) { setCerts([]); setLoading(false); setSearched(true); return; }
+    console.log("SUPABASE RESULT:", { error, rowCount: data?.length, firstRow: data?.[0] });
+    if (error) { console.error("SUPABASE ERROR:", error); setCerts([]); setLoading(false); setSearched(true); return; }
     let rows = (data || []).sort((a,b) => (b.inspection_date||"").localeCompare(a.inspection_date||""));
     if (cleanType !== "ALL") {
       rows = rows.filter(r => {
