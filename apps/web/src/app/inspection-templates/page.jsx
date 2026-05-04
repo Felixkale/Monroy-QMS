@@ -175,7 +175,7 @@ export default function InspectionTemplatesPage() {
     const cleanType = selType.replace(/[\r\n\u2014\u2013]+/g," ").replace(/\s+/g," ").trim();
     const { data, error } = await supabase
       .from("certificates")
-      .select("id,certificate_number,client_name,equipment_type,equipment_description,serial_number,manufacturer,model,swl,working_pressure,location,inspection_date,expiry_date,result,fleet_number,reg_number,year_built")
+      .select("id,certificate_number,client_name,equipment_type,equipment_description,serial_number,manufacturer,model,swl,working_pressure,location,inspection_date,expiry_date,result,fleet_number,year_built")
       .limit(2000);
     console.log("SUPABASE RESULT:", { error, rowCount: data?.length, firstRow: data?.[0] });
     if (error) { console.error("SUPABASE ERROR:", error); setCerts([]); setLoading(false); setSearched(true); return; }
@@ -312,7 +312,6 @@ export default function InspectionTemplatesPage() {
                   ["Client",          selected.client_name],
                   ["Location",        selected.location],
                   ["Fleet No.",       selected.fleet_number],
-                  ["Reg. No.",        selected.reg_number],
                   ["Last Inspection", formatDate(selected.inspection_date)],
                   ["Prev. Result",    selected.result],
                 ].filter(([,v]) => v).map(([label, value]) => (
