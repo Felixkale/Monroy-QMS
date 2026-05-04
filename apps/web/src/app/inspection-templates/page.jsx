@@ -163,7 +163,7 @@ export default function InspectionTemplatesPage() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from("certificates").select("equipment_type").order("equipment_type");
+      const { data } = await supabase.from("certificates").select("equipment_type");
       if (!data) return;
       const cleaned = data.map(r => (r.equipment_type||"").replace(/[\r\n\u2014\u2013]+/g," ").replace(/\s+/g," ").trim()).filter(Boolean);
       setEquipTypes([...new Set(cleaned)].sort());
@@ -173,24 +173,29 @@ export default function InspectionTemplatesPage() {
   async function handleSearch() {
     setLoading(true); setSearched(false); setSelected(null);
     const cleanType = selType.replace(/[\r\n\u2014\u2013]+/g," ").replace(/\s+/g," ").trim();
+    // Fetch just equipment_type column — deduplicate client-side
     const { data, error } = await supabase
       .from("certificates")
-      .select("id,certificate_number,client_name,equipment_type,equipment_description,serial_number,manufacturer,model,swl,working_pressure,location,inspection_date,expiry_date,result,fleet_number,year_built")
-      .limit(2000);
-    console.log("SUPABASE RESULT:", { error, rowCount: data?.length, firstRow: data?.[0] });
-    if (error) { console.error("SUPABASE ERROR:", error); setCerts([]); setLoading(false); setSearched(true); return; }
-    let rows = (data || []).sort((a,b) => (b.inspection_date||"").localeCompare(a.inspection_date||""));
+      .select("equipment_type")
+      .limit(5000);
+    if (error) { setCerts([]); setLoading(false); setSearched(true); return; }
+    // Build deduplicated list of unique equipment types
+    let types = [...new Set(
+      (data || [])
+        .map(r => (r.equipment_type||"").replace(/[\r\n\u2014\u2013]+/g," ").replace(/\s+/g," ").trim())
+        .filter(Boolean)
+    )].sort();
+    // Filter by selected type
     if (cleanType !== "ALL") {
-      rows = rows.filter(r => {
-        const t = (r.equipment_type||"").replace(/[\r\n\u2014\u2013]+/g," ").replace(/\s+/g," ").trim();
-        return t.toLowerCase().includes(cleanType.toLowerCase());
-      });
+      types = types.filter(t => t.toLowerCase().includes(cleanType.toLowerCase()));
     }
+    // Filter by description search (match against type name)
     if (search.trim()) {
       const s = search.trim().toLowerCase();
-      rows = rows.filter(r => (r.equipment_description||"").toLowerCase().includes(s));
+      types = types.filter(t => t.toLowerCase().includes(s));
     }
-    setCerts(rows);
+    // Convert to row objects for the table
+    setCerts(types.map(t => ({ id: t, equipment_type: t })));
     setLoading(false); setSearched(true);
   }
 
@@ -250,12 +255,8 @@ export default function InspectionTemplatesPage() {
                   <table className="it-table">
                     <thead>
                       <tr>
-                        <th>Cert No.</th>
                         <th>Equipment Type</th>
-                        <th>Description</th>
-                        <th>Client</th>
-                        <th>Insp. Date</th>
-                        <th>Result</th>
+                        <th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -263,12 +264,20 @@ export default function InspectionTemplatesPage() {
                         const tc = getTypeColor(c.equipment_type);
                         return (
                           <tr key={c.id} className={selected?.id === c.id ? "selected" : ""} onClick={() => setSelected(c)}>
-                            <td><span className="it-cert-num">{c.certificate_number || c.id}</span></td>
-                            <td><span className="it-equip-type" style={{ background:tc.bg, border:`1px solid ${tc.brd}`, color:tc.color }}>{c.equipment_type || "—"}</span></td>
-                            <td style={{ maxWidth:220, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.equipment_description || "—"}</td>
-                            <td style={{ color:"rgba(240,246,255,0.55)", fontSize:12 }}>{c.client_name || "—"}</td>
-                            <td style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:12, color:"rgba(240,246,255,0.55)" }}>{formatDate(c.inspection_date)}</td>
-                            <td><ResultBadge result={c.result}/></td>
+                            <td>
+                              <span className="it-equip-type" style={{ background:tc.bg, border:`1px solid ${tc.brd}`, color:tc.color }}>
+                                {c.equipment_type || "—"}
+                              </span>
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                onClick={e => { e.stopPropagation(); window.open(`/inspection-templates/print?type=${encodeURIComponent(c.equipment_type)}`, "_blank"); }}
+                                style={{ padding:"5px 14px", borderRadius:8, border:"none", background:"linear-gradient(135deg,#34d399,#14b8a6)", color:"#052e16", fontWeight:800, fontSize:11, cursor:"pointer", fontFamily:"'IBM Plex Sans',sans-serif", whiteSpace:"nowrap" }}
+                              >
+                                🖨 Print Template
+                              </button>
+                            </td>
                           </tr>
                         );
                       })}
@@ -292,11 +301,11 @@ export default function InspectionTemplatesPage() {
               <div className="it-preview-header">
                 <div>
                   <div className="it-preview-title">{selected.equipment_description || selected.equipment_type}</div>
-                  <div className="it-preview-sub">{selected.certificate_number} · {selected.client_name}</div>
+                  <div className="it-preview-sub">Blank template — all fields empty</div>
                 </div>
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                   <button type="button" className="it-btn it-btn-ghost" onClick={() => setSelected(null)}>✕ Clear</button>
-                  <button type="button" className="it-btn it-btn-print" onClick={() => window.open(`/inspection-templates/print?certId=${selected.id}`, "_blank")}>
+                  <button type="button" className="it-btn it-btn-print" onClick={() => window.open(`/inspection-templates/print?type=${encodeURIComponent(selected.equipment_type)}`, "_blank")}>
                     🖨 Print Template
                   </button>
                 </div>
