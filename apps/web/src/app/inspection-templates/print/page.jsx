@@ -1,56 +1,75 @@
 // src/app/inspection-templates/print/page.jsx
 "use client";
-
 import { Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
-const CHECKLISTS = {
-  CRANE: ["Hook condition & safety latch","Wire rope — broken wires, corrosion, kinking","Sheaves & drums condition","Brakes — hoist, slew, travel","Limit switches — upper, lower, travel","Electrical systems & controls","Structural members & welds","Outriggers / stabilisers","Load test performed","SWL markings legible","Safety devices functional","Lubrication adequate","Anti-two-block device","SLI / Load indicator"],
-  WIRE_ROPE: ["Broken wires (count per lay)","Corrosion — internal & external","Kinking or crushing","Reduction in diameter","End terminations & sockets","Lubrication condition","Abrasion wear","Core condition","Bird-caging or waviness","Fatigue cracking","Rope lay on drum","Lower limit cut-off"],
-  WIRE_SLING: ["Eyes & ferrules / swaged fittings","Abrasion damage on body","Kinking or twisting","SWL tag present & legible","Angle factor markings","Core wire integrity","End fittings secure","Deformation / flattening","Corrosion","Broken wires at terminations","Bird-caging / core protrusion","Serviceability"],
-  PRESSURE_VESSEL: ["Shell — dents, cracks, corrosion","Nozzles & flanges","Relief / safety valve operation","Pressure gauges calibrated","Support structure & foundations","Hydrostatic / pneumatic test","Nameplate legible","Drains & vents","No external leakages","Pipe connections good condition","Drain valves operational","Vessel internal condition"],
-  FORKLIFT: ["Fork tines — cracks, bend, wear","Mast & carriage assembly","Tyres — wear, damage, pressure","Brakes — service & park","Lights & horn functional","Fluid levels — oil, water, fuel","Overhead guard intact","Seat belt present & functional","Load backrest extension","Controls — smooth operation","Hydraulic hoses & fittings","Mast chain lubrication"],
-  CHERRY_PICKER: ["Boom structure & welds","Boom pins & connections","Hydraulic system — no leaks","Structural integrity","Safety devices & interlocks","Emergency stop functional","Outrigger / stabiliser interlocks","Platform / bucket structure","Guardrails & toe boards","Gate / latch system","Harness anchor points","Auto-levelling system","Emergency lowering device","Tilt / inclination alarm","LMI / load indicator","Machine stable under load"],
-  TELEHANDLER: ["Boom structure & welds","Boom pins & connections","Hydraulic system","Structural integrity","Brakes — service & park","Tyres condition","Lights & horn","Seat belt","LMI / load indicator","Emergency stop","Outrigger interlocks","Fork tines condition","Fork retention pins","Controls marked correctly","Load chart available","Machine stable under load"],
-  MACHINE: ["Guards & covers secure","Electrical systems & wiring","Fasteners — loose / missing","Lubrication — levels & condition","Controls function correctly","Emergency stop functional","Safety devices operational","Structural integrity","Drive transmission","Steering system","Seals & gaskets","Oil leaks"],
-  LIFTING: ["Visual inspection — general condition","Structural integrity","SWL marking legible","Cracks / deformation","Corrosion","Moving parts functional","Safety latch / locking device","End fittings / attachments","Angle / orientation markings","Serviceability"],
-  DEFAULT: ["Visual inspection — general condition","Functional test","Safety devices operational","Load / pressure test","Labelling & markings legible","Structural integrity","Controls — correct operation","Documentation current","Maintenance records reviewed","Compliance with standards"],
+const CONFIGS = {
+  telehandler:{label:"Telehandler",certType:"Load Test Certificate",hasPV:true,accent:"#22d3ee",equipFields:["Make / Manufacturer","Model","Serial Number","Fleet Number","Registration No.","SWL / Capacity","Machine Hours","Year of Manufacture"],boomFields:["Min Boom Length (m)","Max Boom Length (m)","Actual Boom Length (m)","Extended Length (m)","Boom Angle (°)","Min Radius (m)","Max Radius (m)","Test Radius (m)","SWL at Min Radius","SWL at Max Radius","SWL at Test Config","Test Load Applied (110%)"],checklistFields:["Structural Integrity","Hydraulic System","Load Management Indicator (LMI)","Brake / Drive System","Tyres & Wheels","Lights & Horn","Fire Extinguisher","Seat Belt","Controls Marked Correctly","Load Chart Available","Emergency Stop Functional","Overload Protection","Outrigger Interlocks","Machine Stable Under Load","No Structural Deformation","All Functions Operate Under Load"]},
+  cherry_picker:{label:"Cherry Picker / AWP",certType:"Load Test Certificate",hasPV:false,accent:"#22d3ee",equipFields:["Make / Manufacturer","Model","Serial Number","Fleet Number","Registration No.","Platform SWL","Max Working Height (m)","Year of Manufacture"],boomFields:["Min Boom Length (m)","Max Boom Length (m)","Actual Boom Length (m)","Boom Angle (°)","Max Working Height (m)","Min Radius (m)","Max Radius (m)","Test Radius (m)","SWL at Test Config","Test Load Applied (110%)"],checklistFields:["Structural Integrity","Hydraulic System","Safety Devices / Interlocks","Emergency Lowering System","Emergency Stop Functional","Outrigger / Stabiliser Interlocks","Machine Stable Under Load","Platform Structure","Guardrails & Toe Boards","Gate / Latch System","Harness Anchor Points","Auto-Levelling System","Tilt / Inclination Alarm","LMI / Load Indicator","Overload / SWL Cut-Off Device","All Functions Operate Under Load"]},
+  forklift:{label:"Forklift",certType:"Load Test Certificate",hasPV:false,accent:"#34d399",equipFields:["Make / Manufacturer","Model","Serial Number","Fleet Number","Registration No.","SWL / Capacity","Year of Manufacture"],checklistFields:["Mast / Structural Integrity","Hydraulic System","Brake System","Load Indicator / SWL Plate","Tyres / Wheels","Fork Tines - Cracks, Bend, Wear","Fork Retention Pins","Mast Chain Lubrication","Tilt Cylinders - No Leaks","Lights & Horn Functional","Overhead Guard Intact","Seat Belt","Controls Marked Correctly","Load Chart Available","Drive Transmission","Oil Leaks"]},
+  crane_truck:{label:"Crane Truck / Hiab",certType:"Load Test Certificate",hasPV:true,accent:"#22d3ee",equipFields:["Make / Manufacturer","Model","Serial Number","Fleet Number","Registration No.","Rated Capacity / SWL","Machine Hours","Year of Manufacture"],boomFields:["C1 Boom Length (m)","C1 Angle","C1 Radius (m)","C1 Rated Load","C1 Test Load","C2 Boom Length (m)","C2 Angle","C2 Radius (m)","C2 Rated Load","C2 Test Load","C3 Boom Length (m)","C3 Angle","C3 Radius (m)","C3 Rated Load","C3 Test Load","SLI Make / Model","Hook Block Reeving","Jib Fitted (Yes/No)"],checklistFields:["Outrigger Function","Crane Operation","Holding Valve Operation","Sub Frame Condition","Mounting Brackets","Base Condition","Mast Condition","Main Boom Condition","Outer Boom Condition","Extension Booms","Hydraulic Oil Level","Lubrication","Load Hook Inspection","Boom Structure","Boom Pins & Connections","Luffing System","Slew System","Hoist System","SLI / LMI Tested","Anti-Two-Block Device"]},
+  tlb:{label:"TLB (Tractor Loader Backhoe)",certType:"Certificate of Inspection",hasPV:false,accent:"#fbbf24",equipFields:["Make / Manufacturer","Model","Serial Number","Fleet Number","Registration No.","Rated Digging Force / SWL","Year of Manufacture"],checklistFields:["Structural Integrity","Front Loader / Bucket","Backhoe / Excavator Arm","Hydraulic System","ROPS / Safety Structures","Tyres & Wheels","Brakes","Lights & Horn","Seat Belt","Controls Functional","Oil Leaks","Drive Transmission"]},
+  frontloader:{label:"Front Loader / Wheel Loader",certType:"Certificate of Inspection",hasPV:false,accent:"#fbbf24",equipFields:["Make / Manufacturer","Model","Serial Number","Fleet Number","Registration No.","Rated Operating Capacity","Year of Manufacture"],checklistFields:["Structural Integrity","Bucket / Attachment","Hydraulic System","ROPS / Safety Structures","Tyres & Wheels","Brakes","Lights & Horn","Seat Belt","Controls Functional","Oil Leaks","Drive Transmission"]},
+  service_truck:{label:"Service Truck",certType:"Vehicle Inspection Certificate",hasPV:true,accent:"#60a5fa",hasTools:true,tools:["Drum Clamp","Crawl Beam","Lift Beam","Chain Block","Air Compressor","Other Tool"],equipFields:["Make / Manufacturer","Model","Registration Number","VIN / Chassis Number","Fleet Number","Year of Manufacture","GVM"],checklistFields:["Structural Integrity - External Visual","Tyres - Wear, Damage, Pressure","Brakes - Service & Park","Lights, Indicators & Reflectors","Horn Functional","Seat Belt(s)","Windscreen & Mirrors","Oil Leaks","Exhaust / Emissions","Registration Plates Legible","Fire Extinguisher Present","First Aid Kit Present","Fleet Number Displayed"]},
+  horse_trailer:{label:"Horse & Trailer",certType:"Vehicle Registration Certificate",hasPV:true,accent:"#a78bfa",hasTrailer:true,equipFields:["Make / Manufacturer","Model","Registration Number","VIN / Chassis Number","Fleet Number","Year of Manufacture","GVM"],checklistFields:["Vehicle Condition - External Visual","Structural Integrity","Braking System","Lights, Indicators & Reflectors","Tyres Condition","Fifth Wheel Coupling","Registration Plates Legible","Seat Belt(s)","Fire Extinguisher","Mirrors Condition","Horn Functional"]},
+  water_bowser:{label:"Water Bowser",certType:"Pressure Test Certificate",hasPV:true,accent:"#22d3ee",equipFields:["Make / Manufacturer","Model","Registration Number","Fleet Number","Tank Capacity (L)","MAWP / Working Pressure","Design Pressure","Test Pressure","Pressure Unit","Year of Manufacture"],checklistFields:["Tank / Vessel Condition - External Visual","Tank / Vessel Condition - Internal","No Leaks in Pipework","Valves & Fittings Condition","Pressure Relief Valve","Pressure Gauge Correct","Drain Valve Operational","Nameplate Legible","Structural Supports","Tyres - Vehicle","Brakes - Vehicle","Lights & Indicators","Registration Plates Legible"]},
+  tipper_truck:{label:"Tipper Truck",certType:"Vehicle Inspection Certificate",hasPV:true,accent:"#f97316",equipFields:["Make / Manufacturer","Model","Registration Number","VIN / Chassis Number","Fleet Number","GVM","Payload Capacity","Year of Manufacture"],checklistFields:["Structural Integrity - Body & Frame","Tipper Hydraulic System","Tipper Cylinder - No Leaks","Tailgate Locking Mechanism","Brakes - Service & Park","Tyres Condition","Lights & Indicators","Mirrors","Seat Belt(s)","Horn Functional","Registration Plates Legible","Oil Leaks"]},
+  bus:{label:"Bus / Personnel Carrier",certType:"Vehicle Inspection Certificate",hasPV:false,accent:"#60a5fa",equipFields:["Make / Manufacturer","Model","Registration Number","VIN / Chassis Number","Fleet Number","Seating Capacity","GVM","Year of Manufacture"],checklistFields:["Structural Integrity - Body & Frame","Brakes - Service & Park","Tyres Condition","Lights & Indicators","Seat Belts - All Seats","Emergency Exits Functional","Horn Functional","Mirrors Condition","Windscreen Wipers","Fire Extinguisher Present","First Aid Kit Present","Registration Plates Legible"]},
+  compressor:{label:"Air Compressor",certType:"Pressure Test Certificate",hasPV:true,accent:"#22d3ee",equipFields:["Make / Manufacturer","Model","Serial Number","Fleet Number","Capacity / Volume (L)","MAWP / Working Pressure","Design Pressure","Test Pressure","Pressure Unit","Year of Manufacture"],checklistFields:["Vessel Condition - External Visual","Vessel Condition - Internal","Relief / Safety Valve Operation","Pressure Gauge Calibrated","Drain Valve Operational","No External Leakages","Pipe Connections Good Condition","Nameplate Legible","Motor / Drive Condition","V-Belt / Coupling Condition","Air Filter Condition","Safety Devices Operational"]},
+  diesel_bowser:{label:"Diesel Bowser",certType:"Vehicle Inspection Certificate",hasPV:true,accent:"#f97316",equipFields:["Make / Manufacturer","Model","Registration Number","Fleet Number","Tank Capacity (L)","Year of Manufacture","GVM"],checklistFields:["Tank Condition - External Visual","No Leaks - Tank, Pipes & Fittings","Valves & Couplings Condition","Fuel Meter / Flow Meter","Grounding / Earthing Strap","Fire Extinguisher Present","Brakes - Service & Park","Tyres Condition","Lights & Indicators","Registration Plates Legible","Nozzle / Hose Condition","Spill Prevention Equipment"]},
+  mixer_truck:{label:"Mixer Truck",certType:"Vehicle Inspection Certificate",hasPV:true,accent:"#f97316",equipFields:["Make / Manufacturer","Model","Registration Number","Fleet Number","Drum Capacity (m3)","GVM","Year of Manufacture"],checklistFields:["Drum Condition - External Visual","Drum Rotation - Forward & Reverse","Drum Drive System","Hydraulic System - No Leaks","Water System / Tank","Chute / Discharge System","Brakes - Service & Park","Tyres Condition","Lights & Indicators","Seat Belt(s)","Registration Plates Legible","Oil Leaks"]},
+  other_machine:{label:"Other Machine / Equipment",certType:"Certificate of Inspection",hasPV:true,accent:"#60a5fa",equipFields:["Equipment Type","Make / Manufacturer","Model","Serial Number","Fleet Number","Rated Capacity / SWL","Year of Manufacture"],checklistFields:["Structural Integrity","Operational Check","Safety Systems","Guards & Covers Secure","Electrical Systems","Controls Function Correctly","Emergency Stop Functional","Oil Leaks","Drive / Transmission","Lubrication","Seals & Gaskets","Vibration / Noise Abnormal"]},
+  mobile_crane:{label:"Mobile Crane",certType:"Load Test Certificate",hasPV:false,accent:"#22d3ee",equipFields:["Make / Manufacturer","Model","Serial Number","Fleet Number","Registration No.","Rated SWL","Machine Hours","Year of Manufacture"],boomFields:["C1 Boom Length (m)","C1 Angle","C1 Radius (m)","C1 Rated Load","C1 Test Load","C2 Boom Length (m)","C2 Angle","C2 Radius (m)","C2 Rated Load","C2 Test Load","C3 Boom Length (m)","C3 Angle","C3 Radius (m)","C3 Rated Load","C3 Test Load","SLI Make / Model","Hook Block Reeving"],checklistFields:["Structural Members & Welds","Outriggers / Stabilisers","Brakes - Hoist, Slew, Travel","Limit Switches - Upper, Lower, Travel","Electrical Systems & Controls","Sheaves & Drums","Lubrication Adequate","SWL Markings Legible","Safety Devices Functional","SLI / Load Indicator","Anti-Two-Block Device","Anemometer (if fitted)","Hook Condition & Safety Latch","Wire Rope - Broken Wires, Kinks"]},
+  overhead_crane:{label:"Overhead / Gantry Crane",certType:"Load Test Certificate",hasPV:false,accent:"#22d3ee",equipFields:["Make / Manufacturer","Model","Serial Number","Location / Bay","SWL / Capacity","Span (m)","Lift Height (m)","Year of Manufacture"],checklistFields:["Bridge Structure & Welds","End Trucks & Wheels","Runway Rail Condition","Hoist Drum Condition","Wire Rope / Chain","Hook & Safety Latch","Brakes - Hoist & Travel","Limit Switches","Electrical Systems & Controls","End Stops","Pendant / Remote Controls","SWL Markings Legible","Lubrication","Anti-Two-Block / Load Limiter"]},
+  chain_block:{label:"Chain Block / Chain Hoist",certType:"Load Test Certificate",hasPV:false,accent:"#60a5fa",equipFields:["Make / Manufacturer","Model","Serial Number","SWL / Capacity","Chain Length (m)","No. of Falls","Year of Manufacture"],checklistFields:["Chain - Links, Wear, Stretch","Top Hook - Latch, Cracks, Wear","Bottom Hook - Latch, Cracks, Wear","Housing Condition","Load Chain Guides","Brake / Pawl Mechanism","Hand Chain & Wheel","SWL Marking Legible","Moving Parts Lubricated","Free-fall Prevention Device"]},
+  lever_hoist:{label:"Lever Hoist / Tirfor",certType:"Load Test Certificate",hasPV:false,accent:"#60a5fa",equipFields:["Make / Manufacturer","Model","Serial Number","SWL / Capacity","Chain Length (m)","Year of Manufacture"],checklistFields:["Lever / Handle Condition","Chain - Links, Wear, Stretch","Top Hook - Latch, Cracks","Bottom Hook - Latch, Cracks","Housing / Casing Condition","Reversing Lever Functional","Pawl / Ratchet Mechanism","SWL Marking Legible","Moving Parts Lubricated","Overload Protection"]},
+  davit:{label:"Davit / JIB Crane",certType:"Load Test Certificate",hasPV:false,accent:"#22d3ee",equipFields:["Make / Manufacturer","Model","Serial Number","Location","SWL / Capacity","Reach / Jib Length (m)","Year of Manufacture"],checklistFields:["Structural Members & Welds","Column / Base Mounting","Jib Condition","Slew Mechanism","Hoist Unit","Hook & Safety Latch","Limit Switches","SWL Markings Legible","Safety Devices Functional","Load Test Performed"]},
+  crane_boom:{label:"Crane Boom",certType:"Load Test Certificate",hasPV:false,accent:"#22d3ee",equipFields:["Crane Make / Model","Boom Serial Number","Fleet Number","Min Boom Length (m)","Max Boom Length (m)","Year of Manufacture"],checklistFields:["Boom Sections - Cracks, Dents","Boom Pins & Connections","Wear Pads / Pads Condition","Extension / Luffing System","Structural Welds","Corrosion / Coating","SWL Markings","Sheaves at Boom Head","Rope Guides","Overall Structural Condition"]},
+  wire_rope_sling:{label:"Wire Rope Sling",certType:"Load Test Certificate",hasPV:false,accent:"#a78bfa",equipFields:["Serial / Tag No.","Sling Type","Diameter (mm)","Length (m)","No. of Legs","Construction","Core Type","SWL","Grade","Manufacturer"],checklistFields:["Eyes & Ferrules / Swaged Fittings","Abrasion Damage on Body","Kinking or Twisting","SWL Tag Present & Legible","Angle Factor Markings","Core Wire Integrity","End Fittings Secure","Deformation / Flattening","Corrosion","Broken Wires at Terminations","Bird-Caging / Core Protrusion","Serviceability"]},
+  chain_sling:{label:"Chain Sling (Single Leg)",certType:"Load Test Certificate",hasPV:false,accent:"#a78bfa",equipFields:["Serial / Tag No.","Grade","Chain Size (mm)","Length (m)","SWL","Master Link Type","Hook Type","Manufacturer"],checklistFields:["Chain Links - Wear, Elongation","Cracks or Deformation","Master Link Condition","Hook - Latch, Deformation, Wear","Grade Markings Legible","SWL Marking Legible","Corrosion","Stretch (max 5%)","Corrosion Pitting","Link Twisting or Bending","Serviceability"]},
+  multi_leg_sling:{label:"Multi-Leg Chain Sling",certType:"Load Test Certificate",hasPV:false,accent:"#a78bfa",equipFields:["Serial / Tag No.","Grade","Chain Size (mm)","No. of Legs","Leg Length (m)","SWL (0/45/60 deg)","Master Link Type","Manufacturer"],checklistFields:["Master Link - Condition & Marking","All Legs - Links, Wear, Elongation","Cracks or Deformation on Any Leg","Hooks - Latch, Deformation, Wear","Grade Markings Legible on All Legs","SWL Marking Legible","Corrosion on Any Leg","Equal Leg Length (within tolerance)","Connecting Links Condition","Serviceability"]},
+  "4leg_chain_sling":{label:"4-Legged Chain Sling",certType:"Load Test Certificate",hasPV:false,accent:"#a78bfa",equipFields:["Serial / Tag No.","Grade","Chain Size (mm)","No. of Legs","Leg Length (m)","SWL","Master Link Type","Manufacturer"],checklistFields:["Master Link - Condition & Marking","All 4 Legs - Links, Wear, Elongation","Cracks or Deformation on Any Leg","All Hooks - Latch, Deformation","Grade Markings on All Legs","SWL Marking Legible","Corrosion on Any Leg","Equal Leg Lengths","Connecting Links Condition","Serviceability"]},
+  webbing_sling:{label:"Webbing / Flat Web Sling",certType:"Load Test Certificate",hasPV:false,accent:"#a78bfa",equipFields:["Serial / Tag No.","Width (mm)","Length (m)","SWL (straight/choker/basket)","Colour Code","Manufacturer","Year of Manufacture"],checklistFields:["Webbing - Cuts, Tears, Holes","Stitching - Broken Stitches","End Fittings - Condition","SWL Label Legible","Colour Coding Legible","UV / Chemical Damage","Abrasion Wear","Knotting or Twisting","Heat Damage","Serviceability"]},
+  round_sling:{label:"Round / Polyester Sling",certType:"Load Test Certificate",hasPV:false,accent:"#a78bfa",equipFields:["Serial / Tag No.","Colour Code","SWL","Circumference (mm)","Length (m)","Manufacturer"],checklistFields:["Cover - Cuts, Tears, Damage","Core - Visible Damage","SWL Tag Legible","Colour Coding Legible","UV Damage","Chemical Damage","Abrasion Wear","End Loop Condition","Overall Condition","Serviceability"]},
+  endless_sling:{label:"Endless Round Sling",certType:"Load Test Certificate",hasPV:false,accent:"#a78bfa",equipFields:["Serial / Tag No.","Colour Code","SWL","Circumference","Length (m)","Manufacturer"],checklistFields:["Cover - Cuts, Tears, Damage","Core Integrity (visible damage)","SWL Tag Legible","Colour Coding Legible","UV / Chemical Damage","Abrasion Wear","Continuity of Loop","Overall Condition","Serviceability"]},
+  wire_sling:{label:"Wire Sling",certType:"Load Test Certificate",hasPV:false,accent:"#a78bfa",equipFields:["Serial / Tag No.","Diameter (mm)","Length (m)","SWL","Eyes / Terminations","Manufacturer"],checklistFields:["Body - Broken Wires, Kinks","Eyes & Ferrules","Corrosion","Abrasion Wear","SWL Tag Legible","End Fittings Secure","Deformation / Flattening","Core Condition","Serviceability"]},
+  shackle_bow:{label:"Shackle - Bow / Anchor",certType:"Load Test Certificate",hasPV:false,accent:"#fbbf24",equipFields:["Serial / Tag No.","Size (mm)","Grade","SWL / WLL","Pin Type","Manufacturer"],checklistFields:["Bow - Cracks, Deformation","Pin - Condition, Thread","Safety Device (mousing)","SWL Marking Legible","Grade Marking","Corrosion","Wear at Pin & Bow","Pin Fits Correctly","Serviceability"]},
+  shackle_dee:{label:"Shackle - D / Dee",certType:"Load Test Certificate",hasPV:false,accent:"#fbbf24",equipFields:["Serial / Tag No.","Size (mm)","Grade","SWL / WLL","Pin Type","Manufacturer"],checklistFields:["Dee Body - Cracks, Deformation","Pin - Condition, Thread","Safety Device (mousing)","SWL Marking Legible","Grade Marking","Corrosion","Wear at Pin & Dee","Pin Fits Correctly","Serviceability"]},
+  crane_hook:{label:"Crane Hook",certType:"Load Test Certificate",hasPV:false,accent:"#fbbf24",equipFields:["Serial Number","SWL / Capacity","Hook A-B Measurement","Hook A-C Measurement","Manufacturer","Year of Manufacture"],checklistFields:["Safety Latch - Fitted & Functional","Structural Cracks / Defects","Side Bending (max 5 deg)","Swivel - Free Under Load","Corrosion","SWL Marking Legible","Wear Percentage","Nut & Locking Device","Sheave / Hook Block Condition","Overall Result"]},
+  hook_block:{label:"Hook Block Assembly",certType:"Load Test Certificate",hasPV:false,accent:"#fbbf24",equipFields:["Serial Number","SWL / Capacity","No. of Sheaves","Reeving Falls","Manufacturer"],checklistFields:["Sheaves - Cracks, Groove Wear","Hook - Latch, Deformation, SWL Marking","Hook Nut & Locking Device","Side Plates - Cracks, Deformation","Axle / Pin Condition","Bearings / Bushings","Corrosion","Weight Marking","Reeving Correct","Overall Condition"]},
+  plate_clamp:{label:"Plate Clamp",certType:"Load Test Certificate",hasPV:false,accent:"#fbbf24",equipFields:["Serial / Tag No.","SWL","Plate Thickness Range","Type","Manufacturer"],checklistFields:["Jaw Condition - Wear, Cracks","Locking Mechanism","Spring / Cam Condition","SWL Marking Legible","Plate Thickness Range Marked","Corrosion","Pivot Points","Safety Lock Functional","Load Test Performed","Serviceability"]},
+  plate_clamp_v:{label:"Plate Clamp - Vertical",certType:"Load Test Certificate",hasPV:false,accent:"#fbbf24",equipFields:["Serial / Tag No.","SWL","Plate Thickness Range","Manufacturer"],checklistFields:["Vertical Jaw Condition","Cam / Eccentric Condition","Spring Condition","SWL Marking Legible","Corrosion","Pivot Points","Safety Lock","Load Test Performed","Serviceability"]},
+  lifting_clamp:{label:"Lifting Clamp - General",certType:"Load Test Certificate",hasPV:false,accent:"#fbbf24",equipFields:["Serial / Tag No.","SWL","Type / Model","Plate Range","Manufacturer"],checklistFields:["Jaw - Cracks, Deformation, Wear","Locking Mechanism Functional","Spring / Cam Condition","SWL Marking Legible","Corrosion","Pivot / Hinge Points","Load Test Performed","Serviceability"]},
+  drum_clamp:{label:"Drum Clamp",certType:"Load Test Certificate",hasPV:false,accent:"#fbbf24",equipFields:["Serial / Tag No.","SWL","Drum Size Range","Manufacturer"],checklistFields:["Jaws - Cracks, Deformation","Locking Pin / Mechanism","SWL Marking Legible","Corrosion","Jaw Pads / Liners","Pivot Points","Load Test Performed","Serviceability"]},
+  vertical_clamp:{label:"Vertical Clamp",certType:"Load Test Certificate",hasPV:false,accent:"#fbbf24",equipFields:["Serial / Tag No.","SWL","Plate Thickness Range","Manufacturer"],checklistFields:["Jaw - Cracks, Deformation, Wear","Cam / Eccentric Condition","Spring Condition","SWL Marking Legible","Corrosion","Pivot Points","Safety Lock Functional","Load Test Performed","Serviceability"]},
+  spreader_beam:{label:"Spreader Beam",certType:"Load Test Certificate",hasPV:false,accent:"#fbbf24",equipFields:["Serial Number","SWL","Length (m)","End Fitting Type","Manufacturer","Year of Manufacture"],checklistFields:["Beam Structural Welds","End Fittings / Shackle Points","Lifting Eye / Trunnion Condition","Paint / Coating Condition","SWL Marking Legible","Corrosion","Deformation / Bending","Pin / Connection Points","Load Test Performed","Serviceability"]},
+  lift_beam:{label:"Lift Beam / Lifting Frame",certType:"Load Test Certificate",hasPV:false,accent:"#fbbf24",equipFields:["Serial Number","SWL","Dimensions (m)","End Fitting Type","Manufacturer","Year of Manufacture"],checklistFields:["Frame Structural Welds","End Fittings Condition","Lifting Points / Eyes","Paint / Coating","SWL Marking Legible","Corrosion","Deformation","Pin / Connection Points","Load Test Performed","Serviceability"]},
+  crawl_beam:{label:"Crawl Beam",certType:"Load Test Certificate",hasPV:false,accent:"#fbbf24",equipFields:["Serial Number","SWL","Track Length (m)","Trolley Type","Manufacturer"],checklistFields:["Beam / Track Condition","Trolley Wheels & Bearings","End Stops Fitted & Secure","Hoist Connection Point","SWL Marking Legible","Corrosion","Structural Welds","Load Test Performed","Serviceability"]},
+  universal_lift:{label:"Universal Lifter",certType:"Load Test Certificate",hasPV:false,accent:"#fbbf24",equipFields:["Serial Number","SWL","Adjustment Range","Type / Model","Manufacturer"],checklistFields:["Frame Structural Condition","Adjustment Mechanism","Locking / Securing Devices","SWL Marking Legible","Corrosion","End Fittings","Load Test Performed","Serviceability"]},
+  lifting_acc:{label:"Lifting Accessory - General",certType:"Load Test Certificate",hasPV:false,accent:"#fbbf24",equipFields:["Equipment Type","Serial / Tag No.","SWL / WLL","Size / Diameter","Grade / Standard","Manufacturer"],checklistFields:["Visual Inspection - General Condition","Structural Integrity","SWL Marking Legible","Cracks / Deformation","Corrosion","Moving Parts Functional","Safety Latch / Locking Device","End Fittings / Attachments","Serviceability"]},
+  bottle_jack:{label:"Bottle Jack / Hydraulic Jack",certType:"Load Test Certificate",hasPV:false,accent:"#f97316",equipFields:["Make / Manufacturer","Model","Serial Number","SWL / Capacity","Stroke (mm)","Year of Manufacture"],checklistFields:["Cylinder - No Leaks, Cracks","Ram / Piston Condition","Seals Condition","Pump / Release Valve","SWL Marking Legible","Pressure Gauge (if fitted)","Base / Saddle Condition","Load Test Performed","Oil Level","Serviceability"]},
+  axle_jack:{label:"Axle Jack",certType:"Load Test Certificate",hasPV:false,accent:"#f97316",equipFields:["Make / Manufacturer","Model","Serial Number","SWL / Capacity","Stroke (mm)","Year of Manufacture"],checklistFields:["Frame - Cracks, Deformation","Cylinder - No Leaks","Ram / Piston Condition","Saddle Condition","Pump / Release Valve","SWL Marking Legible","Wheels / Castors","Load Test Performed","Oil Level","Serviceability"]},
+  titan_jack:{label:"TITAN Hydraulic Jack",certType:"Load Test Certificate",hasPV:false,accent:"#f97316",equipFields:["Make / Manufacturer","Model","Serial Number","SWL / Capacity","Stroke (mm)","Year of Manufacture"],checklistFields:["Cylinder - No Leaks, Cracks","Ram / Piston Condition","Seals Condition","Pump / Release Valve","SWL Marking Legible","Pressure Gauge","Base / Saddle Condition","Safety Lock / Nut","Load Test Performed","Serviceability"]},
+  jack_stand:{label:"Jack Stand / Trestle Jack",certType:"Load Test Certificate",hasPV:false,accent:"#f97316",equipFields:["Make / Manufacturer","Model","Serial Number","SWL / Capacity","Height Range (mm)","Year of Manufacture"],checklistFields:["Legs - Cracks, Deformation","Pin / Locking Mechanism","Saddle / Top Plate","SWL Marking Legible","Corrosion","Height Adjustment","Load Test Performed","Stability under Load","Serviceability"]},
+  pallet_jack:{label:"Pallet Jack - Manual",certType:"Load Test Certificate",hasPV:false,accent:"#f97316",equipFields:["Make / Manufacturer","Model","Serial Number","SWL / Capacity","Fork Length (mm)","Year of Manufacture"],checklistFields:["Fork Tines - Cracks, Bending","Pump Cylinder - No Leaks","Lowering Valve Functional","Wheels - Wear, Damage","Hydraulic Oil Level","SWL Marking Legible","Handle Condition","Pump Action","Load Test Performed","Serviceability"]},
+  hydraulic_pump:{label:"Hydraulic Pump / Power Unit",certType:"Certificate of Inspection",hasPV:false,accent:"#f97316",equipFields:["Make / Manufacturer","Model","Serial Number","Rated Pressure","Flow Rate","Year of Manufacture"],checklistFields:["Pump Condition","Hoses - No Leaks, Damage","Fittings & Couplings","Pressure Relief Valve","Pressure Gauge Calibrated","Oil Level","Motor / Engine Condition","Controls Functional","Safety Devices","Serviceability"]},
+  safety_harness:{label:"Safety Harness - Full Body",certType:"Certificate of Inspection",hasPV:false,accent:"#f87171",equipFields:["Serial / Tag No.","Size","Manufacturer","Date of Manufacture","Next Inspection Due"],checklistFields:["Webbing - Cuts, Tears, Abrasion","Stitching - Broken or Damaged","D-Rings - Cracks, Deformation","Buckles - Functional, Cracks","Adjustment Buckles","Shoulder Straps Condition","Chest Strap Condition","Leg Straps Condition","Label / Markings Legible","Connector / Dorsal D-Ring","Serviceability"]},
+  lanyard:{label:"Lanyard / Energy Absorbing",certType:"Certificate of Inspection",hasPV:false,accent:"#f87171",equipFields:["Serial / Tag No.","Length (m)","Type (Single/Twin)","Connector Type","Manufacturer","Date of Manufacture"],checklistFields:["Webbing / Rope - Cuts, Abrasion","Energy Absorber Pack (deployed?)","Snap Hooks - Latch, Gate, Cracks","Karabiner - Gate, Spine","SWL / WLL Marking Legible","Labels Legible","Connector Condition","Serviceability"]},
+  rope_absorber:{label:"Rope Shock Absorber",certType:"Certificate of Inspection",hasPV:false,accent:"#f87171",equipFields:["Serial / Tag No.","Type / Model","SWL / WLL","Manufacturer","Date of Manufacture"],checklistFields:["Absorber Pack - Not Deployed","Stitching / Tear Webbing Intact","Outer Casing Condition","Attachment Points / Loops","Snap Hooks - Gate, Latch","Labels / Markings Legible","UV / Chemical Damage","Serviceability"]},
+  air_receiver:{label:"Air Receiver / Pressure Vessel",certType:"Pressure Test Certificate",hasPV:true,accent:"#34d399",equipFields:["Serial Number","Capacity / Volume (L)","MAWP / Working Pressure","Design Pressure","Test Pressure","Pressure Unit","Manufacturer","Year of Manufacture"],checklistFields:["Shell - Dents, Cracks, Corrosion","Nozzles & Flanges","Relief / Safety Valve Operation","Pressure Gauge Calibrated","Support Structure & Foundations","Hydrostatic / Pneumatic Test","Nameplate Legible","Drains & Vents","No External Leakages","Pipe Connections Condition","Drain Valve Operational","Vessel Properly Mounted"]},
+  oxygen_tank:{label:"Oxygen Tank / Cylinder",certType:"Pressure Test Certificate",hasPV:true,accent:"#34d399",equipFields:["Serial Number","Cylinder Volume (L)","MAWP / Working Pressure","Test Pressure","Pressure Unit","Gas Type","Manufacturer","Year of Manufacture"],checklistFields:["Cylinder Body - Dents, Corrosion","Valve Condition & Operation","Pressure Gauge Functional","Safety Cap / Collar Fitted","Hydrostatic Test Current","Cylinder Markings Legible","Regulator Condition","No Leaks","Cylinder Secured Correctly","Serviceability"]},
+  sandblast_pot:{label:"Sandblasting Pot",certType:"Pressure Test Certificate",hasPV:true,accent:"#34d399",equipFields:["Vessel Unique ID","Capacity / Volume (L)","MAWP / Working Pressure","Design Pressure","Test Pressure","Pressure Unit","Vessel Material","Manufacturer","Year of Manufacture"],checklistFields:["Pipe Connections in Good Condition","Valves/Fittings of Correct Pressure Rating","Drain Valves Operational","No Leaks in Pipework","Pressure Gauge Isolation Valve","Pressure Relief Valve Calibrated","Pressure Gauge Calibrated","Vessel External Coating","No External Corrosion","Vessel Properly Mounted","Welded Joints Condition","No Vessel Dents or Cracks","Relief Valve Body - No Cracks","Valve Working Properly","No Oil Sludge Inside","Vessel Interior Condition","No Moisture / Oil Trapped","No Scaling Inside","Internal Stiffeners Condition","Properly Levelled for Drainage","Automatic Drainage"]},
+  portable_oven:{label:"Portable / Welding Oven",certType:"Compliance Certificate",hasPV:false,accent:"#34d399",equipFields:["Make / Manufacturer","Model","Serial Number","Power Voltage","Weight (kg)","Temperature Range","Year of Manufacture"],checklistFields:["Structural Integrity","Electrical Wiring Condition","Temperature Control Functional","Door / Seal Condition","Capacity Marking Legible","Earthing / Grounding","Safety Thermostat","Ventilation Adequate","Casing / Housing Condition","Overall Functional Test"]},
+  wire_rope:{label:"Wire Rope (Crane Rope)",certType:"Load Test Certificate",hasPV:false,accent:"#22d3ee",equipFields:["Crane Make / Model","Fleet Number","Rope Diameter (mm)","Rope Length (m)","Construction","Grade","Manufacturer"],checklistFields:["Broken Wires - Main Hoist","Corrosion - Main Hoist","Kinking or Crushing - Main","Reduction in Diameter - Main","Core Protrusion - Main","End Terminations - Main","Drum Condition - Main","Rope Lay on Drum - Main","Lower Limit Cut-Off - Main","3x Windings on Drum - Main","Broken Wires - Aux Hoist","Corrosion - Aux Hoist","Kinking or Crushing - Aux","Reduction in Diameter - Aux","Core Protrusion - Aux","End Terminations - Aux","Drum Condition - Aux","Rope Lay on Drum - Aux","Lower Limit Cut-Off - Aux","Serviceability - Overall"]},
+  fork_arm:{label:"Fork Arm / Tine",certType:"Fork Arm Inspection Certificate",hasPV:false,accent:"#94a3b8",equipFields:["Fork Serial / ID","SWL / Capacity","Fork Length (mm)","Heel Thickness (mm)","Blade Thickness (mm)","Width (mm)","Wear %","Machine / Fleet No."],checklistFields:["Cracks / Fractures - Fork Body","Bending / Deformation","Heel Section - Wear, Cracks","Blade Tip - Wear, Damage","Fork Retention Pins / Hooks Secure","Fork Angle (perpendicular to shank)","SWL / ID Marking Legible","Surface Condition","Wear > 10% of Original (reject if yes)","Fork Rejected?"]},
+  impact_wrench:{label:"Impact Wrench",certType:"Certificate of Inspection",hasPV:false,accent:"#94a3b8",equipFields:["Make / Manufacturer","Model","Serial Number","Drive Size","Torque Rating","Year of Manufacture"],checklistFields:["Housing Condition - Cracks, Damage","Trigger / Control Functional","Air Inlet / Hose Connection","Exhaust Muffler","Anvil / Drive Square Condition","Rating Legible","Guards / Covers Secure","Safety Switch","Lubrication","Functional Test"]},
+  welding_machine:{label:"Welding Machine",certType:"Compliance Certificate",hasPV:false,accent:"#94a3b8",equipFields:["Make / Manufacturer","Model","Serial Number","Power Voltage","Output Current (A)","Weight (kg)","Year of Manufacture"],checklistFields:["Structural / Housing Condition","Electrical Wiring Condition","Welding Leads / Cables","Earth Clamp Condition","Electrode Holder Condition","Controls / Dials Functional","Cooling Fan (if fitted)","Earthing / Grounding","Safety Markings","Functional Test"]},
+  step_ladder:{label:"Step Ladder",certType:"Certificate of Inspection",hasPV:false,accent:"#94a3b8",equipFields:["Make / Manufacturer","Model / Type","Serial Number","SWL / Capacity","Height (m)","Material","Year of Manufacture"],checklistFields:["Steps / Rungs - Condition, Security","Side Rails - Cracks, Deformation","Feet / Non-Slip Pads","Locking Spreaders / Braces","Top Platform Condition","Hinges / Joints","SWL Marking Legible","Safety Label Legible","Load Test Performed","Serviceability"]},
+  manual_rod:{label:"Manual Rod Handlers",certType:"Certificate of Inspection",hasPV:false,accent:"#94a3b8",equipFields:["Make / Manufacturer","Model","Serial Number","Capacity / Rod Diameter","Year of Manufacture"],checklistFields:["Handle - Cracks, Deformation","Grip / Locking Mechanism","Structural Integrity","SWL Marking Legible","Corrosion","Moving Parts Functional","Safety Device","Serviceability"]},
+  other_general:{label:"General / Other Equipment",certType:"Certificate of Inspection",hasPV:false,accent:"#94a3b8",equipFields:["Equipment Type","Make / Manufacturer","Model","Serial Number","Fleet Number","Rated Capacity / SWL","Year of Manufacture"],checklistFields:["Visual Inspection - General Condition","Functional Test","Safety Devices Operational","Load / Pressure Test","Labelling & Markings Legible","Structural Integrity","Controls - Correct Operation","Documentation Current","Maintenance Records Reviewed","Compliance with Standards"]},
 };
 
-function getConfig(equipType) {
-  const t = (equipType || "").toUpperCase();
-  if (t.includes("CRANE") || t.includes("HOIST") || t.includes("DAVIT"))
-    return { label:"Crane / Lifting Equipment", items:CHECKLISTS.CRANE, accent:"#22d3ee",
-      fields:["Equipment Type","Make / Manufacturer","Serial Number","Fleet Number","SWL / Capacity","Machine Hours","Boom Length (m)","Boom Angle (°)","Working Radius (m)","Test Load Applied"] };
-  if (t.includes("WIRE ROPE SLING") || t.includes("WIRE SLING"))
-    return { label:"Wire Rope Sling", items:CHECKLISTS.WIRE_SLING, accent:"#a78bfa",
-      fields:["Sling Type","Diameter (mm)","Length (m)","No. of Legs","Construction","Core Type","SWL","Serial Number"] };
-  if (t.includes("WIRE ROPE") && !t.includes("SLING"))
-    return { label:"Wire Rope Inspection", items:CHECKLISTS.WIRE_ROPE, accent:"#22d3ee",
-      fields:["Rope Diameter (mm)","Rope Length (m)","Construction","Fleet / Machine No.","Main Drum Condition","Aux Drum Condition"] };
-  if (t.includes("PRESSURE") || t.includes("AIR RECEIVER") || t.includes("VESSEL") || t.includes("COMPRESSOR") || t.includes("OXYGEN") || t.includes("BOWSER"))
-    return { label:"Pressure Vessel / Equipment", items:CHECKLISTS.PRESSURE_VESSEL, accent:"#fbbf24",
-      fields:["Vessel Type","Serial Number","Capacity / Volume","Year of Manufacture","MAWP (bar)","Design Pressure (bar)","Test Pressure (bar)","Test Type"] };
-  if (t.includes("CHERRY") || t.includes("AERIAL") || t.includes("AWP") || t.includes("BOOM LIFT"))
-    return { label:"Cherry Picker / AWP", items:CHECKLISTS.CHERRY_PICKER, accent:"#f97316",
-      fields:["Make / Model","Serial Number","Fleet Number","Max Working Height (m)","SWL / Platform Capacity","Test Load Applied","Boom Length (m)","Working Radius (m)"] };
-  if (t.includes("TELEHANDLER"))
-    return { label:"Telehandler", items:CHECKLISTS.TELEHANDLER, accent:"#22d3ee",
-      fields:["Make / Model","Serial Number","Fleet Number","SWL / Capacity","Max Boom Length (m)","Test Load Applied","Working Radius (m)","Machine Hours"] };
-  if (t.includes("FORKLIFT") || t.includes("FORK LIFT"))
-    return { label:"Forklift", items:CHECKLISTS.FORKLIFT, accent:"#34d399",
-      fields:["Make / Model","Serial Number","Fleet Number","SWL / Capacity","Fork Length (mm)","Heel Thickness (mm)","Blade Thickness (mm)","Wear %"] };
-  if (t.includes("MIXER") || t.includes("TIPPER") || t.includes("SERVICE TRUCK") || t.includes("TRUCK"))
-    return { label:"Vehicle / Machine", items:CHECKLISTS.MACHINE, accent:"#60a5fa",
-      fields:["Make / Model","Registration No.","Fleet Number","GVM","Year of Manufacture","Engine Hours / Odometer","Tyre Size","Payload Capacity"] };
-  if (t.includes("SLING") || t.includes("SHACKLE") || t.includes("HOOK") || t.includes("CHAIN") || t.includes("CLAMP") || t.includes("BEAM") || t.includes("HARNESS") || t.includes("LANYARD") || t.includes("SPREADER") || t.includes("ROUND"))
-    return { label:"Lifting Accessory", items:CHECKLISTS.LIFTING, accent:"#a78bfa",
-      fields:["Equipment Type","Serial / Tag Number","SWL / Capacity","Manufacturer","Size / Diameter","Grade / Standard"] };
-  return { label:"General Equipment", items:CHECKLISTS.DEFAULT, accent:"#22d3ee",
-    fields:["Equipment Type","Make / Manufacturer","Serial Number","Fleet Number","SWL / Capacity","Year of Manufacture"] };
-}
-
-const CSS = `
+const CSS=`
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;700&display=swap');
   *,*::before,*::after{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   html,body{margin:0;padding:0;font-family:'IBM Plex Sans',sans-serif;background:#e2e8f0}
@@ -62,348 +81,182 @@ const CSS = `
   .tbtn{padding:8px 16px;border-radius:9px;border:none;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;min-height:38px;-webkit-tap-highlight-color:transparent}
   .tbtn-back{background:rgba(255,255,255,0.06);color:#f0f6ff;border:1px solid rgba(148,163,184,0.2)}
   .tbtn-print{background:linear-gradient(135deg,#22d3ee,#0891b2);color:#001018}
-  .content{padding-top:76px;display:flex;flex-direction:column;align-items:center;background:#e2e8f0;min-height:100vh;padding-bottom:40px}
-  .page{width:794px;max-width:100%;background:#fff;box-shadow:0 4px 32px rgba(0,0,0,0.18);display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;font-size:10px;color:#0f172a}
-  .hdr{background:#0b1d3a;display:flex;align-items:stretch;min-height:70px;flex-shrink:0}
-  .logo-box{background:#fff;width:96px;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:6px;clip-path:polygon(0 0,100% 0,76% 100%,0 100%)}
-  .logo-box img{width:76px;height:54px;object-fit:contain}
-  .hdr-txt{flex:1;padding:8px 8px 8px 22px;display:flex;flex-direction:column;justify-content:center}
+  .content{padding-top:76px;display:flex;flex-direction:column;align-items:center;background:#e2e8f0;min-height:100vh;padding-bottom:40px;gap:16px}
+  .page{width:794px;max-width:100%;background:#fff;box-shadow:0 4px 32px rgba(0,0,0,0.18);display:flex;flex-direction:column;font-size:10px;color:#0f172a}
+  .hdr{background:#0b1d3a;display:flex;align-items:stretch;min-height:66px;flex-shrink:0}
+  .logo-box{background:#fff;width:90px;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:6px;clip-path:polygon(0 0,100% 0,76% 100%,0 100%)}
+  .logo-box img{width:72px;height:50px;object-fit:contain}
+  .hdr-txt{flex:1;padding:7px 8px 7px 20px;display:flex;flex-direction:column;justify-content:center}
   .hdr-brand{font-size:7px;letter-spacing:.18em;text-transform:uppercase;color:#4fc3f7;margin-bottom:2px;font-weight:800}
   .hdr-name{font-size:12px;font-weight:900;color:#fff}
-  .hdr-svc{font-size:6px;color:rgba(255,255,255,0.35);margin-top:2px;line-height:1.4}
+  .hdr-svc{font-size:5.5px;color:rgba(255,255,255,0.3);margin-top:2px;line-height:1.4}
   .hdr-right{padding:6px 12px;display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:2px;flex-shrink:0}
-  .hdr-contact{font-size:7px;color:rgba(255,255,255,0.6)}
-  .accent{height:3px;background:linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa);flex-shrink:0}
-  .form-title-row{padding:7px 12px;border-bottom:2px solid #0b1d3a;display:flex;align-items:center;justify-content:space-between;background:#f8faff;flex-shrink:0}
-  .form-name{font-size:13px;font-weight:900;color:#0b1d3a}
-  .form-sub{font-size:7.5px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.1em;margin-top:1px}
+  .hdr-c{font-size:7px;color:rgba(255,255,255,0.6)}
+  .acc{height:3px;flex-shrink:0}
+  .ftrow{padding:6px 12px;border-bottom:2px solid #0b1d3a;display:flex;align-items:center;justify-content:space-between;background:#f8faff;flex-shrink:0}
+  .ftname{font-size:11px;font-weight:900;color:#0b1d3a}
+  .ftsub{font-size:7px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.1em;margin-top:1px}
   .ref-box{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
   .ref-label{font-size:7px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#64748b}
-  .ref-line{width:130px;border-bottom:1px solid #94a3b8;height:15px}
-  .body{flex:1;padding:7px 12px 0;display:flex;flex-direction:column;gap:5px}
+  .ref-line{width:130px;border-bottom:1px solid #94a3b8;height:14px}
+  .body{flex:1;padding:6px 12px 0;display:flex;flex-direction:column;gap:5px}
   .sec{border:1px solid #cbd5e1;border-radius:3px;overflow:hidden;flex-shrink:0}
-  .sec-hd{color:#fff;padding:4px 10px;font-size:7.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;display:flex;align-items:center;gap:6px;background:#0b1d3a}
-  .sec-hd-dot{width:2px;height:8px;border-radius:2px;display:inline-block;flex-shrink:0}
-  .wgrid{display:grid;border-top:1px solid #e2e8f0}
-  .wgrid-2{grid-template-columns:1fr 1fr}
-  .wgrid-4{grid-template-columns:1fr 1fr 1fr 1fr}
-  .wfield{padding:5px 10px;border-right:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0}
-  .wfield:nth-child(even){background:#f8faff}
-  .wlabel{font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-bottom:3px}
-  .wline{border-bottom:1px solid #94a3b8;height:17px;width:100%}
+  .sec-hd{color:#fff;padding:3px 10px;font-size:7.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;display:flex;align-items:center;gap:5px;background:#0b1d3a}
+  .dot{width:2px;height:7px;border-radius:2px;display:inline-block;flex-shrink:0}
+  .wg{display:grid;border-top:1px solid #e2e8f0}
+  .wg2{grid-template-columns:1fr 1fr}.wg3{grid-template-columns:1fr 1fr 1fr}.wg4{grid-template-columns:1fr 1fr 1fr 1fr}
+  .wf{padding:4px 9px;border-right:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0}
+  .wf:nth-child(even){background:#f8faff}
+  .wl{font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-bottom:3px}
+  .wln{border-bottom:1px solid #94a3b8;height:16px;width:100%}
   .cl{width:100%;border-collapse:collapse}
-  .cl th{background:#1e293b;color:#f8fafc;padding:4px 8px;font-size:7.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;border:1px solid #334155;text-align:center}
-  .cl th:first-child{text-align:left;width:56%}
-  .cl th:nth-child(2),.cl th:nth-child(3),.cl th:nth-child(4){width:10%}
-  .cl th:last-child{width:24%;text-align:left;padding-left:8px}
-  .cl td{padding:4px 8px;border:1px solid #e2e8f0;font-size:9.5px;color:#1e293b;vertical-align:middle}
-  .cl td:not(:first-child){text-align:center}
-  .cl td:last-child{text-align:left}
-  .cl tr:nth-child(even) td{background:#f8fafc}
-  .cl tr:nth-child(odd) td{background:#fff}
-  .chk{display:inline-block;width:13px;height:13px;border:1.5px solid #94a3b8;border-radius:2px;vertical-align:middle}
-  .ino{display:inline-block;width:18px;font-family:'IBM Plex Mono',monospace;font-size:8px;color:#94a3b8;margin-right:3px}
-  .result-row{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid #e2e8f0}
-  .result-box{padding:8px 12px;border-right:1px solid #e2e8f0;display:flex;align-items:center;gap:8px}
-  .result-box:last-child{border-right:none}
-  .rchk{width:20px;height:20px;border:2px solid #94a3b8;border-radius:2px;flex-shrink:0}
-  .rlbl{font-size:11px;font-weight:800}
-  .rsub{font-size:7px;color:#64748b;margin-top:1px}
-  .def-t{width:100%;border-collapse:collapse}
-  .def-t th{background:#7f1d1d;color:#fee2e2;padding:4px 8px;font-size:7px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;border:1px solid #991b1b;text-align:left}
-  .def-t td{padding:5px 8px;border:1px solid #e2e8f0;height:21px}
-  .def-t tr:nth-child(even) td{background:#fff7f7}
-  .txtfield{padding:5px 10px;border-bottom:1px solid #e2e8f0}
-  .txtlbl{font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-bottom:3px}
-  .line{border-bottom:1px solid #cbd5e1;height:17px;margin-bottom:2px}
-  .sig-grid{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid #e2e8f0}
-  .sig-box{padding:7px 12px 12px;border-right:1px solid #e2e8f0}
-  .sig-box:last-child{border-right:none}
-  .sig-lbl{font-size:7px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#64748b;margin-bottom:5px}
-  .sig-name{font-size:8.5px;font-weight:700;color:#0b1d3a}
-  .sig-id{font-family:'IBM Plex Mono',monospace;font-size:7.5px;color:#64748b}
-  .sig-line{border-top:1px solid #94a3b8;margin-top:20px;padding-top:3px;font-size:7px;color:#94a3b8}
-  .sig-date-lbl{font-size:7px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-top:7px}
-  .sig-date-line{border-bottom:1px solid #94a3b8;height:17px;margin-top:3px}
-  .sig-write-lbl{font-size:7.5px;font-weight:700;color:#0b1d3a;margin-bottom:2px}
-  .sig-write-line{border-bottom:1px solid #94a3b8;height:17px;margin-bottom:5px}
-  .legal{padding:4px 12px;flex-shrink:0}
-  .legal-box{border:1px solid #cbd5e1;border-radius:3px;padding:4px 10px;font-size:7px;color:#4b5563;line-height:1.5;text-align:center;font-weight:700;background:#f8faff}
-  .svc{background:#c41e3a;padding:3px 12px;flex-shrink:0}
-  .svc p{font-size:6.5px;color:#fff;margin:0;line-height:1.4;text-align:center;font-weight:600;letter-spacing:.02em}
-  .foot{background:#0b1d3a;border-top:2px solid #22d3ee;padding:3px 12px;display:flex;justify-content:space-between;flex-shrink:0}
-  .foot span{font-size:7px;color:rgba(255,255,255,0.35);font-weight:600}
+  .cl th{background:#1e293b;color:#f8fafc;padding:3px 7px;font-size:7px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;border:1px solid #334155;text-align:center}
+  .cl th:first-child{text-align:left;width:55%}.cl th:nth-child(2),.cl th:nth-child(3),.cl th:nth-child(4){width:10%}.cl th:last-child{width:25%;text-align:left;padding-left:7px}
+  .cl td{padding:3px 7px;border:1px solid #e2e8f0;font-size:9px;color:#1e293b;vertical-align:middle}
+  .cl td:not(:first-child){text-align:center}.cl td:last-child{text-align:left}
+  .cl tr:nth-child(even) td{background:#f8fafc}.cl tr:nth-child(odd) td{background:#fff}
+  .chk{display:inline-block;width:12px;height:12px;border:1.5px solid #94a3b8;border-radius:2px;vertical-align:middle}
+  .ino{display:inline-block;width:16px;font-family:'IBM Plex Mono',monospace;font-size:7.5px;color:#94a3b8;margin-right:3px}
+  .rrow{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid #e2e8f0}
+  .rbox{padding:7px 10px;border-right:1px solid #e2e8f0;display:flex;align-items:center;gap:7px}.rbox:last-child{border-right:none}
+  .rchk{width:18px;height:18px;border:2px solid #94a3b8;border-radius:2px;flex-shrink:0}
+  .rlbl{font-size:10px;font-weight:800}.rsub{font-size:7px;color:#64748b;margin-top:1px}
+  .dft{width:100%;border-collapse:collapse}
+  .dft th{background:#7f1d1d;color:#fee2e2;padding:3px 7px;font-size:7px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;border:1px solid #991b1b;text-align:left}
+  .dft td{padding:4px 7px;border:1px solid #e2e8f0;height:20px}.dft tr:nth-child(even) td{background:#fff7f7}
+  .tf{padding:4px 9px;border-bottom:1px solid #e2e8f0}
+  .tl{font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-bottom:3px}
+  .ln{border-bottom:1px solid #cbd5e1;height:16px;margin-bottom:2px}
+  .sg{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid #e2e8f0}
+  .sb{padding:6px 10px 10px;border-right:1px solid #e2e8f0}.sb:last-child{border-right:none}
+  .sl{font-size:7px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#64748b;margin-bottom:4px}
+  .sn{font-size:8px;font-weight:700;color:#0b1d3a}.si{font-family:'IBM Plex Mono',monospace;font-size:7px;color:#64748b}
+  .sln{border-top:1px solid #94a3b8;margin-top:18px;padding-top:2px;font-size:6.5px;color:#94a3b8}
+  .sw{font-size:7px;font-weight:700;color:#0b1d3a;margin:4px 0 2px}.swl{border-bottom:1px solid #94a3b8;height:15px;margin-bottom:4px}
+  .legal{padding:3px 12px;flex-shrink:0}
+  .lb{border:1px solid #cbd5e1;border-radius:3px;padding:3px 9px;font-size:6.5px;color:#4b5563;line-height:1.5;text-align:center;font-weight:700;background:#f8faff}
+  .svc{background:#c41e3a;padding:2px 12px;flex-shrink:0}
+  .svc p{font-size:6px;color:#fff;margin:0;line-height:1.4;text-align:center;font-weight:600}
+  .foot{background:#0b1d3a;border-top:2px solid #22d3ee;padding:2px 12px;display:flex;justify-content:space-between;flex-shrink:0}
+  .foot span{font-size:6.5px;color:rgba(255,255,255,0.35);font-weight:600}
   @media print{
-    .toolbar{display:none!important}
-    .content{padding:0!important;background:white!important;display:block!important;min-height:unset!important}
-    .page{box-shadow:none!important;width:100%!important}
-    body{background:white!important}
-    @page{size:A4;margin:5mm}
+    .toolbar{display:none!important}.content{padding:0!important;background:white!important;display:block!important;min-height:unset!important}
+    .page{box-shadow:none!important;width:100%!important;page-break-after:always;break-after:page}
+    .page:last-child{page-break-after:avoid!important;break-after:avoid!important}
+    body{background:white!important}@page{size:A4;margin:5mm}
   }
-  @media(max-width:860px){.page{width:100%}.wgrid-4{grid-template-columns:1fr 1fr}}
-  @media(max-width:480px){.toolbar{padding:8px 12px}.wgrid-2{grid-template-columns:1fr}}
+  @media(max-width:860px){.page{width:100%}.wg4{grid-template-columns:1fr 1fr}}
+  @media(max-width:480px){.toolbar{padding:8px 12px}.wg2,.wg3{grid-template-columns:1fr}}
 `;
 
-function BlankTemplate({ equipType }) {
-  const cfg = getConfig(equipType);
-  const cols = cfg.fields.length <= 6 ? 2 : 4;
+function HDR(){return(<div className="hdr"><div className="logo-box"><img src="/logo.png" alt="Monroy" onError={e=>e.target.style.display="none"}/></div><div className="hdr-txt"><div className="hdr-brand">Monroy (Pty) Ltd \xb7 Process Control & Cranes</div><div className="hdr-name">WE ARE \u25b6\u25b6 YOUR SOLUTION</div><div className="hdr-svc">Mobile Crane Hire \xb7 Rigging \xb7 NDT Test \xb7 Scaffolding \xb7 Painting \xb7 Inspection of Lifting Equipment and Machinery \xb7 Pressure Vessels & Air Receiver \xb7 Steel Fabricating and Structural \xb7 Mechanical Engineering \xb7 Fencing \xb7 Maintenance</div></div><div className="hdr-right"><div className="hdr-c">\u260e (+267) 71 450 610 / 77 906 461</div><div className="hdr-c">\u2709 monroybw@gmail.com</div><div className="hdr-c">\ud83d\udccd Phase 2, Letlhakane</div></div></div>);}
+function FTR({label}){return(<><div className="legal" style={{marginTop:4}}><div className="lb">INSPECTION CARRIED OUT IN ACCORDANCE WITH: MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 \xb7 FACTORIES ACT CAP 44:01 OF THE LAWS OF BOTSWANA \xb7 ISO 9001:2015</div></div><div className="svc" style={{marginTop:3}}><p><b>Mobile Crane Hire</b> | <b>Rigging</b> | <b>NDT Test</b> | <b>Scaffolding</b> | <b>Painting</b> | <b>Inspection of Lifting Equipment & Machinery, Pressure Vessels & Air Receiver</b> | <b>Steel Fabricating & Structural</b> | <b>Mechanical Engineering</b> | <b>Fencing</b> | <b>Maintenance</b></p></div><div className="foot"><span>Monroy (Pty) Ltd \xb7 Mophane Avenue, Maun, Botswana</span><span>{label}</span><span>Quality \xb7 Safety \xb7 Excellence</span></div></>);}
+function SIG(){return(<div className="sg"><div className="sb"><div className="sl">Inspector / Competent Person</div><div className="sn">Moemedi Masupe</div><div className="si">ID: 700117910</div><div className="sln">Signature</div><div className="sw" style={{marginTop:5}}>Date:</div><div className="swl"/></div><div className="sb"><div className="sl">Client Representative</div><div className="sw">Name:</div><div className="swl"/><div className="sw">Designation:</div><div className="swl"/><div className="sln" style={{marginTop:8}}>Signature</div><div className="sw" style={{marginTop:4}}>Date:</div><div className="swl"/></div></div>);}
+function RESULT(){return(<div className="rrow"><div className="rbox"><div className="rchk"/><div><div className="rlbl" style={{color:"#065f46"}}>PASS</div><div className="rsub">Fit for service</div></div></div><div className="rbox"><div className="rchk"/><div><div className="rlbl" style={{color:"#92400e"}}>CONDITIONAL</div><div className="rsub">Subject to repairs</div></div></div><div className="rbox"><div className="rchk"/><div><div className="rlbl" style={{color:"#991b1b"}}>FAIL</div><div className="rsub">Out of service</div></div></div></div>);}
 
-  return (
-    <div className="page">
-      <div className="hdr">
-        <div className="logo-box">
-          <img src="/logo.png" alt="Monroy" onError={e => e.target.style.display="none"} />
-        </div>
-        <div className="hdr-txt">
-          <div className="hdr-brand">Monroy (Pty) Ltd · Process Control & Cranes</div>
-          <div className="hdr-name">WE ARE ▶▶ YOUR SOLUTION</div>
-          <div className="hdr-svc">Mobile Crane Hire · Rigging · NDT Test · Scaffolding · Painting · Inspection of Lifting Equipment and Machinery · Pressure Vessels & Air Receiver · Steel Fabricating and Structural · Mechanical Engineering · Fencing · Maintenance</div>
-        </div>
-        <div className="hdr-right">
-          <div className="hdr-contact">✆ (+267) 71 450 610 / 77 906 461</div>
-          <div className="hdr-contact">✉ monroybw@gmail.com</div>
-          <div className="hdr-contact">📍 Phase 2, Letlhakane</div>
-        </div>
-      </div>
-      <div className="accent" />
-
-      <div className="form-title-row">
-        <div>
-          <div className="form-name">INSPECTION REPORT FORM</div>
-          <div className="form-sub">{cfg.label} · ISO 9001:2015 · MQWM Act Cap 44:02</div>
-        </div>
-        <div className="ref-box">
-          <div className="ref-label">Certificate / Report No.</div>
-          <div className="ref-line" />
-          <div className="ref-label" style={{marginTop:3}}>Date of Inspection</div>
-          <div className="ref-line" />
-        </div>
-      </div>
-
-      <div className="body">
-
-        {/* 1. CLIENT */}
-        <div className="sec">
-          <div className="sec-hd">
-            <span className="sec-hd-dot" style={{background:cfg.accent}}/>
-            1. Client &amp; Site Information
-          </div>
-          <div className="wgrid wgrid-2">
-            {["Client / Company Name","Site / Location","Department / Section","Work Order / PO Number","Inspection Date","Next Inspection Due"].map(l => (
-              <div className="wfield" key={l}>
-                <div className="wlabel">{l}</div>
-                <div className="wline"/>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* 2. EQUIPMENT */}
-        <div className="sec">
-          <div className="sec-hd">
-            <span className="sec-hd-dot" style={{background:cfg.accent}}/>
-            2. Equipment Details
-          </div>
-          <div className={`wgrid ${cols === 4 ? "wgrid-4" : "wgrid-2"}`}>
-            {cfg.fields.map(l => (
-              <div className="wfield" key={l}>
-                <div className="wlabel">{l}</div>
-                <div className="wline"/>
-              </div>
-            ))}
-            <div className="wfield" style={{gridColumn:"1 / -1"}}>
-              <div className="wlabel">Equipment Description / Full Name</div>
-              <div className="wline"/>
-            </div>
-          </div>
-        </div>
-
-        {/* 3. CHECKLIST */}
-        <div className="sec">
-          <div className="sec-hd">
-            <span className="sec-hd-dot" style={{background:cfg.accent}}/>
-            3. Inspection Checklist — {cfg.label}
-          </div>
-          <table className="cl">
-            <thead>
-              <tr>
-                <th>Inspection Item</th>
-                <th>PASS ✓</th>
-                <th>FAIL ✗</th>
-                <th>N/A</th>
-                <th>Remarks</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cfg.items.map((item, i) => (
-                <tr key={i}>
-                  <td><span className="ino">{String(i+1).padStart(2,"0")}</span>{item}</td>
-                  <td><span className="chk"/></td>
-                  <td><span className="chk"/></td>
-                  <td><span className="chk"/></td>
-                  <td style={{minWidth:60}}/>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* 4. DEFECTS */}
-        <div className="sec">
-          <div className="sec-hd" style={{background:"#7f1d1d",color:"#fee2e2"}}>
-            <span className="sec-hd-dot" style={{background:"#fca5a5"}}/>
-            4. Defects / Non-Conformances Found
-          </div>
-          <table className="def-t">
-            <thead>
-              <tr>
-                <th style={{width:"4%"}}>No.</th>
-                <th style={{width:"40%"}}>Defect Description</th>
-                <th style={{width:"20%"}}>Location on Equipment</th>
-                <th style={{width:"20%"}}>Severity (High / Med / Low)</th>
-                <th style={{width:"16%"}}>Action Required</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[1,2,3,4,5].map(n => (
-                <tr key={n}>
-                  <td style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:"#94a3b8",textAlign:"center"}}>{n}</td>
-                  <td/><td/><td/><td/>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* 5. RECOMMENDATIONS */}
-        <div className="sec">
-          <div className="sec-hd">
-            <span className="sec-hd-dot" style={{background:cfg.accent}}/>
-            5. Recommendations &amp; Additional Notes
-          </div>
-          <div className="txtfield">
-            <div className="txtlbl">Recommendations / Corrective Actions</div>
-            {[1,2,3].map(n => <div className="line" key={n}/>)}
-          </div>
-          <div className="txtfield">
-            <div className="txtlbl">Comments / Additional Notes</div>
-            {[1,2].map(n => <div className="line" key={n}/>)}
-          </div>
-        </div>
-
-        {/* 6. RESULT */}
-        <div className="sec">
-          <div className="sec-hd" style={{background:"#065f46",color:"#d1fae5"}}>
-            <span className="sec-hd-dot" style={{background:"#34d399"}}/>
-            6. Overall Inspection Result
-          </div>
-          <div className="result-row">
-            <div className="result-box">
-              <div className="rchk"/>
-              <div><div className="rlbl" style={{color:"#065f46"}}>PASS</div><div className="rsub">Equipment fit for service</div></div>
-            </div>
-            <div className="result-box">
-              <div className="rchk"/>
-              <div><div className="rlbl" style={{color:"#92400e"}}>CONDITIONAL</div><div className="rsub">Subject to repairs / monitoring</div></div>
-            </div>
-            <div className="result-box">
-              <div className="rchk"/>
-              <div><div className="rlbl" style={{color:"#991b1b"}}>FAIL</div><div className="rsub">Equipment out of service</div></div>
-            </div>
-          </div>
-        </div>
-
-        {/* 7. SIGNATURES */}
-        <div className="sec">
-          <div className="sec-hd">
-            <span className="sec-hd-dot" style={{background:cfg.accent}}/>
-            7. Authorisation &amp; Signatures
-          </div>
-          <div className="sig-grid">
-            <div className="sig-box">
-              <div className="sig-lbl">Inspector / Competent Person</div>
-              <div className="sig-name">Moemedi Masupe</div>
-              <div className="sig-id">ID: 700117910</div>
-              <div className="sig-line">Signature</div>
-              <div className="sig-date-lbl">Date</div>
-              <div className="sig-date-line"/>
-            </div>
-            <div className="sig-box">
-              <div className="sig-lbl">Client Representative</div>
-              <div className="sig-write-lbl">Name:</div>
-              <div className="sig-write-line"/>
-              <div className="sig-write-lbl">Designation:</div>
-              <div className="sig-write-line"/>
-              <div className="sig-line" style={{marginTop:8}}>Signature</div>
-              <div className="sig-date-lbl">Date</div>
-              <div className="sig-date-line"/>
-            </div>
-          </div>
-        </div>
-
-      </div>
-
-      <div className="legal" style={{marginTop:5}}>
-        <div className="legal-box">
-          INSPECTION CARRIED OUT IN ACCORDANCE WITH: MINES, QUARRIES, WORKS AND MACHINERY ACT CAP 44:02 · FACTORIES ACT CAP 44:01 OF THE LAWS OF BOTSWANA · ISO 9001:2015
-        </div>
-      </div>
-      <div className="svc" style={{marginTop:4}}>
-        <p><b>Mobile Crane Hire</b> | <b>Rigging</b> | <b>NDT Test</b> | <b>Scaffolding</b> | <b>Painting</b> | <b>Inspection of Lifting Equipment &amp; Machinery, Pressure Vessels &amp; Air Receiver</b> | <b>Steel Fabricating &amp; Structural</b> | <b>Mechanical Engineering</b> | <b>Fencing</b> | <b>Maintenance</b></p>
-      </div>
-      <div className="foot">
-        <span>Monroy (Pty) Ltd · Mophane Avenue, Maun, Botswana</span>
-        <span>{cfg.label} Inspection Form</span>
-        <span>Quality · Safety · Excellence</span>
-      </div>
+function Page({cfg}){
+  const a=cfg.accent||"#22d3ee";
+  const cols=cfg.equipFields.length<=6?2:4;
+  const secNum=(n)=>{let base=n;if(cfg.boomFields)base++;if(cfg.hasTrailer)base++;return base;};
+  return(<div className="page">
+    <HDR/>
+    <div className="acc" style={{background:`linear-gradient(90deg,${a},#3b82f6 55%,#a78bfa)`}}/>
+    <div className="ftrow">
+      <div><div className="ftname">INSPECTION REPORT FORM \u2014 {cfg.label.toUpperCase()}</div><div className="ftsub">{cfg.certType} \xb7 ISO 9001:2015 \xb7 MQWM Act Cap 44:02</div></div>
+      <div className="ref-box"><div className="ref-label">Certificate / Report No.</div><div className="ref-line"/><div className="ref-label" style={{marginTop:3}}>Date of Inspection</div><div className="ref-line"/></div>
     </div>
-  );
-}
-
-function TemplatePrintInner() {
-  const sp = useSearchParams();
-  const router = useRouter();
-  const equipType = decodeURIComponent(sp.get("type") || "");
-  const cfg = getConfig(equipType);
-
-  if (!equipType) return (
-    <>
-      <style>{CSS}</style>
-      <div style={{minHeight:"100vh",background:"#070e18",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'IBM Plex Sans',sans-serif",color:"#f0f6ff",fontSize:14}}>
-        No equipment type.
-        <button onClick={() => router.back()} style={{marginLeft:12,padding:"8px 16px",borderRadius:9,border:"none",background:"rgba(34,211,238,0.15)",color:"#22d3ee",cursor:"pointer",fontWeight:800,fontFamily:"inherit"}}>← Back</button>
+    <div className="body">
+      <div className="sec"><div className="sec-hd"><span className="dot" style={{background:a}}/>1. Client & Site Information</div>
+        <div className="wg wg2">{["Client / Company Name","Site / Location","Department / Section","Work Order / PO Number","Inspection Date","Next Inspection Due"].map(f=><div className="wf" key={f}><div className="wl">{f}</div><div className="wln"/></div>)}</div>
       </div>
-    </>
-  );
-
-  return (
-    <>
-      <style>{CSS}</style>
-      <div className="toolbar">
-        <div className="tleft">
-          <div className="ttitle">Blank Inspection Template — {equipType}</div>
-          <div className="tsub">All fields blank · {cfg.items.length} checklist items · fill in manually after printing</div>
-        </div>
-        <div className="tbtns">
-          <button type="button" className="tbtn tbtn-back" onClick={() => router.back()}>← Back</button>
-          <button type="button" className="tbtn tbtn-print" onClick={() => window.print()}>🖨 Print</button>
+      <div className="sec"><div className="sec-hd"><span className="dot" style={{background:a}}/>2. Equipment Details \u2014 {cfg.label}</div>
+        <div className={`wg wg${cols}`}>{cfg.equipFields.map(f=><div className="wf" key={f}><div className="wl">{f}</div><div className="wln"/></div>)}
+          <div className="wf" style={{gridColumn:"1/-1"}}><div className="wl">Equipment Description / Full Name</div><div className="wln"/></div>
         </div>
       </div>
-      <div className="content">
-        <BlankTemplate equipType={equipType} />
+      {cfg.boomFields&&<div className="sec"><div className="sec-hd"><span className="dot" style={{background:a}}/>3. Boom / Load Chart Data</div>
+        <div className="wg wg3">{cfg.boomFields.map(f=><div className="wf" key={f}><div className="wl">{f}</div><div className="wln"/></div>)}</div>
+      </div>}
+      {cfg.hasTrailer&&<div className="sec"><div className="sec-hd"><span className="dot" style={{background:a}}/>3. Trailer Details</div>
+        <div className="wg wg2">{["Trailer Registration No.","Trailer Make","Trailer Model / Type","Trailer VIN / Chassis","Trailer Fleet Number","Trailer GVM"].map(f=><div className="wf" key={f}><div className="wl">{f}</div><div className="wln"/></div>)}</div>
+      </div>}
+      <div className="sec"><div className="sec-hd"><span className="dot" style={{background:a}}/>{cfg.boomFields||cfg.hasTrailer?"4":"3"}. Inspection Checklist \u2014 {cfg.label}</div>
+        <table className="cl"><thead><tr><th>Inspection Item</th><th>PASS \u2713</th><th>FAIL \u2717</th><th>N/A</th><th>Remarks</th></tr></thead>
+          <tbody>{cfg.checklistFields.map((item,i)=><tr key={i}><td><span className="ino">{String(i+1).padStart(2,"0")}</span>{item}</td><td><span className="chk"/></td><td><span className="chk"/></td><td><span className="chk"/></td><td style={{minWidth:60}}/></tr>)}</tbody>
+        </table>
       </div>
-    </>
-  );
+      {cfg.hasTools&&<div className="sec"><div className="sec-hd"><span className="dot" style={{background:a}}/>4. Lifting & Service Tools on Vehicle</div>
+        <table className="cl"><thead><tr><th style={{textAlign:"left",width:"20%"}}>Tool Type</th><th style={{textAlign:"left",width:"16%"}}>Serial No.</th><th style={{textAlign:"left",width:"12%"}}>SWL</th><th style={{textAlign:"left",width:"16%"}}>Manufacturer</th><th style={{width:"9%"}}>PASS \u2713</th><th style={{width:"9%"}}>FAIL \u2717</th><th style={{textAlign:"left"}}>Remarks</th></tr></thead>
+          <tbody>{(cfg.tools||[]).map((t,i)=><tr key={i}><td style={{fontWeight:700}}>{t}</td><td/><td/><td/><td style={{textAlign:"center"}}><span className="chk"/></td><td style={{textAlign:"center"}}><span className="chk"/></td><td/></tr>)}</tbody>
+        </table>
+      </div>}
+      <div className="sec"><div className="sec-hd" style={{background:"#7f1d1d",color:"#fee2e2"}}><span className="dot" style={{background:"#fca5a5"}}/>Defects / Non-Conformances Found</div>
+        <table className="dft"><thead><tr><th style={{width:"4%"}}>No.</th><th style={{width:"40%"}}>Defect Description</th><th style={{width:"20%"}}>Location</th><th style={{width:"20%"}}>Severity (H/M/L)</th><th>Action Required</th></tr></thead>
+          <tbody>{[1,2,3,4].map(n=><tr key={n}><td style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:7.5,color:"#94a3b8",textAlign:"center"}}>{n}</td><td/><td/><td/><td/></tr>)}</tbody>
+        </table>
+      </div>
+      <div className="sec"><div className="sec-hd"><span className="dot" style={{background:a}}/>Recommendations & Notes</div>
+        <div className="tf"><div className="tl">Recommendations / Corrective Actions</div>{[1,2,3].map(n=><div className="ln" key={n}/>)}</div>
+        <div className="tf"><div className="tl">Comments / Additional Notes</div>{[1,2].map(n=><div className="ln" key={n}/>)}</div>
+      </div>
+      <div className="sec"><div className="sec-hd" style={{background:"#065f46",color:"#d1fae5"}}><span className="dot" style={{background:"#34d399"}}/>Overall Inspection Result</div><RESULT/></div>
+      <div className="sec"><div className="sec-hd"><span className="dot" style={{background:a}}/>Authorisation & Signatures</div><SIG/></div>
+    </div>
+    <FTR label={cfg.label+" Inspection Form"}/>
+  </div>);
 }
 
-export default function TemplatePrintPage() {
-  return (
-    <Suspense fallback={
-      <div style={{minHeight:"100vh",background:"#070e18",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'IBM Plex Sans',sans-serif",color:"rgba(240,246,255,0.5)",fontSize:13}}>
-        Loading template…
+function PVPage({parentLabel}){
+  return(<div className="page">
+    <HDR/>
+    <div className="acc" style={{background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#34d399)"}}/>
+    <div className="ftrow">
+      <div><div className="ftname">PRESSURE VESSEL INSPECTION \u2014 {parentLabel.toUpperCase()}</div><div className="ftsub">Pressure Test Certificate \xb7 MQWM Act Cap 44:02 \xb7 Valid 12 months</div></div>
+      <div className="ref-box"><div className="ref-label">Certificate No.</div><div className="ref-line"/><div className="ref-label" style={{marginTop:3}}>Inspection Date</div><div className="ref-line"/></div>
+    </div>
+    <div className="body">
+      <div className="sec"><div className="sec-hd" style={{background:"#065f46",color:"#d1fae5"}}><span className="dot" style={{background:"#34d399"}}/>Pressure Vessel / Air Receiver Details</div>
+        <div className="wg wg4">{["Serial Number","Description / Type","Manufacturer","Year of Manufacture","Capacity / Volume","Country of Origin","MAWP / Working Pressure","Pressure Unit"].map(f=><div className="wf" key={f}><div className="wl">{f}</div><div className="wln"/></div>)}</div>
+        <div className="wg wg3" style={{borderTop:"none"}}>{["Design Pressure (= MAWP)","Test Pressure (1.5 x MAWP)","Fleet / Reg No. (Parent Vehicle)"].map(f=><div className="wf" key={f}><div className="wl">{f}</div><div className="wln"/></div>)}</div>
       </div>
-    }>
-      <TemplatePrintInner />
-    </Suspense>
-  );
+      <div className="sec"><div className="sec-hd"><span className="dot" style={{background:"#22d3ee"}}/>Inspection Checklist</div>
+        <table className="cl"><thead><tr><th>Inspection Item</th><th>PASS \u2713</th><th>FAIL \u2717</th><th>N/A</th><th>Remarks</th></tr></thead>
+          <tbody>{["Shell / vessel condition \u2014 external visual","Shell / vessel condition \u2014 internal","Nozzles & flanges","Safety / relief valve fitted & operational","Pressure gauge fitted & reading correctly","Drain valve fitted & operational","Signs of corrosion, cracking or deformation","Nameplate legible & data correct","Pipe connections in good condition","No leaks in pipework","Vessel properly mounted / supported","Hydrostatic / pneumatic test performed"].map((item,i)=><tr key={i}><td><span className="ino">{String(i+1).padStart(2,"0")}</span>{item}</td><td><span className="chk"/></td><td><span className="chk"/></td><td><span className="chk"/></td><td style={{minWidth:60}}/></tr>)}</tbody>
+        </table>
+      </div>
+      <div className="sec"><div className="sec-hd" style={{background:"#7f1d1d",color:"#fee2e2"}}><span className="dot" style={{background:"#fca5a5"}}/>Defects</div>
+        <table className="dft"><thead><tr><th style={{width:"4%"}}>No.</th><th style={{width:"40%"}}>Defect Description</th><th style={{width:"22%"}}>Location</th><th style={{width:"18%"}}>Severity</th><th>Action Required</th></tr></thead>
+          <tbody>{[1,2,3].map(n=><tr key={n}><td style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:7.5,color:"#94a3b8",textAlign:"center"}}>{n}</td><td/><td/><td/><td/></tr>)}</tbody>
+        </table>
+      </div>
+      <div className="sec"><div className="sec-hd"><span className="dot" style={{background:"#22d3ee"}}/>Recommendations</div>
+        <div className="tf"><div className="tl">Recommendations</div>{[1,2].map(n=><div className="ln" key={n}/>)}</div>
+      </div>
+      <div className="sec"><div className="sec-hd" style={{background:"#065f46",color:"#d1fae5"}}><span className="dot" style={{background:"#34d399"}}/>Overall Vessel Result</div><RESULT/></div>
+      <div className="sec"><div className="sec-hd"><span className="dot" style={{background:"#22d3ee"}}/>Authorisation & Signatures</div><SIG/></div>
+    </div>
+    <FTR label="Pressure Vessel Inspection Form"/>
+  </div>);
+}
+
+function Inner(){
+  const sp=useSearchParams(),router=useRouter();
+  const id=sp.get("machine")||sp.get("type")||"";
+  const cfg=CONFIGS[id];
+  if(!cfg)return(<><style>{CSS}</style><div style={{minHeight:"100vh",background:"#070e18",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'IBM Plex Sans',sans-serif",color:"#f0f6ff",fontSize:14,textAlign:"center",padding:24}}><div><div style={{fontSize:32,marginBottom:12}}>📋</div><div style={{fontSize:14,fontWeight:700,marginBottom:8}}>Unknown equipment type</div><div style={{fontSize:12,color:"rgba(240,246,255,0.4)",marginBottom:20}}><code style={{background:"rgba(255,255,255,0.08)",padding:"2px 8px",borderRadius:4}}>{id||"(none)"}</code></div><button onClick={()=>router.back()} style={{padding:"10px 20px",borderRadius:10,border:"none",background:"rgba(34,211,238,0.15)",color:"#22d3ee",cursor:"pointer",fontWeight:800,fontFamily:"inherit",fontSize:13}}>← Back to Templates</button></div></div></>);
+  return(<><style>{CSS}</style>
+    <div className="toolbar">
+      <div className="tleft"><div className="ttitle">Blank Template \u2014 {cfg.label}</div><div className="tsub">All fields blank \xb7 {cfg.checklistFields.length} checklist items{cfg.hasPV?" \xb7 + Pressure Vessel pages":""} \xb7 fill in manually after printing</div></div>
+      <div className="tbtns"><button type="button" className="tbtn tbtn-back" onClick={()=>router.back()}>← Back</button><button type="button" className="tbtn tbtn-print" onClick={()=>window.print()}>\ud83d\uddb8 Print</button></div>
+    </div>
+    <div className="content">
+      <Page cfg={cfg}/>
+      {cfg.hasPV&&<PVPage parentLabel={cfg.label}/>}
+      {cfg.hasPV&&<PVPage parentLabel={cfg.label}/>}
+    </div>
+  </>);
+}
+
+export default function TemplatePrintPage(){
+  return(<Suspense fallback={<div style={{minHeight:"100vh",background:"#070e18",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'IBM Plex Sans',sans-serif",color:"rgba(240,246,255,0.5)",fontSize:13}}>Loading template…</div>}><Inner/></Suspense>);
 }
