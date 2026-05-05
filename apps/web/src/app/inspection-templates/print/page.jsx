@@ -33,28 +33,61 @@ import { useSearchParams } from "next/navigation";
 /* ══════════════════════════════════════════════════════════════
    ROUTING LISTS
 ══════════════════════════════════════════════════════════════ */
-const TABLE_TYPES  = ["wire rope sling","chain sling","bottle jack"];
-const SINGLE_TYPES = ["pressure vessel","air receiver","boiler","autoclave"];
 
-// Lifting tackle — NO vehicle identity, NO PV section
-const TACKLE_TYPES = [
-  "shackle","d-shackle","bow shackle","dee shackle",
-  "hook","crane hook","grab hook","clevis hook",
-  "eye bolt","eyebolt",
-  "fork arm",
-  "wire rope",   // standalone wire rope (not sling)
+// Exact-match table types — batch row format, 14/page
+const TABLE_TYPES  = ["wire rope sling","chain sling","bottle jack"];
+
+// Single full-A4 page — pressure systems only
+const SINGLE_TYPES = [
+  "pressure vessel","air receiver","boiler","autoclave",
+  "air compressor","sandblast pot","oxygen tank",
 ];
 
-// Horse & trailer — vehicle identity + trailer reg, NO PV section
+// Lifting tackle & accessories — NO Reg, NO Fleet, NO PV section
+// These are matched against the full type string (lowercased)
+const TACKLE_KEYWORDS = [
+  // Shackles
+  "shackle",
+  // Hooks
+  "hook","crane hook","grab hook","clevis hook","hook block",
+  // Eyebolts
+  "eye bolt","eyebolt",
+  // Fork arms
+  "fork arm",
+  // Wire rope standalone (NOT sling — slings are TABLE above)
+  "wire rope",
+  // Clamps & beams
+  "clamp","spreader beam","lift beam","lifting beam","crawl beam","lifting accessory","universal lifter",
+  // Slings that are NOT wire rope sling / chain sling (those are TABLE)
+  "webbing sling","round sling","wire sling","polyester sling","flat web sling",
+  "multi-leg chain sling","4-leg chain sling","endless round sling",
+  // Chain hoists & blocks (hand-operated lifting devices, no reg)
+  "chain block","chain hoist","lever hoist","tirfor","davit","crane boom",
+  // Fall protection
+  "safety harness","harness","lanyard","rope absorber","shock absorber",
+];
+
+// Horse & trailer — vehicle identity + trailer reg row, NO PV section
 const HT_TYPES = ["horse","trailer","lowbed","horse and trailer","horse & trailer"];
 
 function routeType(raw) {
   const t = (raw || "").toLowerCase();
-  if (TABLE_TYPES.some(k  => t.includes(k))) return "table";
+
+  // 1. Multi-leg / 4-leg / endless slings contain "chain sling" — catch BEFORE table check
+  if (t.includes("multi-leg") || t.includes("4-leg") || t.includes("4 leg") ||
+      t.includes("multi leg")  || t.includes("endless")) return "quad-tackle";
+
+  // 2. TABLE — batch row 14/page: wire rope sling, chain sling, bottle jack
+  if (TABLE_TYPES.some(k => t.includes(k))) return "table";
+
+  // 3. SINGLE — full A4: pressure vessels & pressure systems
   if (SINGLE_TYPES.some(k => t.includes(k))) return "single";
-  // Tackle check: must not accidentally catch "wire rope sling" (already TABLE)
-  if (TACKLE_TYPES.some(k => t.includes(k) && !t.includes("sling"))) return "quad-tackle";
-  return "quad-machine";   // all other machines + horse & trailer
+
+  // 4. QUAD-TACKLE — lifting tackle & accessories: no Reg, no Fleet, no PV
+  if (TACKLE_KEYWORDS.some(k => t.includes(k))) return "quad-tackle";
+
+  // 5. QUAD-MACHINE — everything else: machines, vehicles, cranes with cabs
+  return "quad-machine";
 }
 
 function isHT(raw) {
