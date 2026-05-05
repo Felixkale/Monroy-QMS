@@ -1,23 +1,29 @@
 // src/app/inspection-templates/print/page.jsx
 // ─────────────────────────────────────────────────────────────────────────────
-// BLANK INSPECTION TEMPLATE — Multi-unit A4 print page
+// BLANK INSPECTION TEMPLATE — Multi-unit A4 print
 //
-// LAYOUT ROUTING:
-//   TABLE  → Wire Rope Sling, Chain Sling, Bottle Jack
-//             Batch row table — 14 units per page
+// ROUTING:
+//   TABLE         → Wire Rope Sling, Chain Sling, Bottle Jack
+//                   Batch row table — 14 units/page
 //
-//   QUAD   → All machines: Crane, Telehandler, Cherry Picker, Forklift,
-//             Mixer Truck, Diesel Bowser, Water Bowser, Grader, TLB, Bus,
-//             Compactor, Shackle, Hook, Eye Bolt, Fork Arm, Wire Rope,
-//             Horse & Trailer, and any other equipment type
-//             Shared header + 4 mini-units per page (2×2 grid)
-//             Each unit: Reg / Fleet / Model (+ Trailer Reg for H&T)
-//                        Type-specific checklist
-//                        Full Pressure Vessel section
-//                        Result + signatures
+//   QUAD MACHINE  → Crane, Telehandler, Cherry Picker, Forklift,
+//                   Mixer Truck, Diesel Bowser, Water Bowser,
+//                   Grader, TLB, Bus, Compactor, Horse & Trailer
+//                   Shared header + 4 units/page
+//                   Each unit: Reg / Fleet / Model
+//                              Inspection checklist
+//                              Onboard Pressure Vessel (full fields)
+//                              Result + Signatures
+//                   (Horse & Trailer: adds Trailer Reg row, NO PV section)
 //
-//   SINGLE → Pressure Vessel, Air Receiver, Boiler, Autoclave
-//             Full A4 — one unit (too complex to compress)
+//   QUAD TACKLE   → Shackle, Hook, Eye Bolt, Fork Arm, Wire Rope (standalone)
+//                   Shared header + 4 units/page
+//                   Each unit: Tag/ID + Serial + SWL + specific tech fields
+//                              Inspection checklist (NO Reg, NO Fleet, NO PV)
+//                              Result + Signatures
+//
+//   SINGLE        → Pressure Vessel, Air Receiver, Boiler, Autoclave
+//                   Full A4 — 1 unit/page
 // ─────────────────────────────────────────────────────────────────────────────
 
 "use client";
@@ -25,26 +31,39 @@ import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 /* ══════════════════════════════════════════════════════════════
-   ROUTING
+   ROUTING LISTS
 ══════════════════════════════════════════════════════════════ */
-const TABLE_TYPES  = ["wire rope sling", "chain sling", "bottle jack"];
-const SINGLE_TYPES = ["pressure vessel", "air receiver", "boiler", "autoclave"];
+const TABLE_TYPES  = ["wire rope sling","chain sling","bottle jack"];
+const SINGLE_TYPES = ["pressure vessel","air receiver","boiler","autoclave"];
+
+// Lifting tackle — NO vehicle identity, NO PV section
+const TACKLE_TYPES = [
+  "shackle","d-shackle","bow shackle","dee shackle",
+  "hook","crane hook","grab hook","clevis hook",
+  "eye bolt","eyebolt",
+  "fork arm",
+  "wire rope",   // standalone wire rope (not sling)
+];
+
+// Horse & trailer — vehicle identity + trailer reg, NO PV section
+const HT_TYPES = ["horse","trailer","lowbed","horse and trailer","horse & trailer"];
 
 function routeType(raw) {
   const t = (raw || "").toLowerCase();
   if (TABLE_TYPES.some(k  => t.includes(k))) return "table";
   if (SINGLE_TYPES.some(k => t.includes(k))) return "single";
-  return "quad";
+  // Tackle check: must not accidentally catch "wire rope sling" (already TABLE)
+  if (TACKLE_TYPES.some(k => t.includes(k) && !t.includes("sling"))) return "quad-tackle";
+  return "quad-machine";   // all other machines + horse & trailer
 }
 
-// Horse & trailer needs an extra trailer reg row
-function isHorseTrailer(raw) {
+function isHT(raw) {
   const t = (raw || "").toLowerCase();
-  return t.includes("horse") || t.includes("trailer") || t.includes("lowbed");
+  return HT_TYPES.some(k => t.includes(k));
 }
 
 /* ══════════════════════════════════════════════════════════════
-   TOKENS
+   COLOUR TOKENS
 ══════════════════════════════════════════════════════════════ */
 const RED  = "#cc0000";
 const NAVY = "#0b1d3a";
@@ -53,80 +72,73 @@ const MGREY= "#777";
 const WHITE= "#ffffff";
 const LINE = "#000000";
 
+const pageStyle = {
+  width:"210mm", minHeight:"297mm", maxHeight:"297mm",
+  padding:"7mm 9mm 5mm", background:WHITE,
+  fontFamily:"'Arial','Helvetica',sans-serif", fontSize:9, color:"#333",
+  boxSizing:"border-box", display:"flex", flexDirection:"column",
+  overflow:"hidden", pageBreakAfter:"always", breakAfter:"page",
+};
+
 /* ══════════════════════════════════════════════════════════════
    PRIMITIVES
 ══════════════════════════════════════════════════════════════ */
-
-// Labelled write-line
-function WL({ label, flex = 1, mono }) {
+function WL({ label, flex=1, mono }) {
   return (
     <div style={{ display:"flex", flexDirection:"column", flex, minWidth:0 }}>
-      <span style={{ fontSize:6, color:MGREY, lineHeight:1, marginBottom:1 }}>{label}</span>
-      <div style={{
-        borderBottom:`1px solid ${LINE}`, minHeight:11,
-        fontFamily: mono ? "monospace" : "inherit",
-      }}>&nbsp;</div>
+      <span style={{ fontSize:5.5, color:MGREY, lineHeight:1, marginBottom:1 }}>{label}</span>
+      <div style={{ borderBottom:`1px solid ${LINE}`, minHeight:11,
+        fontFamily:mono?"monospace":"inherit" }}>&nbsp;</div>
     </div>
   );
 }
 
-// Row of write-lines
-function WR({ fields, mb = 3 }) {
+function WR({ fields, mb=3 }) {
   return (
-    <div style={{ display:"flex", gap:5, marginBottom:mb }}>
-      {fields.map((f, i) => (
-        <WL key={i} label={f.l} flex={f.f || 1} mono={f.mono} />
-      ))}
+    <div style={{ display:"flex", gap:4, marginBottom:mb }}>
+      {fields.map((f,i) => <WL key={i} label={f.l} flex={f.f||1} mono={f.mono} />)}
     </div>
   );
 }
 
-// Checkbox item  ☐P ☐F label
 function CK({ label }) {
   return (
-    <div style={{ display:"flex", alignItems:"flex-start", gap:2, marginBottom:2.5, pageBreakInside:"avoid" }}>
-      <div style={{ width:7, height:7, border:`1px solid ${LINE}`, flexShrink:0, marginTop:0.5 }} />
-      <div style={{ width:7, height:7, border:`1px solid ${LINE}`, flexShrink:0, marginTop:0.5 }} />
-      <span style={{ fontSize:6.5, lineHeight:1.25, flex:1 }}>{label}</span>
+    <div style={{ display:"flex", alignItems:"flex-start", gap:2, marginBottom:2 }}>
+      <div style={{ width:7,height:7, border:`1px solid ${LINE}`, flexShrink:0, marginTop:1 }} />
+      <div style={{ width:7,height:7, border:`1px solid ${LINE}`, flexShrink:0, marginTop:1 }} />
+      <span style={{ fontSize:6.5, lineHeight:1.2, flex:1 }}>{label}</span>
     </div>
   );
 }
 
-// Section box with navy title bar
-function SB({ title, children, flex, mb = 3 }) {
+function SB({ title, children, flex, mb=3, s }) {
   return (
-    <div style={{ border:"1px solid #ccc", marginBottom:mb, flex: flex || undefined, minHeight:0 }}>
-      <div style={{
-        background:NAVY, color:WHITE, fontWeight:700,
-        fontSize:6.5, padding:"1.5px 4px", letterSpacing:0.3,
-      }}>{title}</div>
+    <div style={{ border:"1px solid #ccc", marginBottom:mb,
+      flex:flex||undefined, minHeight:0, ...s }}>
+      <div style={{ background:NAVY, color:WHITE, fontWeight:700,
+        fontSize:6.5, padding:"1.5px 4px", letterSpacing:0.3 }}>{title}</div>
       <div style={{ padding:"3px 4px" }}>{children}</div>
     </div>
   );
 }
 
 /* ══════════════════════════════════════════════════════════════
-   PAGE HEADER — printed once per page, shared by all 4 units
+   PAGE HEADER + FOOTER + SHARED IDENTITY ROW
 ══════════════════════════════════════════════════════════════ */
 function PageHeader({ equipType, perPage }) {
   return (
-    <div style={{
-      display:"flex", justifyContent:"space-between", alignItems:"flex-start",
-      borderBottom:`2.5px solid ${RED}`, paddingBottom:5, marginBottom:6,
-    }}>
-      {/* Logo + company */}
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start",
+      borderBottom:`2.5px solid ${RED}`, paddingBottom:5, marginBottom:5 }}>
       <div style={{ display:"flex", alignItems:"flex-start", gap:8 }}>
-        <div style={{
-          background:NAVY, color:WHITE, padding:"4px 8px", borderRadius:2,
-          textAlign:"center", lineHeight:1.25,
-        }}>
+        <div style={{ background:NAVY, color:WHITE, padding:"4px 8px", borderRadius:2,
+          textAlign:"center", lineHeight:1.25 }}>
           <div style={{ fontSize:5.5, color:"#aaa", letterSpacing:1 }}>MONROY</div>
           <div style={{ fontSize:13, fontWeight:900 }}>M</div>
           <div style={{ fontSize:5.5, color:"#aaa" }}>(PTY) LTD</div>
         </div>
         <div>
           <div style={{ fontWeight:900, fontSize:10, color:NAVY, marginBottom:1 }}>MONROY (PTY) LTD</div>
-          <div style={{ fontSize:6, color:MGREY, maxWidth:300, lineHeight:1.45 }}>
+          <div style={{ fontSize:6, color:MGREY, maxWidth:300, lineHeight:1.4 }}>
             Mobile Crane Hire · Rigging · NDT Testing · Scaffolding · Painting ·
             Inspection of Lifting Equipment &amp; Machinery · Pressure Vessels &amp; Air Receivers ·
             Steel Fabrication · Mechanical Engineering · Maintenance
@@ -136,13 +148,11 @@ function PageHeader({ equipType, perPage }) {
           </div>
         </div>
       </div>
-
-      {/* Doc label */}
       <div style={{ textAlign:"right", minWidth:148 }}>
-        <div style={{
-          background:RED, color:WHITE, fontWeight:900, fontSize:8.5,
-          padding:"3px 8px", borderRadius:2, marginBottom:3, display:"inline-block",
-        }}>BLANK INSPECTION TEMPLATE</div>
+        <div style={{ background:RED, color:WHITE, fontWeight:900, fontSize:8.5,
+          padding:"3px 8px", borderRadius:2, marginBottom:3, display:"inline-block" }}>
+          BLANK INSPECTION TEMPLATE
+        </div>
         <div style={{ fontSize:8, fontWeight:700, color:NAVY }}>{(equipType||"").toUpperCase()}</div>
         <div style={{ fontSize:6.5, color:MGREY, marginTop:1 }}>{perPage}</div>
         <div style={{ fontSize:6, color:MGREY, marginTop:1 }}>
@@ -153,8 +163,7 @@ function PageHeader({ equipType, perPage }) {
   );
 }
 
-// Shared client/site/date/inspector row — filled once for the whole page
-function PageIdentity() {
+function SharedRow() {
   return (
     <div style={{ display:"flex", gap:8, marginBottom:5 }}>
       <WL label="Client / Company"   flex={2} />
@@ -168,21 +177,78 @@ function PageIdentity() {
 
 function PageFooter() {
   return (
-    <div style={{
-      marginTop:"auto", borderTop:`1px solid ${RED}`, paddingTop:3,
-      display:"flex", justifyContent:"space-between", fontSize:6, color:MGREY,
-    }}>
+    <div style={{ marginTop:"auto", borderTop:`1px solid ${RED}`, paddingTop:3,
+      display:"flex", justifyContent:"space-between", fontSize:6, color:MGREY }}>
       <span>Monroy (Pty) Ltd · Mophane Avenue, Maun, Botswana · Quality · Safety · Excellence</span>
-      <span>All inspections performed by a Competent Person — Cap 44:02 of Botswana</span>
+      <span>All inspections by a Competent Person — Cap 44:02 of Botswana</span>
     </div>
   );
 }
 
 /* ══════════════════════════════════════════════════════════════
-   CHECKLIST DATA — per equipment type
+   CHECKLISTS
 ══════════════════════════════════════════════════════════════ */
 function getChecklist(raw) {
   const t = (raw || "").toLowerCase();
+
+  if (t.includes("shackle")) return [
+    "Body — no cracks, gouges or deformation",
+    "Throat opening within tolerance (≤5% wear)",
+    "Pin — not bent, no wear groove",
+    "Pin thread — fully engaged & moused",
+    "SWL stamped & legible on body",
+    "Grade mark present & legible",
+    "No corrosion pitting on body or pin",
+    "Proof load test performed & recorded",
+  ];
+
+  if (t.includes("hook")) return [
+    "Safety latch — present & functional",
+    "Throat opening within 5% of nominal",
+    "Twist ≤ 10° from plane of hook",
+    "No cracks at shank or bowl",
+    "No gouges from sling contact",
+    "Wear at saddle < 10% diameter loss",
+    "Swivel — free rotation, no seizure",
+    "SWL / traceability mark legible",
+  ];
+
+  if (t.includes("eye bolt") || t.includes("eyebolt")) return [
+    "Shoulder seated flush on mating surface",
+    "Thread engagement ≥ 1× bolt diameter",
+    "Eye ring — no cracks or deformation",
+    "Thread — no stripping or cross-threading",
+    "No bend or deformation at shank",
+    "SWL & angle rating stamped & legible",
+    "Locking / backing nut fitted",
+    "Proof load test performed & recorded",
+  ];
+
+  if (t.includes("fork arm") || (t.includes("fork") && !t.includes("forklift"))) return [
+    "Blade wear — heel thickness ≥ 90% original",
+    "Tip thickness within tolerance",
+    "Blade — no cracks (MPI/PT if required)",
+    "Shank & heel — no deformation",
+    "Lateral bending ≤ 0.5% of blade length",
+    "Vertical bending ≤ 0.5% of blade length",
+    "Hook & locking pawl condition",
+    "SWL marking present & legible",
+  ];
+
+  if (t.includes("wire rope") && !t.includes("sling")) return [
+    "Broken wires — count per lay length",
+    "Broken wires at end terminations",
+    "Diameter reduction > 3% of nominal",
+    "External corrosion condition",
+    "Internal corrosion (probe check)",
+    "Kinking, crushing or bird-caging",
+    "Abrasion / wear on outer wires",
+    "End termination — type & condition",
+    "Drum spooling & fleet angle OK",
+    "Lubrication — adequate coverage",
+    "Sheave groove condition",
+    "Rope lay consistent along length",
+  ];
 
   if (t.includes("crane") && !t.includes("overhead")) return [
     "Hook condition & safety latch",
@@ -209,13 +275,11 @@ function getChecklist(raw) {
     "Limit switches — upper, lower, travel",
     "End stops on all axes",
     "Rail & runway condition",
-    "Conductor rail / festoon system",
     "Structural girder — welds & deflection",
     "Electrical controls & pendant",
     "Overload protection device",
     "SWL marking on bridge",
     "Load test performed & result",
-    "Emergency stop functional",
   ];
 
   if (t.includes("telehandler")) return [
@@ -237,7 +301,7 @@ function getChecklist(raw) {
     "Platform structure & guardrails",
     "Platform gate & self-closing latch",
     "Self-levelling system function",
-    "Emergency lowering — manual operation",
+    "Emergency lowering — manual",
     "Tilt alarm & platform cut-out",
     "Overload protection device",
     "Hydraulic cylinders & seals",
@@ -260,11 +324,11 @@ function getChecklist(raw) {
     "Load backrest extension",
     "Service brake & parking brake",
     "Steering system",
-    "Capacity plate — legible in cab",
+    "Capacity plate legible in cab",
   ];
 
   if (t.includes("mixer") || t.includes("concrete truck")) return [
-    "Drum shell — cracks, corrosion, wear on fins",
+    "Drum shell — cracks, corrosion, fin wear",
     "Drum drive — PTO, gearbox & chain",
     "Discharge chute & scraper",
     "Water pump & spray bar",
@@ -282,7 +346,7 @@ function getChecklist(raw) {
     "Tank shell — dents, cracks, corrosion",
     "Bund / secondary containment",
     "Fuel pump & flowmeter condition",
-    "Delivery hose — no cracking / perishing",
+    "Delivery hose — no cracking/perishing",
     "Nozzle & deadman handle",
     "Earthing / bonding point functional",
     "Emergency shut-off valves",
@@ -324,9 +388,9 @@ function getChecklist(raw) {
   ];
 
   if (t.includes("tlb") || t.includes("backhoe") || t.includes("jcb")) return [
-    "Bucket — edge wear, cracks, pins",
+    "Bucket — edge wear, cracks & pins",
     "Boom & dipper arm — welds & pins",
-    "Hydraulic cylinders — no drift / leaks",
+    "Hydraulic cylinders — no drift/leaks",
     "Loader bucket & linkage",
     "Stabiliser legs & pads",
     "Tyres & wheels",
@@ -350,7 +414,7 @@ function getChecklist(raw) {
     "Fire extinguisher mounted & tagged",
     "First aid kit present",
     "Engine — oil, coolant, belts",
-    "Exhaust system — no leaks into cabin",
+    "Exhaust — no leaks into cabin",
   ];
 
   if (t.includes("compactor") || t.includes("roller")) return [
@@ -368,65 +432,6 @@ function getChecklist(raw) {
     "Pad feet condition (if pad foot type)",
   ];
 
-  if (t.includes("shackle")) return [
-    "Body — no cracks, gouges or deformation",
-    "Throat opening within tolerance (≤5% wear)",
-    "Pin — not bent, no wear groove",
-    "Pin thread — fully engaged & moused",
-    "SWL stamped & legible",
-    "Grade mark present & legible",
-    "No corrosion pitting on body or pin",
-    "Proof load test performed",
-  ];
-
-  if (t.includes("hook")) return [
-    "Safety latch — present & functional",
-    "Throat opening within 5% of nominal",
-    "Twist ≤ 10° from plane of hook",
-    "No cracks at shank or bowl",
-    "No gouges from sling contact",
-    "Wear at saddle < 10% diameter loss",
-    "Swivel — free rotation, no seizure",
-    "Traceability mark / SWL legible",
-  ];
-
-  if (t.includes("eye bolt") || t.includes("eyebolt")) return [
-    "Shoulder seated flush on mating surface",
-    "Thread engagement ≥ 1× bolt diameter",
-    "Eye ring — no cracks or deformation",
-    "Thread — no stripping or cross-threading",
-    "No bend or deformation at shank",
-    "SWL & angle rating stamped & legible",
-    "Locking / backing nut fitted",
-    "Proof load test performed",
-  ];
-
-  if (t.includes("fork arm") || (t.includes("fork") && !t.includes("forklift"))) return [
-    "Blade wear — heel thickness ≥ 90% original",
-    "Tip thickness within tolerance",
-    "Blade — no cracks (MPI/PT if required)",
-    "Shank & heel — no deformation",
-    "Lateral bending ≤ 0.5% of blade length",
-    "Vertical bending ≤ 0.5% of blade length",
-    "Hook & locking pawl condition",
-    "SWL marking present & legible",
-  ];
-
-  if (t.includes("wire rope") && !t.includes("sling")) return [
-    "Broken wires — count per lay length",
-    "Broken wires at end terminations",
-    "Diameter reduction > 3% of nominal",
-    "External corrosion condition",
-    "Internal corrosion (probe check)",
-    "Kinking, crushing or bird-caging",
-    "Abrasion / wear on outer wires",
-    "End termination — type & condition",
-    "Drum spooling & fleet angle OK",
-    "Lubrication — adequate coverage",
-    "Sheave groove condition",
-    "Rope lay consistent along length",
-  ];
-
   if (t.includes("horse") || t.includes("trailer") || t.includes("lowbed")) return [
     "Fifth wheel / king pin — wear & lock",
     "Fifth wheel locking mechanism",
@@ -442,7 +447,7 @@ function getChecklist(raw) {
     "Suspension — springs & bushes",
   ];
 
-  // Generic fallback for any unrecognised type
+  // Generic machine fallback
   return [
     "Visual inspection — no cracks or damage",
     "Functional test — all systems operational",
@@ -456,41 +461,113 @@ function getChecklist(raw) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   SINGLE MINI-CERT UNIT  (one of four on the quad page)
-   Layout:
-     ┌─ UNIT N  ─────────────────────────────────┐
-     │ Reg No. | Fleet No. | Model               │
-     │ (Horse & Trailer also has Trailer Reg row) │
-     ├─ INSPECTION CHECKLIST ────────────────────┤
-     │ ☐☐ item  ☐☐ item  …                       │
-     ├─ ONBOARD PRESSURE VESSEL ─────────────────┤
-     │ Description | WP | TP | Cap | SV | Last   │
-     ├─ RESULT ──────────────────────────────────┤
-     │ ☐PASS ☐FAIL ☐CONDITIONAL ☐REPAIR REQ     │
-     ├─ REMARKS ─────────────────────────────────┤
-     │ ___  ___                                  │
-     ├─ SIGNATURES ──────────────────────────────┤
-     │ Inspector: ___  ID: ___  Sign: ___        │
-     │ Client:    ___  Date:___  Sign: ___       │
-     └───────────────────────────────────────────┘
+   TACKLE-SPECIFIC TECHNICAL FIELDS (no reg, no fleet, no PV)
 ══════════════════════════════════════════════════════════════ */
-function MiniUnit({ n, equipType }) {
-  const ht = isHorseTrailer(equipType);
+function getTackleIdFields(raw) {
+  const t = (raw || "").toLowerCase();
+
+  if (t.includes("shackle")) return {
+    rows: [
+      [{l:"Tag / ID No.",      f:1, mono:true},{l:"Type (Bow / D / Screw Pin)",f:2},{l:"Grade / Standard",f:1}],
+      [{l:"Body Size (mm)",    f:1},{l:"SWL (t)",f:1},{l:"Proof Load (t)",f:1},{l:"Manufacturer",f:2}],
+    ],
+  };
+
+  if (t.includes("hook")) return {
+    rows: [
+      [{l:"Tag / ID No.",      f:1, mono:true},{l:"Type (Clevis / Eye / Grab)",f:2},{l:"Grade / Standard",f:1}],
+      [{l:"SWL (t)",           f:1},{l:"Throat Opening — Actual (mm)",f:1.5},{l:"Throat Max Allowed (mm)",f:1.5},{l:"Twist from Plane (°)",f:1}],
+    ],
+  };
+
+  if (t.includes("eye bolt") || t.includes("eyebolt")) return {
+    rows: [
+      [{l:"Tag / ID No.",      f:1, mono:true},{l:"Type (Shouldered / Plain)",f:2},{l:"Thread Size",f:1},{l:"Material Grade",f:1}],
+      [{l:"SWL Vertical (t)",  f:1},{l:"SWL @ 45° (t)",f:1},{l:"SWL @ 90° (t)",f:1},{l:"Proof Load (t)",f:1}],
+    ],
+  };
+
+  if (t.includes("fork arm") || (t.includes("fork") && !t.includes("forklift"))) return {
+    rows: [
+      [{l:"Fork No. / ID",     f:1, mono:true},{l:"Pair (L / R)",f:1},{l:"Blade Length (mm)",f:1},{l:"Blade Width (mm)",f:1}],
+      [{l:"Heel Thickness (mm)",f:1},{l:"Tip Thickness (mm)",f:1},{l:"SWL (t)",f:1},{l:"Load Centre (mm)",f:1}],
+    ],
+  };
+
+  if (t.includes("wire rope")) return {
+    rows: [
+      [{l:"Rope ID / Ref",     f:1, mono:true},{l:"Construction (e.g. 6×36 IWRC)",f:2},{l:"Grade (e.g. 1770)",f:1}],
+      [{l:"Nominal Dia. (mm)", f:1},{l:"Actual Dia. (mm)",f:1},{l:"Breaking Force (kN)",f:1},{l:"Length (m)",f:1}],
+    ],
+  };
+
+  // Generic tackle fallback
+  return {
+    rows: [
+      [{l:"Tag / ID No.",      f:1, mono:true},{l:"Description / Type",f:2},{l:"Standard / Grade",f:1}],
+      [{l:"SWL (t)",           f:1},{l:"Proof Load (t)",f:1},{l:"Manufacturer",f:2}],
+    ],
+  };
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SHARED RESULT + SIGNATURES STRIP
+══════════════════════════════════════════════════════════════ */
+function ResultAndSign() {
+  return (
+    <>
+      {/* Result */}
+      <div style={{ border:"1px solid #ccc", padding:"2px 5px", marginBottom:3,
+        display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
+        <span style={{ fontWeight:700, fontSize:6.5, color:NAVY, marginRight:2 }}>RESULT:</span>
+        {["PASS","FAIL","CONDITIONAL","REPAIR REQ."].map(r => (
+          <span key={r} style={{ display:"flex", alignItems:"center", gap:2, fontSize:6.5 }}>
+            <span style={{ display:"inline-block", width:7, height:7, border:`1px solid ${LINE}` }} />
+            {r}
+          </span>
+        ))}
+      </div>
+      {/* Remarks */}
+      <SB title="REMARKS / DEFECTS" mb={3}>
+        {[0,1].map(i => (
+          <div key={i} style={{ borderBottom:"1px solid #ddd", minHeight:10, marginBottom:3 }} />
+        ))}
+      </SB>
+      {/* Signatures */}
+      <div style={{ display:"flex", gap:4, flexShrink:0 }}>
+        {[["Inspector","ID / Cert No.","Signature"],["Client Rep","Date","Signature"]].map((cols,i) => (
+          <div key={i} style={{ flex:1, border:"1px solid #ccc", padding:"2px 4px" }}>
+            {cols.map((lbl,j) => (
+              <div key={j} style={{ marginBottom:j<2?3:0 }}>
+                <span style={{ fontSize:6, color:MGREY }}>{lbl}: </span>
+                <span style={{ display:"inline-block", borderBottom:`1px solid ${LINE}`,
+                  width:"55%", marginLeft:2 }}>&nbsp;</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MINI UNIT — MACHINE
+   Reg No. / Fleet No. / Model → Checklist → PV → Result + Sign
+   Horse & Trailer: adds Trailer Reg row, skips PV
+══════════════════════════════════════════════════════════════ */
+function MachineMiniUnit({ n, equipType }) {
+  const ht = isHT(equipType);
   const checks = getChecklist(equipType);
   const half = Math.ceil(checks.length / 2);
 
   return (
-    <div style={{
-      border:`1.5px solid ${NAVY}`, borderRadius:2,
-      display:"flex", flexDirection:"column",
-      overflow:"hidden", flex:1, minHeight:0,
-    }}>
-      {/* Unit header bar */}
-      <div style={{
-        background:NAVY, color:WHITE, fontWeight:900, fontSize:7.5,
+    <div style={{ border:`1.5px solid ${NAVY}`, borderRadius:2, display:"flex",
+      flexDirection:"column", overflow:"hidden", flex:1, minHeight:0 }}>
+      {/* Unit bar */}
+      <div style={{ background:NAVY, color:WHITE, fontWeight:900, fontSize:7.5,
         padding:"2px 5px", display:"flex", justifyContent:"space-between",
-        alignItems:"center", flexShrink:0,
-      }}>
+        alignItems:"center", flexShrink:0 }}>
         <span>UNIT {n}</span>
         <span style={{ fontWeight:400, fontSize:6, color:"#9db3cc" }}>
           {(equipType||"").toUpperCase()}
@@ -499,12 +576,12 @@ function MiniUnit({ n, equipType }) {
 
       <div style={{ padding:"3px 4px", flex:1, display:"flex", flexDirection:"column" }}>
 
-        {/* ── EQUIPMENT IDENTITY ── */}
-        <SB title="EQUIPMENT IDENTITY" mb={3}>
+        {/* ── MACHINE IDENTITY: Reg / Fleet / Model ── */}
+        <SB title="MACHINE IDENTITY" mb={3}>
           <WR fields={[
-            {l:"Reg / Registration No.", f:2, mono:true},
-            {l:"Fleet No.",              f:1, mono:true},
-            {l:"Make & Model",           f:2},
+            {l:"Registration No.", f:2, mono:true},
+            {l:"Fleet No.",        f:1, mono:true},
+            {l:"Make & Model",     f:2},
           ]} mb={0} />
           {ht && (
             <WR fields={[
@@ -515,104 +592,107 @@ function MiniUnit({ n, equipType }) {
           )}
         </SB>
 
-        {/* ── INSPECTION CHECKLIST ── */}
-        <SB title="INSPECTION CHECKLIST   ☐ = Pass     ☐ = Fail" mb={3} flex={1}>
+        {/* ── CHECKLIST ── */}
+        <SB title="INSPECTION CHECKLIST   ☐ = Pass   ☐ = Fail" mb={3} flex={1}>
           <div style={{ display:"flex", gap:6 }}>
             <div style={{ flex:1 }}>
-              {checks.slice(0, half).map((item, i) => <CK key={i} label={item} />)}
+              {checks.slice(0, half).map((item,i) => <CK key={i} label={item} />)}
             </div>
             <div style={{ flex:1 }}>
-              {checks.slice(half).map((item, i) => <CK key={i} label={item} />)}
+              {checks.slice(half).map((item,i) => <CK key={i} label={item} />)}
             </div>
           </div>
         </SB>
 
-        {/* ── ONBOARD PRESSURE VESSEL ── */}
-        <SB title="ONBOARD PRESSURE VESSEL(S)" mb={3}>
-          <WR fields={[
-            {l:"PV Description / Location", f:2},
-            {l:"Working Pressure (bar)",    f:1},
-            {l:"Test Pressure (bar)",       f:1},
-          ]} mb={3} />
-          <WR fields={[
-            {l:"Capacity / Volume (L)",     f:1},
-            {l:"Safety Valve Set (bar)",    f:1},
-            {l:"Last Test Date",            f:1},
-            {l:"Result (P/F)",              f:1},
-          ]} mb={0} />
-        </SB>
+        {/* ── ONBOARD PRESSURE VESSEL (machines only, not H&T) ── */}
+        {!ht && (
+          <SB title="ONBOARD PRESSURE VESSEL(S)" mb={3}>
+            <WR fields={[
+              {l:"PV Description / Location", f:2},
+              {l:"Working Pressure (bar)",    f:1},
+              {l:"Test Pressure (bar)",       f:1},
+            ]} mb={3} />
+            <WR fields={[
+              {l:"Capacity / Volume (L)",  f:1},
+              {l:"Safety Valve Set (bar)", f:1},
+              {l:"Last Test Date",         f:1},
+              {l:"Result (P / F)",         f:1},
+            ]} mb={0} />
+          </SB>
+        )}
 
-        {/* ── OVERALL RESULT ── */}
-        <div style={{
-          border:"1px solid #ccc", padding:"2px 5px", marginBottom:3,
-          display:"flex", alignItems:"center", gap:8, flexShrink:0,
-        }}>
-          <span style={{ fontWeight:700, fontSize:6.5, color:NAVY, marginRight:2 }}>RESULT:</span>
-          {["PASS","FAIL","CONDITIONAL","REPAIR REQ."].map(r => (
-            <span key={r} style={{ display:"flex", alignItems:"center", gap:2, fontSize:6.5 }}>
-              <span style={{ display:"inline-block", width:7, height:7, border:`1px solid ${LINE}` }} />
-              {r}
-            </span>
-          ))}
-        </div>
-
-        {/* ── REMARKS ── */}
-        <SB title="REMARKS / DEFECTS" mb={3}>
-          {[0,1].map(i => (
-            <div key={i} style={{
-              borderBottom:"1px solid #ddd", minHeight:10, marginBottom:3,
-            }} />
-          ))}
-        </SB>
-
-        {/* ── SIGNATURES ── */}
-        <div style={{ display:"flex", gap:4, flexShrink:0 }}>
-          {[
-            ["Inspector","ID / Cert No.","Signature"],
-            ["Client Rep","Date","Signature"],
-          ].map((cols, i) => (
-            <div key={i} style={{ flex:1, border:"1px solid #ccc", padding:"2px 4px" }}>
-              {cols.map((lbl, j) => (
-                <div key={j} style={{ marginBottom: j < 2 ? 3 : 0 }}>
-                  <span style={{ fontSize:6, color:MGREY }}>{lbl}: </span>
-                  <span style={{
-                    display:"inline-block",
-                    borderBottom:`1px solid ${LINE}`,
-                    width:"58%", marginLeft:2,
-                  }}>&nbsp;</span>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-
+        <ResultAndSign />
       </div>
     </div>
   );
 }
 
 /* ══════════════════════════════════════════════════════════════
-   QUAD TEMPLATE — shared header + 4 mini-units (2×2 grid)
+   MINI UNIT — LIFTING TACKLE
+   Tag/ID + type-specific tech fields → Checklist → Result + Sign
+   NO Registration, NO Fleet No., NO Pressure Vessel section
 ══════════════════════════════════════════════════════════════ */
-function QuadTemplate({ equipType }) {
+function TackleMiniUnit({ n, equipType }) {
+  const checks   = getChecklist(equipType);
+  const techDef  = getTackleIdFields(equipType);
+  const half     = Math.ceil(checks.length / 2);
+
+  return (
+    <div style={{ border:`1.5px solid ${NAVY}`, borderRadius:2, display:"flex",
+      flexDirection:"column", overflow:"hidden", flex:1, minHeight:0 }}>
+      {/* Unit bar */}
+      <div style={{ background:NAVY, color:WHITE, fontWeight:900, fontSize:7.5,
+        padding:"2px 5px", display:"flex", justifyContent:"space-between",
+        alignItems:"center", flexShrink:0 }}>
+        <span>UNIT {n}</span>
+        <span style={{ fontWeight:400, fontSize:6, color:"#9db3cc" }}>
+          {(equipType||"").toUpperCase()}
+        </span>
+      </div>
+
+      <div style={{ padding:"3px 4px", flex:1, display:"flex", flexDirection:"column" }}>
+
+        {/* ── TACKLE IDENTITY: tag, SWL, type-specific fields ── */}
+        <SB title="EQUIPMENT IDENTITY" mb={3}>
+          {techDef.rows.map((row,i) => (
+            <WR key={i} fields={row} mb={i < techDef.rows.length-1 ? 3 : 0} />
+          ))}
+        </SB>
+
+        {/* ── CHECKLIST ── */}
+        <SB title="INSPECTION CHECKLIST   ☐ = Pass   ☐ = Fail" mb={3} flex={1}>
+          <div style={{ display:"flex", gap:6 }}>
+            <div style={{ flex:1 }}>
+              {checks.slice(0, half).map((item,i) => <CK key={i} label={item} />)}
+            </div>
+            <div style={{ flex:1 }}>
+              {checks.slice(half).map((item,i) => <CK key={i} label={item} />)}
+            </div>
+          </div>
+        </SB>
+
+        <ResultAndSign />
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   QUAD PAGE — 4 units in 2×2 grid
+══════════════════════════════════════════════════════════════ */
+function QuadPage({ equipType, isTackle }) {
   return (
     <div className="a4-page" style={pageStyle}>
       <PageHeader equipType={equipType} perPage="4 units per page" />
-      <PageIdentity />
-
-      <div style={{
-        display:"grid",
-        gridTemplateColumns:"1fr 1fr",
-        gridTemplateRows:"1fr 1fr",
-        gap:5,
-        flex:1,
-        minHeight:0,
-      }}>
+      <SharedRow />
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr",
+        gridTemplateRows:"1fr 1fr", gap:5, flex:1, minHeight:0 }}>
         {[1,2,3,4].map(n => (
-          <MiniUnit key={n} n={n} equipType={equipType} />
+          isTackle
+            ? <TackleMiniUnit key={n} n={n} equipType={equipType} />
+            : <MachineMiniUnit key={n} n={n} equipType={equipType} />
         ))}
       </div>
-
       <PageFooter />
     </div>
   );
@@ -620,103 +700,69 @@ function QuadTemplate({ equipType }) {
 
 /* ══════════════════════════════════════════════════════════════
    TABLE TEMPLATE — Wire Rope Sling / Chain Sling / Bottle Jack
-   Batch row table — 14 units per page
+   14 batch rows per page
 ══════════════════════════════════════════════════════════════ */
-const TH = {
+const TH_S = {
   border:"1px solid rgba(255,255,255,0.25)", padding:"3px 4px",
   fontWeight:700, fontSize:7, textAlign:"left",
 };
-const TD = {
-  border:"1px solid #ccc", padding:"2px 3px",
-  height:16, fontSize:7.5,
+const TD_S = {
+  border:"1px solid #ccc", padding:"2px 3px", height:16, fontSize:7.5,
 };
 
 function TableTemplate({ equipType }) {
   const t = (equipType||"").toLowerCase();
   const ROWS = 14;
-
   let cols, checks;
 
   if (t.includes("wire rope sling")) {
     cols = [
-      {l:"Tag / ID No.",      w:52},
-      {l:"Diameter (mm)",     w:48},
-      {l:"Length (m)",        w:42},
-      {l:"No. of Legs",       w:38},
-      {l:"Configuration",     w:48},
-      {l:"SWL (t)",           w:36},
-      {l:"Termination Type",  w:56},
+      {l:"Tag / ID No.",      w:50},{l:"Diameter (mm)",w:46},{l:"Length (m)",w:42},
+      {l:"No. of Legs",       w:36},{l:"Configuration",w:46},{l:"SWL (t)",   w:34},
+      {l:"Termination Type",  w:54},
     ];
     checks = [
-      "Eyes & ferrules / swaged fittings intact",
-      "Abrasion damage on rope body",
-      "Kinking or twisting",
-      "SWL tag present & legible",
-      "Core wire integrity OK",
-      "Corrosion — internal & external",
-      "Bird-caging or core protrusion",
-      "End fitting security",
-      "Broken wires at terminations",
-      "Deformation / flattening",
-      "Rope diameter consistent",
-      "Lubrication condition",
+      "Eyes & ferrules / swaged fittings intact","Abrasion damage on rope body",
+      "Kinking or twisting","SWL tag present & legible",
+      "Core wire integrity OK","Corrosion — internal & external",
+      "Bird-caging or core protrusion","End fitting security",
+      "Broken wires at terminations","Deformation / flattening",
+      "Rope diameter consistent","Lubrication condition",
     ];
   } else if (t.includes("chain sling")) {
     cols = [
-      {l:"Tag / ID No.",      w:52},
-      {l:"Chain Grade",       w:44},
-      {l:"Diameter (mm)",     w:48},
-      {l:"Length (m)",        w:42},
-      {l:"No. of Legs",       w:38},
-      {l:"SWL (t)",           w:36},
-      {l:"Master Link Type",  w:56},
+      {l:"Tag / ID No.",      w:50},{l:"Chain Grade",w:42},{l:"Diameter (mm)",w:46},
+      {l:"Length (m)",        w:42},{l:"No. of Legs",w:36},{l:"SWL (t)",     w:34},
+      {l:"Master Link Type",  w:54},
     ];
     checks = [
-      "Link condition — no cracks or gouges",
-      "Wear at crown & bearing points",
-      "Master link & sub-link condition",
-      "Hooks & fittings — latches OK",
-      "Grade mark legible on all components",
-      "Elongation check — max 5% per link",
-      "Corrosion — pitting, general rust",
-      "SWL / traceability tag present",
-      "Weld quality on master link",
-      "Deformation — bending or twisting",
-      "No unauthorised repairs or welds",
-      "Coupling links & shortening clutches",
+      "Link condition — no cracks or gouges","Wear at crown & bearing points",
+      "Master link & sub-link condition","Hooks & fittings — latches OK",
+      "Grade mark legible on all components","Elongation check — max 5% per link",
+      "Corrosion — pitting, general rust","SWL / traceability tag present",
+      "Weld quality on master link","Deformation — bending or twisting",
+      "No unauthorised repairs or welds","Coupling links & shortening clutches",
     ];
   } else {
     // Bottle Jack
     cols = [
-      {l:"Jack No. / ID",      w:52},
-      {l:"Rated Cap. (t)",     w:52},
-      {l:"Stroke (mm)",        w:46},
-      {l:"Extended Ht (mm)",   w:52},
-      {l:"Closed Ht (mm)",     w:50},
-      {l:"Oil Level OK",       w:46},
-      {l:"Seals OK",           w:46},
+      {l:"Jack No. / ID",      w:52},{l:"Rated Cap. (t)",w:52},{l:"Stroke (mm)",w:46},
+      {l:"Extended Ht (mm)",   w:52},{l:"Closed Ht (mm)",w:48},{l:"Oil Level OK",w:44},
+      {l:"Seals OK",           w:44},
     ];
     checks = [
-      "Ram seals — no oil leaks",
-      "Ram surface — no scoring / corrosion",
-      "Hydraulic oil level adequate",
-      "Pump handle & release valve",
-      "Base plate — flat, no cracks",
-      "Load collar / bearing surface",
-      "Safety collar / mechanical lock nut",
-      "Rated capacity marking legible",
-      "Saddle / load pad condition",
-      "No visible cracks in body",
-      "Pump mechanism — smooth operation",
-      "Overall serviceability",
+      "Ram seals — no oil leaks","Ram surface — no scoring / corrosion",
+      "Hydraulic oil level adequate","Pump handle & release valve",
+      "Base plate — flat, no cracks","Load collar / bearing surface",
+      "Safety collar / mechanical lock nut","Rated capacity marking legible",
+      "Saddle / load pad condition","No visible cracks in body",
+      "Pump mechanism — smooth operation","Overall serviceability",
     ];
   }
 
   return (
     <div className="a4-page" style={pageStyle}>
       <PageHeader equipType={equipType} perPage={`${ROWS} units per page`} />
-
-      {/* Shared page identity */}
       <div style={{ display:"flex", gap:8, marginBottom:5 }}>
         <WL label="Client / Company"   flex={2} />
         <WL label="Site / Location"    flex={2} />
@@ -724,39 +770,35 @@ function TableTemplate({ equipType }) {
         <WL label="Inspector Name"     flex={1.5} />
         <WL label="Certificate No."    flex={1} mono />
       </div>
-
-      {/* Batch table */}
       <table style={{ width:"100%", borderCollapse:"collapse", fontSize:7.5, marginBottom:5 }}>
         <thead>
           <tr style={{ background:NAVY, color:WHITE }}>
-            <th style={{...TH, width:20}}>#</th>
-            {cols.map((c,i) => <th key={i} style={{...TH, width:c.w}}>{c.l}</th>)}
-            <th style={{...TH, width:36}}>P / F</th>
-            <th style={{...TH, width:30}}>Sign</th>
+            <th style={{...TH_S, width:20}}>#</th>
+            {cols.map((c,i) => <th key={i} style={{...TH_S, width:c.w}}>{c.l}</th>)}
+            <th style={{...TH_S, width:36}}>P / F</th>
+            <th style={{...TH_S, width:30}}>Sign</th>
           </tr>
         </thead>
         <tbody>
           {Array.from({length:ROWS}).map((_,i) => (
             <tr key={i} style={{ background:i%2===0?WHITE:LGREY }}>
-              <td style={{...TD, textAlign:"center", fontWeight:700, color:MGREY}}>{i+1}</td>
-              {cols.map((_c,j) => <td key={j} style={TD} />)}
-              <td style={{...TD, textAlign:"center", fontSize:7}}>
+              <td style={{...TD_S, textAlign:"center", fontWeight:700, color:MGREY}}>{i+1}</td>
+              {cols.map((_c,j) => <td key={j} style={TD_S} />)}
+              <td style={{...TD_S, textAlign:"center", fontSize:7}}>
                 <span style={{marginRight:4}}>☐P</span><span>☐F</span>
               </td>
-              <td style={TD} />
+              <td style={TD_S} />
             </tr>
           ))}
         </tbody>
       </table>
-
-      {/* Checklist + Remarks side by side */}
       <div style={{ display:"flex", gap:8, marginBottom:5 }}>
-        <SB title={`INSPECTION CHECKLIST — applies to all units above   ☐ Pass  ☐ Fail`} flex={1.2} mb={0}>
+        <SB title="INSPECTION CHECKLIST — applies to all units above   ☐ Pass  ☐ Fail" flex={1.2} mb={0}>
           <div style={{ fontSize:6.5, color:MGREY, marginBottom:3 }}>
             Tick each item. Note unit row numbers with defects in Remarks.
           </div>
           <div style={{ display:"flex", gap:8 }}>
-            <div style={{ flex:1 }}>{checks.slice(0, 6).map((item,i) => <CK key={i} label={item} />)}</div>
+            <div style={{ flex:1 }}>{checks.slice(0,6).map((item,i) => <CK key={i} label={item} />)}</div>
             <div style={{ flex:1 }}>{checks.slice(6).map((item,i)  => <CK key={i} label={item} />)}</div>
           </div>
         </SB>
@@ -766,8 +808,6 @@ function TableTemplate({ equipType }) {
           ))}
         </SB>
       </div>
-
-      {/* Signatures */}
       <div style={{ display:"flex", gap:10 }}>
         {[
           ["Inspector Name","Inspector ID / Certificate No.","Inspector Signature"],
@@ -783,7 +823,6 @@ function TableTemplate({ equipType }) {
           </div>
         ))}
       </div>
-
       <PageFooter />
     </div>
   );
@@ -791,7 +830,7 @@ function TableTemplate({ equipType }) {
 
 /* ══════════════════════════════════════════════════════════════
    SINGLE TEMPLATE — Pressure Vessel / Air Receiver / Boiler
-   Full A4 — one unit per page
+   Full A4 — 1 unit per page
 ══════════════════════════════════════════════════════════════ */
 function SingleTemplate({ equipType }) {
   const t = (equipType||"").toLowerCase();
@@ -834,61 +873,22 @@ function SingleTemplate({ equipType }) {
   return (
     <div className="a4-page" style={pageStyle}>
       <PageHeader equipType={equipType} perPage="1 unit per page" />
-
       <SB title="CERTIFICATE & EQUIPMENT DETAILS" mb={5}>
-        <WR fields={[
-          {l:"Certificate No.",        f:1, mono:true},
-          {l:"Inspection No.",         f:1, mono:true},
-          {l:"Issue Date",             f:1},
-          {l:"Expiry Date",            f:1},
-        ]} />
-        <WR fields={[
-          {l:"Client / Company",       f:2},
-          {l:"Site / Location",        f:2},
-        ]} />
-        <WR fields={[
-          {l:"Equipment Description",  f:2},
-          {l:"Equipment Type",         f:1},
-          {l:"Year Built",             f:1},
-        ]} />
-        <WR fields={[
-          {l:"Manufacturer",           f:2},
-          {l:"Model",                  f:1},
-          {l:"Serial No.",             f:1, mono:true},
-          {l:"Asset / Fleet No.",      f:1, mono:true},
-        ]} />
-        <WR fields={[
-          {l:"Country of Origin",      f:1},
-          {l:"Design Standard / Code", f:2},
-          {l:"Certificate Type",       f:1},
-        ]} mb={0} />
+        <WR fields={[{l:"Certificate No.",f:1,mono:true},{l:"Inspection No.",f:1,mono:true},{l:"Issue Date",f:1},{l:"Expiry Date",f:1}]} />
+        <WR fields={[{l:"Client / Company",f:2},{l:"Site / Location",f:2}]} />
+        <WR fields={[{l:"Equipment Description",f:2},{l:"Equipment Type",f:1},{l:"Year Built",f:1}]} />
+        <WR fields={[{l:"Manufacturer",f:2},{l:"Model",f:1},{l:"Serial No.",f:1,mono:true},{l:"Asset / Fleet No.",f:1,mono:true}]} />
+        <WR fields={[{l:"Country of Origin",f:1},{l:"Design Standard / Code",f:2},{l:"Certificate Type",f:1}]} mb={0} />
       </SB>
-
       <SB title="TECHNICAL DATA" mb={5}>
-        <WR fields={[
-          {l:"Working Pressure (bar)",  f:1},
-          {l:"Design Pressure (bar)",   f:1},
-          {l:"Test Pressure (bar)",     f:1},
-          {l:"Pressure Unit",           f:1},
-        ]} />
-        <WR fields={[
-          {l:"Capacity / Volume (L)",   f:1},
-          {l:"Shell Thickness (mm)",    f:1},
-          {l:"Medium / Fluid",          f:1},
-          {l:"Design Temperature (°C)", f:1},
-        ]} />
-        <WR fields={[
-          {l:"Safety Valve Set Pressure",  f:1},
-          {l:"No. of Safety Valves",       f:1},
-          {l:"Relief Valve Size",          f:1},
-          {l:"Last Hydrostatic Test Date", f:1},
-        ]} mb={0} />
+        <WR fields={[{l:"Working Pressure (bar)",f:1},{l:"Design Pressure (bar)",f:1},{l:"Test Pressure (bar)",f:1},{l:"Pressure Unit",f:1}]} />
+        <WR fields={[{l:"Capacity / Volume (L)",f:1},{l:"Shell Thickness (mm)",f:1},{l:"Medium / Fluid",f:1},{l:"Design Temperature (°C)",f:1}]} />
+        <WR fields={[{l:"Safety Valve Set Pressure",f:1},{l:"No. of Safety Valves",f:1},{l:"Relief Valve Size",f:1},{l:"Last Hydrostatic Test Date",f:1}]} mb={0} />
       </SB>
-
       <div style={{ display:"flex", gap:8, flex:1, minHeight:0, marginBottom:5 }}>
-        <SB title={`INSPECTION CHECKLIST   ☐ = Pass     ☐ = Fail`} flex={2} mb={0}>
+        <SB title="INSPECTION CHECKLIST   ☐ = Pass   ☐ = Fail" flex={2} mb={0}>
           <div style={{ display:"flex", gap:10 }}>
-            <div style={{ flex:1 }}>{checks.slice(0, Math.ceil(checks.length/2)).map((item,i) => <CK key={i} label={item} />)}</div>
+            <div style={{ flex:1 }}>{checks.slice(0,Math.ceil(checks.length/2)).map((item,i) => <CK key={i} label={item} />)}</div>
             <div style={{ flex:1 }}>{checks.slice(Math.ceil(checks.length/2)).map((item,i) => <CK key={i} label={item} />)}</div>
           </div>
         </SB>
@@ -906,26 +906,20 @@ function SingleTemplate({ equipType }) {
           </div>
         </div>
       </div>
-
-      {/* Legal declaration */}
-      <div style={{
-        background:"#eaf2fb", border:"1px solid #c2daf0",
-        borderLeft:`4px solid ${NAVY}`, padding:"4px 8px", marginBottom:5, fontSize:7.5,
-      }}>
-        <strong style={{ color:NAVY }}>LEGAL FRAMEWORK &amp; COMPLIANCE DECLARATION —&nbsp;</strong>
+      <div style={{ background:"#eaf2fb", border:"1px solid #c2daf0",
+        borderLeft:`4px solid ${NAVY}`, padding:"4px 8px", marginBottom:5, fontSize:7.5 }}>
+        <strong style={{ color:NAVY }}>LEGAL FRAMEWORK &amp; COMPLIANCE DECLARATION — </strong>
         The inspection, testing and certification of the above equipment has been carried out by a
         <strong> Competent Person</strong> in full compliance with the requirements of the
         <strong> Mines, Quarries, Works and Machinery Act Cap 44:02 of Botswana</strong> and applicable
-        regulations. &nbsp;Additional standard applied:&nbsp;
+        regulations. Additional standard applied:&nbsp;
         <span style={{ display:"inline-block", borderBottom:`1px solid ${LINE}`, minWidth:180 }}>&nbsp;</span>
       </div>
-
       <SB title="REMARKS / DEFECTS / RECOMMENDATIONS" mb={5}>
         {Array.from({length:4}).map((_,i) => (
           <div key={i} style={{ borderBottom:"1px solid #ddd", minHeight:14, marginBottom:5 }} />
         ))}
       </SB>
-
       <div style={{ display:"flex", gap:10 }}>
         {[
           ["Inspector Name","Inspector ID / Certificate No.","Inspector Signature","Date"],
@@ -941,25 +935,13 @@ function SingleTemplate({ equipType }) {
           </div>
         ))}
       </div>
-
       <PageFooter />
     </div>
   );
 }
 
 /* ══════════════════════════════════════════════════════════════
-   PAGE STYLE
-══════════════════════════════════════════════════════════════ */
-const pageStyle = {
-  width:"210mm", minHeight:"297mm", maxHeight:"297mm",
-  padding:"8mm 10mm 6mm", background:WHITE,
-  fontFamily:"'Arial','Helvetica',sans-serif", fontSize:9, color:"#333",
-  boxSizing:"border-box", display:"flex", flexDirection:"column",
-  overflow:"hidden", pageBreakAfter:"always", breakAfter:"page",
-};
-
-/* ══════════════════════════════════════════════════════════════
-   MAIN PAGE
+   MAIN PAGE COMPONENT
 ══════════════════════════════════════════════════════════════ */
 function PrintPageInner() {
   const params    = useSearchParams();
@@ -972,23 +954,19 @@ function PrintPageInner() {
     html, body { margin:0; padding:0; background:#cbd5e1; }
     .a4-page {
       width:210mm; min-height:297mm; max-height:297mm;
-      background:#fff;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.20);
-      margin:24px auto;
-      overflow:hidden;
+      background:#fff; box-shadow:0 4px 20px rgba(0,0,0,0.20);
+      margin:24px auto; overflow:hidden;
     }
     .topbar {
       position:fixed; top:0; left:0; right:0; z-index:999;
       background:#0b1d3a; color:#fff;
       display:flex; align-items:center; justify-content:space-between;
-      padding:9px 22px;
-      font-family:Arial,sans-serif; font-size:13px; gap:12px;
+      padding:9px 22px; font-family:Arial,sans-serif; font-size:13px; gap:12px;
     }
     .pbtn {
       background:#cc0000; color:#fff; border:none;
       padding:7px 22px; border-radius:3px;
       font-weight:700; font-size:12px; cursor:pointer;
-      letter-spacing:0.4px;
     }
     .pbtn:hover { background:#aa0000; }
     .wrap { padding-top:52px; padding-bottom:24px; }
@@ -1001,14 +979,14 @@ function PrintPageInner() {
   `;
 
   const label =
-    layout === "table"  ? `Batch table — 14 units per page` :
-    layout === "quad"   ? `4 mini-certs per page (2 × 2 grid)` :
-                          `Full A4 — 1 unit per page`;
+    layout === "table"        ? "Batch table — 14 units per page" :
+    layout === "quad-tackle"  ? "4 units per page — Lifting Tackle (no vehicle fields)" :
+    layout === "quad-machine" ? "4 units per page — Machine / Vehicle" :
+                                "Full A4 — 1 unit per page";
 
   return (
     <>
       <style dangerouslySetInnerHTML={{__html:css}} />
-
       <div className="topbar">
         <div>
           <span style={{fontWeight:700, marginRight:8}}>🖨 Blank Template:</span>
@@ -1017,18 +995,18 @@ function PrintPageInner() {
         </div>
         <div style={{display:"flex", gap:12, alignItems:"center"}}>
           <span style={{fontSize:11, color:"#64748b"}}>
-            Set printer margins to <strong style={{color:"#94a3b8"}}>None</strong> for best fit
+            Set printer margins to <strong style={{color:"#94a3b8"}}>None</strong>
           </span>
           <button className="pbtn" onClick={() => window.print()}>
             🖨 Print / Save PDF
           </button>
         </div>
       </div>
-
       <div className="wrap">
-        {layout === "table"  && <TableTemplate  equipType={equipType} />}
-        {layout === "quad"   && <QuadTemplate   equipType={equipType} />}
-        {layout === "single" && <SingleTemplate equipType={equipType} />}
+        {layout === "table"        && <TableTemplate  equipType={equipType} />}
+        {layout === "quad-tackle"  && <QuadPage equipType={equipType} isTackle={true}  />}
+        {layout === "quad-machine" && <QuadPage equipType={equipType} isTackle={false} />}
+        {layout === "single"       && <SingleTemplate equipType={equipType} />}
       </div>
     </>
   );
@@ -1037,10 +1015,8 @@ function PrintPageInner() {
 export default function InspectionTemplatePrintPage() {
   return (
     <Suspense fallback={
-      <div style={{
-        padding:60, textAlign:"center",
-        color:"#888", fontFamily:"Arial", fontSize:14,
-      }}>
+      <div style={{ padding:60, textAlign:"center", color:"#888",
+        fontFamily:"Arial", fontSize:14 }}>
         Loading template…
       </div>
     }>
