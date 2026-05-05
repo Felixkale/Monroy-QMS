@@ -158,11 +158,6 @@ function parsePortableOvenData(c){
     )||""
   ).toLowerCase();
 
-  /*
-    Anything that stores pressure data must use the same table layout as Air Powered Pump:
-    Design Pressure / Working Pressure / Test Pressure.
-    Oxygen Tank was previously falling into the voltage + weight layout.
-  */
   const isPressureEquipment=
     /air[\s._-]*powered[\s._-]*pump/i.test(rawType)||
     /air[\s._-]*pump/i.test(rawType)||
@@ -190,7 +185,6 @@ function parsePortableOvenData(c){
     )||"kPa";
 
   return{
-    // Page 1 — Compliance cert fields
     company:        val(c?.client_name||c?.company||ex?.client_name||ex?.company)||"—",
     location:       val(c?.location||c?.equipment_location||ex?.location||ex?.equipment_location)||"—",
     serial_number:  val(c?.serial_number||c?.identification_number||ex?.serial_number||ex?.identification_number||ex?.equipment_serial)||"—",
@@ -199,7 +193,6 @@ function parsePortableOvenData(c){
     equipment_type: val(c?.equipment_type||c?.asset_type||ex?.equipment_type||ex?.asset_type)||"Portable Oven",
     equipment_description: val(c?.equipment_description||c?.asset_name||ex?.equipment_description||ex?.asset_name)||"Portable Oven",
 
-    // Oven / welding machine fields
     power_voltage:
       g(
         "power_voltage",
@@ -223,7 +216,6 @@ function parsePortableOvenData(c){
         "capacity_volume"
       )||"—",
 
-    // Pressure equipment fields: Air Powered Pump / Oxygen Tank
     design_pressure:
       g(
         "design_pressure",
@@ -257,7 +249,6 @@ function parsePortableOvenData(c){
     partners:        Array.isArray(ex.partners)?ex.partners:["Lycopodium","SMEI PROJECTS","Onetrack Engineering","Metso Outotec Australia limited"],
     result,
 
-    // Page 2 — Test cert fields
     source_cert_number:          g("source_cert_number","original_cert_number")||null,
     structural_integrity:        g("structural_integrity","structural_integrity_assessment")||"Passed",
     functional_test:             g("functional_test","functional_test_verification")||"Passed",
@@ -266,13 +257,9 @@ function parsePortableOvenData(c){
     defects_found:               val(c?.defects_found||ex?.defects_found)||null,
     recommendations:             val(c?.recommendations||ex?.recommendations)||null,
 
-    // Flags
     isPass,
     isFail,
     isCond,
-
-    // Keep this old name because PortableOvenCompliancePage already reads po.isCompressor.
-    // Oxygen Tank now returns true here, so it displays pressure values like Air Powered Pump.
     isCompressor:isPressureEquipment,
   };
 }
@@ -738,25 +725,28 @@ function SBRow({label,result,naField=false}){
 /* ══════════════════════════════════════════════════════════
    PORTABLE OVEN / WELDING MACHINE / OXYGEN TANK / AIR PUMP
    PAGE 1 — COMPLIANCE CERTIFICATE
+   Table layout:
+     Row 1 Left: Company                   | Right: Equipment Description
+     Row 2 Left: Equipment Location        | Right: Identification Number
+     Row 3 Left: Date of Inspection        | Right: Next Inspection Date
+     Row 4 Left: Voltage / Design Pressure | Right: Weight / Working Pressure
+     Row 5 Left: Status / Test Pressure    | Right: Certificate No. / Status
 ══════════════════════════════════════════════════════════ */
 function PortableOvenCompliancePage({c,po,pm,logo}){
   const certNumber=val(c.certificate_number);
   const tone=resultStyle(po.result);
 
-  const titleMap={
-    "portable oven":"Portable Oven Compliance Certificate",
-    "portable welding oven":"Portable Welding Oven Compliance Certificate",
-    "welding machine":"Welding Machine Compliance Certificate",
-    "oxygen tank":"Oxygen Tank Compliance Certificate",
-    "air powered pump":"Air Powered Pump Compliance Certificate",
-    "air pump":"Air Powered Pump Compliance Certificate",
-  };
   const rawType=(po.equipment_type||"").toLowerCase();
-  const certTitle=Object.entries(titleMap).find(([k])=>rawType.includes(k))?.[1]||`${po.equipment_type} Compliance Certificate`;
+  let certTitle=`${po.equipment_type} Compliance Certificate`;
+  if(/portable[\s._-]*oven/i.test(rawType))     certTitle="Portable Oven Compliance Certificate";
+  else if(/welding[\s._-]*machine/i.test(rawType)) certTitle="Welding Machine Compliance Certificate";
+  else if(/oxygen[\s._-]*tank|oxygen[\s._-]*cylinder/i.test(rawType)) certTitle="Oxygen Tank Compliance Certificate";
+  else if(/air[\s._-]*powered[\s._-]*pump|air[\s._-]*pump/i.test(rawType)) certTitle="Air Powered Pump Compliance Certificate";
+
   const photos=parsePhotoEvidence(c.photo_evidence);
 
   return(
-    <div className={`pro-page${pm?" pm":""}`}>
+    <div className={`pro-page${pm?" pm":""}`} style={{pageBreakAfter:"always",breakAfter:"page"}}>
       <ProHdr logoUrl={logo}/>
       <div style={{height:3,background:"linear-gradient(90deg,#22d3ee,#3b82f6 55%,#a78bfa)",flexShrink:0}}/>
 
@@ -767,23 +757,31 @@ function PortableOvenCompliancePage({c,po,pm,logo}){
           <div style={{fontSize:8,color:"#64748b",marginTop:2,fontWeight:600}}>(FACTORIES ACT CAP 44:01)</div>
         </div>
 
-        {/* ── Main data table ── */}
+        {/* ── UNIFORM DATA TABLE ── */}
         <table className="po-t">
           <tbody>
+            {/* Row 1 */}
             <tr>
               <td>Company</td>
               <td style={{textTransform:"uppercase",fontWeight:900,color:"#0b1d3a",fontSize:9}}>{po.company}</td>
               <td>Equipment Description</td>
               <td style={{fontWeight:700,color:"#0b1d3a"}}>{po.equipment_description}</td>
             </tr>
+            {/* Row 2 */}
             <tr>
               <td>Equipment Location</td>
               <td style={{textTransform:"uppercase"}}>{po.location}</td>
               <td>Identification Number</td>
               <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490",fontSize:9}}>{po.serial_number}</td>
             </tr>
-
-            {/* ── CONDITIONAL ROWS: pressure vs voltage/weight ── */}
+            {/* Row 3 — always: Date left, Next Inspection right */}
+            <tr>
+              <td>Date of Inspection</td>
+              <td style={{fontWeight:800,color:"#0b1d3a"}}>{po.issue_date}</td>
+              <td>Next Inspection Date</td>
+              <td style={{fontWeight:800,color:"#b45309"}}>{po.expiry_date}</td>
+            </tr>
+            {/* Row 4 & 5 — conditional on equipment type */}
             {po.isCompressor ? (
               <>
                 <tr>
@@ -798,6 +796,11 @@ function PortableOvenCompliancePage({c,po,pm,logo}){
                   <td>Equipment Status</td>
                   <td style={{fontWeight:900,color:tone.color,background:tone.bg,fontSize:10,letterSpacing:".05em"}}>{tone.label}</td>
                 </tr>
+                <tr>
+                  <td>Certificate No.</td>
+                  <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{certNumber||"—"}</td>
+                  <td></td><td></td>
+                </tr>
               </>
             ) : (
               <>
@@ -810,32 +813,15 @@ function PortableOvenCompliancePage({c,po,pm,logo}){
                 <tr>
                   <td>Equipment Status</td>
                   <td style={{fontWeight:900,color:tone.color,background:tone.bg,fontSize:10,letterSpacing:".05em"}}>{tone.label}</td>
-                  <td>Date</td>
-                  <td style={{fontWeight:700}}>{po.issue_date}</td>
+                  <td>Certificate No.</td>
+                  <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{certNumber||"—"}</td>
                 </tr>
               </>
-            )}
-
-            <tr>
-              <td>Expiry Date</td>
-              <td style={{fontWeight:800,color:"#b45309"}}>{po.expiry_date}</td>
-              <td>Certificate No.</td>
-              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{certNumber||"—"}</td>
-            </tr>
-
-            {/* Show date row for compressor (moved status up, date here) */}
-            {po.isCompressor&&(
-              <tr>
-                <td>Date</td>
-                <td style={{fontWeight:700}}>{po.issue_date}</td>
-                <td></td>
-                <td></td>
-              </tr>
             )}
           </tbody>
         </table>
 
-        {/* ── Cert ID + Compliance box ── */}
+        {/* ── Certificate ID box + Compliance tick ── */}
         <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:6,flexShrink:0}}>
           <div style={{border:"1px solid #1e3a5f",borderRadius:4,padding:"7px 10px",background:"#f4f8ff"}}>
             <div style={{fontSize:12,fontWeight:900,color:"#0b1d3a"}}>{certTitle}</div>
@@ -898,13 +884,19 @@ function PortableOvenCompliancePage({c,po,pm,logo}){
 /* ══════════════════════════════════════════════════════════
    PORTABLE OVEN / WELDING MACHINE / OXYGEN TANK / AIR PUMP
    PAGE 2 — TEST CERTIFICATE
+   Table layout:
+     Row 1 Left: Company                   | Right: Equipment Type
+     Row 2 Left: Date of Inspection        | Right: Next Inspection Date
+     Row 3 Left: Serial No.                | Right: Certificate No.
+     Row 4 Left: Voltage / Design Pressure | Right: Weight / Working Pressure
+     Row 5 Left: Location / Test Pressure  | Right: (blank) / Client Location
 ══════════════════════════════════════════════════════════ */
 function PortableOvenTestCertPage({c,po,pm,logo}){
   const certNumber=val(c.certificate_number);
   const tone=resultStyle(po.result);
 
-  const isSafe  = po.isPass && !po.isCond;
-  const isCond  = po.isCond;
+  const isSafe    = po.isPass && !po.isCond;
+  const isCond    = po.isCond;
   const isNotSafe = po.isFail;
 
   const sfColor=(v)=>{
@@ -914,7 +906,6 @@ function PortableOvenTestCertPage({c,po,pm,logo}){
   };
   const sf=sfColor(po.structural_integrity);
   const ft=sfColor(po.functional_test);
-
   const sourceCertNo=po.source_cert_number||certNumber;
   const photos=parsePhotoEvidence(c.photo_evidence);
 
@@ -930,29 +921,31 @@ function PortableOvenTestCertPage({c,po,pm,logo}){
           <div style={{fontSize:8,color:"#64748b",marginTop:2,fontWeight:600}}>(FACTORIES ACT CAP 44:01)</div>
         </div>
 
-        {/* ── Main data table ── */}
+        {/* ── UNIFORM DATA TABLE matching compliance cert structure ── */}
         <table className="po-t">
           <tbody>
+            {/* Row 1 */}
             <tr>
-              <td>Certificate No.</td>
-              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{sourceCertNo||"—"}</td>
+              <td>Company</td>
+              <td style={{textTransform:"uppercase",fontWeight:900,color:"#0b1d3a",fontSize:9}}>{po.company}</td>
               <td>Equipment Type</td>
               <td style={{fontWeight:700,color:"#0b1d3a"}}>{po.equipment_type}</td>
             </tr>
+            {/* Row 2 — always: Date left, Next Inspection right */}
             <tr>
               <td>Date of Inspection</td>
-              <td style={{fontWeight:800}}>{po.issue_date}</td>
+              <td style={{fontWeight:800,color:"#0b1d3a"}}>{po.issue_date}</td>
               <td>Next Inspection Date</td>
               <td style={{fontWeight:800,color:"#b45309"}}>{po.expiry_date}</td>
             </tr>
+            {/* Row 3 — Serial left, Certificate No. right */}
             <tr>
               <td>Serial No.</td>
-              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{po.serial_number}</td>
-              <td>Client</td>
-              <td style={{fontWeight:700,textTransform:"uppercase"}}>{po.company}</td>
+              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490",fontSize:9}}>{po.serial_number}</td>
+              <td>Certificate No.</td>
+              <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:900,color:"#0e7490"}}>{sourceCertNo||"—"}</td>
             </tr>
-
-            {/* ── CONDITIONAL ROWS: pressure vs voltage/weight ── */}
+            {/* Row 4 & 5 — conditional */}
             {po.isCompressor ? (
               <>
                 <tr>
@@ -964,23 +957,22 @@ function PortableOvenTestCertPage({c,po,pm,logo}){
                 <tr>
                   <td>Test Pressure</td>
                   <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{po.test_pressure} {po.pressure_unit}</td>
-                  <td>Client's Location</td>
+                  <td>Client Location</td>
                   <td>{po.location}</td>
                 </tr>
               </>
             ) : (
               <>
                 <tr>
-                  <td>Voltage</td>
+                  <td>Power Voltage</td>
                   <td style={{fontFamily:"'IBM Plex Mono',monospace",fontWeight:700}}>{po.power_voltage}</td>
-                  <td>Client's Location</td>
-                  <td>{po.location}</td>
-                </tr>
-                <tr>
                   <td>Weight (kg)</td>
                   <td style={{fontWeight:700}}>{po.weight}</td>
-                  <td></td>
-                  <td></td>
+                </tr>
+                <tr>
+                  <td>Equipment Location</td>
+                  <td>{po.location}</td>
+                  <td></td><td></td>
                 </tr>
               </>
             )}
@@ -2313,8 +2305,11 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   const _isMachine=_isTelehandler||_isForklift;
   const _isSandblasting=/sandblast|blasting.pot|blast.pot|sbp|sand.blast/i.test(_rawType);
 
-  /* ── Portable Oven / Welding Machine / Oxygen Tank / Air Powered Pump ── */
-  const _isPortableOven=/portable.oven|portable.welding|welding.oven|welding.machine|oxygen.tank|air.powered.pump|air.pump/i.test(_rawType);
+  /* ── CHANGE 1: Fixed _isPortableOven regex ─────────────
+     Removed: portable.welding|welding.oven
+     Added:   oxygen.cylinder
+  ─────────────────────────────────────────────────────── */
+  const _isPortableOven=/portable.oven|welding.machine|oxygen.tank|oxygen.cylinder|air.powered.pump|air.pump/i.test(_rawType);
 
   const wrap=(children)=>(
     <>
@@ -2323,13 +2318,12 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
     </>
   );
 
-  /* ── Portable Oven: 2 pages (Compliance + Test Cert) ─── */
+  /* ── CHANGE 2: Removed blank <div className="pro-pb"/> between pages ── */
   if(_isPortableOven){
     const po=parsePortableOvenData(c);
     return wrap(
       <>
         <PortableOvenCompliancePage c={c} po={po} pm={pm} logo={logo}/>
-        <div className="pro-pb"/>
         <PortableOvenTestCertPage c={c} po={po} pm={pm} logo={logo}/>
       </>
     );
