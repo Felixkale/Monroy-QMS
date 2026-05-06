@@ -35,7 +35,7 @@ const TOOLBAR_CSS = `
     padding-bottom:40px;
   }
 
-  /* each cover wrapper — label above it in the UI, hidden on print */
+  /* each cover wrapper */
   .pt-cover-section{display:flex;flex-direction:column;align-items:center;gap:8px}
   .pt-cover-label{
     font-family:'IBM Plex Sans',sans-serif;
@@ -48,14 +48,50 @@ const TOOLBAR_CSS = `
   @keyframes spin{to{transform:rotate(360deg)}}
 
   @media print{
+    /* Kill all chrome */
     .pt-toolbar{display:none!important}
-    .pt-content{
-      padding:0!important;background:none!important;
-      min-height:unset!important;gap:0!important;
-      display:block!important;
-    }
-    .pt-cover-section{display:block!important}
     .pt-cover-label{display:none!important}
+
+    /* Reset html/body so no phantom height causes a blank page */
+    html, body{
+      margin:0!important;
+      padding:0!important;
+      height:auto!important;
+      min-height:unset!important;
+      overflow:visible!important;
+      background:none!important;
+    }
+
+    /* Flatten the content wrapper */
+    .pt-content{
+      padding:0!important;
+      margin:0!important;
+      background:none!important;
+      min-height:unset!important;
+      height:auto!important;
+      display:block!important;
+      gap:0!important;
+    }
+
+    /* The ref div that wraps all covers */
+    .pt-covers-root{
+      display:block!important;
+      height:auto!important;
+      overflow:visible!important;
+    }
+
+    /* Each cover section */
+    .pt-cover-section{
+      display:block!important;
+      height:auto!important;
+      /* Only break BETWEEN covers when there are two; never add a trailing page */
+    }
+
+    /* The very last cover section must never trigger a trailing page */
+    .pt-cover-section:last-child{
+      page-break-after:avoid!important;
+      break-after:avoid!important;
+    }
   }
 `;
 
@@ -84,7 +120,6 @@ function CoverPrint() {
   const approvedBy   = sp.get("approvedBy")   || "Moemedi Masupe";
   const approvedRole = sp.get("approvedRole") || "Competent Person · ID: 700117910";
 
-  // passed / failed come in as separate params per batch
   const passedParam = sp.get("passed");
   const failedParam = sp.get("failed");
 
@@ -148,13 +183,24 @@ function CoverPrint() {
         </div>
       </div>
 
-      {/* COVERS — stacked list */}
+      {/* COVERS */}
       <div className="pt-content">
-        <div ref={ref} style={{ display: "block" }}>
+        {/*
+          height:auto + overflow:hidden on the ref div prevents the browser
+          from measuring phantom scrollable space and generating a blank page.
+        */}
+        <div ref={ref} className="pt-covers-root" style={{ display:"block", height:"auto", overflow:"hidden" }}>
 
           {/* PASSED cover */}
           {hasPassed && (
-            <div className="pt-cover-section" style={{ pageBreakAfter: hasFailed ? "always" : "avoid", breakAfter: hasFailed ? "page" : "avoid" }}>
+            <div
+              className="pt-cover-section"
+              style={
+                hasFailed
+                  ? { pageBreakAfter:"always", breakAfter:"page" }
+                  : { pageBreakAfter:"avoid",  breakAfter:"avoid" }
+              }
+            >
               <div className="pt-cover-label pt-cover-label-pass">✓ Passed Certificates — {passed}</div>
               <CoverPage
                 {...sharedProps}
@@ -167,7 +213,10 @@ function CoverPrint() {
 
           {/* FAILED cover */}
           {hasFailed && (
-            <div className="pt-cover-section" style={{ pageBreakAfter: "avoid", breakAfter: "avoid" }}>
+            <div
+              className="pt-cover-section"
+              style={{ pageBreakAfter:"avoid", breakAfter:"avoid" }}
+            >
               <div className="pt-cover-label pt-cover-label-fail">✗ Failed / Discarded Certificates — {failed}</div>
               <CoverPage
                 {...sharedProps}
@@ -178,9 +227,9 @@ function CoverPrint() {
             </div>
           )}
 
-          {/* Fallback — no counts passed at all, render a plain cover */}
+          {/* Fallback */}
           {!hasPassed && !hasFailed && (
-            <div className="pt-cover-section">
+            <div className="pt-cover-section" style={{ pageBreakAfter:"avoid", breakAfter:"avoid" }}>
               <CoverPage {...sharedProps} totalCerts={sp.get("certs") || ""} passedCount={null} failedCount={null}/>
             </div>
           )}
