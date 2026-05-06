@@ -48,7 +48,13 @@ const TOOLBAR_CSS = `
   @keyframes spin{to{transform:rotate(360deg)}}
 
   @media print{
-    /* Kill all chrome */
+    /* Removes Chrome's URL / page-title / page-number headers and footers */
+    @page {
+      margin: 0;
+      size: A4 portrait;
+    }
+
+    /* Kill toolbar and screen-only labels */
     .pt-toolbar{display:none!important}
     .pt-cover-label{display:none!important}
 
@@ -84,10 +90,9 @@ const TOOLBAR_CSS = `
     .pt-cover-section{
       display:block!important;
       height:auto!important;
-      /* Only break BETWEEN covers when there are two; never add a trailing page */
     }
 
-    /* The very last cover section must never trigger a trailing page */
+    /* Never add a trailing blank page after the last cover */
     .pt-cover-section:last-child{
       page-break-after:avoid!important;
       break-after:avoid!important;
@@ -124,13 +129,18 @@ function CoverPrint() {
   const failedParam = sp.get("failed");
 
   const passed = passedParam !== null ? parseInt(passedParam, 10) : null;
-  const failed  = failedParam  !== null ? parseInt(failedParam,  10) : null;
+  const failed  = failedParam !== null ? parseInt(failedParam,  10) : null;
 
   const hasPassed = passed !== null && passed > 0;
-  const hasFailed  = failed  !== null && failed  > 0;
+  const hasFailed = failed  !== null && failed  > 0;
   const both = hasPassed && hasFailed;
 
-  const sharedProps = { client, title, year, location, inspectionPeriod: period, approvedBy, approvedRole, printMode: true };
+  const sharedProps = {
+    client, title, year, location,
+    inspectionPeriod: period,
+    approvedBy, approvedRole,
+    printMode: true,
+  };
 
   function handlePrint() { window.print(); }
 
@@ -185,10 +195,6 @@ function CoverPrint() {
 
       {/* COVERS */}
       <div className="pt-content">
-        {/*
-          height:auto + overflow:hidden on the ref div prevents the browser
-          from measuring phantom scrollable space and generating a blank page.
-        */}
         <div ref={ref} className="pt-covers-root" style={{ display:"block", height:"auto", overflow:"hidden" }}>
 
           {/* PASSED cover */}
@@ -227,10 +233,15 @@ function CoverPrint() {
             </div>
           )}
 
-          {/* Fallback */}
+          {/* Fallback — no counts passed at all */}
           {!hasPassed && !hasFailed && (
             <div className="pt-cover-section" style={{ pageBreakAfter:"avoid", breakAfter:"avoid" }}>
-              <CoverPage {...sharedProps} totalCerts={sp.get("certs") || ""} passedCount={null} failedCount={null}/>
+              <CoverPage
+                {...sharedProps}
+                totalCerts={sp.get("certs") || ""}
+                passedCount={null}
+                failedCount={null}
+              />
             </div>
           )}
 
