@@ -20,6 +20,21 @@ const GROQ_ON    = Boolean(GROQ_KEY);
 
 console.log(`OpenAI:${OAI_ON ? OAI_MODEL : "OFF — set OPENAI_API_KEY"} | Groq:${GROQ_ON ? "on (fallback)" : "off"}`);
 
+/* ── TOKEN PARAM HELPER ──────────────────────────────────────
+   gpt-5.x and o1/o3 models use max_completion_tokens.
+   gpt-4o, gpt-4o-mini, gpt-3.5 etc. use max_tokens.
+────────────────────────────────────────────────────────────── */
+function tokenParam(n) {
+  const m = OAI_MODEL.toLowerCase();
+  const usesCompletionTokens =
+    m.startsWith("o1") ||
+    m.startsWith("o3") ||
+    m.startsWith("gpt-5");
+  return usesCompletionTokens
+    ? { max_completion_tokens: n }
+    : { max_tokens: n };
+}
+
 /* ── UTILITIES ───────────────────────────────────────────── */
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const san   = v  => v == null ? "" : String(v).trim();
@@ -156,6 +171,8 @@ async function callOpenAI(b64, mime, sysPrompt, fileName, mode) {
 
   const systemContent = `${sysPrompt}\n\n${schemaHint}\nReturn ONLY valid JSON. No markdown, no explanation.`;
 
+  const maxTok = mode === "list" ? 16384 : 4096;
+
   // Upload PDF if needed
   let fileId = null;
   if (isPdf) {
@@ -174,7 +191,7 @@ async function callOpenAI(b64, mime, sysPrompt, fileName, mode) {
       body: JSON.stringify({
         model:           OAI_MODEL,
         temperature:     0.1,
-        max_tokens:      mode === "list" ? 16384 : 4096,
+        ...tokenParam(maxTok),
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemContent },
@@ -194,8 +211,9 @@ async function callOpenAI(b64, mime, sysPrompt, fileName, mode) {
         method:  "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OAI_KEY}` },
         body: JSON.stringify({
-          model: OAI_MODEL, temperature: 0.1,
-          max_tokens: mode === "list" ? 16384 : 4096,
+          model: OAI_MODEL,
+          temperature: 0.1,
+          ...tokenParam(maxTok),
           response_format: { type: "json_object" },
           messages: [
             { role: "system", content: systemContent },
@@ -256,7 +274,7 @@ async function callGroq(sysPrompt, rawText) {
 
 /* ── PROCESS ONE FILE ────────────────────────────────────────────────────────
    Flow:
-   1. If image → send base64 inline to GPT-4o-mini vision
+   1. If image → send base64 inline to OpenAI vision
    2. If PDF   → upload to OpenAI Files API, reference by file_id, delete after
    3. If 0 fields AND Groq configured → Groq text restructure as last resort
 ────────────────────────────────────────────────────────────────────────────── */
