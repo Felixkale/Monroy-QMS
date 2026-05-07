@@ -83,8 +83,7 @@ const CSS = `
   }
 
   /* ══════════════════════════════════════════
-     PRINT — enable graphics on all devices
-     (mobile Safari, Chrome Android, WebKit)
+     PRINT
   ══════════════════════════════════════════ */
   @media print{
     *{
@@ -104,7 +103,6 @@ const CSS = `
       -webkit-print-color-adjust:exact!important;
       print-color-adjust:exact!important;
     }
-    /* Hide UI chrome when printing the list page itself */
     .cert-top-btns,
     .cert-filters,
     .view-toggle,
@@ -190,6 +188,11 @@ export default function CertificatesPageClient(){
   const [certs,setCerts]=useState([]);
   const [loading,setLoading]=useState(true);
   const [errTxt,setErrTxt]=useState("");
+
+  // ── TRUE COUNTS from DB (bypass 1000-row cap) ──
+  const [dbCounts,setDbCounts]=useState({total:0,pass:0,failRepair:0,expiringSoon:0});
+  const [countsLoading,setCountsLoading]=useState(true);
+
   const [search,setSearch]=useState("");
   const [fResult,setFResult]=useState("ALL");
   const [fInspDate,setFInspDate]=useState("");
@@ -228,7 +231,7 @@ export default function CertificatesPageClient(){
     setSelected(new Set());
     setLinkMsg(`Linked ${ids.length} certificates into folder.`);
     setLinking(false);
-    await loadCerts();
+    await loadAll();
   }
 
   async function unlinkCert(certId){
@@ -246,7 +249,7 @@ export default function CertificatesPageClient(){
           .eq("id",remaining[0].id);
       }
     }
-    await loadCerts();
+    await loadAll();
   }
 
   async function deleteCert(certId,folderId,certNo){
@@ -258,11 +261,33 @@ export default function CertificatesPageClient(){
         await supabase.from("certificates").update({folder_id:null,folder_name:null,folder_position:null}).eq("id",remaining[0].id);
       }
     }
-    await loadCerts();
+    await loadAll();
   }
 
-  useEffect(()=>{loadCerts();},[]);
+  useEffect(()=>{loadAll();},[]);
 
+  // ── Fetch true counts separately (no row cap) ──
+  async function loadCounts(){
+    setCountsLoading(true);
+    const today=new Date().toISOString().split("T")[0];
+    const in30Days=new Date(Date.now()+30*86400000).toISOString().split("T")[0];
+    const [totalRes,passRes,failRepairRes,expRes]=await Promise.all([
+      supabase.from("certificates").select("*",{count:"exact",head:true}),
+      supabase.from("certificates").select("*",{count:"exact",head:true}).eq("result","PASS"),
+      supabase.from("certificates").select("*",{count:"exact",head:true}).in("result",["FAIL","REPAIR_REQUIRED"]),
+      supabase.from("certificates").select("*",{count:"exact",head:true})
+        .gte("expiry_date",today).lte("expiry_date",in30Days),
+    ]);
+    setDbCounts({
+      total:      totalRes.count      ?? 0,
+      pass:       passRes.count       ?? 0,
+      failRepair: failRepairRes.count ?? 0,
+      expiringSoon:expRes.count       ?? 0,
+    });
+    setCountsLoading(false);
+  }
+
+  // ── Fetch rows for display (still limited but needed for table/grouping) ──
   async function loadCerts(){
     setLoading(true);setErrTxt("");
     const{data,error}=await supabase.from("certificates").select(`
@@ -271,7 +296,7 @@ export default function CertificatesPageClient(){
       asset_type,client_name,company,status,folder_id,folder_name,folder_position,extracted_data,
       assets(id,asset_tag,asset_name,asset_type,location,clients(id,company_name)),
       clients(id,company_name)
-    `).order("created_at",{ascending:false});
+    `).order("created_at",{ascending:false}).limit(5000);
     if(error){setCerts([]);setErrTxt(error.message||"Failed to load.");setLoading(false);return;}
     const cleaned=(data||[]).map(r=>{
       const ex=r.extracted_data||{};
@@ -305,6 +330,10 @@ export default function CertificatesPageClient(){
     });
     const oc={};cleaned.forEach(r=>{oc[r.client_name]=true;});
     setOpenClients(oc);setCerts(cleaned);setLoading(false);
+  }
+
+  async function loadAll(){
+    await Promise.all([loadCounts(),loadCerts()]);
   }
 
   const clientOpts=useMemo(()=>[...new Set(certs.map(x=>x.client_name))].sort(),[certs]);
@@ -342,6 +371,15 @@ export default function CertificatesPageClient(){
     {label:"Status",val:fStatus,set:setFStatus,opts:[{v:"ALL",l:"All status"},...statusOpts.map(s=>({v:s,l:s}))],last:true},
   ];
 
+  // ── Stat values: use DB counts when no filter active, else use in-memory filtered ──
+  const statsAreFiltered = hasFilters;
+  const STAT_CARDS=[
+    {label:"Total",         value: statsAreFiltered ? filtered.length                                               : dbCounts.total,        color:T.accent},
+    {label:"Pass",          value: statsAreFiltered ? filtered.filter(c=>c.result==="PASS").length                 : dbCounts.pass,          color:T.green},
+    {label:"Fail / Repair", value: statsAreFiltered ? filtered.filter(c=>["FAIL","REPAIR_REQUIRED"].includes(c.result)).length : dbCounts.failRepair,   color:T.red},
+    {label:"Expiring ≤30d", value: statsAreFiltered ? filtered.filter(c=>c.expiry_bucket==="EXPIRING_SOON").length : dbCounts.expiringSoon,  color:T.amber},
+  ];
+
   return(
     <AppLayout title="Certificates Register">
       <style>{CSS}</style>
@@ -362,7 +400,7 @@ export default function CertificatesPageClient(){
                 </div>
                 <h1 style={{margin:0,fontSize:"clamp(16px,3vw,26px)",fontWeight:900,letterSpacing:"-0.02em"}}>Certificates Register</h1>
                 <p style={{margin:"5px 0 0",color:T.textDim,fontSize:12}}>
-                  {filtered.length} of {certs.length} records · grouped by client, equipment type, asset
+                  {filtered.length} of {dbCounts.total} records · grouped by client, equipment type, asset
                 </p>
               </div>
               <div className="cert-top-btns">
@@ -372,17 +410,14 @@ export default function CertificatesPageClient(){
               </div>
             </div>
 
-            {/* Stats */}
+            {/* Stats — sourced from DB counts, not capped array */}
             <div className="cert-stats">
-              {[
-                {label:"Total",        value:certs.length,                                                              color:T.accent},
-                {label:"Pass",         value:certs.filter(c=>c.result==="PASS").length,                                 color:T.green},
-                {label:"Fail / Repair",value:certs.filter(c=>["FAIL","REPAIR_REQUIRED"].includes(c.result)).length,     color:T.red},
-                {label:"Expiring ≤30d",value:certs.filter(c=>c.expiry_bucket==="EXPIRING_SOON").length,                 color:T.amber},
-              ].map(({label,value,color})=>(
+              {STAT_CARDS.map(({label,value,color})=>(
                 <div key={label} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px"}}>
                   <div style={{fontSize:9,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:T.textDim,marginBottom:4}}>{label}</div>
-                  <div style={{fontSize:"clamp(18px,4vw,22px)",fontWeight:900,color,lineHeight:1}}>{loading?"…":value}</div>
+                  <div style={{fontSize:"clamp(18px,4vw,22px)",fontWeight:900,color,lineHeight:1,fontFamily:"'IBM Plex Mono',monospace"}}>
+                    {countsLoading&&!statsAreFiltered?"…":value}
+                  </div>
                 </div>
               ))}
             </div>
@@ -694,7 +729,6 @@ function CertMobCard({cert,onUnlink,onDelete,onSelect,selected,selectMode}){
   const isSelected=selected?.has(cert.id);
   return(
     <div style={{padding:"14px",borderBottom:`1px solid ${T.border}`,display:"grid",gap:10}}>
-      {/* Top row: cert no + badges */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,flexWrap:"wrap"}}>
         <span style={{color:T.accent,fontWeight:800,fontFamily:"'IBM Plex Mono',monospace",fontSize:13,wordBreak:"break-all"}}>
           {cert.certificate_number||"—"}
@@ -708,21 +742,18 @@ function CertMobCard({cert,onUnlink,onDelete,onSelect,selected,selectMode}){
           )}
         </div>
       </div>
-      {/* Equipment info */}
       <div style={{fontSize:13,color:T.textMid,fontWeight:600}}>
         {cert.equipment_description}
         {cert.equipment_type&&cert.equipment_type!=="UNCATEGORIZED"&&(
           <span style={{fontSize:11,color:T.textDim,fontWeight:400}}> · {cert.equipment_type}</span>
         )}
       </div>
-      {/* Meta row */}
       <div style={{fontSize:11,color:T.textDim,display:"grid",gridTemplateColumns:"1fr 1fr",gap:"3px 12px"}}>
         {cert.client_name!=="UNASSIGNED"&&<span>👤 {cert.client_name}</span>}
         <span>📅 {formatDate(cert.inspection_date||cert.issue_date)}</span>
         <span>⏰ Exp: {formatDate(cert.expiry_date)}</span>
         <span style={{textTransform:"capitalize"}}>● {nz(cert.status,"active")}</span>
       </div>
-      {/* Actions */}
       <ActBtns encodedId={encodedId} certId={cert.id} certNo={cert.certificate_number}
         folderId={cert.folder_id} folderName={cert.folder_name} allCerts={[]}
         onUnlink={onUnlink} onDelete={onDelete} onSelect={onSelect}
