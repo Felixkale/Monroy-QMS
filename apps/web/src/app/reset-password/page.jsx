@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createBrowserClient } from "@supabase/ssr";
 
 const T = {
   bg:"#060d1a",
@@ -17,6 +18,13 @@ const T = {
   greenBrd:"rgba(52,211,153,0.30)",
 };
 
+function getSupabase() {
+  return createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+}
+
 function strength(pw) {
   let s = 0;
   if (pw.length >= 8) s++;
@@ -31,40 +39,17 @@ function StrengthBar({ pw }) {
   const s = strength(pw);
   const labels = ["", "Weak", "Fair", "Good", "Strong", "Very strong"];
   const colors = ["", "#f87171", "#fbbf24", "#fbbf24", "#34d399", "#22d3ee"];
-
   if (!pw) return null;
-
   return (
     <div style={{ marginTop: 8 }}>
       <div style={{ display: "flex", gap: 4, marginBottom: 5 }}>
         {[1, 2, 3, 4, 5].map((i) => (
-          <div
-            key={i}
-            style={{
-              flex: 1,
-              height: 3,
-              borderRadius: 99,
-              background: i <= s ? colors[s] : "rgba(148,163,184,0.15)",
-              transition: "background .3s",
-            }}
-          />
+          <div key={i} style={{ flex:1, height:3, borderRadius:99, background: i<=s ? colors[s] : "rgba(148,163,184,0.15)", transition:"background .3s" }}/>
         ))}
       </div>
-      <div style={{ fontSize: 11, color: colors[s], fontWeight: 600 }}>
-        {labels[s]}
-      </div>
+      <div style={{ fontSize:11, color:colors[s], fontWeight:600 }}>{labels[s]}</div>
     </div>
   );
-}
-
-function humanizeError(code) {
-  const map = {
-    missing_token: "The invite link is incomplete.",
-    invalid_or_expired_link: "This invite link is invalid, expired, or has already been used.",
-    server_error: "Something went wrong while verifying your invite.",
-  };
-
-  return map[code] || "This invite link is invalid, expired, or has already been used.";
 }
 
 export default function ResetPasswordPage() {
@@ -82,32 +67,72 @@ export default function ResetPasswordPage() {
 
     async function init() {
       try {
-        const params = new URLSearchParams(window.location.search);
-        const code = params.get("error");
+        const supabase = getSupabase();
 
-        if (code) {
+        // ── Step 1: check for error params in query string ──
+        const searchParams = new URLSearchParams(window.location.search);
+        const qError = searchParams.get("error");
+        const qErrorDesc = searchParams.get("error_description");
+        if (qError) {
           if (!mounted) return;
-          setError(humanizeError(code));
+          setError(qErrorDesc || "This invite link is invalid or has expired.");
           setChecking(false);
           return;
         }
 
-        const res = await fetch("/api/auth/session", {
-          method: "GET",
-          cache: "no-store",
-        });
+        // ── Step 2: parse the hash fragment for Supabase tokens ──
+        // Supabase invite links deliver tokens in the URL hash:
+        // /reset-password#access_token=xxx&refresh_token=yyy&type=invite
+        const hash = window.location.hash.substring(1); // strip leading #
+        const hashParams = new URLSearchParams(hash);
+        const accessToken = hashParams.get("access_token");
+        const refreshToken = hashParams.get("refresh_token");
+        const tokenType = hashParams.get("type"); // "invite" or "recovery"
 
-        const json = await res.json().catch(() => ({}));
+        if (accessToken && refreshToken) {
+          // Exchange the tokens to establish a real session in cookies
+          const { data, error: sessErr } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+
+          if (!mounted) return;
+
+          if (sessErr || !data?.user) {
+            setError("This invite link has expired or already been used.");
+            setChecking(false);
+            return;
+          }
+
+          // Clear the tokens from the URL bar (security hygiene)
+          window.history.replaceState({}, "", window.location.pathname);
+
+          setSession({
+            id: data.user.id,
+            email: data.user.email || "",
+            full_name: data.user.user_metadata?.full_name || "",
+          });
+          setChecking(false);
+          return;
+        }
+
+        // ── Step 3: no hash tokens — check if there's already a live session ──
+        // This covers the PKCE flow where /auth/confirm already exchanged the code
+        const { data: { user }, error: userErr } = await supabase.auth.getUser();
 
         if (!mounted) return;
 
-        if (!res.ok || !json?.authenticated) {
+        if (userErr || !user) {
           setError("This invite link is invalid, expired, or has already been used.");
           setChecking(false);
           return;
         }
 
-        setSession(json.user || null);
+        setSession({
+          id: user.id,
+          email: user.email || "",
+          full_name: user.user_metadata?.full_name || "",
+        });
         setChecking(false);
       } catch {
         if (!mounted) return;
@@ -117,10 +142,7 @@ export default function ResetPasswordPage() {
     }
 
     init();
-
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
   async function handleSetPassword(e) {
@@ -130,7 +152,6 @@ export default function ResetPasswordPage() {
       setError("Password is too weak. Use at least 8 characters.");
       return;
     }
-
     if (password !== confirm) {
       setError("Passwords do not match.");
       return;
@@ -140,26 +161,19 @@ export default function ResetPasswordPage() {
     setError("");
 
     try {
-      const res = await fetch("/api/auth/update-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
+      // Use Supabase client directly — session is already set in cookies from init()
+      const supabase = getSupabase();
+      const { error: updateErr } = await supabase.auth.updateUser({ password });
 
-      const json = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        setError(json?.error || "Failed to update password.");
+      if (updateErr) {
+        setError(updateErr.message || "Failed to update password.");
         setLoading(false);
         return;
       }
 
       setDone(true);
       setLoading(false);
-
-      setTimeout(() => {
-        window.location.href = "/dashboard";
-      }, 1200);
+      setTimeout(() => { window.location.href = "/dashboard"; }, 1200);
     } catch {
       setError("Failed to update password.");
       setLoading(false);
@@ -182,28 +196,22 @@ export default function ResetPasswordPage() {
       <div style={{ width:"100%", maxWidth:420 }}>
         <div style={{ textAlign:"center", marginBottom:24 }}>
           <div style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", width:56, height:56, borderRadius:16, background:"rgba(34,211,238,0.10)", border:"1px solid rgba(34,211,238,0.25)", marginBottom:14 }}>
-            <img
-              src="/logo.png"
-              alt="Monroy"
-              style={{ width:38, height:38, objectFit:"contain" }}
-              onError={(e) => {
-                e.currentTarget.style.display = "none";
-              }}
-            />
+            <img src="/logo.png" alt="Monroy" style={{ width:38, height:38, objectFit:"contain" }} onError={e=>{ e.currentTarget.style.display="none"; }}/>
           </div>
-          <div style={{ fontSize:13, fontWeight:700, color:T.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>
-            Monroy QMS
-          </div>
+          <div style={{ fontSize:13, fontWeight:700, color:T.textDim, letterSpacing:"0.08em", textTransform:"uppercase" }}>Monroy QMS</div>
         </div>
 
         <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:20, padding:"28px 26px", backdropFilter:"blur(24px)", boxShadow:"0 24px 64px rgba(0,0,0,0.5)" }}>
+
+          {/* CHECKING */}
           {checking && (
             <div style={{ textAlign:"center", padding:"24px 0" }}>
-              <div style={{ width:24, height:24, border:"2px solid rgba(34,211,238,0.2)", borderTopColor:T.accent, borderRadius:"50%", animation:"spin .8s linear infinite", margin:"0 auto 12px" }} />
+              <div style={{ width:24, height:24, border:"2px solid rgba(34,211,238,0.2)", borderTopColor:T.accent, borderRadius:"50%", animation:"spin .8s linear infinite", margin:"0 auto 12px" }}/>
               <div style={{ fontSize:13, color:T.textDim }}>Verifying your link…</div>
             </div>
           )}
 
+          {/* SUCCESS */}
           {!checking && done && (
             <div style={{ textAlign:"center", padding:"8px 0" }}>
               <div style={{ fontSize:40, marginBottom:14 }}>✅</div>
@@ -212,15 +220,14 @@ export default function ResetPasswordPage() {
             </div>
           )}
 
+          {/* FORM */}
           {!checking && !done && session && (
             <>
               <div style={{ textAlign:"center", marginBottom:22 }}>
                 <div style={{ fontSize:22, marginBottom:8 }}>🎉</div>
-                <div style={{ fontSize:20, fontWeight:900, color:T.text, marginBottom:6 }}>
-                  Welcome to Monroy QMS
-                </div>
+                <div style={{ fontSize:20, fontWeight:900, color:T.text, marginBottom:6 }}>Welcome to Monroy QMS</div>
                 <div style={{ fontSize:13, color:T.textDim, lineHeight:1.6 }}>
-                  Hello {session?.full_name || session?.email}! Create your password to activate your account.
+                  Hello {session.full_name || session.email}! Create your password to activate your account.
                 </div>
               </div>
 
@@ -236,28 +243,13 @@ export default function ResetPasswordPage() {
                     Create password
                   </label>
                   <div className="pw-wrap">
-                    <input
-                      className="ri"
-                      type={showPw ? "text" : "password"}
-                      placeholder="Min. 8 characters"
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                        setError("");
-                      }}
-                      required
-                      autoFocus
-                    />
-                    <button
-                      className="pw-toggle"
-                      type="button"
-                      onClick={() => setShowPw((p) => !p)}
-                      tabIndex={-1}
-                    >
+                    <input className="ri" type={showPw ? "text" : "password"} placeholder="Min. 8 characters"
+                      value={password} onChange={e=>{ setPassword(e.target.value); setError(""); }} required autoFocus/>
+                    <button className="pw-toggle" type="button" onClick={()=>setShowPw(p=>!p)} tabIndex={-1}>
                       {showPw ? "🙈" : "👁"}
                     </button>
                   </div>
-                  <StrengthBar pw={password} />
+                  <StrengthBar pw={password}/>
                 </div>
 
                 <div>
@@ -265,78 +257,43 @@ export default function ResetPasswordPage() {
                     Confirm password
                   </label>
                   <div className="pw-wrap">
-                    <input
-                      className="ri"
-                      type={showPw ? "text" : "password"}
-                      placeholder="Repeat password"
-                      value={confirm}
-                      onChange={(e) => {
-                        setConfirm(e.target.value);
-                        setError("");
-                      }}
-                      required
-                    />
+                    <input className="ri" type={showPw ? "text" : "password"} placeholder="Repeat password"
+                      value={confirm} onChange={e=>{ setConfirm(e.target.value); setError(""); }} required/>
                   </div>
-
                   {confirm && password && confirm !== password && (
                     <div style={{ fontSize:11, color:T.red, marginTop:5, fontWeight:600 }}>⚠ Passwords do not match</div>
                   )}
-
                   {confirm && password && confirm === password && (
                     <div style={{ fontSize:11, color:T.green, marginTop:5, fontWeight:600 }}>✓ Passwords match</div>
                   )}
                 </div>
 
-                <button
-                  type="submit"
+                <button type="submit"
                   disabled={loading || password !== confirm || !password || strength(password) < 2}
-                  style={{
-                    padding:"13px",
-                    borderRadius:10,
-                    border:"none",
-                    background:"linear-gradient(135deg,#22d3ee,#0891b2)",
-                    color:"#052e16",
-                    fontWeight:900,
-                    fontSize:14,
-                    cursor:"pointer",
-                    fontFamily:"inherit",
-                    display:"flex",
-                    alignItems:"center",
-                    justifyContent:"center",
-                    gap:8,
-                    opacity: loading || !password || password !== confirm || strength(password) < 2 ? 0.5 : 1,
-                  }}
-                >
-                  {loading ? (
-                    <span
-                      style={{
-                        display:"inline-block",
-                        width:16,
-                        height:16,
-                        border:"2px solid rgba(5,46,22,0.3)",
-                        borderTopColor:"#052e16",
-                        borderRadius:"50%",
-                        animation:"spin .6s linear infinite",
-                      }}
-                    />
-                  ) : null}
+                  style={{ padding:"13px", borderRadius:10, border:"none", background:"linear-gradient(135deg,#22d3ee,#0891b2)", color:"#052e16", fontWeight:900, fontSize:14, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity: loading || !password || password !== confirm || strength(password) < 2 ? 0.5 : 1 }}>
+                  {loading && (
+                    <span style={{ display:"inline-block", width:16, height:16, border:"2px solid rgba(5,46,22,0.3)", borderTopColor:"#052e16", borderRadius:"50%", animation:"spin .6s linear infinite" }}/>
+                  )}
                   {loading ? "Saving…" : "Activate My Account →"}
                 </button>
               </form>
             </>
           )}
 
+          {/* INVALID LINK */}
           {!checking && !done && !session && (
             <div style={{ textAlign:"center", padding:"8px 0" }}>
               <div style={{ fontSize:40, marginBottom:14 }}>⚠</div>
-              <div style={{ fontSize:16, fontWeight:900, color:T.red, marginBottom:8 }}>
-                Link invalid
-              </div>
+              <div style={{ fontSize:16, fontWeight:900, color:T.red, marginBottom:8 }}>Link invalid</div>
               <div style={{ fontSize:13, color:T.textDim, lineHeight:1.7 }}>
                 {error || "This invite link is invalid, expired, or has already been used."}
               </div>
+              <a href="/login" style={{ display:"inline-block", marginTop:18, padding:"10px 20px", borderRadius:10, background:"rgba(34,211,238,0.10)", border:"1px solid rgba(34,211,238,0.25)", color:T.accent, fontSize:13, fontWeight:700, textDecoration:"none" }}>
+                Go to Login →
+              </a>
             </div>
           )}
+
         </div>
       </div>
     </div>
