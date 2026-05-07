@@ -1,7 +1,4 @@
 // src/app/auth/confirm/route.js
-// Handles the PKCE flow — Supabase newer invite emails send a ?code= param
-// instead of a hash fragment. This route exchanges it for a session then
-// redirects the user to /reset-password.
 
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
@@ -11,14 +8,11 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request) {
   const { searchParams, origin } = new URL(request.url);
-  const code = searchParams.get("code");
-  const next = searchParams.get("next") || "/reset-password";
 
-  if (!code) {
-    // No code — redirect to reset-password and let the client-side
-    // hash token handler take over (legacy invite URL format)
-    return NextResponse.redirect(`${origin}/reset-password`);
-  }
+  const token_hash = searchParams.get("token_hash");
+  const code       = searchParams.get("code");
+  const type       = searchParams.get("type") || "invite";
+  const next       = searchParams.get("next") || "/reset-password";
 
   const cookieStore = await cookies();
 
@@ -27,8 +21,8 @@ export async function GET(request) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     {
       cookies: {
-        getAll() { return cookieStore.getAll(); },
-        setAll(cookiesToSet) {
+        getAll()                { return cookieStore.getAll(); },
+        setAll(cookiesToSet)    {
           cookiesToSet.forEach(({ name, value, options }) => {
             cookieStore.set(name, value, options);
           });
@@ -37,15 +31,39 @@ export async function GET(request) {
     }
   );
 
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  // ── Flow 1: token_hash (email template uses this) ──
+  if (token_hash) {
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash,
+      type, // "invite" | "recovery" | "email"
+    });
 
-  if (error) {
-    console.error("[auth/confirm] exchangeCodeForSession error:", error.message);
-    return NextResponse.redirect(
-      `${origin}/reset-password?error=invalid_or_expired_link&error_description=${encodeURIComponent(error.message)}`
-    );
+    if (error) {
+      console.error("[auth/confirm] verifyOtp error:", error.message);
+      return NextResponse.redirect(
+        `${origin}/reset-password?error=invalid_or_expired_link&error_description=${encodeURIComponent(error.message)}`
+      );
+    }
+
+    return NextResponse.redirect(`${origin}${next}`);
   }
 
-  // Session is now set in cookies — redirect to the password creation page
-  return NextResponse.redirect(`${origin}${next}`);
+  // ── Flow 2: code (PKCE flow, newer Supabase versions) ──
+  if (code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (error) {
+      console.error("[auth/confirm] exchangeCodeForSession error:", error.message);
+      return NextResponse.redirect(
+        `${origin}/reset-password?error=invalid_or_expired_link&error_description=${encodeURIComponent(error.message)}`
+      );
+    }
+
+    return NextResponse.redirect(`${origin}${next}`);
+  }
+
+  // ── No token at all ──
+  return NextResponse.redirect(
+    `${origin}/reset-password?error=missing_token&error_description=No+token+found+in+link`
+  );
 }
