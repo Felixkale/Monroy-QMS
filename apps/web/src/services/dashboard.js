@@ -1,101 +1,74 @@
+// src/services/dashboard.js  —  Monroy QMS
 import { supabase } from "@/lib/supabaseClient";
 
 export async function getDashboardStats() {
-
   if (!supabase) return getEmptyStats();
-
   try {
-
-    const [
-      clientsRes,
-      equipmentRes,
-      inspectionsRes,
-      ncrsRes,
-      certificatesRes
-    ] = await Promise.all([
-      supabase.from("clients").select("status"),
-      supabase.from("assets").select("status"),
-      supabase.from("inspections").select("status, created_at"),
-      supabase.from("ncrs").select("status"),
-      supabase.from("certificates").select("status, valid_to")
-    ]);
-
-    const clients = clientsRes.data || [];
-    const equipment = equipmentRes.data || [];
-    const inspections = inspectionsRes.data || [];
-    const ncrs = ncrsRes.data || [];
-    const certData = certificatesRes.data || [];
-
     const today = new Date();
-    today.setHours(0,0,0,0);
-
+    today.setHours(0, 0, 0, 0);
     const in30Days = new Date(today);
     in30Days.setDate(today.getDate() + 30);
+    const todayStr    = today.toISOString().split("T")[0];
+    const in30DaysStr = in30Days.toISOString().split("T")[0];
 
-    const expiringSoon = certData.filter(c => {
+    const [
+      totalClientsRes,
+      activeClientsRes,
+      totalEquipmentRes,
+      activeEquipmentRes,
+      totalCertificatesRes,
+      expiringSoonRes,
+      openNcrsRes,
+      totalNcrsRes,
+    ] = await Promise.all([
+      // Clients
+      supabase.from("clients").select("*", { count: "exact", head: true }),
+      supabase.from("clients").select("*", { count: "exact", head: true }).eq("status", "active"),
 
-      if (!c.valid_to) return false;
+      // Equipment
+      supabase.from("equipment").select("*", { count: "exact", head: true }),
+      supabase.from("equipment").select("*", { count: "exact", head: true }).eq("status", "active"),
 
-      const exp = new Date(c.valid_to);
-      exp.setHours(0,0,0,0);
+      // Certificates — exact count bypasses the 1000-row Supabase cap
+      supabase.from("certificates").select("*", { count: "exact", head: true }),
 
-      return exp >= today && exp <= in30Days;
+      // Expiring within 30 days and not yet expired
+      supabase
+        .from("certificates")
+        .select("*", { count: "exact", head: true })
+        .gte("expiry_date", todayStr)
+        .lte("expiry_date", in30DaysStr),
 
-    }).length;
-
-    const recentInspections = [...inspections]
-      .sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))
-      .slice(0,5);
+      // NCRs
+      supabase.from("ncrs").select("*", { count: "exact", head: true }).neq("status", "closed"),
+      supabase.from("ncrs").select("*", { count: "exact", head: true }),
+    ]);
 
     return {
-
-      totalClients: clients.length,
-      activeClients: clients.filter(c=>c.status==="active").length,
-
-      totalEquipment: equipment.length,
-      activeEquipment: equipment.filter(e=>e.status==="active").length,
-
-      activeInspections: inspections.filter(i=>i.status==="in_progress").length,
-      totalInspections: inspections.length,
-
-      openNcrs: ncrs.filter(n=>n.status==="open").length,
-      totalNcrs: ncrs.length,
-
-      totalCertificates: certData.length,
-      expiringSoon,
-
-      recentInspections
+      totalClients:      totalClientsRes.count      ?? 0,
+      activeClients:     activeClientsRes.count     ?? 0,
+      totalEquipment:    totalEquipmentRes.count    ?? 0,
+      activeEquipment:   activeEquipmentRes.count   ?? 0,
+      totalCertificates: totalCertificatesRes.count ?? 0,
+      expiringSoon:      expiringSoonRes.count       ?? 0,
+      openNcrs:          openNcrsRes.count           ?? 0,
+      totalNcrs:         totalNcrsRes.count          ?? 0,
     };
-
-  } catch(error) {
-
+  } catch (error) {
     console.error("Dashboard stats error:", error);
     return getEmptyStats();
-
   }
-
 }
 
-function getEmptyStats(){
-
+function getEmptyStats() {
   return {
-
-    totalClients:0,
-    activeClients:0,
-
-    totalEquipment:0,
-    activeEquipment:0,
-
-    activeInspections:0,
-    totalInspections:0,
-
-    openNcrs:0,
-    totalNcrs:0,
-
-    totalCertificates:0,
-    expiringSoon:0,
-
-    recentInspections:[]
+    totalClients: 0,
+    activeClients: 0,
+    totalEquipment: 0,
+    activeEquipment: 0,
+    totalCertificates: 0,
+    expiringSoon: 0,
+    openNcrs: 0,
+    totalNcrs: 0,
   };
-
 }
