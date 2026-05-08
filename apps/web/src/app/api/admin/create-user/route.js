@@ -1,3 +1,4 @@
+// src/app/api/admin/create-user/route.js
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -9,65 +10,43 @@ const SITE_URL = "https://monroy-qms.co.bw";
 function adminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !key) {
-    throw new Error("SUPABASE_SERVICE_ROLE_KEY not set in environment variables.");
-  }
-
-  return createClient(url, key, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
+  if (!url || !key) throw new Error("SUPABASE_SERVICE_ROLE_KEY not set.");
+  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
 export async function POST(request) {
   try {
     const body = await request.json().catch(() => null);
-
     const email = String(body?.email || "").trim().toLowerCase();
     const full_name = String(body?.full_name || "").trim();
     const role = String(body?.role || "").trim();
 
     if (!email || !full_name) {
-      return NextResponse.json(
-        { error: "Email and full name are required." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Email and full name are required." }, { status: 400 });
     }
 
     const validRoles = ["admin", "inspector", "viewer"];
     const userRole = validRoles.includes(role) ? role : "inspector";
-
     const admin = adminClient();
 
-    const { data: authData, error: authErr } = await admin.auth.admin.inviteUserByEmail(
-      email,
-      {
-        data: { full_name, role: userRole },
-        redirectTo: `${SITE_URL}/reset-password`,
-      }
-    );
+    const { data: authData, error: authErr } = await admin.auth.admin.inviteUserByEmail(email, {
+      data: { full_name, role: userRole },
+      // ✅ Must point to /auth/confirm — Supabase exchanges the token here first,
+      // then redirects to /reset-password via the ?next= param
+      redirectTo: `${SITE_URL}/auth/confirm?next=/reset-password`,
+    });
 
     if (authErr) {
       if (authErr.message?.toLowerCase().includes("already")) {
         return NextResponse.json(
-          {
-            error: `${email} already has an account or pending invite. Use "Resend Email" instead.`,
-          },
+          { error: `${email} already has an account or pending invite. Use "Resend Email" instead.` },
           { status: 409 }
         );
       }
-
-      return NextResponse.json(
-        { error: `Auth error: ${authErr.message}` },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: `Auth error: ${authErr.message}` }, { status: 400 });
     }
 
     const userId = authData?.user?.id;
-
     if (!userId) {
       return NextResponse.json(
         { error: "Invite sent but no user ID returned from Supabase." },
@@ -87,19 +66,11 @@ export async function POST(request) {
       const { error: directErr } = await admin
         .from("users")
         .upsert(
-          {
-            id: userId,
-            email,
-            full_name,
-            role: userRole,
-            status: "active",
-          },
+          { id: userId, email, full_name, role: userRole, status: "active" },
           { onConflict: "id", ignoreDuplicates: false }
         );
-
       if (directErr) {
         console.error("users upsert failed:", directErr.message);
-
         return NextResponse.json({
           success: true,
           warning: `Invitation sent but profile pre-registration failed: ${directErr.message}. The user's profile will be created automatically when they confirm their email.`,
@@ -115,10 +86,6 @@ export async function POST(request) {
     });
   } catch (err) {
     console.error("create-user error:", err);
-
-    return NextResponse.json(
-      { error: err?.message || "Unexpected server error." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err?.message || "Unexpected server error." }, { status: 500 });
   }
 }
