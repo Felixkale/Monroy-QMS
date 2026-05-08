@@ -1,13 +1,19 @@
 // src/app/api/auth/confirm/route.js
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request) {
-  // Use server-only env var — not NEXT_PUBLIC_ which is baked at build time
-  const SITE_URL = process.env.SITE_URL || "https://monroy-qms.co.bw";
+  // Get the real public domain from the forwarded host header
+  // Render proxies requests so request.url shows localhost:10000
+  const headersList = await headers();
+  const forwardedHost = headersList.get("x-forwarded-host");
+  const forwardedProto = headersList.get("x-forwarded-proto") || "https";
+  const SITE_URL = forwardedHost
+    ? `${forwardedProto}://${forwardedHost}`
+    : "https://monroy-qms.co.bw";
 
   const { searchParams } = new URL(request.url);
   const token_hash = searchParams.get("token_hash");
