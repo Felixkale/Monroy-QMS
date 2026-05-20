@@ -1415,7 +1415,7 @@ function WireRopeSlingPage({c,pn,tone,pm,logo}){
   const slingType=val(sd.type)||val(ex.type)||val(c.equipment_type)||"Wire Rope Sling";
   const diameter=val(sd.diameter_mm)||val(sd.diameter)||pn["Diameter"]||val(ex.diameter_mm)||val(c.capacity_volume)||"";
   const length=val(sd.length_m)||val(sd.length)||pn["Length"]||val(ex.length_m)||"";
-  const numLegs=val(sd.num_legs)||val(sd.no_of_legs)||val(sd.number_of_legs)||pn["Legs"]||val(ex.num_legs)||"";
+  const numLegs=val(sd.num_legs)||val(sd.number_of_legs)||pn["Legs"]||val(ex.num_legs)||"";
   const construction=val(sd.construction)||pn["Construction"]||val(ex.construction)||"";
   const core=val(sd.core_type)||val(sd.core)||pn["Core"]||val(ex.core_type)||"";
   const slingSWL=val(sd.swl)||swl||"";
@@ -2012,7 +2012,7 @@ export default function CertificateSheet({certificate:c,index=0,total=1,printMod
   const _isMobileCrane=/mobile.crane|crane/i.test(_rawType)&&!/hook|rope|boom|cherry|telehandler|forklift/i.test(_rawType);
   const _isHook=/hook/i.test(_rawType);
   const _isCraneRope=_rawType==="wire rope";
-  const numLegs=val(sd.num_legs)||val(sd.number_of_legs)||pn["Legs"]||val(ex.num_legs)||"";
+  const _isWireRopeSling=/wire.rope.sling/i.test(_rawType);
   const _isPV=/pressure.vessel|air.receiver|boiler|autoclave/i.test(_rawType);
   const _isTelehandler=/telehandler/i.test(_rawType);
   const _isCherryPicker=/cherry.picker|aerial.work.platform|boom.lift/i.test(_rawType);
