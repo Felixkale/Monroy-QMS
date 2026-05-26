@@ -564,12 +564,20 @@ export default function MachineInspectionPage() {
     const expiryDate = addMonths(iDate, machineType.expiry);
     const certs      = [];
 
-    const { count } = await supabase.from("certificates").select("*", { count: "exact", head: true });
-    let seq = (count || 0) + 1;
-    const pad    = n => String(n).padStart(5, "0");
-    const prefix = machineType.id.slice(0, 2).toUpperCase();
-    const nextNo = () => `CERT-${prefix}${pad(seq++)}`;
-    const swl    = insp.swl || "";
+    // ── SEQUENCE FIX: use DB sequence via RPC — no race conditions ever ──
+    // Estimate max certs this batch could produce (generous upper bound)
+    const maxBatchSize = 20;
+    const { data: seqNums, error: seqErr } = await supabase.rpc("generate_cert_numbers", { count: maxBatchSize });
+    if (seqErr || !seqNums?.length) {
+      setError("Failed to generate certificate numbers: " + (seqErr?.message || "No sequence data"));
+      setSaving(false);
+      return;
+    }
+    let seqIndex = 0;
+    const nextNo = () => seqNums[seqIndex++];
+    // ─────────────────────────────────────────────────────────────────────
+
+    const swl = insp.swl || "";
 
     // ── SERVICE TRUCK / MIXER / BOWSER ─────────────────────────────────────
     if (machineType.isServiceTruck || machineType.isMixerTruck) {
